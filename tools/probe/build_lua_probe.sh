@@ -26,7 +26,9 @@ for o in "${objs[@]}" "$B/amiga/obj/hello.o"; do [ -f "$o" ] || fail=1; done
 echo "compile: failures=$fail warning-lines=$(grep -c -i 'warning' "$LOG") log=$LOG"
 [ $fail = 0 ] || exit 1
 LD="vlink -bamigahunk -x -Bstatic -Cvbcc -nostdlib -mrel $VBCC_PREFIX/targets/m68k-amigaos/lib/startup.o"
-LIBS="-L$VBCC_PREFIX/targets/m68k-amigaos/lib -lvc ${MATHLIB:--lmieee}"
+# the math library comes BEFORE vc: it carries the float-capable printf/strtod (after -lvc,
+# vc.lib's integer-only versions win: tonumber("3.5") is nil, "%.2f" prints literally)
+LIBS="-L$VBCC_PREFIX/targets/m68k-amigaos/lib ${MATHLIB:--lmieee} -lvc"
 $LD "${objs[@]}" $LIBS -o "$B/amiga/luaprobe" >> "$LOG" 2>&1 || { echo "LINK FAIL luaprobe"; tail -5 "$LOG"; exit 1; }
 $LD "$B/amiga/obj/hello.o" -L$VBCC_PREFIX/targets/m68k-amigaos/lib -lvc -o "$B/amiga/hello" >> "$LOG" 2>&1 || { echo "LINK FAIL hello"; exit 1; }
 ls -l "$B/amiga/luaprobe" "$B/amiga/hello" | awk '{print $5, $9}'
