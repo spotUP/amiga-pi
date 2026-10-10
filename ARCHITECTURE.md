@@ -15,6 +15,7 @@ Plan: `~/Code/vtcon/thoughts/shared/plans/2026-10-07-amiga-pi.md` (phase A). Res
 | D7 | Providers: Anthropic, OpenAI-compatible (phase B), then Google, Azure, Bedrock (SigV4 and API keys); subscription logins last, gated on probe O1 (still open). | plan, round 2 |
 | D8 | B5 stays: C:Claude's `http.c` head and `stream.c` decoder move onto the shared backend, gated by goldens. | owner, round 2 item 3 |
 | D9 | `llm/` lives in vtcon, next to `claude/` (`~/Code/vtcon/llm/`). C:Claude links it from its own tree, so its build stays inside one repo and B5 is a single-repo change gated by vtcon's request goldens; amiga-pi compiles it in place from `$(VTCON_DIR)` like the rest of the shared core. | owner 2026-10-10 (option a) |
+| D10 | Growing and bulky data (sessions, skills, prompts, themes, extensions) in `UP-Term:var/amiga-pi/`, small config in `ENVARC:amiga-pi/` (Directories below). | coordinator review 2026-10-10 |
 
 ## Layers and headers
 
@@ -51,7 +52,9 @@ Owner rule (2026-10-07): `http://` is accepted only for a LAN host: an address i
 
 ## Directories
 
-- Agent dir `ENVARC:amiga-pi/` (pi: `~/.pi/agent/`): `settings.json`, `models.json`, `auth.json`, `keybindings.json`, `sessions/--<cwd slug>--/<timestamp>_<id>.jsonl`, `skills/`, `prompts/`, `themes/`, `extensions/`, `SYSTEM.md`, `APPEND_SYSTEM.md`, `AGENTS.md`.
+- Config dir `ENVARC:amiga-pi/` (pi: `~/.pi/agent/`), small files only: `settings.json`, `models.json`, `auth.json`, `keybindings.json`, `SYSTEM.md`, `APPEND_SYSTEM.md`, `AGENTS.md` (as C:Claude's `ENVARC:Claude/`: key, remote, settings.json, CLAUDE.md).
+- Data dir `UP-Term:var/amiga-pi/` (decision D10): `sessions/--<cwd slug>--/<timestamp>_<id>.jsonl`, `skills/`, `prompts/`, `themes/`, `extensions/`. The `UP-Term:` assign is probed without a requester (`cl_sys.quiet_kind`); without it (no kit, or before the assign exists), or when `UP-Term:var/amiga-pi` cannot be made, the data dir is `ENVARC:amiga-pi/` and nothing moves. `PI_CODING_AGENT_DIR` keeps everything in that directory. The rule and the path live in one place, vtcon `claude/datadir.c` (`dd_dir`), shared with C:Claude, whose growing files (`projects/`, `agent-memory/`, `skills/`, `session.json`, `history`) moved the same way to `UP-Term:var/Claude/` with a move-on-first-run migration.
+- Why (checked 2026-10-10): Workbench 3.1's `S:Startup-Sequence` (rig 2, lines 11-17) runs `Copy ENVARC: RAM:ENV ALL` at every boot and assigns `ENV:` there, so every session file under `ENVARC:` would be loaded into RAM on each boot. 3.2's (`S/Startup-sequence` line 21 of the rig's 3.2 tree) links `RAM:ENV` to `ENVARC:` instead (`MakeLink ... Force`), which costs no RAM but makes `ENV:` writes persistent. `UP-Term:` is the kit's own drawer (the Installer's `Assign UP-Term:` in `S:User-Startup`) and already holds `bin/`, `share/`, `etc/`; `var/` follows that Unix layout, so no new assign. Known cost: the kit's Uninstall deletes `UP-Term:` with everything in it, sessions included.
 - Project dir `<root>/.pi/` (pi's name kept so a project works with pi on a Mac): same resource folders, trust-gated (phase G).
 - Temp: `T:amiga-pi-<id>.txt` for truncated tool output.
 
