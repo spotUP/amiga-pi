@@ -1,12 +1,13 @@
-# amiga-pi. C:Claude's core is read IN PLACE from VTCON_DIR (never copied).
-VTCON_DIR ?= $(HOME)/Code/vtcon
+# amiga-pi. C:Claude's core and llm/ are read IN PLACE from VTCON_DIR (never copied; D2, D9).
+UPTERM_ROOT ?= $(abspath ..)
+VTCON_DIR ?= $(UPTERM_ROOT)/vtcon
 
 .PHONY: test layers lua-probe lua-probe-host
 test: layers
 
+# the layering rule lives in vtcon (llm/ is there, D9) and checks this tree too
 layers:
-	python3 tools/test_check_layers.py
-	python3 tools/check_layers.py --vtcon $(VTCON_DIR)
+	python3 -I $(VTCON_DIR)/tools/check_layers.py --vtcon $(VTCON_DIR) --pi $(CURDIR)
 
 # A5: Lua 5.4 under vbcc (uses VTCON_DIR's vbcc cfg) and the host half.
 lua-probe:

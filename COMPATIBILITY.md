@@ -113,7 +113,7 @@ Rows per group (124 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tu
 
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
-| Loading (TS via jiti in pi) | LoadSeg native module against ext_api.h (decision D4) | planned (different mechanism) | L |
+| Loading (TS via jiti in pi) | Lua 5.4 script loaded by the embedded interpreter (decision D4) | planned (different language) | L |
 | Event group: session_* | ext.h table | planned | L |
 | Event group: agent/turn/message | ext.h table | planned | L |
 | Event group: tool_call (block, mutate), tool_result (replace) | ext.h table; carries the gate | planned | L, D6 |

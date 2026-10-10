@@ -7,28 +7,28 @@ Plan: `~/Code/vtcon/thoughts/shared/plans/2026-10-07-amiga-pi.md` (phase A). Res
 | Id | Decision | Source |
 |---|---|---|
 | D1 | amiga-pi lives in its own LOCAL repo `~/Code/amiga-pi` (no remote, no push). | owner, this task |
-| D2 | It shares C:Claude's core by REFERENCE: sources are compiled in place from `$(VTCON_DIR)` (default `~/Code/vtcon`), never copied (plan B5 reuse rule). | owner |
+| D2 | It shares C:Claude's core and `llm/` by REFERENCE: sources are compiled in place from `$(VTCON_DIR)` (default `$(UPTERM_ROOT)/vtcon`, `UPTERM_ROOT` default `~/Code`), never copied (plan B5 reuse rule). | owner |
 | D3 | The shell tool is named `bash` and runs `vsh -c` (the kit's bash-level shell); AmigaDOS Shell only as fallback when vsh is absent, and the model is told which. | owner, round 2 item 5 |
-| D4 | Extension language: native modules, NOT Lua (A5 below). | plan A5 rule, measured |
+| D4 | Extension language: Lua 5.4. The owner chose Lua on 2026-10-07 evening ("Lua now"), overriding the native-modules call from A5's criterion 1 (the 5-warning limit was a guess). The Amiga run of the probe is a check, not a gate (Extensions below). | owner 2026-10-07 evening, again 2026-10-10 |
 | D5 | Stored format: pi message model and JSONL session v3; local timestamps without offset (E9). | plan, round 2 item 1 |
 | D6 | Permissions: pi default, never ask; C:Claude's gate is a built-in extension, off by default. | plan |
 | D7 | Providers: Anthropic, OpenAI-compatible (phase B), then Google, Azure, Bedrock (SigV4 and API keys); subscription logins last, gated on probe O1 (still open). | plan, round 2 |
 | D8 | B5 stays: C:Claude's `http.c` head and `stream.c` decoder move onto the shared backend, gated by goldens. | owner, round 2 item 3 |
-| D9 | `llm/` lives in THIS repo (two repos cannot share a top-level dir the plan puts in vtcon). B5 therefore needs vtcon's Makefile to compile `$(AMIGA_PI_DIR)/llm/*.c`. That touches vtcon and is not done in phase A; it is flagged for the owner. | this task, open |
+| D9 | `llm/` lives in vtcon, next to `claude/` (`~/Code/vtcon/llm/`). C:Claude links it from its own tree, so its build stays inside one repo and B5 is a single-repo change gated by vtcon's request goldens; amiga-pi compiles it in place from `$(VTCON_DIR)` like the rest of the shared core. | owner 2026-10-10 (option a) |
 
 ## Layers and headers
 
 ```
 UI            amiga-pi/ui_*.c, tui reuse (claude/tui.h, input.c, keys.c)     modes.h
 agent         amiga-pi/agent.h (pi_prompt), ext.h, session3.h
-LLM           llm/llm.h (messages), llm/event.h, llm/backend.h, llm/request.c, llm/be_*.c
+LLM           llm/llm.h (messages), llm/event.h, llm/backend.h, llm/request.c, llm/be_*.c   (VTCON_DIR)
 HTTP          claude/http.h   (VTCON_DIR)
 SSE / JSON    claude/sse.h, claude/json.h   (VTCON_DIR)
 TLS           claude/tls.h    (tls_amissl.c | tls_none.c)
 transport     claude/net.h    (net_amiga.c bsdsocket | net_posix.c host | test stubs)
 ```
 
-Rule, enforced by `tools/check_layers.py` (A4, `make test`): UI -> agent -> LLM -> HTTP -> TLS -> bsdsocket, one direction only.
+Rule, enforced by vtcon's `tools/check_layers.py` (A4; in vtcon's `make test` and this repo's `make test`): UI -> agent -> LLM -> HTTP -> TLS -> bsdsocket, one direction only.
 - `llm/` includes no `ui.h`, `tui.h`, `sys.h`; `llm/be_*.c` also no AmigaDOS headers.
 - `amiga-pi/` UI files include no `net.h`/`tls.h`.
 - `claude/http.c` (vtcon) contains no provider name. It does today (5 lines, Anthropic head and `x-api-key` redaction, `http.c:112-142`); the check reports it as PENDING(B5) and fails under `--strict` once B5 should have landed.
@@ -47,7 +47,7 @@ Single-threaded. pi may run the tool calls of one message in parallel; amiga-pi 
 
 ## LAN rule
 
-`http://` is accepted only if the address `cl_net` actually connected to is loopback (127/8), private (10/8, 172.16/12, 192.168/16) or link-local (169.254/16); the name is not trusted. On `http://` no credential header is written; a configured key is dropped with one notice per provider per run ("key for <provider> not sent: plain http"). pi's `apiKey: "ollama"` examples therefore keep working. `https://` is unrestricted.
+Owner rule (2026-10-07): `http://` is accepted only for a LAN host: an address in 127/8, 10/8, 172.16/12 or 192.168/16, or a name ending in `.local`; anything else is refused before connecting, with a message that says to use https. The address checked is the one the name resolved to (`cl_net` connects to it), so a public name resolving to a private address counts as LAN. On `http://` no credential header is written; a configured key is dropped with one notice per provider per run ("key for <provider> not sent: plain http"). pi's `apiKey: "ollama"` examples therefore keep working. `https://` is unrestricted. Link-local 169.254/16 is not in the owner's list and is refused.
 
 ## Directories
 
@@ -57,9 +57,9 @@ Single-threaded. pi may run the tool calls of one message in parallel; amiga-pi 
 
 ## Shared with C:Claude / owned by each
 
-| Shared (compiled in place from VTCON_DIR, not copied) | C:Claude owns | amiga-pi owns |
+| Shared (in vtcon, compiled in place from VTCON_DIR, not copied) | C:Claude owns | amiga-pi owns |
 |---|---|---|
-| `net.h`, `net_amiga.c`, `net_posix.c`, `tls.h`, `tls_amissl.c`, `tls_none.c`, `http.c`, `sse.c`, `json.c`, `util.c`, `sys.h`/`sys_*.c`, `tools.c` (read/write/edit/bash/grep/find implementations), `policy.c`, `hooks.c`, `tui.c`/`input.c`/`keys.c` | `repl.c`, `conv.c` (Anthropic message store), `session.c` (Claude Code format), `print.c` (Agent SDK shapes), `commands.c`, `slash.c`, server tools, remote mode | `llm/` (neutral model, events, backends), `amiga-pi/` (agent loop, session3, extensions, modes, tool name/schema mapping `tools_pi.c`) |
+| `llm/` (neutral model, events, accumulator, backends, request, pool, LAN rule), `net.h`, `net_amiga.c`, `net_posix.c`, `tls.h`, `tls_amissl.c`, `tls_none.c`, `http.c`, `sse.c`, `json.c`, `util.c`, `sys.h`/`sys_*.c`, `tools.c` (read/write/edit/bash/grep/find implementations), `policy.c`, `hooks.c`, `tui.c`/`input.c`/`keys.c` | `repl.c`, `conv.c` (Anthropic message store), `session.c` (Claude Code format), `print.c` (Agent SDK shapes), `commands.c`, `slash.c`, server tools, remote mode | `amiga-pi/` (agent loop, session3, extensions, modes, tool name/schema mapping `tools_pi.c`) |
 
 Until B5, C:Claude keeps its own Anthropic decoder; after B5 both programs consume `llm/`. Build of both programs and the golden gate belong to B (not phase A).
 
@@ -69,7 +69,7 @@ pi names: `read`, `write`, `edit`, `grep`, `find`, `ls`, and `bash`. Per D3 `bas
 
 ## Extensions (decision D4, probe A5)
 
-Plan rule: Lua 5.4 is chosen only if all four criteria hold.
+**Decision (owner, 2026-10-07 evening, confirmed 2026-10-10): Lua 5.4.** The plan's four criteria were written as a gate; the owner made them a check ("Lua now"; criterion 1's 5-warning limit was a guess). The numbers below are kept as information.
 
 Measured on the Mac (2026-10-07), Lua 5.4.9 vendored in `vendor/lua-5.4/`, vbcc via vtcon's cfg, `-cpu=68020 -O2 -warnings-as-errors`, `LUA_USE_C89` + `LUA_32BITS`, probe built by `tools/probe/build_lua_probe.sh`:
 
@@ -80,8 +80,8 @@ Measured on the Mac (2026-10-07), Lua 5.4.9 vendored in `vendor/lua-5.4/`, vbcc 
 | 3 | probe adds at most 300 KB to a hello world | holds: luaprobe 193,160 bytes (after the link-order fix; 187,572 before), hello 4,892 bytes, delta 188,268 bytes (libs open: base, coroutine, table, string, math, utf8; io, os, package, debug not linked; link needs `-lmieee`, i.e. mathieeedoubtrans.library at run time). |
 | 4 | fib(24) plus 100,000-iteration loop within 10 s on a 68020 without FPU | FAILS (rig 2, 2026-10-10, AmigaDOS `Date` around each run, 1 s resolution): loop 65 s, fib(24) 27 s, whole probe 91 s -- 9 times the limit. Rig 2 is FS-UAE A1200, 68020 at `uae_cpu_speed = real`, not cycle-exact, and has a 68882 configured (the plan assumed no FPU; both parts are integer work). |
 
-**Decision: native modules.** Criteria 1 and 4 are missed (needs all four); 2 and 3 hold. Extensions are LoadSeg'ed hunk files built with vbcc against `amiga-pi/ext_api.h`, exporting one function table; hook commands (`claude/hooks.c`) come first (phase L). Consequence: no scripting for users without a C toolchain; pi's TypeScript extensions are not portable in any case. Overruling the 10-versus-5 count alone no longer changes the result: speed (criterion 4) also fails by a factor of 9. `vendor/lua-5.4/` stays as the evidence and for a later reversal.
+What the numbers mean for the design: the speed was measured on a plain 68020 at real A1200 speed (rig 2's configuration then), the slowest machine the kit supports; a 68060 is several times faster. Extensions should therefore do event handling and small transforms in Lua and leave heavy work (search, file walking, JSON of large payloads) to the C tools they call. The link needs `-lmieee` BEFORE `-lvc`. Next Lua step (owner, 2026-10-07): evaluate AmigaDaLua (https://github.com/alpine9000/AmigaDaLua) against the vendored stock 5.4.9 and reuse it if it builds with vbcc and its licence and additions fit (phase L). Hook commands (`claude/hooks.c`) still come first (phase L).
 
 ## What is not in phase A
 
-No product code exists yet: no `llm/`, `amiga-pi/` sources, no program builds. Phase A delivers this document, COMPATIBILITY.md, the addendum, the layering check, the Lua probe and the ledger (`progress.md`).
+No product code existed at the end of phase A: no `llm/` (now in vtcon, phase B), no `amiga-pi/` sources, no program builds. Phase A delivers this document, COMPATIBILITY.md, the addendum, the layering check, the Lua probe and the ledger (`progress.md`).
