@@ -1,0 +1,27 @@
+== echo_hi (isError 0)
+text: echo: hi
+== fail (isError 1)
+text: it failed
+== fail_empty (isError 1)
+text: MCP tool fake/fail_empty returned an error
+== structured (isError 0)
+text: {\n  "a": 1,\n  "list": [\n    1,\n    "two",\n    {\n      "x": null\n    }\n  ],\n  "empty": {},\n  "emptyList": [],\n  "s": "q\\"\\né\\t\\u0001/"\n}
+== struct_and_text (isError 0)
+text: {"a":1}
+== mixed (isError 0)
+text: first
+image: image/png 96
+text: [audio audio/wav omitted]
+text: [Resource file:///docs/a.txt "The A" (text/plain, 2.0KB): a doc]
+text: [Resource file:///b "b"]
+text: embedded text
+text: {"k":1}
+text: [Binary resource https://x.example/files/data.bin?v=1 (application/octet-stream, 16B) saved to SAVED.bin]
+text: [Binary resource file:///noext (unknown type, 2B) saved to SAVED.bin]
+image: image/png 96
+text: [binary resource file:///nothing (unknown type) omitted]
+text: [unsupported MCP content weird]
+== empty (isError 0)
+
+== no_content (isError 0)
+

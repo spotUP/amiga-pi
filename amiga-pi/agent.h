@@ -21,7 +21,7 @@
 #include "ext.h"
 
 #define PI_ROUNDS 64
-#define PI_TOOLS 32
+#define PI_TOOLS 64
 
 /* where pi checks the context against the window (agent-session.ts f10993bc): before a prompt's user
  * message is kept (prompt(), the last answer's usage), before each turn after the first (agent-loop's
@@ -66,6 +66,7 @@ typedef struct pi_session {
     int stop;                   /* the last answer's stop reason (LS_*) */
     const char *call_id;        /* the tool call running now (a tool names its kept output after it) */
     const char *shell_note;     /* the system prompt's sentence on the bash tool's shell, 0 none */
+    const char *mcp_section;    /* pi's mcp_servers section (mcp.c), 0 none */
     /* the gate's question (ext_gate.h), set by the prompt's UI: ASK_* of
      * claude/tools.h; 0 nobody can answer (print mode) */
     int (*ask)(void *u, int tool, const char *name, const char *what, int outside);

@@ -58,6 +58,18 @@ Owner rule (2026-10-07): `http://` is accepted only for a LAN host: an address i
 - Project dir `<root>/.pi/` (pi's name kept so a project works with pi on a Mac): same resource folders, trust-gated (phase G).
 - Temp: `T:amiga-pi-<id>.txt` for truncated tool output.
 
+## MCP stdio pipes (K1, measured on rig 3, 2026-10-11)
+
+Probe: vtcon `tests/amiga/spawnprobe.c` (`make build/amiga/spawnprobe`, run as `VTC:spawnprobe` on the rig; FS-UAE A1200 --max, Workbench 3.1, PTY: from vtcon's pty-handler). A native (vbcc, no ixemul) parent starts `spawnprobe child` with `SystemTags(SYS_Input, SYS_Output, SYS_Asynch)` on two pipes, writes `ping\n`, sends one 4096-byte ACTION_READ on the child's output, then closes its write end. The child reads 4096 at a time and answers each read with one line.
+
+| handler | child's stdin gets the line | parent gets the child's line | EOF after the parent's close | verdict |
+|---|---|---|---|---|
+| `PIPE:` (one name, both ends) | no: the child's 4096-byte Read waits until the writer closes (its log is empty after 3 s) | no answer in 3 s | yes (the held bytes, then 0) | unusable: a request/answer protocol deadlocks |
+| `PTY:<id>/w` + `PTY:<id>/r` (pty-handler pipe pair) | yes | yes, `echo 5\n` at once | yes (`eof\n`, then 0) | **chosen** |
+| `IXPIPE:` | - | - | - | not usable from a native program: an ordinary Open fails by design (ixpipe-handler.c only answers ACTION_IXEMUL_MAGIC, which clones a descriptor of an ixemul process, F_INTERNALIZE); amiga-pi links no ixemul |
+
+So `spawn2` on the Amiga (K5) makes two PTY: pipe pairs, `PTY:mcpi<n>/w|r` (to the child) and `PTY:mcpo<n>/w|r` (from it). PTY: is the kit's (the Installer mounts PTY:, XCON:, IXPIPE:); without it a stdio server is refused with a message naming PTY:, and HTTP servers still work. What the server's own C library buffers is the server's business: a server must flush each answer line, as on any OS.
+
 ## Shared with C:Claude / owned by each
 
 | Shared (in vtcon, compiled in place from VTCON_DIR, not copied) | C:Claude owns | amiga-pi owns |
@@ -73,6 +85,8 @@ pi names: `read`, `write`, `edit`, `grep`, `find`, `ls`, and `bash`. Per D3 `bas
 As built (phase D, 2026-10-11): `amiga-pi/tools_pi.c` holds pi's names, descriptions and schemas and maps each call onto C:Claude's tool (`tools_run` on one `cl_tools` with `pi_rules` set: no Read before Write, missing directories made, a command failed when its code is not 0, pi's status words after its output, the output kept whole up to 512 KB for the truncation). `edit` is `claude/edit_orig.c` (`tools_edit_orig`, on Edit's loading and write; linked by amiga-pi only, `CLAUDE_PI` in vtcon's sources.mk). `ls` is the one tool with its own code (a lister over `sys->list`; C:Claude has none). The bash tool runs through `sys->run` as C:Claude's Bash does: sys_amiga writes the command to a script and runs `vsh <script>` (UP-Term:bin/vsh or C:vsh), else `Execute` in the AmigaShell; every command starts with a `cd` to the working directory. Truncation is `amiga-pi/truncate.c` (`pi_cut`), one function for every tool. The permission gate is `amiga-pi/ext_gate.c` (C:Claude's rules and question, off by default).
 
 As built (phase E, 2026-10-11): the session is `amiga-pi/session3.c` (pi's JSONL v3: writer, streaming reader with an index and only the active branch in RAM, migration, branched sessions, file discovery), `context.c` (the context of a branch: compaction, context edits, convertToLlm, the replayed system message), `compact.c` (token estimates, cut points, prepareCompaction, compact, branch summaries, with pi's prompts generated into `cp_prompts.c`), `store.c` (the glue to the agent: persistence on message_end, the system prompt in the transcript, the automatic compaction hook `pi_session.compact`, called at pi's points `PI_CP_*`, opening and restoring) and `cmds.c` (`/tree /fork /clone /label /name /session`; `/compact` is in store.c). The agent keeps the model-visible messages in `pi_session.msg`; the tree is the store's. Everything is portable C89; the oracle (`tools/pi_oracle/`) regenerates the expected outputs from pi's own code.
+
+As built (phase K, 2026-10-11): MCP is `amiga-pi/mcp.c` (pi's mcp.json shape and validation, the JSON-RPC client, tool names, results as model content with the 20 KB middle cut kept in `T:`, the exposures, `tool_search` and the `mcp_servers` section) over two transports: `mcp_http.c` on vtcon's `llm_post` (its `header` and `body` hooks carry Mcp-Session-Id and application/json answers; event streams through `sse.c`; the LAN rule) and `mcp_stdio.c` on `cl_sys` spawn2 (vtcon `claude/sys.h`; `sys_posix.c` fork/exec on two pipes, `sys_amiga.c` two PTY: pipe pairs with pending ACTION_READ packets, see "MCP stdio pipes"). `pi_app` reads `<agent dir>/mcp.json` and connects every enabled server before the first prompt (`--no-mcp` skips it); direct tools join the session's tools, deferred ones wait for `tool_search`. No floating point: BM25 runs in fixed point (`ln` by its atanh series, a 64-bit `mul_div`), so amiga-pi still needs no math library. Host tests: `tests/test_pi_mcp.c` against `tools/fake_mcp.py` (stdio and HTTP) and pi's own outputs (`tools/pi_oracle/mcp_oracle.sh`); on the Amiga: vtcon `tools/rig/amigapi_rig.py --step 10` (a server on the Mac over LAN http and `build/amiga/mcp-echo` over PTY:).
 
 ## Extensions (decision D4, probe A5)
 
