@@ -801,6 +801,10 @@ static void test_config(void)
         jw_init(&w);
         mcp_value(&m, "Bearer ${TOK}-${NOPE}!", &w);
         CHECK_STR(w.p, "Bearer tv-!");
+        /* the one resolver (llm_cfg_value, FA8): pi's $NAME and $$ forms too, not only ${NAME} */
+        jw_reset(&w);
+        mcp_value(&m, "x-$TOK-$$-$NOPE.", &w);
+        CHECK_STR(w.p ? w.p : "", "x-tv-$-.");
         jw_reset(&w);
         mcp_value(&m, "!echo from-a-command", &w);
         CHECK_STR(w.p ? w.p : "", "from-a-command");

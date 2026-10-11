@@ -30,6 +30,7 @@
 #include "claude/json.h"
 #include "claude/sys.h"
 #include "llm/request.h"
+#include "llm/creds.h"
 #include "agent.h"
 
 #define MCP_OUTPUT_MAX (20L * 1024)     /* pi's MCP_OUTPUT_MAX_BYTES */
@@ -108,6 +109,7 @@ typedef struct mcp {
     int search_on;
     jw section;                 /* the mcp_servers section, empty none */
     pi_session *s;
+    llm_cfg cfg;                /* the values of mcp.json (${VAR}, !command): the one resolver, llm/creds.c */
 } mcp;
 
 /* tools/call requests sent since the start (the reachability test's sentinel) */

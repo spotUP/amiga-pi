@@ -24,6 +24,10 @@ typedef struct pi_models {
     struct pi_store *store;     /* the session file the switches are recorded in, 0 none */
 } pi_models;
 
+/* a config value's `!command` (llm_cfg.run): pi's 10 second limit, the trimmed standard output, -1 failed or empty;
+ * models.c's registry and mcp.c's values run commands through this one function */
+long pi_cfg_run(cl_sys *sys, const char *cmd, char *out, long cap);
+
 /* the catalog, then <agent dir>/models.json and auth.json (either may be missing). 0, -1 out of memory;
  * a bad models.json is only a warning (m->warn): the catalog stays as it was */
 int pi_models_init(pi_models *m, cl_sys *sys, const char *agent_dir, long (*getenv)(const char *, char *, long));

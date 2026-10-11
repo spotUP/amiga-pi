@@ -15,13 +15,12 @@ static long cfg_getenv(void *u, const char *name, char *out, long cap)
 }
 
 /* pi runs the command with a 10 second limit and takes its trimmed standard output */
-static long cfg_run(void *u, const char *cmd, char *out, long cap)
+long pi_cfg_run(cl_sys *sys, const char *cmd, char *out, long cap)
 {
-    pi_models *m = (pi_models *)u;
     long n = 0, rc = -1, s = 0;
-    if (!m->sys || !m->sys->run)
+    if (!sys || !sys->run)
         return -1;
-    if (m->sys->run(m->sys->u, cmd, 10, out, cap - 1, &n, &rc) || rc != 0)
+    if (sys->run(sys->u, cmd, 10, out, cap - 1, &n, &rc) || rc != 0)
         return -1;
     while (n > 0 && (out[n - 1] == '\n' || out[n - 1] == '\r' || out[n - 1] == ' ' || out[n - 1] == '\t'))
         n--;
@@ -32,6 +31,11 @@ static long cfg_run(void *u, const char *cmd, char *out, long cap)
     n -= s;
     out[n] = 0;
     return n > 0 ? n : -1;
+}
+
+static long cfg_run(void *u, const char *cmd, char *out, long cap)
+{
+    return pi_cfg_run(((pi_models *)u)->sys, cmd, out, cap);
 }
 
 static char *read_text(cl_sys *sys, const char *dir, const char *name, long *n)
