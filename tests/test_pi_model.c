@@ -293,8 +293,9 @@ static long t_getenv(void *u, const char *name, char *out, long cap)
     int i;
     (void)u;
     for (i = 0; i < et.n; i++)
-        if (!strcmp(et.name[i], name) && (long)strlen(et.val[i]) < cap) {
-            strcpy(out, et.val[i]);
+        if (!strcmp(et.name[i], name)) {
+            strncpy(out, et.val[i], (size_t)cap - 1);            /* the platform's getenv cuts to the room */
+            out[cap - 1] = 0;
             return (long)strlen(out);
         }
     return -1;
@@ -406,6 +407,60 @@ static void test_cfg(void)
             CHECK_INT(llm_cfg_value(&c, "!exit 1", out, sizeof(out)), -1);
         CHECK_INT(et.cmds, 2);
     }
+    llm_cfg_free(&c);
+}
+
+/* FA7: a stored credential owns the provider; an empty variable is unresolved; a value over the room is an error */
+static void test_cred_owner(void)
+{
+    llm_cfg c;
+    llm_model m;
+    char out[40];
+    const char *src;
+    static const char auth[] = "{\"openai\":{\"type\":\"api_key\",\"key\":\"!exit 1\"}}";
+    llm_model_init(&m);
+    m.provider = "openai";
+    m.id = "gpt-5.5";
+    m.key = "models-json-key";
+    llm_cfg_init(&c);
+    c.getenv = t_getenv;
+    c.run = t_run;
+    et.n = 1;
+    strcpy(et.name[0], "OPENAI_API_KEY");
+    strcpy(et.val[0], "env-key");
+    c.auth = auth;
+    c.auth_n = (long)strlen(auth);
+    /* the stored key is a command that fails: unresolved, not models.json's and not the environment's */
+    CHECK_INT(llm_cfg_key(&c, &m, out, sizeof(out), &src), 0);
+    CHECK(src == 0);
+    /* nothing stored for the provider: the next source answers */
+    m.provider = "anthropic";
+    et.n = 1;
+    strcpy(et.name[0], "ANTHROPIC_API_KEY");
+    strcpy(et.val[0], "ant-env");
+    m.key = 0;
+    CHECK(llm_cfg_key(&c, &m, out, sizeof(out), &src) > 0 && !strcmp(out, "ant-env"));
+    /* an empty variable is unresolved (pi: env[name] || undefined), in a value and as the provider's key */
+    strcpy(et.val[0], "");
+    CHECK_INT(llm_cfg_key(&c, &m, out, sizeof(out), &src), 0);
+    et.n = 1;
+    strcpy(et.name[0], "PI_T_EMPTY");
+    strcpy(et.val[0], "");
+    CHECK_INT(llm_cfg_value(&c, "pre-$PI_T_EMPTY", out, sizeof(out)), -1);
+    CHECK_INT(llm_cfg_value(&c, "pre-${PI_T_EMPTY}", out, sizeof(out)), -1);
+    /* a value longer than the room is an error, not a key cut short */
+    strcpy(et.name[0], "PI_T_LONG");
+    {
+        char big[48];
+        memset(big, 'k', sizeof(big) - 1);
+        big[sizeof(big) - 1] = 0;
+        memcpy(et.val[0], big, 47);
+        et.val[0][47] = 0;
+    }
+    CHECK_INT(llm_cfg_value(&c, "$PI_T_LONG", out, sizeof(out)), -1);
+    CHECK_INT(llm_cfg_value(&c, "x-${PI_T_LONG}", out, sizeof(out)), -1);
+    strcpy(et.val[0], "short");
+    CHECK_INT(llm_cfg_value(&c, "x-$PI_T_LONG", out, sizeof(out)), 7);
     llm_cfg_free(&c);
 }
 
@@ -856,6 +911,7 @@ void suite_pi_model(void)
     test_resolve();
     test_cfg();
     test_cred_order();
+    test_cred_owner();
     test_headers();
     test_hash();
     test_handoff();
