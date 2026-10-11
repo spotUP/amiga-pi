@@ -12,6 +12,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <utime.h>
+#include <time.h>
 #include "pi_test.h"
 #include "claude/util.h"
 #include "claude/sys_posix.h"
@@ -1163,6 +1165,75 @@ static void test_find(void)
     CHECK_INT(s3_list(&sys, dir, 2, list_fn, &l), 2);
 }
 
+static void set_mtime(const char *path, long t)
+{
+    struct utimbuf u;
+    u.actime = u.modtime = (time_t)t;
+    CHECK_INT(utime(path, &u), 0);
+}
+
+/* --resume's list reads the files and nothing else (pi's buildSessionInfo): a
+ * 0-byte file a crash left, or a last line without its newline, keeps its bytes
+ * and its time, so --continue afterwards still resumes the real newest session */
+static void test_list_reads_only(void)
+{
+    char dir[600], empty[700], torn[700], newest[600], found[600];
+    char *before, *after;
+    long nb = 0, na = 0, now = (long)time(0);
+    struct stat a, b;
+    pi_s3 st;
+    lst l;
+    int k;
+    FILE *f;
+    path_of(dir, root, "listro");
+    for (k = 0; k < 2; k++) {
+        static const char *const msg = "{\"role\":\"user\",\"content\":\"real\",\"timestamp\":1}";
+        s3_init(&st, &sys, tick, 0, 1, (unsigned long)(200 + k));
+        CHECK_INT(s3_new(&st, dir, "/c", 0, 0, 1), 0);
+        CHECK_INT(s3_message(&st, msg, (long)strlen(msg)), 0);
+        strcpy(newest, st.file);
+        /* the second session is the newest */
+        set_mtime(st.file, now - 1000 + k);
+        s3_free(&st);
+    }
+    strcpy(empty, dir);
+    strcat(empty, "/00000000T000000_crashed.jsonl");
+    f = fopen(empty, "wb");
+    CHECK(f != 0);
+    if (f)
+        fclose(f);
+    set_mtime(empty, now - 5000);
+    strcpy(torn, dir);
+    strcat(torn, "/00000000T000001_torn.jsonl");
+    f = fopen(torn, "wb");
+    CHECK(f != 0);
+    if (f) {
+        fputs("{\"type\":\"session\",\"version\":3,\"id\":\"torn\",\"timestamp\":\"2024-12-03T14:00:00.000Z\",\"cwd\":\"/c\"}\n"
+              "{\"type\":\"message\",\"id\":\"a1\",\"parentId\":null,\"timestamp\":\"2024-12-03T14:00:01.000Z\","
+              "\"message\":{\"role\":\"user\",\"content\":\"torn one\",\"timestamp\":1}}",
+              f);
+        fclose(f);
+    }
+    set_mtime(torn, now - 4000);
+    before = slurp(torn, &nb);
+    memset(&l, 0, sizeof(l));
+    /* the two sessions and the torn one; the empty file is not a session */
+    CHECK_INT(s3_list(&sys, dir, 10, list_fn, &l), 3);
+    CHECK_STR(l.title[2], "torn one");
+    CHECK_INT(stat(empty, &a), 0);
+    CHECK_INT((long)a.st_size, 0);
+    CHECK_INT((long)a.st_mtime, now - 5000);
+    CHECK_INT(stat(torn, &b), 0);
+    CHECK_INT((long)b.st_mtime, now - 4000);
+    after = slurp(torn, &na);
+    CHECK_INT(na, nb);
+    CHECK(before && after && nb == na && !memcmp(before, after, (size_t)nb));
+    free(before);
+    free(after);
+    CHECK_INT(s3_recent(&sys, dir, found, sizeof(found)), 0);
+    CHECK_STR(found, newest);
+}
+
 static void test_writer(void)
 {
     run_scn("writer");
@@ -1199,6 +1270,7 @@ void suite_pi_session(void)
     test_big();
     test_names();
     test_find();
+    test_list_reads_only();
     {
         char cmd[600];
         strcpy(cmd, "rm -rf ");

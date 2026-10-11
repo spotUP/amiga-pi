@@ -123,18 +123,11 @@ long cp_estimate(const char *msg, long n)
 
 /* ---- the context's size ---- */
 
-/* the tokens an answer's usage reports, 0 when it is not usable (aborted, error, all zero) */
-static long usage_tokens(const char *msg, long n)
+long cp_usage_total(const char *msg, long n)
 {
-    jv m, v, u, x;
-    char role[32];
+    jv m, u, x;
     long total;
-    if (json_parse(msg, n, &m) || json_type(m) != J_OBJ)
-        return 0;
-    role_of(m, role, sizeof(role));
-    if (strcmp(role, "assistant") || !json_get(m, "usage", &u) || json_type(u) != J_OBJ)
-        return 0;
-    if (json_get(m, "stopReason", &v) && (json_streq(v, "aborted") || json_streq(v, "error")))
+    if (json_parse(msg, n, &m) || json_type(m) != J_OBJ || !json_get(m, "usage", &u) || json_type(u) != J_OBJ)
         return 0;
     total = json_get(u, "totalTokens", &x) ? json_long(x, 0) : 0;
     if (!total) {
@@ -145,17 +138,42 @@ static long usage_tokens(const char *msg, long n)
     return total > 0 ? total : 0;
 }
 
+/* the tokens an answer's usage reports, 0 when it is not usable (aborted, error, all zero) */
+static long usage_tokens(const char *msg, long n)
+{
+    jv m, v;
+    char role[32];
+    if (json_parse(msg, n, &m) || json_type(m) != J_OBJ)
+        return 0;
+    role_of(m, role, sizeof(role));
+    if (strcmp(role, "assistant"))
+        return 0;
+    if (json_get(m, "stopReason", &v) && (json_streq(v, "aborted") || json_streq(v, "error")))
+        return 0;
+    return cp_usage_total(msg, n);
+}
+
+long cp_estimate_context(char *const *msg, const long *msg_n, int n, int *last_usage)
+{
+    int i, last = -1;
+    long t = 0;
+    for (i = n - 1; i >= 0 && last < 0; i--)
+        if (usage_tokens(msg[i], msg_n[i]) > 0)
+            last = i;
+    if (last >= 0)
+        t = usage_tokens(msg[last], msg_n[last]);
+    for (i = last + 1; i < n; i++)
+        t += cp_estimate(msg[i], msg_n[i]);
+    if (last_usage)
+        *last_usage = last;
+    return t;
+}
+
 long cp_context_tokens(pi_s3 *st, int leaf, const pi_ctx *c)
 {
     int i, last = -1, e, *path = 0, np, usage_entry = -1, inval = -1, k;
-    long tokens = 0, sys = 0;
-    for (i = c->n - 1; i >= 0 && last < 0; i--)
-        if (usage_tokens(c->msg[i], c->msg_n[i]) > 0)
-            last = i;
+    long tokens = 0, sys = 0, t = cp_estimate_context(c->msg, c->msg_n, c->n, &last);
     if (last >= 0) {
-        long t = usage_tokens(c->msg[last], c->msg_n[last]);
-        for (i = last + 1; i < c->n; i++)
-            t += cp_estimate(c->msg[i], c->msg_n[i]);
         np = s3_path(st, leaf, &path);
         for (e = 0; e < c->ne; e++)
             if (last >= c->efirst[e] && last < c->efirst[e] + c->ecnt[e]) {

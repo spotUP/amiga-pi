@@ -39,9 +39,9 @@ void pi_store_init(pi_store *st, cl_sys *sys, llm_ts (*now)(void *u), void *u, i
 
 void pi_store_free(pi_store *st)
 {
-    if (st->s && st->s->prepare_u == st) {
-        st->s->prepare = 0;
-        st->s->prepare_u = 0;
+    if (st->s && st->s->compact_u == st) {
+        st->s->compact = 0;
+        st->s->compact_u = 0;
     }
     jw_free(&st->system);
     s3_free(&st->s3);
@@ -570,23 +570,87 @@ void pi_store_settings(pi_store *st, const char *text, long n)
         st->keep = json_long(v, CP_KEEP);
 }
 
-/* before each answer: the context against the model's window (pi: a threshold compaction before the next
- * assistant response); a window of 0 (unknown) never compacts by itself */
-static int prepare(void *u, pi_session *s)
+static int ts_le(llm_ts a, llm_ts b)
+{
+    return a.sec < b.sec || (a.sec == b.sec && a.ms <= b.ms);
+}
+
+/* the time of the latest compaction on the branch: 1, 0 none (or no time pi can read) */
+static int compaction_time(pi_store *st, llm_ts *t)
+{
+    int j;
+    for (j = st->s3.leaf; j >= 0; j = st->s3.e[j].parent)
+        if (st->s3.e[j].type == S3_COMPACTION) {
+            long n;
+            const char *x = s3_text(&st->s3, j, &n);
+            jv o, v;
+            char iso[64];
+            if (!x || json_parse(x, n, &o) || !json_get(o, "timestamp", &v) || json_type(v) != J_STR ||
+                json_str(v, iso, sizeof(iso)) < 0)
+                return 0;
+            return !s3_iso_read(iso, t);
+        }
+    return 0;
+}
+
+/* pi's _checkCompaction (threshold case) for the last answer: the context's tokens, -1 when pi does not check */
+static long answer_tokens(pi_store *st, pi_session *s, int when)
+{
+    int a, i, last, edits = 0, has_ct;
+    llm_info inf;
+    llm_ts ct;
+    pi_ctx c;
+    long tokens, direct;
+    for (a = s->nmsg - 1; a >= 0; a--)
+        if (llm_msg_info(s->msg[a], s->msg_n[a], &inf) >= 0 && inf.role == LR_ASSISTANT)
+            break;
+    /* after the run an aborted answer is not checked; before a prompt it is */
+    if (a < 0 || (when == PI_CP_END && inf.stop == LS_ABORTED))
+        return -1;
+    /* an answer from before the latest compaction: its usage is stale */
+    has_ct = compaction_time(st, &ct);
+    if (has_ct && ts_le(inf.ts, ct))
+        return -1;
+    ctx_init(&c);
+    if (ctx_build(&st->s3, st->s3.leaf, &c))
+        return -1;
+    for (i = 0; i < c.ne && !edits; i++)
+        edits = st->s3.e[c.esrc[i]].type == S3_CONTEXT_EDIT;
+    direct = cp_usage_total(s->msg[a], s->msg_n[a]);
+    if (edits)
+        tokens = cp_context_tokens(&st->s3, st->s3.leaf, &c);
+    else if (inf.stop == LS_ERROR || !direct) {
+        /* the last usable usage plus an estimate of the rest, unless that usage is from before a compaction */
+        llm_info li;
+        tokens = cp_estimate_context(s->msg, s->msg_n, s->nmsg, &last);
+        if (last >= 0 && has_ct && llm_msg_info(s->msg[last], s->msg_n[last], &li) >= 0 && ts_le(li.ts, ct))
+            tokens = -1;
+    } else
+        tokens = direct;
+    ctx_free(&c);
+    return tokens;
+}
+
+/* threshold compaction at pi's points (PI_CP_*): before a prompt and after a run on the last answer's usage,
+ * between turns on the projected estimate; a window of 0 (unknown) never compacts by itself. Overflow recovery
+ * (compact and retry) is not built. A failure is shown by its event; the prompt goes on */
+static void compact_check(void *u, pi_session *s, int when)
 {
     pi_store *st = (pi_store *)u;
     pi_ctx c;
     long tokens;
     if (!st->cp_enabled || s->model.context_window <= 0)
-        return 0;
-    ctx_init(&c);
-    if (ctx_build(&st->s3, st->s3.leaf, &c))
-        return 0;
-    tokens = cp_context_tokens(&st->s3, st->s3.leaf, &c);
-    ctx_free(&c);
-    if (cp_should(tokens, s->model.context_window, st->reserve))
-        run_compaction(st, 0, 1);      /* a failure is shown by its event; the request goes on */
-    return 0;
+        return;
+    if (when == PI_CP_TURN) {
+        ctx_init(&c);
+        if (ctx_build(&st->s3, st->s3.leaf, &c))
+            return;
+        tokens = cp_context_tokens(&st->s3, st->s3.leaf, &c);
+        ctx_free(&c);
+    } else
+        tokens = answer_tokens(st, s, when);
+    if (tokens >= 0 && cp_should(tokens, s->model.context_window, st->reserve))
+        run_compaction(st, 0, 1);
 }
 
 /* ---- slash commands ---- */
@@ -620,8 +684,8 @@ int pi_store_attach(pi_store *st, pi_session *s)
         return -1;
     if (st->system.n)
         s->system = st->system.p;
-    s->prepare = prepare;
-    s->prepare_u = st;
+    s->compact = compact_check;
+    s->compact_u = st;
     s->command = command;
     s->command_u = st;
     return pi_subscribe(&s->em, on_event, st);

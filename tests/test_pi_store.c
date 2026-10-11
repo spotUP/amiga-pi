@@ -438,6 +438,75 @@ static void set_settings(const char *json)
     }
 }
 
+/* the kinds of the requests the last run sent ("run n: answer summary ...") appended to w */
+static void kinds(jw *w, int run_no)
+{
+    int k;
+    jw_rawz(w, "run ");
+    jw_long(w, run_no);
+    jw_rawz(w, ":");
+    for (k = 0; k < ps.nreq; k++)
+        jw_rawz(w, strstr(ps.body[k], "context summarization assistant") ? " summary" : " answer");
+    jw_rawz(w, "\n");
+}
+
+/* the file's user, assistant and compaction entries in order, as gen.ts lists them for agent_compaction */
+static void entries_of(pi_s3 *st, jw *w)
+{
+    static const char *const rn[] = { "-", "user", "assistant", "toolResult", "system", "custom", "bash", "other" };
+    int *ord = (int *)calloc((size_t)(st->n ? st->n : 1), sizeof(int));
+    int k, m = 0;
+    if (!ord)
+        return;
+    for (k = 0; k < st->n; k++)
+        if (st->e[k].type == S3_COMPACTION || (st->e[k].type == S3_MESSAGE && st->e[k].role != S3R_SYSTEM))
+            ord[k] = ++m;
+    for (k = 0; k < st->n; k++) {
+        if (!ord[k])
+            continue;
+        if (st->e[k].type == S3_MESSAGE) {
+            jw_rawz(w, st->e[k].role >= 0 && st->e[k].role < 8 ? rn[st->e[k].role] : "?");
+        } else {
+            long n;
+            const char *t = s3_text(st, k, &n);
+            jv o, v;
+            char id[48];
+            int f, ok = t && !json_parse(t, n, &o);
+            jw_rawz(w, "compaction parent=");
+            jw_long(w, st->e[k].parent >= 0 ? ord[st->e[k].parent] : 0);
+            jw_rawz(w, " firstKept=");
+            id[0] = 0;
+            if (ok && json_get(o, "firstKeptEntryId", &v) && json_type(v) == J_STR)
+                json_str(v, id, sizeof(id));
+            f = s3_find(st, id);
+            jw_long(w, f >= 0 ? ord[f] : 0);
+            jw_rawz(w, " tokensBefore=");
+            jw_long(w, ok && json_get(o, "tokensBefore", &v) ? json_long(v, -1) : -1);
+        }
+        jw_rawz(w, "\n");
+    }
+    free(ord);
+}
+
+static char *slurp_text(const char *path, long *n)
+{
+    FILE *f = fopen(path, "rb");
+    char *b;
+    long len;
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    b = (char *)malloc((size_t)len + 1);
+    len = b ? (long)fread(b, 1, (size_t)len, f) : 0;
+    fclose(f);
+    if (b)
+        b[len] = 0;
+    *n = len;
+    return b;
+}
+
 static void test_compaction(void)
 {
     char *c1[] = { "amiga-pi", MODEL_ARGS, "-p", "hello", 0 };
@@ -445,33 +514,26 @@ static void test_compaction(void)
     char *c3[] = { "amiga-pi", MODEL_ARGS, 0 };
     char path[600], cmd[600], long_prompt[500];
     pi_s3 st;
-    pi_ctx cx;
-    long t1;
+    jw got;
     int i;
     mkdir(agent, 0777);
     strcpy(cmd, "rm -rf ");
     strcat(cmd, sdir);
     CHECK_INT(system(cmd), 0);
     set_settings("{\"compaction\":{\"keepRecentTokens\":5}}");
-    window = 0;
+    /* pi's own AgentSession over the same two runs (tools/pi_oracle/gen.ts, agent_compaction.expected): "hello"
+     * with a large window, then -c with a long prompt and a threshold of 100 tokens under the answers' usage of
+     * 129. pi checks before the prompt's user message is kept (on the last answer's usage) and after the run: one
+     * compaction parented to the earlier answer, then the answer, then one parented to the new answer */
+    window = CP_RESERVE + 128000;
     CHECK_INT(run(ARGC(c1), c1, "../pi/openai_text.sse"), 0);
+    jw_init(&got);
+    kinds(&got, 1);
     CHECK_INT(newest(path, sizeof(path)), 0);
-    s3_init(&st, &sys, adv_now, 0, 1, 1);
-    CHECK_INT(s3_open(&st, path), 0);
-    ctx_init(&cx);
-    CHECK_INT(ctx_build(&st, st.leaf, &cx), 0);
-    t1 = cp_context_tokens(&st, st.leaf, &cx);
-    ctx_free(&cx);
-    CHECK(t1 > 100);
-    CHECK_INT(count_type(&st, S3_COMPACTION), 0);
-    s3_free(&st);
-
-    /* the window leaves room for the conversation so far and a little: the next, long prompt crosses the
-     * threshold, so before the answer the conversation is summarized (one request) and then answered */
     for (i = 0; i < 400; i++)
         long_prompt[i] = (char)('a' + i % 26);
     long_prompt[400] = 0;
-    window = CP_RESERVE + t1 + 50;
+    window = CP_RESERVE + 100;
     c2[0] = "amiga-pi";
     c2[1] = "--base-url";
     c2[2] = "http://192.168.1.10:11434/v1";
@@ -501,33 +563,42 @@ static void test_compaction(void)
         pl.data_dir = data;
         pl.agent_dir = agent;
         pl.ready = set_window;
-        ps_sse("../pi/openai_text.sse", 0);     /* the summary */
-        ps_sse("../pi/openai_text.sse", 0);     /* the answer */
+        for (i = 0; i < 6; i++)
+            ps_sse("../pi/openai_text.sse", 0);
         CHECK_INT(pi_app(6, c2, &pl), 0);
     }
-    CHECK_INT(ps.nreq, 2);
-    CHECK(ps.nreq == 2 && strstr(ps.body[0], "<conversation>") != 0 && strstr(ps.body[0], "[User]: hello") != 0);
-    CHECK(ps.nreq == 2 && strstr(ps.body[0], "context summarization assistant") != 0);
-    CHECK(ps.nreq == 2 && strstr(ps.body[1], "compacted into the following summary") != 0 &&
+    kinds(&got, 2);
+    /* the summary of the first answer's turn, without the new prompt; the answer after the summary */
+    CHECK(ps.nreq >= 2 && strstr(ps.body[0], long_prompt) == 0);
+    CHECK(ps.nreq >= 2 && strstr(ps.body[1], "compacted into the following summary") != 0 &&
           strstr(ps.body[1], long_prompt) != 0 && strstr(ps.body[1], "[User]: hello") == 0);
     s3_init(&st, &sys, adv_now, 0, 1, 2);
     CHECK_INT(s3_open(&st, path), 0);
-    CHECK_INT(count_type(&st, S3_COMPACTION), 1);
+    entries_of(&st, &got);
+    {
+        char ex[600];
+        long n;
+        char *want;
+        strcpy(ex, PI_TESTS "/pi/sessions/agent_compaction.expected");
+        want = slurp_text(ex, &n);
+        CHECK(want != 0);
+        if (want && got.p)
+            CHECK_STR(got.p, want);
+        free(want);
+    }
+    jw_free(&got);
     {
         int ci = -1, k;
-        for (k = 0; k < st.n; k++)
+        for (k = 0; k < st.n && ci < 0; k++)
             if (st.e[k].type == S3_COMPACTION)
                 ci = k;
-        CHECK(ci > 0 && st.e[ci - 1].role == S3R_USER);     /* the compaction sits after the new user message */
-        CHECK(text_in_file(&st, "\"firstKeptEntryId\":\"") != 0);
-        {
+        CHECK(ci > 0);
+        if (ci > 0) {
             long n;
             const char *t = s3_text(&st, ci, &n);
             jv o, v;
             CHECK(t && !json_parse(t, n, &o) && json_get(o, "systemMessage", &v) && json_type(v) == J_OBJ);
             CHECK(t && json_get(o, "fromHook", &v) && json_type(v) == J_FALSE);
-            CHECK(t && json_get(o, "firstKeptEntryId", &v) && json_streq(v, s3_id(&st, ci - 1)));
-            CHECK(t && json_get(o, "summary", &v) && json_streq(v, "Hello from the Amiga! Gr\xc3\xbc\xc3\x9f" "e \xe2\x80\x94 ok"));
         }
     }
     s3_free(&st);
