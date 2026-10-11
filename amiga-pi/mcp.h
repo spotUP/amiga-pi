@@ -91,6 +91,8 @@ struct mcp_server {
     mcp_tool *tools;
     int ntools;
     int expired_once;           /* a 404 for the session: initialized again once */
+    int transient;              /* the last failure was a network error or 408, 429, 5xx but 501 (http) */
+    int attempts;               /* connection attempts of the last connect (pi: 3 for http) */
 };
 
 typedef struct mcp {

@@ -129,7 +129,7 @@ static void log_line(int i, char *out, long cap)
 /* fake_mcp.py --http 0 <extra>: its port, the child in *h */
 static int start_http(const char *extra, void **h)
 {
-    const char *argv[10];
+    const char *argv[12];
     char buf[64];
     long k = 0, n;
     int a = 0;
@@ -144,6 +144,14 @@ static int start_http(const char *extra, void **h)
     else if (extra && !strcmp(extra, "expire")) {
         argv[a++] = "--expire";
         argv[a++] = "2";
+    } else if (extra && !strncmp(extra, "fail", 4)) {
+        /* "fail2" two 503s, "fail3" three, "fail501" one 501 */
+        argv[a++] = "--fail-first";
+        argv[a++] = !strcmp(extra, "fail501") ? "1" : extra + 4;
+        if (!strcmp(extra, "fail501")) {
+            argv[a++] = "--fail-status";
+            argv[a++] = "501";
+        }
     }
     argv[a] = 0;
     if (sys.spawn2(sys.u, argv, 0, 0, h))
@@ -920,6 +928,31 @@ static void test_http(void)
     mcp_free(&m);
     llm_pool_close(&rpool);
     sys.spawn2_close(sys.u, h, 3000);
+    /* pi's connect retries: two transient failures (503) and the third attempt connects, after 250 + 1000 ms;
+     * three fail; a 501 is not tried again */
+    {
+        static const char *const modes[] = {"fail2", "fail3", "fail501"};
+        static const int want_ok[] = {1, 0, 0}, want_attempts[] = {3, 3, 1};
+        static const long want_slept[] = {1250, 1250, 0};
+        int k;
+        for (k = 0; k < 3; k++) {
+            long slept0;
+            reset_log();
+            port = start_http(modes[k], &h);
+            new_mcp(&m);
+            m.h.sleep = ps_sleep;
+            jw_reset(&cfg);
+            http_config(&cfg, "127.0.0.1", port, 0);
+            mcp_load_text(&m, cfg.p, cfg.n, "test", 0);
+            slept0 = ps.slept;
+            CHECK_INT(mcp_connect(&m), want_ok[k]);
+            CHECK_INT(m.srv[0].attempts, want_attempts[k]);
+            CHECK_INT(ps.slept - slept0, want_slept[k]);
+            mcp_free(&m);
+            llm_pool_close(&rpool);
+            sys.spawn2_close(sys.u, h, 3000);
+        }
+    }
     /* the LAN rule: a public address over plain http is refused before connecting */
     {
         long opens = rpool.opens;

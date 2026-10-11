@@ -1105,20 +1105,31 @@ static int reconnect(mcp_server *s)
     return 0;
 }
 
+/* pi's open(): an HTTP server that failed with a network error or a transient status is tried again after
+ * 250 ms and after 1 s more */
 static int connect_one(mcp_server *s)
 {
-    disconnect(s);
-    s->err[0] = 0;
-    s->next_id = 0;
-    if ((s->kind == MK_HTTP ? mcp_http_open(s) : mcp_stdio_open(s)) || initialize(s) || list_tools(s)) {
-        char e[300];
-        cl_copy(e, s->err, sizeof(e));
+    static const long delays[] = {250, 1000};
+    for (s->attempts = 1;; s->attempts++) {
         disconnect(s);
-        cl_copy(s->err, e, sizeof(s->err));
-        return -1;
+        s->err[0] = 0;
+        s->next_id = 0;
+        s->transient = 0;
+        if (!((s->kind == MK_HTTP ? mcp_http_open(s) : mcp_stdio_open(s)) || initialize(s) || list_tools(s))) {
+            s->connected = 1;
+            return 0;
+        }
+        {
+            char e[300];
+            cl_copy(e, s->err, sizeof(e));
+            disconnect(s);
+            cl_copy(s->err, e, sizeof(s->err));
+        }
+        if (s->kind != MK_HTTP || !s->transient || s->attempts > 2)
+            return -1;
+        if (s->m->h.sleep ? s->m->h.sleep(s->m->h.u, delays[s->attempts - 1]) : 0)
+            return -1;          /* Ctrl+C in the wait */
     }
-    s->connected = 1;
-    return 0;
 }
 
 int mcp_connect(mcp *m)

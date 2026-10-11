@@ -8,7 +8,8 @@ streamable HTTP, standard library only. Host only.
 With --http the first line on stdout is "port <n>" once the server listens.
 --sse answers requests as text/event-stream (chunked), else application/json.
 --expire N: the session id stops working after N requests (404), as an
-expired session does. --pages: tools/list in two pages (a cursor). --log FILE:
+expired session does. --fail-first N [--fail-status S]: the first N requests
+get status S (503), a server that is starting. --pages: tools/list in two pages (a cursor). --log FILE:
 one JSON line per message received, with the HTTP headers that matter.
 
 Tools (toolset "fake", the default):
@@ -156,7 +157,7 @@ def run_stdio(srv):
 
 
 def run_http(srv, args):
-    state = {"session": None, "count": 0, "gen": 0}
+    state = {"session": None, "count": 0, "gen": 0, "fails": 0}
 
     class H(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -173,6 +174,9 @@ def run_http(srv, args):
                                      "authorization", "x-token")}
             hdrs["peer"] = self.client_address[0]
             srv.log(msg, hdrs)
+            if state["fails"] < args.fail_first:
+                state["fails"] += 1
+                return self.plain(args.fail_status, "not now")
             sid = self.headers.get("Mcp-Session-Id")
             if msg.get("method") == "initialize":
                 state["gen"] += 1
@@ -245,6 +249,8 @@ def main():
     p.add_argument("--sse", action="store_true")
     p.add_argument("--expire", type=int, default=0)
     p.add_argument("--pages", action="store_true")
+    p.add_argument("--fail-first", type=int, default=0)
+    p.add_argument("--fail-status", type=int, default=503)
     p.add_argument("--toolset", default="fake")
     p.add_argument("--log")
     args = p.parse_args()

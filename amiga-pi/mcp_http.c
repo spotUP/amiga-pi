@@ -188,6 +188,9 @@ static int h_send(mcp_server *s, const char *msg, long n, int request, mcp_msg_f
     c.sse = &h->ss;
     c.errbody = &h->errbody;
     rc = llm_post(&c);
+    s->transient = rc == LP_CONNECT || rc == LP_SEND || rc == LP_RECV || rc == LP_EOF || rc == LP_BADHTTP ||
+                   (rc == LP_OK && (h->resp.status == 408 || h->resp.status == 429 ||
+                                    (h->resp.status >= 500 && h->resp.status != 501)));
     if (rc == LP_BREAK) {
         cl_copy(s->err, "Operation aborted", sizeof(s->err));
         return -1;
