@@ -27,13 +27,21 @@ typedef struct pi_ctx {
     char thinking[32];          /* "off" until a thinking_level_change */
     char provider[64], model[128];
     int has_model;              /* a model_change or an assistant message on the path */
+    /* the projection's entries (pi's ProjectedSessionEntry): every entry of the context in order, the tree index of
+     * its source and where its messages sit in msg[] (none for state-only entries, an older compaction, an omission) */
+    int *esrc, *efirst, *ecnt;
+    int ne, ecap;
     int oom;
 } pi_ctx;
 
 void ctx_init(pi_ctx *c);
 void ctx_free(pi_ctx *c);
+/* a message (JSON text) added, copied: 0, -1 out of memory */
+int ctx_push(pi_ctx *c, const char *json, long n);
 /* the context of the branch ending at leaf (-1: empty). 0, -1 out of memory or unreadable */
 int ctx_build(pi_s3 *st, int leaf, pi_ctx *c);
+/* the number of messages sessionEntryToContextMessages gives entry i (before any edit) */
+int ctx_entry_count(pi_s3 *st, int i);
 /* {"messages":[...],"thinkingLevel":..,"model":..} as pi's JSON.stringify of the context */
 void ctx_json(const pi_ctx *c, jw *out);
 /* convertToLlm: a JSON array of pi-ai messages (appended) */

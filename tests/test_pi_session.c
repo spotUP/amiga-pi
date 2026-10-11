@@ -17,6 +17,8 @@
 #include "claude/sys_posix.h"
 #include "../amiga-pi/session3.h"
 #include "../amiga-pi/context.h"
+#include "../amiga-pi/compact.h"
+#include "../amiga-pi/cp_prompts.h"
 
 static char root[400];
 static sys_posix sp;
@@ -163,6 +165,164 @@ static void same_as_pi(const char *name, const char *want, const char *got)
     printf("  FAIL %s differs from pi at line %d:\n    pi:   %.400s\n    here: %.400s\n", name, line, a, b);
 }
 
+
+/* ---- compaction: prepare and compact with a model that answers "SUMMARY n" (gen.ts's fake) ---- */
+typedef struct mock {
+    int n;
+    int fail;                   /* 0 ok, LS_ERROR, LS_LENGTH */
+    jw log;                     /* the requests: "request maxTokens=.. system=.. prompt=.." lines */
+} mock;
+
+static int mock_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
+{
+    mock *m = (mock *)u;
+    jw sys, t;
+    llm_usage *us = &r->usage;
+    int n;
+    char num[48];
+    m->n++;
+    n = m->n;
+    jw_init(&sys);
+    {
+        const char *const *l;
+        for (l = cp_summarization_system_prompt; *l; l++)
+            jw_rawz(&sys, *l);
+    }
+    jw_init(&t);
+    jw_rawz(&m->log, "request maxTokens=");
+    sprintf(num, "%ld", max_tokens);
+    jw_rawz(&m->log, num);
+    jw_rawz(&m->log, " system=");
+    jw_str(&m->log, sys.p, sys.n);
+    jw_rawz(&m->log, " prompt=");
+    jw_str(&m->log, prompt, (long)strlen(prompt));
+    jw_rawz(&m->log, "\n");
+    sprintf(num, "SUMMARY %d", n);
+    jw_rawz(&r->text, num);
+    memset(us, 0, sizeof(*us));
+    us->input = 100L * n;
+    us->output = 10L * n;
+    us->cache_read = n;
+    us->cache_write = 2L * n;
+    us->cost[0] = 500000L * n;
+    us->cost[1] = 250000L * n;
+    r->stop = m->fail ? m->fail : LS_STOP;
+    if (m->fail == LS_ERROR)
+        strcpy(r->error, "boom");
+    jw_free(&sys);
+    jw_free(&t);
+    return 0;
+}
+
+static void json_list(jw *w, const cp_strs *l)
+{
+    int i;
+    jw_rawz(w, "[");
+    for (i = 0; i < l->n; i++) {
+        if (i)
+            jw_rawz(w, ",");
+        jw_strz(w, l->s[i]);
+    }
+    jw_rawz(w, "]");
+}
+
+static void json_msgs(jw *w, const pi_ctx *c)
+{
+    int i;
+    jw_rawz(w, "[");
+    for (i = 0; i < c->n; i++) {
+        if (i)
+            jw_rawz(w, ",");
+        jw_raw(w, c->msg[i], c->msg_n[i]);
+    }
+    jw_rawz(w, "]");
+}
+
+static void dump_compaction(pi_s3 *st, int leaf, const pi_ctx *ctx, jw *w)
+{
+    static const long keeps[] = { 20000, 5000, 5 };
+    size_t k;
+    int i;
+    char num[48];
+    for (k = 0; k < sizeof(keeps) / sizeof(keeps[0]); k++) {
+        pi_prep p;
+        cp_result r;
+        mock m;
+        char err[200];
+        int rc = cp_prepare(st, leaf, keeps[k], &p);
+        sprintf(num, "%ld", keeps[k]);
+        jw_rawz(w, "prepare keep=");
+        jw_rawz(w, num);
+        jw_rawz(w, " ");
+        if (rc != 1) {
+            jw_rawz(w, "none\n");
+            continue;
+        }
+        jw_rawz(w, "{\"firstKeptEntryId\":");
+        jw_strz(w, s3_id(st, p.first_kept));
+        jw_rawz(w, ",\"messagesToSummarize\":");
+        json_msgs(w, &p.hist);
+        jw_rawz(w, ",\"turnPrefixMessages\":");
+        json_msgs(w, &p.prefix);
+        jw_rawz(w, p.split ? ",\"isSplitTurn\":true,\"tokensBefore\":" : ",\"isSplitTurn\":false,\"tokensBefore\":");
+        jw_long(w, p.tokens_before);
+        if (p.prev_summary) {
+            jw_rawz(w, ",\"previousSummary\":");
+            jw_strz(w, p.prev_summary);
+        }
+        jw_rawz(w, ",\"fileOps\":{\"read\":");
+        json_list(w, &p.read);
+        jw_rawz(w, ",\"written\":");
+        json_list(w, &p.written);
+        jw_rawz(w, ",\"edited\":");
+        json_list(w, &p.edited);
+        jw_rawz(w, "}}\n");
+        memset(&m, 0, sizeof(m));
+        jw_init(&m.log);
+        rc = cp_compact(&p, CP_RESERVE, 20000, "focus on tests", mock_complete, &m, &r, err, sizeof(err));
+        CHECK_INT(rc, 0);
+        if (!rc) {
+            jw_rawz(w, "compact keep=");
+            jw_rawz(w, num);
+            jw_rawz(w, " {\"summary\":");
+            jw_str(w, r.summary.p, r.summary.n);
+            jw_rawz(w, ",\"firstKeptEntryId\":");
+            jw_strz(w, s3_id(st, r.first_kept));
+            jw_rawz(w, ",\"tokensBefore\":");
+            jw_long(w, r.tokens_before);
+            jw_rawz(w, ",\"usage\":");
+            llm_w_usage(w, &r.usage);
+            jw_rawz(w, ",\"details\":");
+            jw_raw(w, r.details.p, r.details.n);
+            jw_rawz(w, "}\n");
+            jw_raw(w, m.log.p, m.log.n);
+            cp_result_free(&r);
+        }
+        jw_free(&m.log);
+        if (keeps[k] == 5) {
+            /* the model fails: pi's words, nothing persisted */
+            static const int stops[] = { LS_ERROR, LS_LENGTH };
+            static const char *const names[] = { "error", "length" };
+            for (i = 0; i < 2; i++) {
+                memset(&m, 0, sizeof(m));
+                jw_init(&m.log);
+                m.fail = stops[i];
+                rc = cp_compact(&p, CP_RESERVE, 100, 0, mock_complete, &m, &r, err, sizeof(err));
+                jw_rawz(w, "failure ");
+                jw_rawz(w, names[i]);
+                jw_rawz(w, " ");
+                jw_rawz(w, rc ? err : "none");
+                jw_rawz(w, "\n");
+                if (!rc)
+                    cp_result_free(&r);
+                jw_free(&m.log);
+            }
+        }
+        cp_prep_free(&p);
+    }
+    (void)ctx;
+}
+
 /* ---- the dump of an opened session: gen.ts's dump(), line for line ---- */
 typedef struct idmap {
     char id[256][48];
@@ -302,6 +462,19 @@ static void dump_session(pi_s3 *st, const char *path, long size_before, int norm
             jw_rawz(w, "-\nsystemtext -");
         jw_rawz(w, "\n");
         jw_free(&sysm);
+        dump_compaction(st, st->leaf, &c, w);
+        {
+            int ti;
+            char num[24];
+            jw_rawz(w, "tokens [");
+            for (ti = 0; ti < c.n; ti++) {
+                if (ti)
+                    jw_rawz(w, ",");
+                sprintf(num, "%ld", cp_estimate(c.msg[ti], c.msg_n[ti]));
+                jw_rawz(w, num);
+            }
+            jw_rawz(w, "]\n");
+        }
         ctx_free(&c);
     }
     free(m);
@@ -381,11 +554,6 @@ static char *str_of(jv o, const char *key)
     return json_get(o, key, &v) && json_type(v) == J_STR ? json_strdup(v, &n) : 0;
 }
 
-/* a compaction's systemMessage: pi derives it from the context (getCurrentSystemMessage); the scenario's
- * only system message is the first entry, so it is that one with the compaction's own time (E3b tests
- * the derivation against pi's fixtures) */
-#define SCN_SYSTEM "{\"role\":\"system\",\"content\":\"\",\"sections\":{\"preamble\":\"You are.\"},\"timestamp\":1733234400123}"
-
 /* one scenario line: its entry's index, -2 for a leaf move, -1 failed */
 static int apply(pi_s3 *st, const char *line, long n)
 {
@@ -429,7 +597,17 @@ static int apply(pi_s3 *st, const char *line, long n)
         b = json_get(o, "details", &v) ? raw_of(v) : 0;
         c = json_get(o, "usage", &v) ? raw_of(v) : 0;
         ref = json_get(o, "first", &v) && json_type(v) == J_NUM ? (int)json_long(v, 0) - 1 : -1;
-        r = a ? s3_compaction(st, a, ref, tb, b, c, hook, st->n && st->e[0].role == S3R_SYSTEM ? SCN_SYSTEM : 0) : -1;
+        {
+            /* pi's appendCompaction: the system message replayed from the projection */
+            pi_ctx cx;
+            jw sysj;
+            ctx_init(&cx);
+            jw_init(&sysj);
+            ctx_build(st, st->leaf, &cx);
+            r = a ? s3_compaction(st, a, ref, tb, b, c, hook, ctx_system(&cx, &sysj) == 1 ? sysj.p : 0) : -1;
+            jw_free(&sysj);
+            ctx_free(&cx);
+        }
         free(a);
         free(b);
         free(c);
@@ -902,7 +1080,8 @@ static void test_fixtures(void)
     static const char *const names[] = { "bad_lines", "bad_no_final_newline", "bad_not_session", "doc_all_types",
                                          "doc_branch", "doc_compaction", "doc_compaction_retain_none",
                                          "doc_context_edit", "doc_parent", "mig_v1", "mig_v2", "doc_system",
-                                         "doc_compaction_system", "bad_content" };
+                                         "doc_compaction_system", "bad_content", "cut_cases", "cut_prev",
+                                         "cut_hook" };
     size_t i;
     for (i = 0; i < sizeof(names) / sizeof(names[0]); i++)
         test_fixture(names[i], !strcmp(names[i], "mig_v1"));

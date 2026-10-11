@@ -70,6 +70,22 @@ void s3_iso(llm_ts t, int utc, char *out)
     }
 }
 
+void s3_ms(llm_ts t, jw *w)
+{
+    char ms[4];
+    ms[0] = (char)('0' + t.ms / 100 % 10);
+    ms[1] = (char)('0' + t.ms / 10 % 10);
+    ms[2] = (char)('0' + t.ms % 10);
+    ms[3] = 0;
+    /* a long is 32 bits on the Amiga: the seconds and the three digits of milliseconds joined as text */
+    if (t.sec == 0)
+        jw_long(w, t.ms);
+    else {
+        jw_long(w, t.sec);
+        jw_rawz(w, ms);
+    }
+}
+
 static long digits(const char *s, int n)
 {
     long v = 0;
@@ -551,7 +567,8 @@ int s3_append(pi_s3 *st, const char *type, const char *pre, const char *post)
     int i, prev_leaf = st->leaf;
     jv o;
     new_id(st, id);
-    s3_iso(now_of(st), st->utc, ts);
+    s3_iso(st->at_set ? st->at : now_of(st), st->utc, ts);
+    st->at_set = 0;
     jw_init(&w);
     jw_rawz(&w, "{\"type\":");
     jw_strz(&w, type);
@@ -689,8 +706,26 @@ int s3_compaction(pi_s3 *st, const char *summary, int first_kept, long tokens_be
     if (from_hook >= 0)
         jw_rawz(&w, from_hook ? ",\"fromHook\":true" : ",\"fromHook\":false");
     if (system) {
+        /* pi: {...systemMessage, timestamp: the entry's own time} */
+        jw ms, sysw;
+        jv so;
+        jw_init(&ms);
+        jw_init(&sysw);
+        st->at = now_of(st);
+        st->at_set = 1;
+        s3_ms(st->at, &ms);
+        if (json_parse(system, (long)strlen(system), &so) || s3_obj_put(so, &sysw, "timestamp", ms.p, 0)) {
+            jw_free(&ms);
+            jw_free(&sysw);
+            jw_free(&w);
+            st->at_set = 0;
+            cl_copy(st->err, "a system message that is not JSON", sizeof(st->err));
+            return -1;
+        }
         jw_rawz(&w, ",\"systemMessage\":");
-        jw_rawz(&w, system);
+        jw_raw(&w, sysw.p, sysw.n);
+        jw_free(&ms);
+        jw_free(&sysw);
     }
     i = w.oom ? -1 : s3_append(st, "compaction", 0, w.p);
     jw_free(&w);

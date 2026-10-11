@@ -199,3 +199,63 @@ write("bad_content.jsonl", [
     e("message", "7000000a", "70000009", 9, message={"role": "bashExecution", "command": "sleep", "output": "o", "cancelled": True,
                                                    "truncated": False, "timestamp": 10}),
 ])
+
+# 9. compaction cases: tool calls (file lists), a long tool result (serialisation cut at 2000), metadata between
+# turns (the cut's back-scan), thinking, a huge trailing result (the cut inside a turn), and a session that
+# was compacted before (previousSummary, details of the earlier compaction)
+def tcall(t, calls, text=None, thinking=None):
+    c = []
+    if thinking: c.append({"type": "thinking", "thinking": thinking, "thinkingSignature": "sig"})
+    if text: c.append({"type": "text", "text": text})
+    for i, (name, args) in enumerate(calls):
+        c.append({"type": "toolCall", "id": "call_%d_%d" % (t, i), "name": name, "arguments": args})
+    return {"role": "assistant", "content": c, "api": "anthropic-messages", "provider": "anthropic",
+            "model": "claude-sonnet-4-5", "usage": USAGE, "stopReason": "toolUse", "timestamp": t}
+def tres2(t, cid, name, text, err=False):
+    return {"role": "toolResult", "toolCallId": cid, "toolName": name, "content": [{"type": "text", "text": text}],
+            "isError": err, "timestamp": t}
+write("cut_cases.jsonl", [
+    hdr(),
+    e("message", "c1000001", None, 0, message=user(1733234401000, "Please refactor the parser module and fix the lexer bug")),
+    e("message", "c1000002", "c1000001", 1, message=tcall(1733234402000, [("read", {"path": "src/parser.c"})], text="I will look.")),
+    e("message", "c1000003", "c1000002", 2, message=tres2(1733234403000, "call_1733234402000_0", "read", "x" * 3000)),
+    e("message", "c1000004", "c1000003", 3, message=tcall(1733234404000, [("edit", {"path": "src/parser.c", "edits": [{"oldText": "a", "newText": "b"}]}),
+                                                                      ("read", {"path": "src/lexer.c"})], text="Fixing.", thinking="think é")),
+    e("message", "c1000005", "c1000004", 4, message=tres2(1733234405000, "call_1733234404000_0", "edit", "ok")),
+    e("message", "c1000006", "c1000005", 5, message=tres2(1733234405001, "call_1733234404000_1", "read", "lexer text", True)),
+    e("model_change", "c1000007", "c1000006", 6, provider="anthropic", modelId="claude-sonnet-4-5"),
+    e("label", "c1000008", "c1000007", 7, targetId="c1000001", label="start"),
+    e("message", "c1000009", "c1000008", 8, message=user(1733234409000, [{"type": "text", "text": "Now add tests"}, {"type": "image", "data": "AAAA", "mimeType": "image/png"}])),
+    e("message", "c100000a", "c1000009", 9, message=tcall(1733234410000, [("write", {"path": "tests/t.c", "content": "int main(){}"})])),
+    e("message", "c100000b", "c100000a", 10, message=tres2(1733234411000, "call_1733234410000_0", "write", "written")),
+    e("message", "c100000c", "c100000b", 11, message=asst(1733234412000, "Done writing the tests.")),
+    e("message", "c100000d", "c100000c", 12, message=user(1733234413000, "One more thing: what does the lexer do?")),
+    e("message", "c100000e", "c100000d", 13, message=tcall(1733234414000, [("bash", {"command": "ls"})])),
+    e("message", "c100000f", "c100000e", 14, message=tres2(1733234415000, "call_1733234414000_0", "bash", "y" * 30000)),
+])
+write("cut_prev.jsonl", [
+    hdr(),
+    e("message", "d1000001", None, 0, message=user(1733234401000, "first")),
+    e("message", "d1000002", "d1000001", 1, message=tcall(1733234402000, [("read", {"path": "old.c"}), ("write", {"path": "new.c", "content": "x"})])),
+    e("message", "d1000003", "d1000002", 2, message=tres2(1733234403000, "call_1733234402000_0", "read", "r")),
+    e("message", "d1000004", "d1000003", 3, message=tres2(1733234403001, "call_1733234402000_1", "write", "w")),
+    e("message", "d1000005", "d1000004", 4, message=user(1733234405000, "second")),
+    e("message", "d1000006", "d1000005", 5, message=asst(1733234406000, "second answer " + "z" * 400)),
+    e("compaction", "d1000007", "d1000006", 6, summary="## Goal\nold summary", firstKeptEntryId="d1000005", tokensBefore=900,
+      details={"readFiles": ["old.c"], "modifiedFiles": ["new.c"]}),
+    e("message", "d1000008", "d1000007", 7, message=user(1733234408000, "third")),
+    e("message", "d1000009", "d1000008", 8, message=tcall(1733234409000, [("edit", {"path": "new.c", "edits": []}), ("read", {"path": "z.c"})])),
+    e("message", "d100000a", "d1000009", 9, message=tres2(1733234410000, "call_1733234409000_0", "edit", "e")),
+    e("message", "d100000b", "d100000a", 10, message=tres2(1733234410001, "call_1733234409000_1", "read", "z")),
+    e("message", "d100000c", "d100000b", 11, message=asst(1733234411000, "third answer")),
+    e("message", "d100000d", "d100000c", 12, message=user(1733234412000, "fourth " + "q" * 300)),
+])
+write("cut_hook.jsonl", [
+    hdr(),
+    e("message", "e1000001", None, 0, message=user(1733234401000, "a")),
+    e("message", "e1000002", "e1000001", 1, message=asst(1733234402000, "b" * 200)),
+    e("compaction", "e1000003", "e1000002", 2, summary="hook summary", firstKeptEntryId="e1000002", tokensBefore=5, fromHook=True,
+      details={"readFiles": ["ignored.c"], "modifiedFiles": []}),
+    e("message", "e1000004", "e1000003", 3, message=user(1733234404000, "c" * 200)),
+    e("message", "e1000005", "e1000004", 4, message=asst(1733234405000, "d" * 200)),
+])

@@ -19,6 +19,8 @@ const oracle = process.env.PI_ORACLE ?? join(process.env.HOME!, "Code/amiga-pi/b
 const { SessionManager } = await import(pathToFileURL(join(oracle, "core/session-manager.ts")).href);
 const { convertToLlm } = await import(pathToFileURL(join(oracle, "core/messages.ts")).href);
 const { getCurrentSystemMessage } = await import(pathToFileURL(join(oracle, "ai/transcript.ts")).href);
+const { prepareCompaction, compact, estimateTokens, shouldCompact } = await import(pathToFileURL(join(oracle, "core/compaction/compaction.ts")).href);
+const { serializeConversation } = await import(pathToFileURL(join(oracle, "core/compaction/utils.ts")).href);
 const { getSystemMessageText } = await import(pathToFileURL(join(oracle, "ai/text.ts")).href);
 
 // ---- the text normaliser (mirrored in tests/test_pi_session.c) ----
@@ -38,8 +40,50 @@ function normalise(text: string): string {
 	return out;
 }
 
+// ---- compaction: prepareCompaction and compact() with a fake model ----
+// the model answers "SUMMARY n" with usage 100*n input tokens, so the combined usage and the order of
+// the calls are visible; the requests are captured (the prompt text is what C must send)
+const SUMMARY_USAGE = (n: number) => ({ input: 100 * n, output: 10 * n, cacheRead: n, cacheWrite: 2 * n, totalTokens: 113 * n,
+	cost: { input: 0.5 * n, output: 0.25 * n, cacheRead: 0, cacheWrite: 0, total: 0.75 * n } });
+async function compactionDump(sm: any, keep: number): Promise<string> {
+	const settings = { enabled: true, reserveTokens: 16384, keepRecentTokens: keep };
+	const prep = prepareCompaction(sm.getBranch(), settings);
+	let out = `prepare keep=${keep} `;
+	if (!prep) return out + "none\n";
+	const { settings: _s, fileOps, ...rest } = prep;
+	const fo = { read: [...fileOps.read], written: [...fileOps.written], edited: [...fileOps.edited] };
+	out += JSON.stringify({ ...rest, fileOps: fo }) + "\n";
+	const reqs: any[] = [];
+	let n = 0;
+	const streamFn = async (_m: any, ctx: any, opts: any) => {
+		n++;
+		reqs.push({ system: ctx.messages[0].content, prompt: ctx.messages[1].content[0].text, maxTokens: opts.maxTokens });
+		return { result: async () => ({ role: "assistant", content: [{ type: "text", text: `SUMMARY ${n}` }],
+			usage: SUMMARY_USAGE(n), stopReason: "stop", timestamp: 1 }) };
+	};
+	const model = { id: "m", provider: "p", maxTokens: 20000, reasoning: false, contextWindow: 200000 };
+	const r = await compact(prep, model, undefined, undefined, "focus on tests", undefined, undefined, streamFn);
+	out += `compact keep=${keep} ${JSON.stringify(r)}\n`;
+	for (const q of reqs) out += `request maxTokens=${q.maxTokens} system=${JSON.stringify(q.system)} prompt=${JSON.stringify(q.prompt)}\n`;
+	return out;
+}
+async function failureDump(sm: any): Promise<string> {
+	const prep = prepareCompaction(sm.getBranch(), { enabled: true, reserveTokens: 16384, keepRecentTokens: 5 });
+	if (!prep) return "";
+	let out = "";
+	for (const stop of ["error", "length"]) {
+		const streamFn = async () => ({ result: async () => ({ role: "assistant", content: [{ type: "text", text: "partial" }],
+			usage: SUMMARY_USAGE(1), stopReason: stop, errorMessage: stop === "error" ? "boom" : undefined, timestamp: 1 }) });
+		try {
+			await compact(prep, { id: "m", provider: "p", maxTokens: 100, reasoning: false }, undefined, undefined, undefined, undefined, undefined, streamFn);
+			out += `failure ${stop} none\n`;
+		} catch (e: any) { out += `failure ${stop} ${e.message}\n`; }
+	}
+	return out;
+}
+
 // ---- opening a fixture ----
-function dump(src: string, norm: boolean): string {
+async function dump(src: string, norm: boolean): Promise<string> {
 	const dir = mkdtempSync(join(tmpdir(), "pigen-"));
 	const path = join(dir, "s.jsonl");
 	copyFileSync(src, path);
@@ -86,6 +130,10 @@ function dump(src: string, norm: boolean): string {
 			const sys = getCurrentSystemMessage(ctx.messages);
 			out += `system ${sys === undefined ? "-" : JSON.stringify(sys)}\n`;
 			out += `systemtext ${sys === undefined ? "-" : JSON.stringify(getSystemMessageText(sys))}\n`;
+			for (const k of [20000, 5000, 5]) out += await compactionDump(sm, k);
+			out += await failureDump(sm);
+			// estimateTokens of every context message, shouldCompact at the edges
+			out += `tokens ${JSON.stringify(ctx.messages.map((m: any) => estimateTokens(m)))}\n`;
 		}
 	}
 	let file = readFileSync(path, "utf8");
@@ -99,7 +147,7 @@ function dump(src: string, norm: boolean): string {
 const di = process.argv.indexOf("--dump");
 if (di > 0) {
 	const f = process.argv[di + 1];
-	const d = dump(f, false);
+	const d = await dump(f, false);
 	const lines = readFileSync(f, "utf8").split("\n").filter((l) => l.trim()).length;
 	const m = /^entries (\d+)$/m.exec(d);
 	console.log(d.split("\nfile\n")[0]);
@@ -108,7 +156,7 @@ if (di > 0) {
 
 for (const f of readdirSync(sessions).filter((n) => n.endsWith(".jsonl")).sort()) {
 	const name = f.replace(/\.jsonl$/, "");
-	writeFileSync(join(sessions, name + ".expected"), dump(join(sessions, f), name === "mig_v1"));
+	writeFileSync(join(sessions, name + ".expected"), await dump(join(sessions, f), name === "mig_v1"));
 }
 
 // ---- the writer scenario ----

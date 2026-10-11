@@ -14,6 +14,10 @@ context {"messages":[{"role":"compactionSummary","summary":"All of it.","tokensB
 llm [{"role":"user","content":[{"type":"text","text":"The conversation history before this point was compacted into the following summary:\n\n<summary>\nAll of it.\n</summary>"}],"timestamp":1733234402000},{"role":"user","content":"q2","timestamp":1733234404000}]
 system -
 systemtext -
+prepare keep=20000 none
+prepare keep=5000 none
+prepare keep=5 none
+tokens [3,1]
 size same
 file
 {"type":"session","version":3,"id":"0193a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project"}

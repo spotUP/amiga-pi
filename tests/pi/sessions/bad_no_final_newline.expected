@@ -11,6 +11,10 @@ context {"messages":[{"role":"user","content":"no newline after me","timestamp":
 llm [{"role":"user","content":"no newline after me","timestamp":1733234401000}]
 system -
 systemtext -
+prepare keep=20000 none
+prepare keep=5000 none
+prepare keep=5 none
+tokens [5]
 size changed
 file
 {"type":"session","version":3,"id":"0193a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project"}

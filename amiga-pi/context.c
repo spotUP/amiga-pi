@@ -22,10 +22,13 @@ void ctx_free(pi_ctx *c)
         free(c->msg[i]);
     free(c->msg);
     free(c->msg_n);
+    free(c->esrc);
+    free(c->efirst);
+    free(c->ecnt);
     ctx_init(c);
 }
 
-static int ctx_add(pi_ctx *c, const char *s, long n)
+int ctx_push(pi_ctx *c, const char *s, long n)
 {
     char *z;
     if (c->n == c->cap) {
@@ -57,9 +60,40 @@ static int ctx_add(pi_ctx *c, const char *s, long n)
     return 0;
 }
 
+static int ctx_entry_add(pi_ctx *c, int src, int first, int cnt)
+{
+    if (c->ne == c->ecap) {
+        int nc = c->ecap ? c->ecap * 2 : 32;
+        int *a = (int *)realloc(c->esrc, (size_t)nc * sizeof(int));
+        int *b, *d;
+        if (!a) {
+            c->oom = 1;
+            return -1;
+        }
+        c->esrc = a;
+        b = (int *)realloc(c->efirst, (size_t)nc * sizeof(int));
+        if (!b) {
+            c->oom = 1;
+            return -1;
+        }
+        c->efirst = b;
+        d = (int *)realloc(c->ecnt, (size_t)nc * sizeof(int));
+        if (!d) {
+            c->oom = 1;
+            return -1;
+        }
+        c->ecnt = d;
+        c->ecap = nc;
+    }
+    c->esrc[c->ne] = src;
+    c->efirst[c->ne] = first;
+    c->ecnt[c->ne++] = cnt;
+    return 0;
+}
+
 static int ctx_add_jw(pi_ctx *c, jw *w)
 {
-    int rc = w->oom ? -1 : ctx_add(c, w->p, w->n);
+    int rc = w->oom ? -1 : ctx_push(c, w->p, w->n);
     jw_reset(w);
     return rc;
 }
@@ -71,18 +105,7 @@ static void ts_ms(jv o, jw *w)
     char s[64];
     llm_ts t;
     if (json_get(o, "timestamp", &v) && json_type(v) == J_STR && json_str(v, s, sizeof(s)) >= 0 && !s3_iso_read(s, &t)) {
-        /* seconds and milliseconds as one decimal number (a long is 32 bits on the Amiga) */
-        char ms[4];
-        ms[0] = (char)('0' + t.ms / 100 % 10);
-        ms[1] = (char)('0' + t.ms / 10 % 10);
-        ms[2] = (char)('0' + t.ms % 10);
-        ms[3] = 0;
-        if (t.sec == 0)
-            jw_long(w, t.ms);
-        else {
-            jw_long(w, t.sec);
-            jw_rawz(w, ms);
-        }
+        s3_ms(t, w);
     } else
         jw_rawz(w, "null");
 }
@@ -147,7 +170,7 @@ static int entry_messages(pi_s3 *st, int i, pi_ctx *c)
         } else
             rc = -2;
         if (rc == -2)
-            rc = ctx_add(c, m.p, m.n);
+            rc = ctx_push(c, m.p, m.n);
         else
             rc = rc ? -1 : ctx_add_jw(c, &w);
     } else if (type == S3_CUSTOM_MESSAGE) {
@@ -179,7 +202,7 @@ static int entry_messages(pi_s3 *st, int i, pi_ctx *c)
         }
         free(s);
     } else if (type == S3_COMPACTION) {
-        if (json_get(o, "systemMessage", &v) && json_type(v) != J_NULL && ctx_add(c, v.p, v.n))
+        if (json_get(o, "systemMessage", &v) && json_type(v) != J_NULL && ctx_push(c, v.p, v.n))
             rc = -1;
         jw_rawz(&w, "{\"role\":\"compactionSummary\"");
         first = 0;
@@ -345,11 +368,13 @@ int ctx_build(pi_s3 *st, int leaf, pi_ctx *c)
     for (i = 0; i < ne; i++) {
         int before = c->n;
         /* an older compaction kept inside the range contributes nothing */
-        if (st->e[ent[i]].type == S3_COMPACTION && i > 0)
-            continue;
-        if (entry_messages(st, ent[i], c))
-            goto out;
-        if (edit[i] >= 0 && edit_message(st, edit[i], c, before))
+        if (!(st->e[ent[i]].type == S3_COMPACTION && i > 0)) {
+            if (entry_messages(st, ent[i], c))
+                goto out;
+            if (edit[i] >= 0 && edit_message(st, edit[i], c, before))
+                goto out;
+        }
+        if (ctx_entry_add(c, ent[i], before, c->n - before))
             goto out;
     }
     rc = 0;
@@ -360,6 +385,28 @@ out:
     if (rc)
         ctx_free(c);
     return rc;
+}
+
+int ctx_entry_count(pi_s3 *st, int i)
+{
+    long n;
+    const char *t;
+    jv o, v;
+    int type = st->e[i].type;
+    if (type == S3_MESSAGE || type == S3_CUSTOM_MESSAGE)
+        return 1;
+    if (type != S3_BRANCH_SUMMARY && type != S3_COMPACTION)
+        return 0;
+    t = s3_text(st, i, &n);
+    if (!t || json_parse(t, n, &o))
+        return 0;
+    if (type == S3_BRANCH_SUMMARY) {
+        char *z = json_get(o, "summary", &v) && json_type(v) == J_STR ? json_strdup(v, &n) : 0;
+        int any = z && *z;
+        free(z);
+        return any;
+    }
+    return json_get(o, "systemMessage", &v) && json_type(v) != J_NULL ? 2 : 1;
 }
 
 void ctx_json(const pi_ctx *c, jw *out)

@@ -66,6 +66,8 @@ typedef struct pi_s3 {
     void *u;
     int utc;                    /* the clock is UTC: timestamps end in Z */
     unsigned long seed;         /* the id generator (cl_uuid) */
+    llm_ts at;                  /* the next entry's time when at_set (an entry whose body carries its own time) */
+    int at_set;
     int oom;
     long appends;               /* lines appended to a file (the tests' sentinel) */
     long reads;                 /* lines read back for an off-branch entry */
@@ -91,7 +93,9 @@ int s3_thinking(pi_s3 *st, const char *level);
 int s3_model(pi_s3 *st, const char *provider, const char *model);
 int s3_usage(pi_s3 *st, const char *kind, const char *provider, const char *model, const llm_usage *u,
              const char *note);
-/* first_kept -1: this entry's own id (retain none); details, usage, system raw JSON or 0; from_hook -1 absent */
+/* first_kept -1: this entry's own id (retain none); details, usage raw JSON or 0; from_hook -1 absent;
+ * system the system message (raw JSON, or 0): its "timestamp" is made the entry's own time in milliseconds, as pi's
+ * appendCompaction does */
 int s3_compaction(pi_s3 *st, const char *summary, int first_kept, long tokens_before, const char *details,
                   const char *usage, int from_hook, const char *system);
 /* pi's branchWithSummary: the leaf moved to from (-1 the root) and the summary appended there */
@@ -140,6 +144,8 @@ int s3_list(cl_sys *sys, const char *dir, int max, void (*fn)(void *c, const cha
  * else appended; a member named drop left out (drop 0: none). 0, -1 out of memory */
 int s3_obj_put(jv o, jw *out, const char *key, const char *val, const char *drop);
 
+/* t as pi's Date.getTime(): milliseconds since 1970 as a decimal number, appended to w */
+void s3_ms(llm_ts t, jw *w);
 /* ISO 8601 of t with milliseconds, Z when utc: out at least 32 bytes */
 void s3_iso(llm_ts t, int utc, char *out);
 /* an ISO 8601 time back to t (the zone ignored: the clock's frame): 0, -1 */
