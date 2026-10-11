@@ -725,6 +725,7 @@ static void test_tree(void)
     s3_init(&st, &sys, adv_now, 0, 1, 2);
     CHECK_INT(s3_open(&st, path), 0);
     CHECK_INT(count_type(&st, S3_BRANCH_SUMMARY), 1);
+    CHECK_INT(count_type(&st, S3_LABEL), 0);
     for (i = 0; i < st.n; i++)
         if (st.e[i].type == S3_BRANCH_SUMMARY) {
             long n;
@@ -737,6 +738,34 @@ static void test_tree(void)
             CHECK(st.e[i].parent >= 0 && st.e[st.e[i].parent].type != S3_BRANCH_SUMMARY);
         }
     CHECK(st.leaf >= 0 && st.e[st.leaf].type == S3_BRANCH_SUMMARY);
+    s3_free(&st);
+
+    /* summarize-with replaces pi's prompt; -l labels the summary */
+    wipe();
+    {
+        const char *const l[] = { "one", "two", "/tree 1 summarize-with Say only OK -l checkpoint", "/exit", 0 };
+        CHECK_INT(script(l, 3, argv, ARGC(argv)), 0);
+    }
+    CHECK(strstr(ps.body[2], "Say only OK") != 0 && strstr(ps.body[2], "## Goal") == 0 &&
+          strstr(ps.body[2], "Additional focus") == 0);
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 3);
+    CHECK_INT(s3_open(&st, path), 0);
+    CHECK_INT(count_type(&st, S3_LABEL), 1);
+    CHECK(st.leaf >= 0 && st.e[st.leaf].type == S3_LABEL && s3_label_of(&st, st.e[st.leaf].target) != 0);
+    CHECK(s3_label_of(&st, st.e[st.leaf].target) && !strcmp(s3_label_of(&st, st.e[st.leaf].target), "checkpoint"));
+    CHECK_INT(st.e[st.e[st.leaf].target].type, S3_BRANCH_SUMMARY);
+    s3_free(&st);
+    /* a label on the entry moved to, without a summary */
+    wipe();
+    {
+        const char *const l[] = { "one", "two", "/tree 2 -l mark", "/exit", 0 };
+        CHECK_INT(script(l, 2, argv, ARGC(argv)), 0);
+    }
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 4);
+    CHECK_INT(s3_open(&st, path), 0);
+    CHECK_INT(count_type(&st, S3_LABEL), 1);
     s3_free(&st);
 }
 
@@ -836,6 +865,47 @@ static void test_names_labels(void)
     s3_free(&st);
 }
 
+/* E8: every file and directory the runs above made in the data directory has a name of at most 30 characters */
+typedef struct walk {
+    cl_sys *sy;
+    const char *dir;
+    int longest, depth, files;
+} walk;
+
+static int longest_in(cl_sys *sy, const char *dir, int depth, int *files);
+
+static int walk_fn(void *c, const cl_dirent *e)
+{
+    walk *w = (walk *)c;
+    int l = (int)strlen(e->name);
+    if (l > w->longest)
+        w->longest = l;
+    w->files++;
+    if (e->dir && w->depth < 8) {
+        char p[700];
+        strcpy(p, w->dir);
+        strcat(p, "/");
+        strcat(p, e->name);
+        l = longest_in(w->sy, p, w->depth + 1, &w->files);
+        if (l > w->longest)
+            w->longest = l;
+    }
+    return 0;
+}
+
+static int longest_in(cl_sys *sy, const char *dir, int depth, int *files)
+{
+    walk w;
+    w.sy = sy;
+    w.dir = dir;
+    w.longest = 0;
+    w.depth = depth;
+    w.files = 0;
+    sy->list(sy->u, dir, walk_fn, &w);
+    *files += w.files;
+    return w.longest;
+}
+
 void suite_pi_store(void)
 {
     const char *base = getenv("TMPDIR");
@@ -861,6 +931,11 @@ void suite_pi_store(void)
     test_tree();
     test_fork();
     test_names_labels();
+    {
+        int files = 0, l = longest_in(&sys, data, 0, &files);
+        CHECK(files >= 2);
+        CHECK_INT(l, 30);               /* a session file is exactly 30: the limit is used, never passed */
+    }
     jw_free(&out);
     ps_reset();
     {

@@ -4,6 +4,8 @@
  *   /tree N              the leaf moves to entry N: a user message leaves the leaf at its parent and its text comes
  *                        back to the input; anything else becomes the leaf
  *   /tree N summarize [focus]   the same, with a summary of the branch left attached at the new leaf
+ *   /tree N summarize-with PROMPT   the summary asked for with PROMPT instead of the default one
+ *   /tree N ... -l LABEL   the summary (else the entry moved to) gets the label
  *   /fork                the user messages of the branch, numbered
  *   /fork N              a new session holding the branch up to just before user message N; its text comes back
  *   /clone               a new session holding the whole branch
@@ -324,7 +326,8 @@ static void message_text(pi_s3 *s, int i, jw *out)
 }
 
 /* navigateTree */
-static void navigate(pi_store *st, int target, int summarize, const char *instr, jw *reply, jw *editor)
+static void navigate(pi_store *st, int target, int summarize, const char *instr, int replace, const char *label,
+                     jw *reply, jw *editor)
 {
     pi_s3 *s = &st->s3;
     int new_leaf, role_user, *ent = 0, anc, n = 0;
@@ -347,7 +350,7 @@ static void navigate(pi_store *st, int target, int summarize, const char *instr,
         }
         if (n > 0) {
             int rc;
-            rc = cp_branch_summary(s, ent, n, st->s->model.context_window, CP_RESERVE, st->s->model.max_tokens, instr, 0,
+            rc = cp_branch_summary(s, ent, n, st->s->model.context_window, CP_RESERVE, st->s->model.max_tokens, instr, replace,
                                    pi_store_complete, st, &b, err, sizeof(err));
             if (rc == 1) {
                 jw_rawz(reply, "[INFO] Stopped.");
@@ -375,13 +378,19 @@ static void navigate(pi_store *st, int target, int summarize, const char *instr,
     } else
         new_leaf = target;
     if (have_sum) {
-        if (s3_branch_summary(s, new_leaf, sum.p, details.p, has_usage ? usage.p : 0, 0) < 0) {
+        int sidx = s3_branch_summary(s, new_leaf, sum.p, details.p, has_usage ? usage.p : 0, 0);
+        if (sidx < 0) {
             jw_rawz(reply, "[ERROR] ");
             jw_rawz(reply, s->err[0] ? s->err : "the summary could not be recorded");
             goto done;
         }
-    } else
+        if (label && *label)
+            s3_label(s, sidx, label);       /* on the summary, which stays the leaf's parent chain */
+    } else {
         s3_set_leaf(s, new_leaf);
+        if (label && *label)
+            s3_label(s, target, label);
+    }
     if (pi_store_reload(st)) {
         jw_rawz(reply, "[ERROR] the session could not be reloaded");
         goto done;
@@ -474,13 +483,36 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
         while (*a >= '0' && *a <= '9')
             a++;
         a = skip_ws(a);
-        if (*a && !word(a, "summarize")) {
-            jw_rawz(reply, "[ERROR] After the number: summarize [focus]");
-            return 1;
-        }
         {
-            const char *focus = *a ? word(a, "summarize") : 0;
-            navigate(st, idx, *a != 0, focus && *focus ? focus : 0, reply, editor);
+            /* [summarize [focus] | summarize-with prompt] [-l label] */
+            char buf[512], *lab = 0, *cut;
+            const char *focus = 0;
+            int sum = 0, replace = 0;
+            cl_copy(buf, a, sizeof(buf));
+            cut = strstr(buf, " -l ");
+            if (cut) {
+                *cut = 0;
+                lab = cut + 4;
+            } else if (!strncmp(buf, "-l ", 3)) {
+                lab = buf + 3;
+                buf[0] = 0;
+            }
+            if (lab)
+                lab = (char *)skip_ws(lab);
+            if (buf[0]) {
+                const char *w;
+                if ((w = word(buf, "summarize")) != 0) {
+                    sum = 1;
+                    focus = *w ? w : 0;
+                } else if ((w = word(buf, "summarize-with")) != 0) {
+                    sum = replace = 1;
+                    focus = *w ? w : 0;
+                } else {
+                    jw_rawz(reply, "[ERROR] After the number: summarize [focus], summarize-with PROMPT, -l LABEL");
+                    return 1;
+                }
+            }
+            navigate(st, idx, sum, focus, replace, lab, reply, editor);
         }
         return 1;
     }
