@@ -211,11 +211,6 @@ static int answer(pi_session *s, stream *t)
     llm_sink k;
     jw tools, m, hdr;
     int i;
-    if (s->prepare && s->prepare(s->prepare_u, s)) {
-        /* the store could not make the conversation fit: the prompt stops with its reason */
-        llm_acc_init(&t->acc, s->model.api, s->model.provider);
-        return -3;
-    }
     if (llm_prepare(&s->model, (const char *const *)s->msg, s->msg_n, s->nmsg, now(s), &v)) {
         llm_view_free(&v);
         s->oom = 1;
@@ -374,11 +369,23 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
 
 /* ---- the loop ---- */
 
+/* agent_end, then pi's check after the run when it gave an answer */
+static int run_end(pi_session *s, int answered)
+{
+    emit_simple(s, PE_AGENT_END);
+    if (answered && s->compact)
+        s->compact(s->compact_u, s, PI_CP_END);
+    return s->stop;
+}
+
 int pi_prompt(pi_session *s, const char *text)
 {
     jw w, c;
     int i, round;
     s->err[0] = 0;
+    /* the context against the window before the user message is kept */
+    if (s->compact)
+        s->compact(s->compact_u, s, PI_CP_PROMPT);
     emit_simple(s, PE_AGENT_START);
     emit_simple(s, PE_TURN_START);
     jw_init(&c);
@@ -400,8 +407,11 @@ int pi_prompt(pi_session *s, const char *text)
         stream t;
         llm_info inf;
         int k, n, stopped = 0;
-        if (round)
+        if (round) {
+            if (s->compact)
+                s->compact(s->compact_u, s, PI_CP_TURN);
             emit_simple(s, PE_TURN_START);
+        }
         pi_agent_rounds++;
         s->rounds++;
         memset(&t, 0, sizeof(t));
@@ -410,11 +420,9 @@ int pi_prompt(pi_session *s, const char *text)
         if (i < 0) {
             llm_acc_free(&t.acc);
             s->stop = LS_ERROR;
-            if (i != -3)
-                cl_copy(s->err, "out of memory", sizeof(s->err));
+            cl_copy(s->err, "out of memory", sizeof(s->err));
             emit_simple(s, PE_TURN_END);
-            emit_simple(s, PE_AGENT_END);
-            return s->stop;
+            return run_end(s, round > 0);
         }
         if (!t.started)
             emit_msg(s, PE_MESSAGE_START, i, LR_ASSISTANT);
@@ -425,8 +433,7 @@ int pi_prompt(pi_session *s, const char *text)
         if (inf.stop == LS_ERROR || inf.stop == LS_ABORTED) {
             llm_acc_free(&t.acc);
             emit_simple(s, PE_TURN_END);
-            emit_simple(s, PE_AGENT_END);
-            return s->stop;
+            return run_end(s, 1);
         }
         n = llm_acc_tools(&t.acc);
         for (k = 0; k < n && !stopped; k++)
@@ -437,14 +444,11 @@ int pi_prompt(pi_session *s, const char *text)
             cl_copy(s->err, "Operation aborted", sizeof(s->err));
         }
         emit_simple(s, PE_TURN_END);
-        if (!n || stopped) {
-            emit_simple(s, PE_AGENT_END);
-            return s->stop;
-        }
+        if (!n || stopped)
+            return run_end(s, !stopped);        /* pi does not check a run the user stopped */
     }
     cl_copy(s->err, "stopped after 64 rounds", sizeof(s->err));
-    emit_simple(s, PE_AGENT_END);
-    return s->stop;
+    return run_end(s, 1);
 }
 
 long pi_last_text(const pi_session *s, jw *out)

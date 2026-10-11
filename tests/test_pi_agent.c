@@ -216,6 +216,37 @@ static void test_reach_openai(void)
     down();
 }
 
+/* ---- the session store's compaction checks, at pi's points ---- */
+
+static void check_rec(void *u, pi_session *s, int when)
+{
+    static const char *const names[] = { "check prompt\n", "check turn\n", "check end\n" };
+    (void)u;
+    (void)s;
+    jw_rawz(&evlog, when >= 0 && when <= 2 ? names[when] : "check ?\n");
+}
+
+/* pi (agent-session.ts prompt(), agent-loop.ts prepareNextTurn, _handlePostAgentRun): before the agent starts
+ * and the user message is kept, between turn_end and the next turn_start only (never before the first
+ * request), after agent_end */
+static void test_compaction_points(void)
+{
+    up(0, 1);
+    record();
+    ses.compact = check_rec;
+    ps_sse("../pi/openai_tools.sse", 0);
+    ps_sse("../pi/openai_final.sse", 0);
+    CHECK_INT(pi_prompt(&ses, "show me S/Startup-Sequence"), LS_STOP);
+    CHECK_STR(evlog.p ? evlog.p : "",
+              "check prompt\nagent_start\nturn_start\nmessage_start user\nmessage_end user\n"
+              "message_start assistant\nmessage_end assistant\n"
+              "tool_execution_start read\ntool_execution_end read\nmessage_start toolResult\nmessage_end toolResult\n"
+              "tool_execution_start ls\ntool_execution_end ls\nmessage_start toolResult\nmessage_end toolResult\n"
+              "turn_end\ncheck turn\nturn_start\nmessage_start assistant\nmessage_end assistant\nturn_end\n"
+              "agent_end\ncheck end\n");
+    down();
+}
+
 /* ---- C9: the same turn on Anthropic ---- */
 
 static void test_reach_anthropic(void)
@@ -577,6 +608,7 @@ static void test_app(void)
 void suite_pi_agent(void)
 {
     test_reach_openai();
+    test_compaction_points();
     test_reach_anthropic();
     test_stops();
     test_abort();

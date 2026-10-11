@@ -46,7 +46,6 @@ typedef struct pi_store {
     long compactions;           /* compaction entries appended */
     long keep, reserve;         /* compaction settings (settings.json "compaction"; pi's defaults) */
     int cp_enabled;
-    char editor[4096];          /* a message taken back by /tree, waiting in the line mode's next input */
     char err[200];
 } pi_store;
 
