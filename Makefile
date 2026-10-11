@@ -23,7 +23,7 @@ PI_HDR := $(wildcard amiga-pi/*.h)
 # engine (C:Claude's screen tests run on it) and the test helpers
 VT_HOST := $(VIEW_CORE) $(call cl_src,tty/bmsg.c handler/clipfmt.c)
 VT_TEST := $(call cl_src,engine/vtengine.c tests/harness.c tests/claude_load.c tests/claude_screen.c tests/pi_stub.c)
-PI_TESTS := tests/main.c tests/test_pi_agent.c tests/test_pi_tools.c tests/test_pi_session.c tests/test_pi_store.c tests/test_pi_model.c
+PI_TESTS := tests/main.c tests/test_pi_agent.c tests/test_pi_tools.c tests/test_pi_session.c tests/test_pi_store.c tests/test_pi_model.c tests/test_pi_model_reach.c
 
 .PHONY: test layers lua-probe lua-probe-host amiga
 # ONLY=pi_agent the agent suite alone, ONLY=pi_tools the tools and the gate, ONLY=pi_session the session file, ONLY=pi_store the store through pi_app, ONLY=pi_model the registry, models.json, handoff and the model switch; ONLY=layers the layering check alone

@@ -19,15 +19,15 @@ Rows per group (131 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tu
 | API: google-vertex, mistral, openai-codex, pi-messages | not targeted by name; openai-compatible hosts cover Mistral | not planned: no phase; revisit after M | - |
 | Content blocks text/thinking/image/toolCall | llm/llm.h, plus raw{} for unmodelled blocks | planned | B1 |
 | Messages system/user/assistant/toolResult | llm/llm.h, JSON text + small struct | planned | B1 |
-| Usage and cost | llm/llm.h usage, cost from model descriptor | planned | B1, B11 |
+| Usage and cost | llm/llm.h usage; the message's cost from the model's price (llm_acc_model), `model` is the configured id and the server's own name `responseModel` | done (F) | B1, F |
 | Stream events | llm/event.h | planned | B2 |
 | Event accumulator (interleaved contentIndex) | llm/accum.c | planned | B2 |
-| Model descriptor | struct from models.json | planned | B, F |
-| Thinking levels off..max, thinkingLevelMap | clamped per model, mapped to backend field | planned | F |
-| models.json (providers, modelOverrides, $VAR / literal / !command values) | ENVARC:amiga-pi/models.json via claude/json.c | planned | B, F |
+| Model descriptor | llm_model (llm/backend.h) in llm/registry.c; bundled catalog llm/models_builtin.json is hand-made (pi's generated catalog data is not in its repository): Anthropic from C:Claude's price table, gpt-5.5 / gpt-4.1 with GPT-5 / 4.1 list prices, an Ollama example; DIFFERENCE: values are not pi's catalog | done (F) | F1 |
+| Thinking levels off..max, thinkingLevelMap | pi's getSupportedThinkingLevels / clampThinkingLevel (oracle-tested); anthropic-messages: budget (pi's budgets 1024/2048/8192/16384, answer room 1024) / adaptive with effort / disabled, interleaved-thinking beta header; openai-completions: reasoning_effort. DIFFERENCES: only thinkingFormat "openai" (zai, qwen, openrouter, together, deepseek, string-thinking, chat-template send no thinking fields); max_tokens is not clamped to the remaining window (clampMaxTokensToContext); no per-level samplingParams; settings thinkingBudgets ignored | done (F) | F |
+| models.json (providers, modelOverrides, $VAR / literal / !command values) | llm/models_json.c over llm/registry.c: provider baseUrl/api/apiKey/headers/authHeader/compat, models (add/replace), modelOverrides, comments and BOM; a bad file is a warning and the catalog stays. `!command` runs once per process (pi's resolveConfigValue caches; its docs say per request). DIFFERENCES: inputLimits, promptCache, samplingParams*, oauth and most compat flags accepted and ignored; error text is shorter than pi's typebox list | done (F) | F2 |
 | Compat flags (maxTokensField, supportsDeveloperRole, supportsUsageInStreaming, requiresToolResultName, ...) | 4 flags first, plus detection order default->override (addendum 1) | partial: 4 of the flags | B6 |
-| Credentials order: --api-key > auth.json > models.json > env | ENVARC:amiga-pi/auth.json (api_key type) | planned | F |
-| Cross-provider handoff (thinking to text, id normalisation, 'No result provided') | llm transform step (addendum 2) | planned | F |
+| Credentials order: --api-key > auth.json > models.json > env | llm/creds.c; auth.json api_key entries (key is a config value); env is <PROVIDER>_API_KEY only; no OAuth | done (F) | F2 |
+| Cross-provider handoff (thinking to text, id normalisation, 'No result provided') | llm/handoff.c = pi's transformMessages (same model = provider + api + id; foreign thinking becomes PLAIN text, not tags; ids per api; images downgraded; 12 oracle cases) then llm_transform | done (F) | F3 |
 | Retry (3, 2000 ms, 60000 ms cap, Retry-After), idle timeout 300 s | llm/request.c | planned | B3 |
 | Abort (stopReason aborted, partial kept) | Ctrl+C into llm/request.c | planned | B3 |
 | LAN rule for http:// | llm/lan.c | planned | B8 |
@@ -56,7 +56,7 @@ Rows per group (131 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tu
 | Project trust (trust.json) | reuse claude/trust.c | planned | G |
 | Context files AGENTS.md / CLAUDE.md (+override), SYSTEM.md, APPEND_SYSTEM.md | agent dir then ancestors | planned | G |
 | Permissions: none by default; gate as extension | amiga-pi/ext_gate.c on tool_call: claude/config.c rules (cfg_decide, deny > ask > allow) and C:Claude's ask rule (perm_must_ask), the question ui_ask; permissionGate in ENVARC:amiga-pi/settings.json, --gate / --no-gate; print mode refuses what would ask; "yes, always in this project" keeps C:Claude's rule for the call (claude/config.c cfg_rule_for) in <data dir>/permissions/--<cwd>--.json (the data-directory rule: UP-Term:var/amiga-pi, else ENVARC:amiga-pi; the name as pi names its session directories), read back at the next start | done (D, parity) | D6 |
-| Slash commands (/model /tree /fork /clone /compact /settings /reload /export) | slash table in amiga-pi | planned | C, E, F, H |
+| Slash commands (/model /thinking /tree /fork /clone /compact /settings /reload /export) | slash table in amiga-pi | planned | C, E, F, H |
 | /export HTML | - | not planned: no HTML exporter worth the heap; JSONL is the export | - |
 | /share | - | not planned: uploads a session to a pi service | - |
 | ! and !! shell escapes | user_bash through the bash tool | planned | D |
@@ -209,3 +209,5 @@ Phase E (2026-10-11). Every row below was compared with pi's own code: `tools/pi
 | mcp.json config | JSON loader | planned | K |
 | OAuth with dynamic client registration | - | not planned until probe O1 shows feasibility | O |
 | Result truncation over 20 KB to temp file | shared truncation helper | planned | K |
+
+Phase F (2026-10-11). Models and the switch: `/model` is a numbered list (providers with a credential, or a plain-http endpoint) and `/model <number|provider/pattern>` instead of pi's full-screen selector; `/thinking [level]`; `--provider`, `--thinking`, `--api-key`, `--list-models [search]`; `provider/id:level` patterns as pi's resolveCliModel (ids sorted with strcmp, not ICU localeCompare). The switch appends model_change and, only when the clamped level changed, thinking_level_change (pi's setModel); a new session records the real starting level (pi default "medium", "off" for a model without reasoning); resume restores it from the branch (E7's thinking half). Context window and cost come from the registry for every model; the status line shows model, level and context left; `/session` shows cost. A provider the registry does not know with `--base-url` is kept as the old form (not in pi). Not built: Ctrl+P cycling, scoped models, per-model thinking defaults in settings, /login.

@@ -641,6 +641,199 @@ static void test_handoff(void)
     free(exp);
 }
 
+/* ---- F3b: the thinking level on the wire (pi's anthropic streamSimple / buildParams and openai-completions) ---- */
+
+static const char user_msg[] = "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\"}],\"timestamp\":1760100000000}";
+
+/* the request body of model m at thinking level `level`, max_tokens `mt` (0: the model's) */
+static void wire(const llm_model *m, int level, long mt, jw *w, char *xh, long xcap)
+{
+    const char *msgs[1];
+    long mn[1];
+    llm_ctx c;
+    const llm_backend *be = llm_backend_of(m->api);
+    msgs[0] = user_msg;
+    mn[0] = (long)strlen(user_msg);
+    memset(&c, 0, sizeof(c));
+    c.model = m;
+    c.msgs = msgs;
+    c.msg_n = mn;
+    c.nmsg = 1;
+    c.thinking = level;
+    c.max_tokens = mt;
+    jw_init(w);
+    CHECK_INT(be->body(&c, w), 0);
+    xh[0] = 0;
+    if (be->xhead)
+        be->xhead(&c, xh, xcap);
+}
+
+static void test_wire(void)
+{
+    llm_reg r;
+    llm_model haiku, opus, gpt, grok, tiny, nooff;
+    const llm_model *f;
+    jw w;
+    char xh[200];
+    llm_reg_init(&r);
+    CHECK_INT(llm_reg_builtin(&r), 0);
+    haiku = *llm_reg_find(&r, "anthropic", "claude-haiku-4-5");
+    opus = *llm_reg_find(&r, "anthropic", "claude-opus-5-5");
+    gpt = *llm_reg_find(&r, "openai", "gpt-5.5");
+    f = llm_reg_find(&r, "openai", "gpt-4.1");
+    /* budget thinking: the level's tokens, the answer's room kept (adjustMaxTokensForThinking) */
+    wire(&haiku, LT_MEDIUM, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"max_tokens\":64000,") != 0);
+    CHECK(strstr(w.p, "\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":8192,\"display\":\"summarized\"}") != 0);
+    CHECK_STR(xh, "anthropic-beta: interleaved-thinking-2025-05-14\r\n");
+    jw_free(&w);
+    wire(&haiku, LT_HIGH, 2000, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"max_tokens\":18384,") != 0 && strstr(w.p, "\"budget_tokens\":16384,") != 0);
+    jw_free(&w);
+    wire(&haiku, LT_XHIGH, 0, &w, xh, sizeof(xh));     /* haiku has no xhigh: high */
+    CHECK(strstr(w.p, "\"budget_tokens\":16384,") != 0);
+    jw_free(&w);
+    tiny = haiku;
+    tiny.max_tokens = 4000;
+    wire(&tiny, LT_HIGH, 0, &w, xh, sizeof(xh));       /* the budget cannot take the whole answer */
+    CHECK(strstr(w.p, "\"max_tokens\":4000,") != 0 && strstr(w.p, "\"budget_tokens\":2976,") != 0);
+    jw_free(&w);
+    wire(&haiku, LT_MINIMAL, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"budget_tokens\":1024,") != 0);
+    jw_free(&w);
+    /* off: thinking disabled, unless the model says off is unsupported */
+    wire(&haiku, LT_OFF, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"thinking\":{\"type\":\"disabled\"}") != 0 && xh[0] == 0);
+    CHECK(strstr(w.p, "\"max_tokens\":64000,") != 0);
+    jw_free(&w);
+    nooff = haiku;
+    nooff.thinking_map[LT_OFF].kind = LTM_NULL;
+    wire(&nooff, LT_OFF, 0, &w, xh, sizeof(xh));       /* clamps up to minimal: a budget */
+    CHECK(strstr(w.p, "\"budget_tokens\":1024,") != 0);
+    jw_free(&w);
+    /* adaptive thinking: the effort, from the model's map or pi's levels */
+    wire(&opus, LT_MINIMAL, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\"},\"output_config\":{\"effort\":\"low\"}") != 0);
+    CHECK(xh[0] == 0 && strstr(w.p, "\"max_tokens\":32000,") != 0);
+    jw_free(&w);
+    wire(&opus, LT_MEDIUM, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"effort\":\"medium\"}") != 0);
+    jw_free(&w);
+    wire(&opus, LT_XHIGH, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"effort\":\"xhigh\"}") != 0);
+    jw_free(&w);
+    wire(&opus, LT_MAX, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"effort\":\"max\"}") != 0);
+    jw_free(&w);
+    wire(&opus, LT_OFF, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"thinking\":{\"type\":\"disabled\"}") != 0 && strstr(w.p, "output_config") == 0);
+    jw_free(&w);
+    /* a model without reasoning sends none of it */
+    {
+        llm_model plain = haiku;
+        plain.reasoning = 0;
+        wire(&plain, LT_HIGH, 0, &w, xh, sizeof(xh));
+        CHECK(strstr(w.p, "thinking") == 0 && xh[0] == 0);
+        jw_free(&w);
+    }
+    /* openai-completions: reasoning_effort = the level (or its map), nothing for off */
+    wire(&gpt, LT_HIGH, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"reasoning_effort\":\"high\"") != 0);
+    jw_free(&w);
+    wire(&gpt, LT_XHIGH, 0, &w, xh, sizeof(xh));      /* unsupported without a map: high */
+    CHECK(strstr(w.p, "\"reasoning_effort\":\"high\"") != 0);
+    jw_free(&w);
+    wire(&gpt, LT_OFF, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "reasoning_effort") == 0);
+    jw_free(&w);
+    gpt.thinking_map[LT_OFF].kind = LTM_STR;
+    gpt.thinking_map[LT_OFF].val = "none";
+    gpt.thinking_map[LT_LOW].kind = LTM_STR;
+    gpt.thinking_map[LT_LOW].val = "minimal";
+    wire(&gpt, LT_OFF, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"reasoning_effort\":\"none\"") != 0);
+    jw_free(&w);
+    wire(&gpt, LT_LOW, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "\"reasoning_effort\":\"minimal\"") != 0);
+    jw_free(&w);
+    wire(f, LT_HIGH, 0, &w, xh, sizeof(xh));           /* gpt-4.1 does not reason */
+    CHECK(strstr(w.p, "reasoning_effort") == 0);
+    jw_free(&w);
+    grok = gpt;
+    grok.provider = "xai";                              /* pi's detectCompat: no reasoning_effort for xAI */
+    grok.base_url = "https://api.x.ai/v1";
+    wire(&grok, LT_HIGH, 0, &w, xh, sizeof(xh));
+    CHECK(strstr(w.p, "reasoning_effort") == 0);
+    jw_free(&w);
+    llm_reg_free(&r);
+}
+
+/* a thinking block goes back to the model that wrote it the way each API takes it */
+static void test_replay(void)
+{
+    llm_model oa, an;
+    llm_reg r;
+    jw w;
+    char xh[8];
+    const char *msgs[2];
+    long mn[2];
+    llm_ctx c;
+    llm_view v;
+    llm_ts ts;
+    static const char sig_ans[] =
+        "{\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"first\",\"thinkingSignature\":\"reasoning_content\"},"
+        "{\"type\":\"thinking\",\"thinking\":\"second\",\"thinkingSignature\":\"reasoning_content\"},{\"type\":\"text\",\"text\":\"done\"}],"
+        "\"api\":\"openai-completions\",\"provider\":\"openai\",\"model\":\"gpt-5.5\",\"usage\":{\"input\":1,\"output\":1,\"cacheRead\":0,"
+        "\"cacheWrite\":0,\"totalTokens\":2,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},"
+        "\"stopReason\":\"stop\",\"timestamp\":1760100000001}";
+    (void)xh;
+    llm_reg_init(&r);
+    CHECK_INT(llm_reg_builtin(&r), 0);
+    oa = *llm_reg_find(&r, "openai", "gpt-5.5");
+    an = *llm_reg_find(&r, "anthropic", "claude-opus-5-5");
+    msgs[0] = user_msg;
+    mn[0] = (long)strlen(user_msg);
+    msgs[1] = sig_ans;
+    mn[1] = (long)strlen(sig_ans);
+    ts.sec = 1760100000L;
+    ts.ms = 0;
+    /* the same model: the reasoning field the signature names carries the thinking joined with a newline */
+    CHECK_INT(llm_prepare(&oa, msgs, mn, 2, ts, &v), 0);
+    memset(&c, 0, sizeof(c));
+    c.model = &oa;
+    c.msgs = v.m;
+    c.msg_n = v.n;
+    c.nmsg = v.count;
+    jw_init(&w);
+    CHECK_INT(llm_be_openai_chat.body(&c, &w), 0);
+    CHECK(strstr(w.p, "{\"role\":\"assistant\",\"content\":\"done\",\"reasoning_content\":\"first\\nsecond\"}") != 0);
+    jw_free(&w);
+    /* requiresThinkingAsText: plain text before the answer, joined with a blank line */
+    oa.compat.thinking_as_text = 1;
+    c.model = &oa;
+    jw_init(&w);
+    CHECK_INT(llm_be_openai_chat.body(&c, &w), 0);
+    CHECK(strstr(w.p, "{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"first\\n\\nsecond\"},"
+                      "{\"type\":\"text\",\"text\":\"done\"}]}") != 0);
+    jw_free(&w);
+    llm_view_free(&v);
+    /* to Anthropic: not its signature, so text */
+    CHECK_INT(llm_prepare(&an, msgs, mn, 2, ts, &v), 0);
+    c.model = &an;
+    c.msgs = v.m;
+    c.msg_n = v.n;
+    c.nmsg = v.count;
+    jw_init(&w);
+    CHECK_INT(llm_be_anthropic.body(&c, &w), 0);
+    CHECK(strstr(w.p, "{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"first\"},{\"type\":\"text\",\"text\":\"second\"},"
+                      "{\"type\":\"text\",\"text\":\"done\"}]}") != 0);
+    jw_free(&w);
+    llm_view_free(&v);
+    llm_reg_free(&r);
+}
+
+void suite_pi_model_reach(void);
+
 void suite_pi_model(void)
 {
     test_catalog();
@@ -652,4 +845,7 @@ void suite_pi_model(void)
     test_headers();
     test_hash();
     test_handoff();
+    test_wire();
+    test_replay();
+    suite_pi_model_reach();
 }

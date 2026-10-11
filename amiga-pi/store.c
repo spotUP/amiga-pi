@@ -650,6 +650,11 @@ int pi_store_attach(pi_store *st, pi_session *s)
         /* a new session records what it starts with, so it can be restored on resume (sdk.ts) */
         if (s3_model(&st->s3, s->model.provider, s->model.id) < 0 || s3_thinking(&st->s3, llm_think_name(s->thinking)) < 0)
             return -1;
+    } else {
+        /* an older session without a level: pi records the one it starts with (sdk.ts) */
+        char lv[32];
+        if (!pi_store_level(st, lv, sizeof(lv)) && s3_thinking(&st->s3, llm_think_name(s->thinking)) < 0)
+            return -1;
     }
     if (load_messages(st))
         return -1;

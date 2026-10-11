@@ -124,9 +124,27 @@ static void attach(pi_ui *p, pi_session *s, cl_io *io, int print)
         s->ask = 0;             /* print mode: nobody answers the gate */
 }
 
+/* the status line: the model, the thinking level, the context left of the model's window (the last answer's tokens) */
+static void status(pi_ui *p)
+{
+    cl_tui *t = p->ui.tui;
+    pi_session *s = p->s;
+    if (!t)
+        return;
+    t->model = s->model.id;
+    t->effort = s->model.reasoning ? llm_think_name(s->thinking) : 0;
+    if (s->model.context_window > 0 && s->ctx_tokens > 0) {
+        long used = s->ctx_tokens * 100 / s->model.context_window;
+        t->ctx_left = used >= 100 ? 0 : (int)(100 - used);
+    } else
+        t->ctx_left = -1;
+    tui_frame(t);
+}
+
 static void say_end(pi_ui *p)
 {
     char line[300];
+    status(p);
     if (p->s->stop != LS_ERROR && p->s->stop != LS_ABORTED)
         return;
     cl_copy(line, p->s->stop == LS_ABORTED ? "[INFO] Stopped." : "[ERROR] ", sizeof(line));
@@ -172,6 +190,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
         return 0;
     }
     t->model = p->s->model.id;
+    t->effort = p->s->model.reasoning ? llm_think_name(p->s->thinking) : 0;
     show_init(sh, t);
     if (tui_start(t)) {
         show_free(sh);
@@ -222,6 +241,8 @@ static int run_command(pi_ui *p, cl_tui *t, const char *line)
     }
     jw_free(&reply);
     jw_free(&editor);
+    if (rc)
+        status(p);
     return rc;
 }
 
