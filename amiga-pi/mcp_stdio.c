@@ -52,7 +52,7 @@ static int s_send(mcp_server *s, const char *msg, long n, int request, mcp_msg_f
             t->in.n -= st;
             t->in.p[t->in.n] = 0;
         }
-        if (s->m->h.poll && s->m->h.poll(s->m->h.u)) {
+        if (mcp_hooks(s->m)->poll && mcp_hooks(s->m)->poll(mcp_hooks(s->m)->u)) {
             cl_copy(s->err, "Operation aborted", sizeof(s->err));
             return -1;
         }

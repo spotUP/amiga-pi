@@ -1127,7 +1127,7 @@ static int connect_one(mcp_server *s)
         }
         if (s->kind != MK_HTTP || !s->transient || s->attempts > 2)
             return -1;
-        if (s->m->h.sleep ? s->m->h.sleep(s->m->h.u, delays[s->attempts - 1]) : 0)
+        if (mcp_hooks(s->m)->sleep ? mcp_hooks(s->m)->sleep(mcp_hooks(s->m)->u, delays[s->attempts - 1]) : 0)
             return -1;          /* Ctrl+C in the wait */
     }
 }
@@ -2082,6 +2082,7 @@ int mcp_search(mcp *m, pi_session *s, const char *query, long limit, jw *text)
     /* matches (score > 0), best first, ties in document order, at most limit */
     {
         long *order = (long *)calloc((size_t)(nc + 1), sizeof(long)), no = 0;
+        int full;
         for (i = 0; i < nc; i++)
             if (score[i] > 0) {
                 long at = no;
@@ -2093,7 +2094,24 @@ int mcp_search(mcp *m, pi_session *s, const char *query, long limit, jw *text)
                 no++;
             }
         kept = no < limit ? no : limit;
-        if (!kept)
+        /* declared first: a tool the session has no room for (PI_TOOLS) is not loaded, not counted, and stays
+         * findable by a later search */
+        {
+            long loaded = 0;
+            full = 0;
+            for (i = 0; i < kept; i++) {
+                mcp_tool *t = cand[order[i]];
+                if (s && pi_tool_add(s, &t->pt))
+                    continue;
+                t->active = 1;
+                order[loaded++] = order[i];
+            }
+            full = kept && !loaded;
+            kept = loaded;
+        }
+        if (full)
+            jw_rawz(text, "No tools could be loaded: the session holds as many tools as it can.");
+        else if (!kept)
             jw_rawz(text, "No matching tools found.");
         else {
             char num[16];
@@ -2119,9 +2137,6 @@ int mcp_search(mcp *m, pi_session *s, const char *query, long limit, jw *text)
                 jw_rawz(text, t->name);
                 jw_rawz(text, ": ");
                 jw_raw(text, d, (long)(e - d));
-                t->active = 1;
-                if (s)
-                    pi_tool_add(s, &t->pt);
             }
         }
         free(order);
@@ -2324,23 +2339,25 @@ static void server_section(mcp *m)
 
 int mcp_attach(mcp *m, pi_session *s)
 {
-    int i, j, deferred = 0;
+    int i, j, deferred = 0, rc = 0;
     m->s = s;
-    for (i = 0; i < m->n; i++)
-        for (j = 0; j < m->srv[i].ntools; j++) {
-            mcp_tool *t = &m->srv[i].tools[j];
-            if (t->exposure == MX_DIRECT) {
-                if (pi_tool_add(s, &t->pt))
-                    return -1;
-                t->active = 1;
-            } else if (t->exposure == MX_DEFERRED)
+    for (i = 0; i < m->n; i++) {
+        for (j = 0; j < m->srv[i].ntools; j++)
+            if (m->srv[i].tools[j].exposure == MX_DEFERRED)
                 deferred = 1;
-        }
-    server_section(m);
-    for (i = 0; i < m->n && !deferred; i++)
         if (m->srv[i].enabled && !m->srv[i].connected &&
             (m->srv[i].exposure == MX_DEFERRED || m->srv[i].exposure == MX_CODEMODE))
             deferred = 1;
+    }
+    /* a direct tool the session has no room for is left out (pi has no cap; PI_TOOLS is ours); the last slot
+     * is kept for tool_search, and the section follows either way */
+    for (i = 0; i < m->n; i++)
+        for (j = 0; j < m->srv[i].ntools; j++) {
+            mcp_tool *t = &m->srv[i].tools[j];
+            if (t->exposure == MX_DIRECT && s->ntools + (deferred ? 1 : 0) < PI_TOOLS && !pi_tool_add(s, &t->pt))
+                t->active = 1;
+        }
+    server_section(m);
     if (deferred) {
         m->search.name = "tool_search";
         m->search.description = search_desc;
@@ -2349,11 +2366,19 @@ int mcp_attach(mcp *m, pi_session *s)
         m->search.u = m;
         m->search.run = search_run;
         if (pi_tool_add(s, &m->search))
-            return -1;
-        m->search_on = 1;
+            rc = -1;                /* nothing left to declare it in; the section still follows */
+        else
+            m->search_on = 1;
     }
     s->mcp_section = m->section.n ? m->section.p : 0;
-    return 0;
+    return rc;
+}
+
+/* the hooks to poll and wait through: the session's own once it is attached (the UI sets its abort key there
+ * after mcp_init copied them), the copy before */
+const llm_hooks *mcp_hooks(mcp *m)
+{
+    return m->s ? &m->s->h : &m->h;
 }
 
 void mcp_init(mcp *m, cl_sys *sys, llm_pool *pool, const llm_hooks *h,

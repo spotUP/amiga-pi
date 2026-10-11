@@ -582,6 +582,87 @@ static void test_search(void)
     jw_free(&g);
 }
 
+/* a session with no room left (PI_TOOLS): tool_search says what it loaded and only that, the rest stay findable;
+ * mcp_attach leaves out a direct tool that does not fit but still adds tool_search and the section */
+static void fill_session(pi_session *s, int room)
+{
+    static pi_tool filler;                      /* stand-in: never run */
+    filler.name = "filler";
+    while (s->ntools < PI_TOOLS - room)
+        s->tools[s->ntools++] = &filler;
+}
+
+static void test_search_session_full(void)
+{
+    mcp m;
+    pi_session s;
+    llm_model mo = ps_model_openai("http://192.168.1.10:11434/v1");
+    jw cfg, c;
+    int e = 0, i, active = 0;
+    new_mcp(&m);
+    jw_init(&cfg);
+    jw_init(&c);
+    jw_rawz(&cfg, "{\"mcpServers\":{\"gh\":{\"command\":\"python3\",\"args\":[");
+    jw_strz(&cfg, fake);
+    jw_rawz(&cfg, ",\"--toolset\",\"github\"],\"exposure\":\"deferred\"}}}");
+    CHECK_INT(mcp_load_text(&m, cfg.p, cfg.n, "test", 0), 0);
+    CHECK_INT(mcp_connect(&m), 1);
+    pi_session_init(&s, &mo, 0, &ps_pool, 0);
+    CHECK_INT(mcp_attach(&m, &s), 0);
+    fill_session(&s, 2);                    /* two free slots, three matches wanted */
+    CHECK_INT(mcp_search(&m, &s, "issue", 3, &c), 0);
+    CHECK(strstr(c.p, "Loaded 2 tools") != 0);
+    CHECK_INT(s.ntools, PI_TOOLS);
+    for (i = 0; i < m.srv[0].ntools; i++)
+        active += m.srv[0].tools[i].active;
+    CHECK_INT(active, 2);                       /* active only where it was declared */
+    jw_reset(&c);
+    CHECK_INT(mcp_search(&m, &s, "issue", 3, &c), 0);
+    CHECK(strstr(c.p, "No tools could be loaded") != 0);    /* the others are still candidates, not "loaded" */
+    for (i = 0, active = 0; i < m.srv[0].ntools; i++)
+        active += m.srv[0].tools[i].active;
+    CHECK_INT(active, 2);
+    (void)e;
+    pi_session_free(&s);
+    mcp_free(&m);
+    jw_free(&cfg);
+    jw_free(&c);
+}
+
+static void test_attach_session_full(void)
+{
+    mcp m;
+    pi_session s;
+    llm_model mo = ps_model_openai("http://192.168.1.10:11434/v1");
+    jw cfg;
+    int i, direct = 0, search = 0;
+    new_mcp(&m);
+    jw_init(&cfg);
+    jw_rawz(&cfg, "{\"mcpServers\":{\"a\":{\"command\":\"python3\",\"args\":[");
+    jw_strz(&cfg, fake);
+    jw_rawz(&cfg, ",\"--toolset\",\"github\"],\"exposure\":\"direct\"},\"b\":{\"command\":\"python3\",\"args\":[");
+    jw_strz(&cfg, fake);
+    jw_rawz(&cfg, ",\"--toolset\",\"github\"],\"exposure\":\"deferred\"}}}");
+    CHECK_INT(mcp_load_text(&m, cfg.p, cfg.n, "test", 0), 0);
+    CHECK_INT(mcp_connect(&m), 2);
+    pi_session_init(&s, &mo, 0, &ps_pool, 0);
+    fill_session(&s, 4);                    /* room for three direct tools and tool_search */
+    CHECK_INT(mcp_attach(&m, &s), 0);
+    for (i = 0; i < s.ntools; i++) {
+        if (!strcmp(s.tools[i]->name, "tool_search"))
+            search++;
+        else if (strncmp(s.tools[i]->name, "mcp__a__", 8) == 0)
+            direct++;
+    }
+    CHECK_INT(direct, 3);
+    CHECK_INT(search, 1);
+    CHECK(m.search_on);
+    CHECK(s.mcp_section != 0);
+    pi_session_free(&s);
+    mcp_free(&m);
+    jw_free(&cfg);
+}
+
 static void section_case(jw *g, const char *name, const char *cfg, const char *instr_server, const char *instr)
 {
     mcp m;
@@ -847,6 +928,72 @@ static void http_config(jw *cfg, const char *host, int port, const char *more)
     jw_rawz(cfg, "}}}");
 }
 
+/* the UI sets its abort key on the session's hooks after mcp_init copied them: a request must poll the session's
+ * live hooks, so the key stops it */
+static int abort_now(void *u)
+{
+    (void)u;
+    return 1;
+}
+
+static void test_live_poll(void)
+{
+    mcp m;
+    pi_session s;
+    llm_model mo = ps_model_openai("http://192.168.1.10:11434/v1");
+    jw cfg, c;
+    mcp_tool *t;
+    int e = 0;
+    new_mcp(&m);
+    jw_init(&cfg);
+    jw_init(&c);
+    stdio_config(&cfg, 0);
+    CHECK_INT(mcp_load_text(&m, cfg.p, cfg.n, "test", 0), 0);
+    CHECK_INT(mcp_connect(&m), 1);
+    pi_session_init(&s, &mo, 0, &ps_pool, 0);
+    s.call_id = "call_1";
+    CHECK_INT(mcp_attach(&m, &s), 0);
+    s.h.poll = abort_now;                       /* ui_pi.c attach(): after mcp_init */
+    t = mcp_tool_named(&m, "mcp__fake__echo");
+    CHECK(t != 0);
+    if (t)
+        t->pt.run(t->pt.u, &s, "{\"text\":\"hi\"}", 13, &c, &e);
+    CHECK(e != 0);
+    CHECK(c.p && strstr(c.p, "Operation aborted") != 0);
+    CHECK(!c.p || !strstr(c.p, "echo: hi"));
+    pi_session_free(&s);
+    mcp_free(&m);
+    jw_free(&cfg);
+    jw_free(&c);
+}
+
+static jw runcmd;
+
+static void remove_runs(void)
+{
+    char p[520];
+    cl_copy(p, tmpd, sizeof(p));
+    cl_cat(p, "/header_runs.txt", sizeof(p));
+    remove(p);
+}
+
+/* how many times the X-Run command ran: the lines it appended */
+static int header_runs(void)
+{
+    char p[520];
+    long n = 0, i;
+    int lines = 0;
+    char *f;
+    cl_copy(p, tmpd, sizeof(p));
+    cl_cat(p, "/header_runs.txt", sizeof(p));
+    f = read_all(p, &n);
+    for (i = 0; f && i < n; i++)
+        if (f[i] == '\n')
+            lines++;
+    free(f);
+    return lines;
+}
+
 static void test_http(void)
 {
     mcp m;
@@ -858,6 +1005,7 @@ static void test_http(void)
     jw_init(&c);
     jw_init(&big_http);
     jw_init(&big_stdio);
+    jw_init(&runcmd);
     for (i = 0; i < 2; i++) {
         /* JSON answers, then SSE answers */
         reset_log();
@@ -865,7 +1013,21 @@ static void test_http(void)
         CHECK(port > 0);
         new_mcp(&m);
         jw_reset(&cfg);
-        http_config(&cfg, "127.0.0.1", port, ",\"headers\":{\"X-Token\":\"${TOK}\",\"Authorization\":\"Bearer secret\"}");
+        {
+            /* X-Run is a "!command" header: it must run once for the whole connection, not once per POST */
+            jw more;
+            jw_init(&more);
+            jw_rawz(&more, ",\"headers\":{\"X-Token\":\"${TOK}\",\"Authorization\":\"Bearer secret\",\"X-Run\":");
+            jw_reset(&runcmd);
+            jw_rawz(&runcmd, "!echo ran >> ");
+            jw_rawz(&runcmd, tmpd);
+            jw_rawz(&runcmd, "/header_runs.txt; echo run-value");
+            jw_strz(&more, runcmd.p);
+            jw_rawz(&more, "}");
+            remove_runs();
+            http_config(&cfg, "127.0.0.1", port, more.p);
+            jw_free(&more);
+        }
         notices = 0;
         CHECK_INT(mcp_load_text(&m, cfg.p, cfg.n, "test", 0), 0);
         CHECK_INT(mcp_connect(&m), 1);
@@ -889,6 +1051,8 @@ static void test_http(void)
         CHECK_INT(log_count(0, "authorization"), 0);
         CHECK_INT(notices, 1);
         CHECK_STR(notice, "credential for MCP server fake not sent: plain http");
+        CHECK_INT(log_count(0, "\"x-run\": \"run-value\""), log_count(0, 0));
+        CHECK_INT(header_runs(), 1);        /* more than six POSTs, one run of the command */
         if (i) {
             /* the 20 KB cut on a long result: the same bytes over HTTP (SSE) as over stdio */
             CHECK_INT(run_tool(&m, "mcp__fake__big", "{\"n\":30000}", &big_http), 0);
@@ -969,6 +1133,7 @@ static void test_http(void)
     jw_free(&c);
     jw_free(&big_http);
     jw_free(&big_stdio);
+    jw_free(&runcmd);
 }
 
 /* ---- K7: reachability through pi_app ---- */
@@ -1137,6 +1302,9 @@ void suite_pi_mcp(void)
     test_section();
     test_config();
     test_search();
+    test_search_session_full();
+    test_attach_session_full();
+    test_live_poll();
     test_stdio();
     test_http();
     test_reach();
