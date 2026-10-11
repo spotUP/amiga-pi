@@ -14,7 +14,9 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include "app.h"
+#include "tools_pi.h"
 #include "claude/net_posix.h"
+#include "claude/sys_posix.h"
 
 static volatile sig_atomic_t got_int;
 
@@ -109,8 +111,12 @@ int main(int argc, char **argv)
     static llm_pool pool;
     static cl_io io;
     static pi_platform pl;
+    static sys_posix sp;
+    static cl_sys sys;
+    static char tmp[300], agent[300];
     cl_net *nets[1];
     char cwd[512];
+    const char *t = getenv("TMPDIR"), *home = getenv("HOME");
     signal(SIGINT, on_int);
     net_posix_init(&np, &net);
     nets[0] = &net;
@@ -129,5 +135,20 @@ int main(int argc, char **argv)
     pl.now = p_now;
     pl.getenv = p_getenv;
     pl.cwd = getcwd(cwd, sizeof(cwd)) ? cwd : ".";
+    /* the tools over C:Claude's host sys (commands through /bin/sh) */
+    sys_posix_init(&sp, &sys);
+    pl.sys = &sys;
+    strncpy(tmp, t && *t ? t : "/tmp", sizeof(tmp) - 2);
+    if (tmp[strlen(tmp) - 1] != '/')
+        strcat(tmp, "/");
+    pl.tmp = tmp;
+    pl.shell = PI_SH_HOST;
+    if (getenv("PI_CODING_AGENT_DIR"))
+        strncpy(agent, getenv("PI_CODING_AGENT_DIR"), sizeof(agent) - 1);
+    else if (home && strlen(home) < 280) {
+        strcpy(agent, home);
+        strcat(agent, "/.pi/agent");
+    }
+    pl.agent_dir = agent;
     return pi_app(argc, argv, &pl);
 }

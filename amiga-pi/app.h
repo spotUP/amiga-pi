@@ -7,6 +7,7 @@
 
 #include "claude/ui.h"
 #include "agent.h"
+#include "claude/sys.h"
 
 typedef struct pi_platform {
     cl_io *io;
@@ -16,6 +17,11 @@ typedef struct pi_platform {
     /* an environment variable: its length, -1 none */
     long (*getenv)(const char *name, char *out, long cap);
     const char *cwd;
+    /* the machine for the tools (claude/sys.h: sys_amiga, sys_posix), 0 no tools */
+    cl_sys *sys;
+    const char *tmp;            /* where cut tool output is kept: "T:" */
+    const char *agent_dir;      /* settings.json's directory: "ENVARC:amiga-pi" (pi: ~/.pi/agent), 0 none */
+    int shell;                  /* PI_SH_*: what the bash tool runs */
     /* the session once made, before the prompt (the tests add their tools here), 0 none */
     void (*ready)(pi_session *s);
 } pi_platform;

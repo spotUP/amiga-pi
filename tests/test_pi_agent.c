@@ -47,10 +47,10 @@ static int echo_run(void *u, pi_session *s, const char *args, long an, jw *conte
 }
 
 #define ECHO_PARAMS "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}"
-static pi_tool t_read = { "read", "Read a file", ECHO_PARAMS, "Read file contents", 0, echo_run, 0 };
-static pi_tool t_ls = { "ls", "List a directory", ECHO_PARAMS, 0, 0, echo_run, 0 };
-static pi_tool t_Read = { "Read", "Read a file", ECHO_PARAMS, 0, 0, echo_run, 0 };
-static pi_tool t_Glob = { "Glob", "Find files", ECHO_PARAMS, 0, 0, echo_run, 0 };
+static pi_tool t_read = { "read", "Read a file", ECHO_PARAMS, "Read file contents", 0, echo_run, 0, 0 };
+static pi_tool t_ls = { "ls", "List a directory", ECHO_PARAMS, 0, 0, echo_run, 0, 0 };
+static pi_tool t_Read = { "Read", "Read a file", ECHO_PARAMS, 0, 0, echo_run, 0, 0 };
+static pi_tool t_Glob = { "Glob", "Find files", ECHO_PARAMS, 0, 0, echo_run, 0, 0 };
 
 /* ---- the session over the stub ---- */
 
@@ -438,7 +438,7 @@ static void test_ext_dispatch(void)
 
 /* ---- C4: the system prompt ---- */
 
-static pi_tool t_bash = { "bash", "Run a command", ECHO_PARAMS, "Execute bash commands", 0, echo_run, 0 };
+static pi_tool t_bash = { "bash", "Run a command", ECHO_PARAMS, "Execute bash commands", 0, echo_run, 0, 0 };
 
 static void test_prompt(void)
 {

@@ -1,5 +1,10 @@
 /* args -- amiga-pi's command line (plan C7): pi's flags that exist so far.
- *   amiga-pi [-p|--print] [--model provider/id] [--base-url URL] [prompt ...]
+ *   amiga-pi [-p|--print] [--model provider/id] [--base-url URL]
+ *            [--tools|-t list] [--no-tools|-nt] [--gate|--no-gate] [prompt ...]
+ * --tools: pi's allowlist of tools ("read,grep,find,ls"; "+ls" adds to the
+ * defaults read, bash, edit, write); --no-tools: none. --gate / --no-gate
+ * switch the permission gate (ext_gate.h) over settings.json's
+ * permissionGate.
  * The model: anthropic/<id> (anthropic-messages, api.anthropic.com),
  * openai/<id> (openai-completions, api.openai.com), any other provider is
  * openai-completions at --base-url (Ollama, LM Studio, a LAN server). No
@@ -13,6 +18,8 @@
 
 typedef struct pi_args {
     int print;
+    char tools[256];            /* --tools as given, "-" for --no-tools, "" the defaults */
+    int gate;                   /* --gate 1, --no-gate 0, -1 settings.json decides */
     char provider[48], id[96], base_url[256];
     char prompt[4096];
     char err[160];

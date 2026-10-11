@@ -20,7 +20,9 @@
 #include "app.h"
 #include "claude/io_amiga.h"
 #include "claude/net_amiga.h"
+#include "claude/sys_amiga.h"
 #include "claude/util.h"
+#include "tools_pi.h"
 
 static const char vers[] = "$VER: amiga-pi 0.1 (11.10.2026) UP-Term";
 const char stack_cookie[] = "$STACK: 32768";
@@ -97,9 +99,11 @@ int main(int argc, char **argv)
     static llm_pool pool;
     static cl_io io;
     static pi_platform pl;
-    static char cwd[512];
+    static char cwd[512], agent[256];
+    static sys_amiga sa;
+    static cl_sys sys;
     cl_net *nets[1];
-    char v[8];
+    char v[8], what[160];
     struct Process *me = (struct Process *)FindTask(0);
     int rc;
     (void)vers;
@@ -121,6 +125,15 @@ int main(int argc, char **argv)
     pl.now = a_now;
     pl.getenv = a_getenv;
     pl.cwd = cwd;
+    /* the tools: AmigaDOS through C:Claude's sys_amiga; bash runs vsh when it is installed */
+    sys_amiga_init(&sa, &sys);
+    pl.sys = &sys;
+    pl.tmp = "T:";
+    pl.shell = sys.info && sys.info(sys.u, "vsh", what, sizeof(what)) == 1 ? PI_SH_VSH : PI_SH_AMIGASHELL;
+    /* settings.json: ENVARC:amiga-pi (pi's ~/.pi/agent), PI_CODING_AGENT_DIR elsewhere */
+    if (a_getenv("PI_CODING_AGENT_DIR", agent, sizeof(agent)) <= 0)
+        cl_copy(agent, "ENVARC:amiga-pi", sizeof(agent));
+    pl.agent_dir = agent;
     rc = pi_app(argc, argv, &pl);
     io_amiga_end();
     llm_pool_close(&pool);

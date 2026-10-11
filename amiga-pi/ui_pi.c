@@ -82,6 +82,19 @@ static void on_event(void *u, const pi_event *e)
     }
 }
 
+/* the gate's question (ext_gate.h) as C:Claude asks it */
+static int u_ask(void *u, int tool, const char *name, const char *what, int outside)
+{
+    pi_ui *p = (pi_ui *)u;
+    char line[360];
+    cl_copy(line, "* ", sizeof(line));
+    cl_cat(line, name, sizeof(line));
+    cl_cat(line, " ", sizeof(line));
+    cl_cat(line, what, sizeof(line));
+    ui_line(&p->ui, line);
+    return ui_ask(&p->ui, tool, name, what, outside);
+}
+
 static void attach(pi_ui *p, pi_session *s, cl_io *io, int print)
 {
     memset(p, 0, sizeof(*p));
@@ -94,7 +107,10 @@ static void attach(pi_ui *p, pi_session *s, cl_io *io, int print)
     if (!print) {
         s->h.u = p;
         s->h.poll = u_poll;
-    }
+        s->ask = u_ask;
+        s->ask_u = p;
+    } else
+        s->ask = 0;             /* print mode: nobody answers the gate */
 }
 
 static void say_end(pi_ui *p)

@@ -1,0 +1,593 @@
+/* see tools_pi.h */
+#include <stdlib.h>
+#include <string.h>
+#include "tools_pi.h"
+#include "truncate.h"
+#include "claude/tools_int.h"   /* tl_resolve: ls's path as C:Claude's tools resolve one */
+#include "claude/schema.h"
+#include "claude/util.h"
+#include "llm/llm.h"
+
+/* ---- pi's definitions (descriptions and schemas as pi f10993bc has them;
+ * where amiga-pi differs the text says so: no .gitignore, the shell) ---- */
+
+static const char d_read[] =
+    "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as "
+    "attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use "
+    "offset/limit for large files. When you need the full file, continue with offset until complete.";
+static const char s_read[] =
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file to "
+    "read (relative or absolute)\"},\"offset\":{\"type\":\"number\",\"description\":\"Line number to start "
+    "reading from (1-indexed)\"},\"limit\":{\"type\":\"number\",\"description\":\"Maximum number of lines to "
+    "read\"}},\"required\":[\"path\"]}";
+static const char *const g_read[] = { "Use read to examine files instead of cat or sed.", 0 };
+
+static const char d_write[] =
+    "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically "
+    "creates parent directories.";
+static const char s_write[] =
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file to "
+    "write (relative or absolute)\"},\"content\":{\"type\":\"string\",\"description\":\"Content to write to "
+    "the file\"}},\"required\":[\"path\",\"content\"]}";
+static const char *const g_write[] = { "Use write only for new files or complete rewrites.", 0 };
+
+static const char d_edit[] =
+    "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, "
+    "non-overlapping region of the original file. If two changes affect the same block or nearby lines, merge "
+    "them into one edit instead of emitting overlapping edits. Do not include large unchanged regions just to "
+    "connect distant changes.";
+/* in parts (C90 caps a string literal at 509 bytes), joined by pi_tools_init */
+static const char *const s_edit[] = {
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file to "
+    "edit (relative or absolute)\"},\"edits\":{\"type\":\"array\",\"items\":{\"type\":\"object\","
+    "\"properties\":{\"oldText\":{\"type\":\"string\",\"description\":\"Exact text for one targeted "
+    "replacement. It must be unique in the original file and must not overlap with any other edits[].oldText "
+    "in the same call.\"},",
+    "\"newText\":{\"type\":\"string\",\"description\":\"Replacement text for this "
+    "targeted edit.\"}},\"required\":[\"oldText\",\"newText\"]},\"description\":\"One or more targeted "
+    "replacements. Each edit is matched against the original file, not incrementally. Do not include "
+    "overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one "
+    "edit instead.\"}},\"required\":[\"path\",\"edits\"]}",
+    0
+};
+static const char *const g_edit[] = {
+    "Use edit for precise changes (edits[].oldText must match exactly)",
+    "When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] "
+    "instead of multiple edit calls",
+    "Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not "
+    "emit overlapping or nested edits. Merge nearby changes into one edit.",
+    "Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large "
+    "unchanged regions.",
+    0
+};
+
+static const char s_bash[] =
+    "{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Shell command to "
+    "execute\"},\"timeout\":{\"type\":\"number\",\"description\":\"Timeout in seconds (optional, no default "
+    "timeout)\"}},\"required\":[\"command\"]}";
+
+static const char d_grep[] =
+    "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Output is "
+    "truncated to 100 matches or 50KB (whichever is hit first).";
+static const char *const s_grep[] = {
+    "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Search pattern "
+    "(regex or literal string)\"},\"path\":{\"type\":\"string\",\"description\":\"Directory or file to "
+    "search (default: current directory)\"},\"glob\":{\"type\":\"string\",\"description\":\"Filter files by "
+    "glob pattern, e.g. '*.ts' or '**/*.spec.ts'\"},",
+    "\"ignoreCase\":{\"type\":\"boolean\",\"description\":"
+    "\"Case-insensitive search (default: false)\"},\"literal\":{\"type\":\"boolean\",\"description\":\"Treat "
+    "pattern as literal string instead of regex (default: false)\"},\"context\":{\"type\":\"number\","
+    "\"description\":\"Number of lines to show before and after each match (default: 0)\"},\"limit\":"
+    "{\"type\":\"number\",\"description\":\"Maximum number of matches to return (default: 100)\"}},"
+    "\"required\":[\"pattern\"]}",
+    0
+};
+
+static const char d_find[] =
+    "Search for files by glob pattern. Returns matching file paths, newest first. Output is truncated to 2000 "
+    "lines or 50KB (whichever is hit first).";
+static const char s_find[] =
+    "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Glob pattern to "
+    "match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'\"},\"path\":{\"type\":\"string\","
+    "\"description\":\"Directory to search in (default: current directory)\"},\"limit\":{\"type\":\"number\","
+    "\"description\":\"Maximum number of results (default: 1000)\"}},\"required\":[\"pattern\"]}";
+
+static const char d_ls[] =
+    "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes "
+    "dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first).";
+static const char s_ls[] =
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Directory to list "
+    "(default: current directory)\"},\"limit\":{\"type\":\"number\",\"description\":\"Maximum number of "
+    "entries to return (default: 500)\"}}}";
+
+long pi_tool_runs[PT_COUNT];
+
+static const char *const names[PT_COUNT] = { "read", "write", "edit", "bash", "grep", "find", "ls" };
+
+int pi_tools_kind(const char *name)
+{
+    int i;
+    for (i = 0; i < PT_COUNT; i++)
+        if (!strcmp(names[i], name))
+            return i;
+    return -1;
+}
+
+const char *pi_tools_shell_note(const pi_tools *p)
+{
+    switch (p->shell) {
+    case PI_SH_VSH:
+        return "The bash tool runs your commands in vsh, a bash-compatible shell for AmigaOS: Unix-style "
+               "command lines (pipes, redirection, $(...), functions) with AmigaDOS commands and programs.";
+    case PI_SH_AMIGASHELL:
+        return "vsh is not installed: the bash tool runs your commands in the AmigaShell. Write AmigaDOS "
+               "command lines (List, Type, Copy, Delete, Search), not Unix ones.";
+    default:
+        return "The bash tool runs your commands with /bin/sh.";
+    }
+}
+
+/* ---- pi's call as C:Claude's input ---- */
+
+/* in's string key copied as key2 (when present) */
+static void put_str(jw *w, jv a, const char *key, const char *key2, int *first)
+{
+    jv x;
+    char *s;
+    long n = 0;
+    if (!json_get(a, key, &x) || json_type(x) != J_STR || !(s = json_strdup(x, &n)))
+        return;
+    jw_rawz(w, *first ? "" : ",");
+    *first = 0;
+    jw_strz(w, key2);
+    jw_rawz(w, ":");
+    jw_str(w, s, n);
+    free(s);
+}
+
+static void put_num(jw *w, const char *key, long v, int *first)
+{
+    jw_rawz(w, *first ? "" : ",");
+    *first = 0;
+    jw_strz(w, key);
+    jw_rawz(w, ":");
+    jw_long(w, v);
+}
+
+static long num_of(jv a, const char *key, long def)
+{
+    jv x;
+    return json_get(a, key, &x) && json_type(x) == J_NUM ? json_long(x, def) : def;
+}
+
+static int is_true(jv a, const char *key)
+{
+    jv x;
+    return json_get(a, key, &x) && json_type(x) == J_TRUE;
+}
+
+/* grep's literal: the pattern with the regular expression's specials escaped */
+static void put_literal(jw *w, jv a)
+{
+    jv x;
+    char *s;
+    long n = 0, i;
+    jw e;
+    if (!json_get(a, "pattern", &x) || !(s = json_strdup(x, &n)))
+        return;
+    jw_init(&e);
+    for (i = 0; i < n; i++) {
+        if (strchr("\\.^$|?*+()[]{}", s[i]) && s[i])
+            jw_raw(&e, "\\", 1);
+        jw_raw(&e, s + i, 1);
+    }
+    jw_strz(w, "pattern");
+    jw_rawz(w, ":");
+    jw_str(w, e.p ? e.p : "", e.n);
+    jw_free(&e);
+    free(s);
+}
+
+int pi_tools_claude(int kind, const char *args, long an, int *tool, jw *w)
+{
+    jv a;
+    int first = 1;
+    if (json_parse(args, an, &a) || json_type(a) != J_OBJ)
+        return -1;
+    jw_rawz(w, "{");
+    switch (kind) {
+    case PT_READ:
+        *tool = T_READ;
+        put_str(w, a, "path", "file_path", &first);
+        if (num_of(a, "offset", 0) > 0)
+            put_num(w, "offset", num_of(a, "offset", 0), &first);
+        if (num_of(a, "limit", 0) > 0)
+            put_num(w, "limit", num_of(a, "limit", 0), &first);
+        break;
+    case PT_WRITE:
+        *tool = T_WRITE;
+        put_str(w, a, "path", "file_path", &first);
+        put_str(w, a, "content", "content", &first);
+        break;
+    case PT_EDIT:
+        *tool = T_EDIT;
+        put_str(w, a, "path", "file_path", &first);
+        break;
+    case PT_BASH:
+        *tool = T_BASH;
+        put_str(w, a, "command", "command", &first);
+        if (num_of(a, "timeout", 0) > 0)
+            put_num(w, "timeout", num_of(a, "timeout", 0) * 1000L, &first);
+        break;
+    case PT_GREP:
+        *tool = T_GREP;
+        if (is_true(a, "literal")) {
+            put_literal(w, a);
+            first = 0;
+        } else
+            put_str(w, a, "pattern", "pattern", &first);
+        put_str(w, a, "path", "path", &first);
+        put_str(w, a, "glob", "glob", &first);
+        jw_rawz(w, first ? "" : ",");
+        first = 0;
+        jw_rawz(w, "\"output_mode\":\"content\",\"-n\":true");
+        if (is_true(a, "ignoreCase"))
+            jw_rawz(w, ",\"-i\":true");
+        if (num_of(a, "context", 0) > 0)
+            put_num(w, "-C", num_of(a, "context", 0), &first);
+        put_num(w, "head_limit", num_of(a, "limit", 100) > 0 ? num_of(a, "limit", 100) : 100, &first);
+        break;
+    case PT_FIND:
+        *tool = T_GLOB;
+        put_str(w, a, "pattern", "pattern", &first);
+        put_str(w, a, "path", "path", &first);
+        break;
+    case PT_LS:
+        *tool = T_GLOB;
+        jw_rawz(w, "\"pattern\":\"*\"");
+        first = 0;
+        put_str(w, a, "path", "path", &first);
+        break;
+    default:
+        return -1;
+    }
+    jw_rawz(w, "}");
+    return w->oom ? -1 : 0;
+}
+
+/* ---- ls: the one tool C:Claude has none of ---- */
+
+typedef struct ls_list {
+    char **e;
+    long n, cap;
+    int oom;
+} ls_list;
+
+static int ls_one(void *c, const cl_dirent *d)
+{
+    ls_list *l = (ls_list *)c;
+    long k = (long)strlen(d->name);
+    char *s;
+    if (l->n == l->cap) {
+        long nc = l->cap ? l->cap * 2 : 64;
+        char **ne = (char **)realloc(l->e, (size_t)nc * sizeof(char *));
+        if (!ne) {
+            l->oom = 1;
+            return 1;
+        }
+        l->e = ne;
+        l->cap = nc;
+    }
+    s = (char *)malloc((size_t)k + 2);
+    if (!s) {
+        l->oom = 1;
+        return 1;
+    }
+    memcpy(s, d->name, (size_t)k);
+    s[k] = d->dir ? '/' : 0;
+    s[k + 1] = 0;
+    l->e[l->n++] = s;
+    return 0;
+}
+
+/* pi: sorted case-insensitively */
+static int ls_cmp(const void *x, const void *y)
+{
+    const unsigned char *a = *(const unsigned char *const *)x, *b = *(const unsigned char *const *)y;
+    for (;; a++, b++) {
+        int ca = *a >= 'A' && *a <= 'Z' ? *a + 32 : *a, cb = *b >= 'A' && *b <= 'Z' ? *b + 32 : *b;
+        if (ca != cb || !ca)
+            return ca - cb;
+    }
+}
+
+static int run_ls(pi_tools *p, jv a, jw *text)
+{
+    char *arg;
+    char full[512], num[16];
+    long limit = num_of(a, "limit", 500), i;
+    int outside = 0, kind, err = 0;
+    ls_list l;
+    jv x;
+    memset(&l, 0, sizeof(l));
+    arg = json_get(a, "path", &x) && json_type(x) == J_STR ? json_strdup(x, 0) : 0;
+    if (limit <= 0)
+        limit = 500;
+    if (tl_resolve(&p->t, arg ? arg : "", full, sizeof(full), &outside)) {
+        jw_rawz(text, "Path not found: ");
+        jw_rawz(text, arg ? arg : ".");
+        free(arg);
+        return 1;
+    }
+    kind = p->t.sys->kind(p->t.sys->u, full);
+    if (kind != 2) {
+        jw_rawz(text, kind ? "Not a directory: " : "Path not found: ");
+        jw_rawz(text, arg ? arg : full);
+        free(arg);
+        return 1;
+    }
+    free(arg);
+    if (p->t.sys->list(p->t.sys->u, full, ls_one, &l) && !l.n) {
+        jw_rawz(text, "Cannot read directory: ");
+        jw_rawz(text, p->t.sys->err(p->t.sys->u));
+        err = 1;
+    } else if (l.oom) {
+        jw_rawz(text, "out of memory");
+        err = 1;
+    } else if (!l.n)
+        jw_rawz(text, "(empty directory)");
+    else {
+        qsort(l.e, (size_t)l.n, sizeof(char *), ls_cmp);
+        for (i = 0; i < l.n && i < limit; i++) {
+            if (i)
+                jw_raw(text, "\n", 1);
+            jw_rawz(text, l.e[i]);
+        }
+        if (l.n > limit) {
+            jw_rawz(text, "\n\n[");
+            cl_ltoa(limit, num);
+            jw_rawz(text, num);
+            jw_rawz(text, " entries limit reached. Use limit=");
+            cl_ltoa(limit * 2, num);
+            jw_rawz(text, num);
+            jw_rawz(text, " for more]");
+        }
+    }
+    for (i = 0; i < l.n; i++)
+        free(l.e[i]);
+    free(l.e);
+    return err;
+}
+
+/* ---- C:Claude's tool_result as pi content ---- */
+
+/* the result block's text into text, its images as pi image blocks into imgs: is_error */
+static int from_result(const char *block, long n, jw *text, jw *imgs, int *nimg)
+{
+    jv b, c, x, el, src, d, mt;
+    jit it;
+    if (json_parse(block, n, &b) || !json_get(b, "content", &c)) {
+        jw_rawz(text, "the tool gave no result");
+        return 1;
+    }
+    if (json_type(c) == J_STR) {
+        char *s;
+        long sn = 0;
+        if ((s = json_strdup(c, &sn)) != 0) {
+            jw_raw(text, s, sn);
+            free(s);
+        }
+    } else if (json_type(c) == J_ARR) {
+        json_iter(c, &it);
+        while (json_next(&it, 0, &el)) {
+            if (json_get(el, "type", &x) && json_streq(x, "text") && json_get(el, "text", &x)) {
+                char *s;
+                long sn = 0;
+                if ((s = json_strdup(x, &sn)) != 0) {
+                    jw_raw(text, s, sn);
+                    free(s);
+                }
+            } else if (json_get(el, "type", &x) && json_streq(x, "image") && json_get(el, "source", &src) &&
+                       json_get(src, "data", &d) && json_get(src, "media_type", &mt)) {
+                char *ds = json_strdup(d, 0), *ms = json_strdup(mt, 0);
+                if (ds && ms) {
+                    jw_rawz(imgs, ",");
+                    llm_b_image(imgs, ds, ms);
+                    if (!text->n) {
+                        jw_rawz(text, "Read image file [");
+                        jw_rawz(text, ms);
+                        jw_rawz(text, "]");
+                    }
+                    (*nimg)++;
+                }
+                free(ds);
+                free(ms);
+            } else if (json_get(el, "type", &x) && json_streq(x, "document"))
+                jw_rawz(text, "This is a PDF document: read cannot show it here.");
+        }
+    }
+    return json_get(b, "is_error", &x) && json_type(x) == J_TRUE;
+}
+
+/* ---- the run ---- */
+
+static int run(void *u, pi_session *s, const char *args, long an, jw *content, int *is_error)
+{
+    pi_tslot *sl = (pi_tslot *)u;
+    pi_tools *p = sl->p;
+    int kind = sl->kind, tool = 0, stopped = 0, nimg = 0;
+    const char *id = s && s->call_id ? s->call_id : "call";
+    char err[300];
+    jv a, sch;
+    jw text, res, imgs, in;
+    jw_init(&text);
+    jw_init(&res);
+    jw_init(&imgs);
+    jw_init(&in);
+    *is_error = 0;
+    if (json_parse(args, an, &a) || json_type(a) != J_OBJ) {
+        jw_rawz(&text, "Validation failed for tool \"");
+        jw_rawz(&text, names[kind]);
+        jw_rawz(&text, "\": the arguments are not a JSON object");
+        *is_error = 1;
+    } else if (kind != PT_EDIT && /* edit takes pi's legacy forms too (prepareEditArguments) */
+               json_parse(p->tool[kind].parameters, (long)strlen(p->tool[kind].parameters), &sch) == 0 &&
+               schema_check(sch, a, err, sizeof(err))) {
+        jw_rawz(&text, "Validation failed for tool \"");
+        jw_rawz(&text, names[kind]);
+        jw_rawz(&text, "\":\n  - ");
+        jw_rawz(&text, err);
+        *is_error = 1;
+    } else {
+        pi_tool_runs[kind]++;
+        if (kind == PT_LS)
+            *is_error = run_ls(p, a, &text);
+        else {
+            if (kind == PT_EDIT)
+                tools_edit_orig(&p->t, id, args, an, &res);
+            else if (pi_tools_claude(kind, args, an, &tool, &in) == 0)
+                tools_run(&p->t, id, tools_name(tool), 1, in.p, in.n, &res);
+            *is_error = from_result(res.p ? res.p : "", res.n, &text, &imgs, &nimg);
+        }
+        if (p->t.stop) {
+            /* Ctrl+C stopped the command: the prompt stops too */
+            p->t.stop = 0;
+            stopped = 1;
+        }
+    }
+    jw_rawz(content, "[");
+    {
+        jw cut;
+        jw_init(&cut);
+        pi_cut(p->t.sys, p->tmp, id, text.p ? text.p : "", text.n, kind == PT_BASH, &cut);
+        llm_b_text(content, cut.p ? cut.p : "", cut.n, 0);
+        jw_free(&cut);
+    }
+    if (imgs.n)
+        jw_raw(content, imgs.p, imgs.n);
+    jw_rawz(content, "]");
+    jw_free(&text);
+    jw_free(&res);
+    jw_free(&imgs);
+    jw_free(&in);
+    return stopped;
+}
+
+/* pi never asks (the gate is an extension): C:Claude's question answered yes */
+static int yes(void *u, const char *tool, const char *what, int outside, char *note, long cap)
+{
+    (void)u;
+    (void)tool;
+    (void)what;
+    (void)outside;
+    (void)note;
+    (void)cap;
+    return ASK_ONCE;
+}
+
+int pi_tools_init(pi_tools *p, cl_sys *sys, const char *root, const char *tmp, int shell)
+{
+    static const char *const descs[PT_COUNT] = { d_read, d_write, d_edit, 0, d_grep, d_find, d_ls };
+    static const char *const schemas[PT_COUNT] = { s_read, s_write, 0, s_bash, 0, s_find, s_ls };
+    static const char *const snippets[PT_COUNT] = {
+        "Read file contents", "Create or overwrite files",
+        "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
+        "Execute bash commands (ls, grep, find, etc.)", "Search file contents for patterns",
+        "Find files by glob pattern", "List directory contents"
+    };
+    static const char *const *const guides[PT_COUNT] = { g_read, g_write, g_edit, 0, 0, 0, 0 };
+    int i;
+    memset(p, 0, sizeof(*p));
+    p->t.sys = sys;
+    if (sys->canon(sys->u, root, p->t.root, sizeof(p->t.root)))
+        cl_copy(p->t.root, root, sizeof(p->t.root));
+    p->t.ask = yes;
+    p->t.pi_rules = 1;
+    p->t.no_background = 1;     /* pi: a command stops at its time limit */
+    p->t.no_cd_keep = 1;        /* pi: every command starts in the working directory */
+    cl_copy(p->t.cwd, p->t.root, sizeof(p->t.cwd));     /* ... and runs there (tools.c puts a cd in front) */
+    p->t.timeout_s = 86400;     /* pi: no default time limit */
+    p->t.out_max = p->t.out_inline = PI_CAPTURE;
+    p->t.web_search = 0;
+    cl_copy(p->tmp, tmp ? tmp : "", sizeof(p->tmp));
+    p->shell = shell;
+    cl_copy(p->bash_desc, shell == PI_SH_AMIGASHELL ? "Execute an AmigaShell command line" : "Execute a bash command",
+            sizeof(p->bash_desc));
+    cl_cat(p->bash_desc, shell == PI_SH_VSH ? " (vsh, a bash-compatible shell for AmigaOS)" : "", sizeof(p->bash_desc));
+    cl_cat(p->bash_desc, " in the current working directory. Returns stdout and stderr. Output is truncated to "
+                         "last 2000 lines or 50KB (whichever is hit first). If truncated, full output is saved "
+                         "to a temp file. Optionally provide a timeout in seconds.",
+           sizeof(p->bash_desc));
+    p->edit_schema[0] = p->grep_schema[0] = 0;
+    for (i = 0; s_edit[i]; i++)
+        cl_cat(p->edit_schema, s_edit[i], sizeof(p->edit_schema));
+    for (i = 0; s_grep[i]; i++)
+        cl_cat(p->grep_schema, s_grep[i], sizeof(p->grep_schema));
+    for (i = 0; i < PT_COUNT; i++) {
+        p->slot[i].p = p;
+        p->slot[i].kind = i;
+        p->tool[i].name = names[i];
+        p->tool[i].description = i == PT_BASH ? p->bash_desc : descs[i];
+        p->tool[i].parameters = i == PT_EDIT ? p->edit_schema : i == PT_GREP ? p->grep_schema : schemas[i];
+        p->tool[i].snippet = snippets[i];
+        p->tool[i].u = &p->slot[i];
+        p->tool[i].run = run;
+        p->tool[i].guide = guides[i];
+    }
+    return tools_init(&p->t);
+}
+
+void pi_tools_free(pi_tools *p)
+{
+    tools_free(&p->t);
+}
+
+int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long cap)
+{
+    unsigned on = (1u << PT_READ) | (1u << PT_BASH) | (1u << PT_EDIT) | (1u << PT_WRITE);
+    int i;
+    if (list && !strcmp(list, "-"))
+        on = 0;
+    else if (list && *list) {
+        const char *q = list;
+        if (*q != '+')
+            on = 0;
+        while (*q) {
+            char name[32];
+            int k = 0, add = 1;
+            while (*q == ',' || *q == ' ')
+                q++;
+            if (*q == '+')
+                q++;
+            else if (*q == '-') {
+                q++;
+                add = 0;
+            }
+            while (*q && *q != ',' && *q != ' ' && k < (int)sizeof(name) - 1)
+                name[k++] = *q++;
+            name[k] = 0;
+            if (!k)
+                continue;
+            if (!strcmp(name, "*"))
+                on = add ? (1u << PT_COUNT) - 1 : 0;
+            else if (pi_tools_kind(name) < 0) {
+                cl_copy(err, "unknown tool in --tools: ", cap);
+                cl_cat(err, name, cap);
+                return -1;
+            } else if (add)
+                on |= 1u << pi_tools_kind(name);
+            else
+                on &= ~(1u << pi_tools_kind(name));
+        }
+    }
+    /* pi's order: read, bash, edit, write, grep, find, ls */
+    {
+        static const int order[PT_COUNT] = { PT_READ, PT_BASH, PT_EDIT, PT_WRITE, PT_GREP, PT_FIND, PT_LS };
+        for (i = 0; i < PT_COUNT; i++)
+            if ((on & (1u << order[i])) && pi_tool_add(s, &p->tool[order[i]])) {
+                cl_copy(err, "too many tools", cap);
+                return -1;
+            }
+    }
+    return 0;
+}

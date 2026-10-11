@@ -8,11 +8,23 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
 {
     int i;
     memset(a, 0, sizeof(*a));
+    a->gate = -1;
     for (i = 1; i < argc; i++) {
         const char *s = argv[i];
         if (!strcmp(s, "-p") || !strcmp(s, "--print"))
             a->print = 1;
-        else if (!strcmp(s, "--model") || !strcmp(s, "--base-url")) {
+        else if (!strcmp(s, "--gate") || !strcmp(s, "--no-gate"))
+            a->gate = !strcmp(s, "--gate");
+        else if (!strcmp(s, "--no-tools") || !strcmp(s, "-nt"))
+            cl_copy(a->tools, "-", sizeof(a->tools));
+        else if (!strcmp(s, "--tools") || !strcmp(s, "-t")) {
+            if (i + 1 >= argc) {
+                cl_copy(a->err, s, sizeof(a->err));
+                cl_cat(a->err, " needs a value", sizeof(a->err));
+                return -1;
+            }
+            cl_copy(a->tools, argv[++i], sizeof(a->tools));
+        } else if (!strcmp(s, "--model") || !strcmp(s, "--base-url")) {
             if (i + 1 >= argc) {
                 cl_copy(a->err, s, sizeof(a->err));
                 cl_cat(a->err, " needs a value", sizeof(a->err));

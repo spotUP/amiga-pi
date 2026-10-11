@@ -274,7 +274,9 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
         stopped = 1;
     } else {
         t->calls++;
+        s->call_id = b->id;
         stopped = t->run(t->u, s, args.p, args.n, &content, &is_error);
+        s->call_id = 0;
         if (!content.n)
             jw_rawz(&content, "[]");
         pi_exts_tool_result(&s->ext, b->id, b->name, args.p, args.n, &content, &is_error);

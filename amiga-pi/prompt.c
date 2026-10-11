@@ -53,6 +53,23 @@ int pi_system_prompt(const pi_session *s, const char *cwd, jw *out)
     open_tag(out, "rules");
     if (has(s, "bash") && !has(s, "grep") && !has(s, "find") && !has(s, "ls"))
         jw_rawz(out, "- Use bash for file operations like ls, rg, find\n");
+    /* each tool's guidelines, in tool order, each once (pi's addRule) */
+    for (i = 0; i < s->ntools; i++) {
+        const char *const *g = s->tools[i]->guide;
+        for (; g && *g; g++) {
+            int j, seen = 0;
+            for (j = 0; j < i && !seen; j++) {
+                const char *const *h = s->tools[j]->guide;
+                for (; h && *h && !seen; h++)
+                    seen = !strcmp(*h, *g);
+            }
+            if (seen)
+                continue;
+            jw_rawz(out, "- ");
+            jw_rawz(out, *g);
+            jw_rawz(out, "\n");
+        }
+    }
     jw_rawz(out, "- Be concise in your responses\n- Show file paths clearly when working with files");
     close_tag(out, "rules");
     /* amiga: the machine, as C:Claude tells it (claude/amiga_text.h) */
@@ -60,6 +77,10 @@ int pi_system_prompt(const pi_session *s, const char *cwd, jw *out)
     jw_rawz(out, "You run as a native program on " CL_AMIGA_MACHINE ". " CL_AMIGA_PATHS
                  "Relative paths start from the working directory (cwd). The machine is slow and has little "
                  "memory: prefer targeted reads and searches to reading whole trees.");
+    if (s->shell_note) {
+        jw_rawz(out, " ");
+        jw_rawz(out, s->shell_note);
+    }
     close_tag(out, "amiga");
     open_tag(out, "cwd");
     jw_rawz(out, cwd ? cwd : "");

@@ -1,6 +1,6 @@
 # COMPATIBILITY: pi concept -> Amiga implementation -> status
 
-Sources: pi at commit f10993bc (see `thoughts/shared/research/2026-10-07_pi-sources-addendum.md`) and the research R2. Status: planned / partial / done / not planned + reason. "Phase item" is a plan item id where the plan has one (B1-B12, D1-D8, A-series) and a phase letter otherwise (C, E ... O); item ids are assigned when the phase is detailed. Nothing is done yet: phase A delivers documents and probes only.
+Sources: pi at commit f10993bc (see `thoughts/shared/research/2026-10-07_pi-sources-addendum.md`) and the research R2. Status: planned / partial / done / not planned + reason. "Phase item" is a plan item id where the plan has one (B1-B12, D1-D8, A-series) and a phase letter otherwise (C, E ... O); item ids are assigned when the phase is detailed. Phase A delivered documents and probes; later phases mark their rows done.
 
 Decision D3: the pi `bash` tool is named `bash` and runs `vsh -c` (AmigaDOS Shell fallback). `shell` in older plan text is superseded.
 
@@ -44,23 +44,23 @@ Rows per group (124 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tu
 | Steering queue (delivered after current tool calls) | queue checked between tool calls | planned | C |
 | Follow-up queue (delivered when agent would stop) | queue checked at stop | planned | C |
 | Abort | Ctrl+C | planned | C |
-| Parallel tool calls | run sequentially, single-threaded | partial: sequential by design | D |
+| Parallel tool calls | run sequentially, single-threaded (agent.c, one call after the other in message order) | partial: sequential by design | D |
 
 ## pi-coding-agent
 
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
 | Default system prompt (named sections, under about 1000 tokens) | amiga-pi/prompt.c: pi's preamble ("inside amiga-pi"), tools, rules, cwd, plus an amiga section; pi's docs section left out (amiga-pi ships no docs yet); project context and skills in G, I | partial (C) | C, G |
-| Tools read/write/edit/grep/find/ls | amiga-pi/tools_pi.c over claude/tools.c | planned | D1-D5 |
-| Truncation 2000 lines / 50 KB with temp file | one shared helper, T:amiga-pi-<id>.txt | planned | D5 |
+| Tools read/write/edit/grep/find/ls | amiga-pi/tools_pi.c over claude/tools.c (tools_run on one cl_tools with pi_rules); defaults read, bash, edit, write as pi; each tool's promptGuidelines in the rules | done (D) | D1-D5 |
+| Truncation 2000 lines / 50 KB with temp file | amiga-pi/truncate.c pi_cut (head for read/grep/find/ls, tail for bash), the whole text in T:amiga-pi-<call id>.txt; read names that file too (pi's read gives an offset hint instead) | done (D) | D5 |
 | Project trust (trust.json) | reuse claude/trust.c | planned | G |
 | Context files AGENTS.md / CLAUDE.md (+override), SYSTEM.md, APPEND_SYSTEM.md | agent dir then ancestors | planned | G |
-| Permissions: none by default; gate as extension | claude/policy.c as built-in extension, default off | planned | D6 |
+| Permissions: none by default; gate as extension | amiga-pi/ext_gate.c on tool_call: claude/config.c rules (cfg_decide, deny > ask > allow) and C:Claude's ask rule (perm_must_ask), the question ui_ask; permissionGate in ENVARC:amiga-pi/settings.json, --gate / --no-gate; print mode refuses what would ask | done (D) | D6 |
 | Slash commands (/model /tree /fork /clone /compact /settings /reload /export) | slash table in amiga-pi | planned | C, E, F, H |
 | /export HTML | - | not planned: no HTML exporter worth the heap; JSONL is the export | - |
 | /share | - | not planned: uploads a session to a pi service | - |
 | ! and !! shell escapes | user_bash through the bash tool | planned | D |
-| CLI flags (-p, --mode, --model, --tools, --gate, --no-gate) | amiga-pi/cli | planned | H, D4, D6 |
+| CLI flags (-p, --mode, --model, --tools, --gate, --no-gate) | amiga-pi/args.c: -p, --model, --base-url, --tools/-t (list, +name, -name, *), --no-tools/-nt, --gate, --no-gate; --mode in H | partial (D) | H, D4, D6 |
 
 ## pi-tui
 
@@ -101,13 +101,13 @@ Rows per group (124 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tu
 
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
-| read {path, offset?, limit?} | claude/tools.c Read | planned | D1 |
-| write {path, content} | claude/tools.c Write | planned | D1 |
-| edit {path, edits[{oldText,newText}]} | new multi-edit on tools.c Edit | planned | D2 |
-| bash {command, timeout?} -> runs vsh -c, AmigaDOS Shell fallback | sys->run | planned | D3 |
-| grep | claude/tools.c Grep, off by default | planned | D4 |
-| find | claude/tools.c Glob, off by default | planned | D4 |
-| ls | directory lister, off by default | planned | D4 |
+| read {path, offset?, limit?} | claude/tools.c Read: its line-numbered text (cat -n), its 256 KB whole-file cap, images as image blocks with pi's "Read image file [type]" note; a PDF is not shown | done (D), differs: line numbers | D1 |
+| write {path, content} | claude/tools.c Write under pi_rules: no read first, the directories made; C:Claude's result words | done (D) | D1 |
+| edit {path, edits[{oldText,newText}]} | claude/edit_orig.c tools_edit_orig on Edit's loading and write: against the original, unique, not overlapping, all or none, pi's error words, pi's legacy argument forms; exact bytes only (pi's fuzzy fallback for quotes, dashes and trailing blanks and its CRLF/BOM handling are not taken) | done (D), differs: no fuzzy match | D2 |
+| bash {command, timeout?} -> runs vsh -c, AmigaDOS Shell fallback | claude/tools.c Bash under pi_rules through sys->run (sys_amiga: `vsh <script>` when vsh is installed, else Execute in the AmigaShell); starts in the working directory each time, no default time limit, a time limit stops it; pi's status words after the output; the prompt says which shell | done (D) | D3 |
+| grep | claude/tools.c Grep (content mode, line numbers; literal by escaping), off by default; no .gitignore (C:Claude skips .git/.svn/.hg only) | done (D), differs: no .gitignore | D4 |
+| find | claude/tools.c Glob, off by default: full paths newest first, Glob's own cap (pi: relative paths, limit) | done (D), differs: order and paths | D4 |
+| ls | amiga-pi/tools_pi.c over sys->list (C:Claude has no ls), off by default: sorted ignoring case, '/' after directories, limit 500 | done (D) | D4 |
 
 ## extensions
 

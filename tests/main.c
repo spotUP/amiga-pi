@@ -5,9 +5,11 @@
 #include "pi_test.h"
 
 void suite_pi_agent(void);
+void suite_pi_tools(void);
 
 static const h_suite suites[] = {
-    { "pi_agent", suite_pi_agent }
+    { "pi_agent", suite_pi_agent },
+    { "pi_tools", suite_pi_tools }
 };
 
 int pi_golden(const char *name, const char *got)

@@ -25,5 +25,8 @@ Local repo; share vtcon core in place via VTCON_DIR; tool `bash` = vsh -c; Lua 5
 ## Phase C (2026-10-11)
 Done, 21 of 21 including the phase B take-overs; ledger in vtcon thoughts/shared/plans/2026-10-07-amiga-pi.progress.md. Commits here: 242db1d, 805378a. Rig 2 step 2 PASS.
 
+## Phase D (2026-10-11)
+Tools read, write, edit, bash, grep, find, ls on C:Claude's tools.c; truncation; the gate. Ledger (items D1-D12, G1-G4) in vtcon thoughts/shared/plans/2026-10-07-amiga-pi.progress.md.
+
 ## Next
-Phase D (tools read, write, edit, bash, grep/find/ls, the gate).
+Phase E (sessions, pi JSONL v3).

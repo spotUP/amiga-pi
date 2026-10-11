@@ -35,6 +35,7 @@ typedef struct pi_tool {
      * as a JSON array; *is_error. 0, or 1 when the user stopped it */
     int (*run)(void *u, struct pi_session *s, const char *args, long an, jw *content, int *is_error);
     long calls;                 /* the tests' sentinel */
+    const char *const *guide;   /* its lines for the system prompt's rules (pi's promptGuidelines), 0 none */
 } pi_tool;
 
 typedef struct pi_session {
@@ -56,6 +57,12 @@ typedef struct pi_session {
     int oom;
     long rounds;                /* rounds run since the start (the tests' sentinel) */
     int stop;                   /* the last answer's stop reason (LS_*) */
+    const char *call_id;        /* the tool call running now (a tool names its kept output after it) */
+    const char *shell_note;     /* the system prompt's sentence on the bash tool's shell, 0 none */
+    /* the gate's question (ext_gate.h), set by the prompt's UI: ASK_* of
+     * claude/tools.h; 0 nobody can answer (print mode) */
+    int (*ask)(void *u, int tool, const char *name, const char *what, int outside);
+    void *ask_u;
     char err[256];              /* its errorMessage, or why the prompt stopped */
 } pi_session;
 
