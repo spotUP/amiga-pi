@@ -22,8 +22,8 @@ static int u_poll(void *u)
 static void on_event(void *u, const pi_event *e)
 {
     pi_ui *p = (pi_ui *)u;
-    if (p->print)
-        return;
+    if (p->print && !(e->type == PE_COMPACTION_END && e->is_error))
+        return;                 /* print mode shows the answer, and a compaction that failed */
     switch (e->type) {
     case PE_AGENT_START:
         ui_busy(&p->ui, 1);
@@ -50,6 +50,17 @@ static void on_event(void *u, const pi_event *e)
         if (e->role == LR_ASSISTANT && p->text_index >= 0) {
             p->render.end(p->render.u);
             p->text_index = -1;
+        }
+        break;
+    case PE_COMPACTION_START:
+        ui_line(&p->ui, "* compacting the conversation");
+        break;
+    case PE_COMPACTION_END:
+        {
+            char line[300];
+            cl_copy(line, e->is_error ? "  [ERROR] " : "* ", sizeof(line));
+            cl_cat(line, e->msg ? e->msg : "", sizeof(line));
+            ui_line(&p->ui, line);
         }
         break;
     case PE_TOOL_START:
@@ -176,6 +187,44 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     return t;
 }
 
+/* a slash command the store knows: its lines shown, a message taken back kept for the next input.
+ * 1 when handled */
+static char prefill[4096];
+
+static int run_command(pi_ui *p, cl_tui *t, const char *line)
+{
+    jw reply, editor;
+    int rc;
+    char *a, *nl;
+    if (line[0] != '/' || !p->s->command)
+        return 0;
+    jw_init(&reply);
+    jw_init(&editor);
+    rc = p->s->command(p->s->command_u, p->s, line, &reply, &editor);
+    if (rc && reply.n) {
+        for (a = reply.p; *a;) {
+            nl = strchr(a, '\n');
+            if (nl)
+                *nl = 0;
+            ui_line(&p->ui, a);
+            if (!nl)
+                break;
+            a = nl + 1;
+        }
+    }
+    if (rc && editor.n) {
+        if (t)
+            tui_set_text(t, editor.p);
+        else {
+            cl_copy(prefill, editor.p, sizeof(prefill));
+            ui_line(&p->ui, "[INFO] The message is back: type it again edited, or press Enter to send it as it was.");
+        }
+    }
+    jw_free(&reply);
+    jw_free(&editor);
+    return rc;
+}
+
 static int is_exit(const char *line)
 {
     return !strcmp(line, "/exit") || !strcmp(line, "/quit");
@@ -213,7 +262,14 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         }
         if (n < 0 || is_exit(line))
             break;
+        if (!n && prefill[0]) {
+            cl_copy(line, prefill, 8192);
+            n = (long)strlen(line);
+        }
+        prefill[0] = 0;
         if (!n)
+            continue;
+        if (run_command(&p, t, line))
             continue;
         ui_user(&p.ui, line);
         pi_prompt(s, line);

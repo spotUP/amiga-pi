@@ -1,0 +1,26 @@
+{"op":"message","message":{"role":"system","content":"","sections":{"preamble":"You are."},"toolsAdded":[],"timestamp":1000}}
+{"op":"model","provider":"anthropic","modelId":"claude-sonnet-4-5"}
+{"op":"thinking","level":"high"}
+{"op":"message","message":{"role":"user","content":"Hello é \"quoted\"\n","timestamp":1001}}
+{"op":"message","message":{"role":"assistant","content":[{"type":"text","text":"Hi!"}],"api":"anthropic-messages","provider":"anthropic","model":"claude-sonnet-4-5","usage":{"input":10,"output":5,"cacheRead":1,"cacheWrite":2,"totalTokens":18,"cost":{"input":0.1,"output":0.2,"cacheRead":0.01,"cacheWrite":0.02,"total":0.33}},"stopReason":"stop","timestamp":1002}}
+{"op":"message","message":{"role":"toolResult","toolCallId":"call_1","toolName":"bash","content":[{"type":"text","text":"out"}],"isError":false,"timestamp":1003}}
+{"op":"usage","kind":"cache_warm","provider":"anthropic","model":"claude-sonnet-4-5","usage":{"input":10,"output":5,"cacheRead":1,"cacheWrite":2,"totalTokens":18,"cost":{"input":0.1,"output":0.2,"cacheRead":0.01,"cacheWrite":0.02,"total":0.33}},"note":"warm"}
+{"op":"usage","kind":"summary","provider":"openai","model":"gpt-4o","usage":{"input":10,"output":5,"cacheRead":1,"cacheWrite":2,"totalTokens":18,"cost":{"input":0.1,"output":0.2,"cacheRead":0.01,"cacheWrite":0.02,"total":0.33}}}
+{"op":"custom","customType":"my-ext","data":{"count":42}}
+{"op":"custom","customType":"bare"}
+{"op":"custom_message","customType":"my-ext","content":"Injected","display":true}
+{"op":"custom_message","customType":"my-ext","content":[{"type":"text","text":"arr"}],"display":false,"details":{"k":1}}
+{"op":"context_edit","target":4,"replacement":{"content":"edited user"}}
+{"op":"context_edit","target":5,"replacement":{"content":"edited assistant as string"}}
+{"op":"context_edit","target":6,"replacement":null}
+{"op":"label","target":4,"label":"mark"}
+{"op":"label","target":4,"label":null}
+{"op":"session_info","name":"  my\nname \r\n here  "}
+{"op":"compaction","summary":"S","first":4,"tokens":1234,"details":{"readFiles":["a"],"modifiedFiles":[]},"usage":{"input":10,"output":5,"cacheRead":1,"cacheWrite":2,"totalTokens":18,"cost":{"input":0.1,"output":0.2,"cacheRead":0.01,"cacheWrite":0.02,"total":0.33}},"fromHook":false}
+{"op":"compaction","summary":"Retain none","first":null,"tokens":5}
+{"op":"message","message":{"role":"user","content":"after","timestamp":1004}}
+{"op":"branch","to":5}
+{"op":"branch_summary","to":5,"summary":"went elsewhere","details":{"readFiles":[],"modifiedFiles":["b"]},"usage":{"input":10,"output":5,"cacheRead":1,"cacheWrite":2,"totalTokens":18,"cost":{"input":0.1,"output":0.2,"cacheRead":0.01,"cacheWrite":0.02,"total":0.33}},"fromHook":true}
+{"op":"message","message":{"role":"user","content":[{"type":"text","text":"blocks"}],"timestamp":1005}}
+{"op":"branch","to":null}
+{"op":"message","message":{"role":"user","content":"second root","timestamp":1006}}

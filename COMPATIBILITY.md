@@ -4,7 +4,7 @@ Sources: pi at commit f10993bc (see `thoughts/shared/research/2026-10-07_pi-sour
 
 Decision D3: the pi `bash` tool is named `bash` and runs `vsh -c` (AmigaDOS Shell fallback). `shell` in older plan text is superseded.
 
-Rows per group (124 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tui 6; sessions 19; tools 7; extensions 20; skills 4; prompt templates 2; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 9.
+Rows per group (131 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tui 6; sessions 26; tools 7; extensions 20; skills 4; prompt templates 2; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 9.
 
 
 ## pi-ai
@@ -75,27 +75,36 @@ Rows per group (124 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tu
 
 ## sessions
 
+Phase E (2026-10-11). Every row below was compared with pi's own code: `tools/pi_oracle/gen.ts` runs pi f10993bc's `SessionManager`, `buildSessionContext`, `convertToLlm`, `prepareCompaction`, `compact` and `generateBranchSummary` (with a fake model) over `tests/pi/sessions/*.jsonl` and a writer scenario, and `tests/test_pi_session.c` compares session3.c, context.c and compact.c with that output line for line.
+
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
-| v3 header line | llm/session3.h writer/reader | planned | E |
-| Entry: message | session3 | planned | E |
-| Entry: model_change | session3 | planned | E, F |
-| Entry: thinking_level_change | session3 | planned | E, F |
-| Entry: usage | session3 | planned | E |
-| Entry: compaction | session3 + summariser | planned | E |
-| Entry: context_edit | session3 | planned | E |
-| Entry: branch_summary | session3 | planned | E |
-| Entry: custom (not in context) | session3 (extension data) | planned | E, L |
-| Entry: custom_message (in context as user) | session3 | planned | E, L |
-| Entry: label | session3 | planned | E |
-| Entry: session_info | session3 | planned | E |
-| Tree (leaf, parentId, context = leaf to root) | RAM index, branch loaded | planned | E |
-| /tree (move leaf, optional LLM branch summary) | slash command | planned | E |
-| /fork (new file, parentSession) | slash command | planned | E |
-| /clone (copy branch) | slash command | planned | E |
-| Compaction (reserve 16384, keep 20000, cut rules, split-turn) | amiga-pi/compact.c, prompts copied from pi (addendum 6) | planned | E |
-| Branch summary (BRANCH_SUMMARY_PROMPT) | same | planned | E |
-| Session file location and slug | ENVARC:amiga-pi/sessions/--<slug>--/ | planned | E |
+| v3 header line (`type`, `version`, `id` uuidv7, `timestamp`, `cwd`, `parentSession`) | amiga-pi/session3.c writer and reader; the file is made once a user or assistant message exists (pi's "wx"), then one appended line per entry | done | E1 |
+| Entry: message | session3 `s3_message`; the agent loop appends every finished user, assistant and toolResult message (a `message_end` subscriber in store.c) | done | E1, E10 |
+| Entry: model_change | a new session records it first (pi's sdk.ts); restored on resume | done | E1, E7 |
+| Entry: thinking_level_change | recorded "off" in a new session (amiga-pi has no thinking levels yet) | done, levels F | E1, E7 |
+| Entry: usage | session3 `s3_usage` (written when something reports usage; none does yet) | done (writer) | E1 |
+| Entry: compaction | session3 + compact.c; carries pi's `systemMessage` (the replay), `details`, `usage`, `fromHook: false` | done | E1, E4 |
+| Entry: context_edit | session3 (pi's validation: editable target on the active branch, a string becomes one text block for assistant and toolResult) + context.c (latest edit per target, null omits) | done; no command creates one yet | E1, E3 |
+| Entry: branch_summary | session3 + compact.c | done | E1, E5 |
+| Entry: custom (not in context) | session3 `s3_custom` | done (writer); extensions L | E1, L |
+| Entry: custom_message (in context as user) | session3, context.c | done (writer, context); extensions L | E1, E3, L |
+| Entry: label | session3 (resolved per target; cleared by an empty label); `/label` | done | E1, E5 |
+| Entry: session_info | session3 (pi's name sanitising); `--name`, `/name` | done | E1, E7 |
+| Tree (leaf, parentId, context = leaf to root) | session3 keeps an index of every entry (id, parent, type, role, file offset) and only the active branch's lines in RAM; off-branch lines are read back on demand (`cl_sys.pread`); context.c builds the context | done | E2, E3 |
+| Old files | version 1 and 2 migrated and rewritten as pi does; malformed lines skipped; a file that is not a session refused and left alone; a missing final newline repaired | done | E2 |
+| System prompt as a system message in the transcript | store.c: the first request writes `{"role":"system","content":"","sections":{preamble,tools,rules,amiga,cwd},"toolsAdded":[...]}`; later only a patch (changed sections, null for a removed one, toolsAdded/toolsRemoved); the request's system prompt is the replay (ctx_system_text) | done; pi's "docs" section left out (no pi docs on the Amiga), an "amiga" section added | E3b |
+| /tree (move leaf, optional LLM branch summary) | amiga-pi/cmds.c: `/tree` lists the conversation (numbered, the active branch marked, labels), `/tree N` moves the leaf (a user message: its parent becomes the leaf and its text comes back to the input), `/tree N summarize [focus]`, `/tree N summarize-with PROMPT`, `-l LABEL`. pi's full-screen selector and its filter modes are not built; the list shows user and assistant messages, compactions, branch summaries and custom messages | done (commands, not a selector) | E5 |
+| /fork (new file, parentSession) | cmds.c: `/fork` lists the branch's user messages, `/fork N` starts a session from just before message N (pi's createBranchedSession: labels re-chained, a compaction's firstKeptEntryId remapped); the first message gives a new empty session with parentSession | done | E6 |
+| /clone (copy branch) | cmds.c `/clone`; both refuse before the session has a file ("This session has not been saved yet...") as pi does | done | E6 |
+| --continue, --session, --resume, --no-session, --name | args.c, app.c, store.c: `-c` the newest file of this directory, `--session` a path or an id prefix, `-r` a numbered list typed at the prompt (pi's picker is a screen), `--no-session` keeps the tree in RAM (the tree commands still work), `-n` | done | E7 |
+| Compaction (reserve 16384, keep 20000, cut rules, split-turn) | amiga-pi/compact.c, prompts copied from pi by tools/pi_oracle/mkprompts.py; before an answer when the context passes the window minus the reserve, and `/compact [instructions]`; settings.json `compaction` {enabled, reserveTokens, keepRecentTokens}. The window is known for Anthropic models (C:Claude's table); other providers have none yet, so they compact only on `/compact` (phase F) | done | E4 |
+| Compaction after a context overflow, retry | not built (pi's overflow recovery) | planned | F |
+| Branch summary (BRANCH_SUMMARY_PROMPT) | same, prompt text copied | done | E5 |
+| Session file location and slug | `<data dir>/sessions/<pi's "--<cwd>--" cut to 30>/<YYYYMMDDTHHMMSS>_<8 hex>.jsonl`. Deliberate difference: an FFS name is at most 30 characters, so pi's `<ISO time>_<uuid>.jsonl` cannot be used; the directory name is pi's cut by C:Claude's rule (the end and a hash). The header keeps pi's uuidv7 `id`; the file name carries its last 8 hex digits. Kept tool output and the gate's permissions file are cut the same way | done | E8 |
+| Timestamps | ISO 8601 with milliseconds. Deliberate difference: the Amiga's clock is local time with no zone, so entries end without `Z` or an offset (owner, 2026-10-07 round 2); on the host (UTC) they end in `Z` as pi's do | done | E9 |
+| Entry ids | 8 hex digits, collision-checked, from a generator seeded by the clock (pi: random UUID prefix) | done | E1 |
+| Opening a session written on the Amiga in pi on a Mac | `tools/pi_oracle/crosscheck.sh` opens the files session3 writes with pi's own SessionManager (host); the Amiga-written file is the owner's check | host done; owner check open | E11 |
 
 ## tools
 

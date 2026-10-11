@@ -23,16 +23,22 @@ void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_poo
     pi_subscribe(&s->em, pi_exts_event, &s->ext);
 }
 
-void pi_session_free(pi_session *s)
+void pi_session_clear(pi_session *s)
 {
     int i;
     for (i = 0; i < s->nmsg; i++)
         free(s->msg[i]);
+    s->nmsg = 0;
+}
+
+void pi_session_free(pi_session *s)
+{
+    pi_session_clear(s);
     free(s->msg);
     free(s->msg_n);
     s->msg = 0;
     s->msg_n = 0;
-    s->nmsg = s->cap = 0;
+    s->cap = 0;
 }
 
 int pi_tool_add(pi_session *s, pi_tool *t)
@@ -87,6 +93,14 @@ static int keep(pi_session *s, jw *w)
     return s->nmsg++;
 }
 
+int pi_session_push(pi_session *s, const char *json, long n)
+{
+    jw w;
+    jw_init(&w);
+    jw_raw(&w, json, n);
+    return keep(s, &w) < 0 ? -1 : 0;
+}
+
 static void emit_msg(pi_session *s, int type, int i, int role)
 {
     pi_event e;
@@ -135,7 +149,7 @@ static void st_ev(void *u, const llm_event *e)
 }
 
 /* the tools as pi-ai's request carries them */
-static void tools_json(const pi_session *s, jw *w)
+void pi_tools_json(const pi_session *s, jw *w)
 {
     int i;
     jw_rawz(w, "[");
@@ -161,6 +175,11 @@ static int answer(pi_session *s, stream *t)
     llm_sink k;
     jw tools, m;
     int i;
+    if (s->prepare && s->prepare(s->prepare_u, s)) {
+        /* the store could not make the conversation fit: the prompt stops with its reason */
+        llm_acc_init(&t->acc, s->model.api, s->model.provider);
+        return -3;
+    }
     if (llm_transform((const char *const *)s->msg, s->msg_n, s->nmsg, now(s), &v)) {
         llm_view_free(&v);
         s->oom = 1;
@@ -168,7 +187,7 @@ static int answer(pi_session *s, stream *t)
     }
     jw_init(&tools);
     if (s->ntools)
-        tools_json(s, &tools);
+        pi_tools_json(s, &tools);
     memset(&c, 0, sizeof(c));
     c.model = &s->model;
     c.system = s->system;
@@ -342,7 +361,8 @@ int pi_prompt(pi_session *s, const char *text)
         if (i < 0) {
             llm_acc_free(&t.acc);
             s->stop = LS_ERROR;
-            cl_copy(s->err, "out of memory", sizeof(s->err));
+            if (i != -3)
+                cl_copy(s->err, "out of memory", sizeof(s->err));
             emit_simple(s, PE_TURN_END);
             emit_simple(s, PE_AGENT_END);
             return s->stop;

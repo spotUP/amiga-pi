@@ -24,6 +24,7 @@ typedef struct pi_platform {
     const char *data_dir;       /* what grows (claude/datadir.c: UP-Term:var/amiga-pi, else ENVARC:amiga-pi;
                                  * the agent dir on the host), 0 none */
     int shell;                  /* PI_SH_*: what the bash tool runs */
+    int utc;                    /* the clock is UTC (host: timestamps end in Z); else the Amiga's local time */
     /* the session once made, before the prompt (the tests add their tools here), 0 none */
     void (*ready)(pi_session *s);
 } pi_platform;

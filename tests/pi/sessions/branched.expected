@@ -1,0 +1,10 @@
+{"type":"session","version":3,"id":"SID","timestamp":"T","cwd":"/work/dir","parentSession":"P"}
+{"type":"message","id":"i1","parentId":null,"timestamp":"T","message":{"role":"user","content":"q1","timestamp":2001}}
+{"type":"message","id":"i2","parentId":"i1","timestamp":"T","message":{"role":"assistant","content":[{"type":"text","text":"a1"}],"api":"anthropic-messages","provider":"anthropic","model":"claude-sonnet-4-5","usage":{"input":10,"output":5,"cacheRead":1,"cacheWrite":2,"totalTokens":18,"cost":{"input":0.1,"output":0.2,"cacheRead":0.01,"cacheWrite":0.02,"total":0.33}},"stopReason":"stop","timestamp":2002}}
+{"type":"message","id":"i3","parentId":"i2","timestamp":"T","message":{"role":"user","content":"q2","timestamp":2003}}
+{"type":"message","id":"i4","parentId":"i3","timestamp":"T","message":{"role":"assistant","content":[{"type":"text","text":"a2"}],"api":"anthropic-messages","provider":"anthropic","model":"claude-sonnet-4-5","usage":{"input":10,"output":5,"cacheRead":1,"cacheWrite":2,"totalTokens":18,"cost":{"input":0.1,"output":0.2,"cacheRead":0.01,"cacheWrite":0.02,"total":0.33}},"stopReason":"stop","timestamp":2004}}
+{"type":"compaction","id":"i5","parentId":"i4","timestamp":"T","summary":"S","firstKeptEntryId":"i3","tokensBefore":99}
+{"type":"message","id":"i6","parentId":"i5","timestamp":"T","message":{"role":"user","content":"q3 kept","timestamp":2006}}
+{"type":"label","id":"i7","parentId":"i6","timestamp":"T","targetId":"i1","label":"L1"}
+{"type":"label","id":"i8","parentId":"i7","timestamp":"T","targetId":"i2","label":"L2"}
+{"type":"label","id":"i9","parentId":"i8","timestamp":"T","targetId":"i3","label":"L3"}

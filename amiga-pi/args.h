@@ -1,6 +1,12 @@
 /* args -- amiga-pi's command line (plan C7): pi's flags that exist so far.
  *   amiga-pi [-p|--print] [--model provider/id] [--base-url URL]
- *            [--tools|-t list] [--no-tools|-nt] [--gate|--no-gate] [prompt ...]
+ *            [--tools|-t list] [--no-tools|-nt] [--gate|--no-gate]
+ *            [--continue|-c] [--session path-or-id] [--resume|-r] [--no-session]
+ *            [--name|-n name] [prompt ...]
+ * Sessions (store.h): -c continues the newest session of the working directory,
+ * --session opens a file or the session whose id starts with the argument,
+ * -r lists the sessions to pick one, --no-session keeps the conversation in RAM,
+ * -n names the session (a session_info entry).
  * --tools: pi's allowlist of tools ("read,grep,find,ls"; "+ls" adds to the
  * defaults read, bash, edit, write); --no-tools: none. --gate / --no-gate
  * switch the permission gate (ext_gate.h) over settings.json's
@@ -20,6 +26,9 @@ typedef struct pi_args {
     int print;
     char tools[256];            /* --tools as given, "-" for --no-tools, "" the defaults */
     int gate;                   /* --gate 1, --no-gate 0, -1 settings.json decides */
+    int cont, resume, no_session;
+    char session[300];          /* --session's argument, "" none */
+    char name[128];             /* --name, "" none */
     char provider[48], id[96], base_url[256];
     char prompt[4096];
     char err[160];

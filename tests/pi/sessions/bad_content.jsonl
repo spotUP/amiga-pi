@@ -1,0 +1,11 @@
+{"type":"session","version":3,"id":"0193a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project"}
+{"type":"message","id":"70000001","parentId":null,"timestamp":"2024-12-03T14:00:00.000Z","message":{"role":"system","content":null,"timestamp":1}}
+{"type":"message","id":"70000002","parentId":"70000001","timestamp":"2024-12-03T14:00:01.000Z","message":{"role":"user","content":null,"timestamp":2}}
+{"type":"message","id":"70000003","parentId":"70000002","timestamp":"2024-12-03T14:00:02.000Z","message":{"role":"assistant","timestamp":3}}
+{"type":"message","id":"70000004","parentId":"70000003","timestamp":"2024-12-03T14:00:03.000Z","message":{"role":"toolResult","toolCallId":"c","toolName":"t","timestamp":4}}
+{"type":"custom_message","id":"70000005","parentId":"70000004","timestamp":"2024-12-03T14:00:04.000Z","customType":"x","display":true}
+{"type":"branch_summary","id":"70000006","parentId":"70000005","timestamp":"2024-12-03T14:00:05.000Z","fromId":"70000001","summary":""}
+{"type":"branch_summary","id":"70000007","parentId":"70000006","timestamp":"2024-12-03T14:00:06.000Z","fromId":"70000001","summary":"has text"}
+{"type":"message","id":"70000008","parentId":"70000007","timestamp":"2024-12-03T14:00:07.000Z","message":{"role":"bashExecution","command":"ls","output":"","exitCode":2,"cancelled":false,"truncated":true,"fullOutputPath":"/tmp/x","timestamp":8}}
+{"type":"message","id":"70000009","parentId":"70000008","timestamp":"2024-12-03T14:00:08.000Z","message":{"role":"bashExecution","command":"echo","output":"hi","exitCode":null,"cancelled":false,"truncated":false,"timestamp":9,"excludeFromContext":true}}
+{"type":"message","id":"7000000a","parentId":"70000009","timestamp":"2024-12-03T14:00:09.000Z","message":{"role":"bashExecution","command":"sleep","output":"o","cancelled":true,"truncated":false,"timestamp":10}}

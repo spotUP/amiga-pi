@@ -1,0 +1,25 @@
+open ok
+version 3
+cwd /path/to/project
+parent -
+entries 1
+f0000001 - message
+leaf f0000001
+name -
+branch f0000001
+context {"messages":[{"role":"user","content":"no newline after me","timestamp":1733234401000}],"thinkingLevel":"off","model":null}
+llm [{"role":"user","content":"no newline after me","timestamp":1733234401000}]
+system -
+systemtext -
+prepare keep=20000 none
+prepare keep=5000 none
+prepare keep=5 none
+branch target=f0000001 ancestor=f0000001 entries=
+branchprep budget=0 {"messages":[],"fileOps":{"read":[],"written":[],"edited":[]},"totalTokens":0}
+branchprep budget=40 {"messages":[],"fileOps":{"read":[],"written":[],"edited":[]},"totalTokens":0}
+branchsum {"summary":"No content to summarize"}
+tokens [5]
+size changed
+file
+{"type":"session","version":3,"id":"0193a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project"}
+{"type":"message","id":"f0000001","parentId":null,"timestamp":"2024-12-03T14:00:00.000Z","message":{"role":"user","content":"no newline after me","timestamp":1733234401000}}

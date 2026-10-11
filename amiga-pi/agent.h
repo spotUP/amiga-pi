@@ -63,6 +63,15 @@ typedef struct pi_session {
      * claude/tools.h; 0 nobody can answer (print mode) */
     int (*ask)(void *u, int tool, const char *name, const char *what, int outside);
     void *ask_u;
+    /* the session store (store.h): called before each answer's request, after the messages so far were kept
+     * (compaction rewrites the conversation here); 0, or -1 to stop the prompt with err set */
+    int (*prepare)(void *u, struct pi_session *s);
+    void *prepare_u;
+    /* slash commands (store.c): a line the prompt got that starts with '/'. 1 when handled -- the lines to show
+     * go to reply, and editor receives text the user takes back to edit (a message left by /tree); 0 not a command
+     * of the store's (the line goes to the model) */
+    int (*command)(void *u, struct pi_session *s, const char *line, jw *reply, jw *editor);
+    void *command_u;
     char err[256];              /* its errorMessage, or why the prompt stopped */
 } pi_session;
 
@@ -71,6 +80,13 @@ void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_poo
 void pi_session_free(pi_session *s);
 /* 0, -1 full */
 int pi_tool_add(pi_session *s, pi_tool *t);
+/* a message (pi-ai JSON) added to the conversation, copied: 0, -1 out of memory */
+int pi_session_push(pi_session *s, const char *json, long n);
+/* the conversation emptied (a session loaded, a branch left) */
+void pi_session_clear(pi_session *s);
+/* the tools as pi-ai's request carries them: a JSON array of {name, description, parameters} */
+void pi_tools_json(const pi_session *s, jw *w);
+
 /* the prompt to the end: the last answer's stop reason (LS_STOP, LS_LENGTH,
  * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it) */
 int pi_prompt(pi_session *s, const char *text);

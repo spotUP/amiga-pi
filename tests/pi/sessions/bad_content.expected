@@ -1,0 +1,43 @@
+open ok
+version 3
+cwd /path/to/project
+parent -
+entries 10
+70000001 - message
+70000002 70000001 message
+70000003 70000002 message
+70000004 70000003 message
+70000005 70000004 custom_message
+70000006 70000005 branch_summary from=70000001
+70000007 70000006 branch_summary from=70000001
+70000008 70000007 message
+70000009 70000008 message
+7000000a 70000009 message
+leaf 7000000a
+name -
+branch 70000001,70000002,70000003,70000004,70000005,70000006,70000007,70000008,70000009,7000000a
+context {"messages":[{"role":"system","content":"","timestamp":1},{"role":"user","content":[],"timestamp":2},{"role":"assistant","timestamp":3,"content":[]},{"role":"toolResult","toolCallId":"c","toolName":"t","timestamp":4,"content":[]},{"role":"custom","customType":"x","content":[],"display":true,"timestamp":1733234404000},{"role":"branchSummary","summary":"has text","fromId":"70000001","timestamp":1733234406000},{"role":"bashExecution","command":"ls","output":"","exitCode":2,"cancelled":false,"truncated":true,"fullOutputPath":"/tmp/x","timestamp":8},{"role":"bashExecution","command":"echo","output":"hi","exitCode":null,"cancelled":false,"truncated":false,"timestamp":9,"excludeFromContext":true},{"role":"bashExecution","command":"sleep","output":"o","cancelled":true,"truncated":false,"timestamp":10}],"thinkingLevel":"off","model":{}}
+llm [{"role":"system","content":"","timestamp":1},{"role":"user","content":[],"timestamp":2},{"role":"assistant","timestamp":3,"content":[]},{"role":"toolResult","toolCallId":"c","toolName":"t","timestamp":4,"content":[]},{"role":"user","content":[],"timestamp":1733234404000},{"role":"user","content":[{"type":"text","text":"The following is a summary of a branch that this conversation came back from:\n\n<summary>\nhas text</summary>"}],"timestamp":1733234406000},{"role":"user","content":[{"type":"text","text":"Ran `ls`\n(no output)\n\nCommand exited with code 2\n\n[Output truncated. Full output: /tmp/x]"}],"timestamp":8},{"role":"user","content":[{"type":"text","text":"Ran `sleep`\n```\no\n```\n\n(command cancelled)"}],"timestamp":10}]
+system {"role":"system","content":"","timestamp":1}
+systemtext ""
+prepare keep=20000 none
+prepare keep=5000 none
+prepare keep=5 {"firstKeptEntryId":"70000008","messagesToSummarize":[{"role":"user","content":[],"timestamp":2},{"role":"assistant","timestamp":3,"content":[]},{"role":"toolResult","toolCallId":"c","toolName":"t","timestamp":4,"content":[]},{"role":"custom","customType":"x","content":[],"display":true,"timestamp":1733234404000},{"role":"branchSummary","summary":"has text","fromId":"70000001","timestamp":1733234406000}],"turnPrefixMessages":[],"isSplitTurn":false,"tokensBefore":7,"fileOps":{"read":[],"written":[],"edited":[]}}
+compact keep=5 {"summary":"SUMMARY 1","firstKeptEntryId":"70000008","tokensBefore":7,"usage":{"input":100,"output":10,"cacheRead":1,"cacheWrite":2,"totalTokens":113,"cost":{"input":0.5,"output":0.25,"cacheRead":0,"cacheWrite":0,"total":0.75}},"details":{"readFiles":[],"modifiedFiles":[]}}
+request maxTokens=13107 system="You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary." prompt="<conversation>\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nhas text</summary>\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.\n\nAdditional focus: focus on tests"
+failure error Summarization failed: boom
+failure length Summarization failed: generation hit the token cap and the summary is incomplete
+tokens [0,0,0,0,0,2,1,2,2]
+size same
+file
+{"type":"session","version":3,"id":"0193a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project"}
+{"type":"message","id":"70000001","parentId":null,"timestamp":"2024-12-03T14:00:00.000Z","message":{"role":"system","content":null,"timestamp":1}}
+{"type":"message","id":"70000002","parentId":"70000001","timestamp":"2024-12-03T14:00:01.000Z","message":{"role":"user","content":null,"timestamp":2}}
+{"type":"message","id":"70000003","parentId":"70000002","timestamp":"2024-12-03T14:00:02.000Z","message":{"role":"assistant","timestamp":3}}
+{"type":"message","id":"70000004","parentId":"70000003","timestamp":"2024-12-03T14:00:03.000Z","message":{"role":"toolResult","toolCallId":"c","toolName":"t","timestamp":4}}
+{"type":"custom_message","id":"70000005","parentId":"70000004","timestamp":"2024-12-03T14:00:04.000Z","customType":"x","display":true}
+{"type":"branch_summary","id":"70000006","parentId":"70000005","timestamp":"2024-12-03T14:00:05.000Z","fromId":"70000001","summary":""}
+{"type":"branch_summary","id":"70000007","parentId":"70000006","timestamp":"2024-12-03T14:00:06.000Z","fromId":"70000001","summary":"has text"}
+{"type":"message","id":"70000008","parentId":"70000007","timestamp":"2024-12-03T14:00:07.000Z","message":{"role":"bashExecution","command":"ls","output":"","exitCode":2,"cancelled":false,"truncated":true,"fullOutputPath":"/tmp/x","timestamp":8}}
+{"type":"message","id":"70000009","parentId":"70000008","timestamp":"2024-12-03T14:00:08.000Z","message":{"role":"bashExecution","command":"echo","output":"hi","exitCode":null,"cancelled":false,"truncated":false,"timestamp":9,"excludeFromContext":true}}
+{"type":"message","id":"7000000a","parentId":"70000009","timestamp":"2024-12-03T14:00:09.000Z","message":{"role":"bashExecution","command":"sleep","output":"o","cancelled":true,"truncated":false,"timestamp":10}}

@@ -143,6 +143,7 @@ int main(int argc, char **argv)
         strcat(tmp, "/");
     pl.tmp = tmp;
     pl.shell = PI_SH_HOST;
+    pl.utc = 1;
     if (getenv("PI_CODING_AGENT_DIR"))
         strncpy(agent, getenv("PI_CODING_AGENT_DIR"), sizeof(agent) - 1);
     else if (home && strlen(home) < 280) {
