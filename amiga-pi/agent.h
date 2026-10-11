@@ -67,6 +67,11 @@ typedef struct pi_session {
      * (compaction rewrites the conversation here); 0, or -1 to stop the prompt with err set */
     int (*prepare)(void *u, struct pi_session *s);
     void *prepare_u;
+    /* slash commands (store.c): a line the prompt got that starts with '/'. 1 when handled -- the lines to show
+     * go to reply, and editor receives text the user takes back to edit (a message left by /tree); 0 not a command
+     * of the store's (the line goes to the model) */
+    int (*command)(void *u, struct pi_session *s, const char *line, jw *reply, jw *editor);
+    void *command_u;
     char err[256];              /* its errorMessage, or why the prompt stopped */
 } pi_session;
 

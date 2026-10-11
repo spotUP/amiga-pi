@@ -2,7 +2,9 @@
  * pi-agent-core's AgentEvent (pi f10993bc packages/agent/src/agent-loop.ts):
  * agent_start, turn_start, message_start / message_update / message_end,
  * tool_execution_start / update / end, turn_end, agent_end, in the order
- * pi emits them. Subscribers: the UI, later JSON mode and extensions. The
+ * pi emits them; compaction_start / compaction_end (agent-session.ts) with the
+ * reason in stop (0 manual, 1 threshold) and, at the end, is_error with the
+ * text in msg (the failure, or what was kept). Subscribers: the UI, later JSON mode and extensions. The
  * role cl_feed has for C:Claude (claude/repl.h), without touching it.
  * Portable C89. */
 #ifndef PI_EVENTS_H
@@ -12,7 +14,8 @@
 
 enum {
     PE_AGENT_START, PE_TURN_START, PE_MESSAGE_START, PE_MESSAGE_UPDATE, PE_MESSAGE_END,
-    PE_TOOL_START, PE_TOOL_UPDATE, PE_TOOL_END, PE_TURN_END, PE_AGENT_END, PE_N
+    PE_TOOL_START, PE_TOOL_UPDATE, PE_TOOL_END, PE_TURN_END, PE_AGENT_END,
+    PE_COMPACTION_START, PE_COMPACTION_END, PE_N
 };
 
 #define PI_SUBS 8

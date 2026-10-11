@@ -18,14 +18,24 @@
 #include "../amiga-pi/app.h"
 #include "../amiga-pi/session3.h"
 #include "../amiga-pi/context.h"
+#include "../amiga-pi/compact.h"
 
 static char root[400], data[420], sdir[520];
 static sys_posix sp;
 static cl_sys sys;
 static jw out;
-static const char *in_lines[4];
+static const char *in_lines[12];
 static int in_n;
 static long clock_s;
+
+static char agent[420];
+static long window;            /* the model's context window the next run sets (0: as the app gives it) */
+
+static void set_window(pi_session *s)
+{
+    if (window)
+        s->model.context_window = window;
+}
 
 static llm_ts adv_now(void *u)
 {
@@ -102,7 +112,8 @@ static int run(int argc, char **argv, const char *sse)
     pl.shell = 0;
     pl.utc = 1;
     pl.data_dir = data;
-    pl.agent_dir = 0;
+    pl.agent_dir = agent;
+    pl.ready = set_window;
     if (sse)
         ps_sse(sse, 0);
     return pi_app(argc, argv, &pl);
@@ -386,6 +397,207 @@ static void test_find(void)
     (void)path;
 }
 
+/* ---- E4: compaction through the prompt (threshold) and /compact ---- */
+
+static int text_in_file(pi_s3 *st, const char *needle)
+{
+    int i;
+    for (i = 0; i < st->n; i++) {
+        long n;
+        const char *t = s3_text(st, i, &n);
+        if (t && strstr(t, needle))
+            return 1;
+    }
+    return 0;
+}
+
+static int count_type(pi_s3 *st, int type)
+{
+    int i, n = 0;
+    for (i = 0; i < st->n; i++)
+        n += st->e[i].type == type;
+    return n;
+}
+
+static void set_settings(const char *json)
+{
+    char p[500];
+    FILE *f;
+    strcpy(p, agent);
+    strcat(p, "/settings.json");
+    f = fopen(p, "wb");
+    if (f) {
+        fputs(json, f);
+        fclose(f);
+    }
+}
+
+static void test_compaction(void)
+{
+    char *c1[] = { "amiga-pi", MODEL_ARGS, "-p", "hello", 0 };
+    char *c2[8];
+    char *c3[] = { "amiga-pi", MODEL_ARGS, 0 };
+    char path[600], cmd[600], long_prompt[500];
+    pi_s3 st;
+    pi_ctx cx;
+    long t1;
+    int i;
+    mkdir(agent, 0777);
+    strcpy(cmd, "rm -rf ");
+    strcat(cmd, sdir);
+    CHECK_INT(system(cmd), 0);
+    set_settings("{\"compaction\":{\"keepRecentTokens\":5}}");
+    window = 0;
+    CHECK_INT(run(ARGC(c1), c1, "../pi/openai_text.sse"), 0);
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 1);
+    CHECK_INT(s3_open(&st, path), 0);
+    ctx_init(&cx);
+    CHECK_INT(ctx_build(&st, st.leaf, &cx), 0);
+    t1 = cp_context_tokens(&st, st.leaf, &cx);
+    ctx_free(&cx);
+    CHECK(t1 > 100);
+    CHECK_INT(count_type(&st, S3_COMPACTION), 0);
+    s3_free(&st);
+
+    /* the window leaves room for the conversation so far and a little: the next, long prompt crosses the
+     * threshold, so before the answer the conversation is summarized (one request) and then answered */
+    for (i = 0; i < 400; i++)
+        long_prompt[i] = (char)('a' + i % 26);
+    long_prompt[400] = 0;
+    window = CP_RESERVE + t1 + 50;
+    c2[0] = "amiga-pi";
+    c2[1] = "--base-url";
+    c2[2] = "http://192.168.1.10:11434/v1";
+    c2[3] = "-c";
+    c2[4] = "-p";
+    c2[5] = long_prompt;
+    c2[6] = 0;
+    {
+        cl_io io;
+        pi_platform pl;
+        ps_reset();
+        ps_pool_up(LLM_POOL);
+        line_io(&io);
+        memset(&pl, 0, sizeof(pl));
+        pl.io = &io;
+        pl.pool = &ps_pool;
+        pl.h.poll = ps_poll;
+        pl.h.sleep = ps_sleep;
+        pl.h.ms = ps_ms;
+        pl.h.resolve = ps_resolve;
+        pl.now = adv_now;
+        pl.getenv = no_env;
+        pl.cwd = "/work/proj";
+        pl.sys = &sys;
+        pl.tmp = root;
+        pl.utc = 1;
+        pl.data_dir = data;
+        pl.agent_dir = agent;
+        pl.ready = set_window;
+        ps_sse("../pi/openai_text.sse", 0);     /* the summary */
+        ps_sse("../pi/openai_text.sse", 0);     /* the answer */
+        CHECK_INT(pi_app(6, c2, &pl), 0);
+    }
+    CHECK_INT(ps.nreq, 2);
+    CHECK(ps.nreq == 2 && strstr(ps.body[0], "<conversation>") != 0 && strstr(ps.body[0], "[User]: hello") != 0);
+    CHECK(ps.nreq == 2 && strstr(ps.body[0], "context summarization assistant") != 0);
+    CHECK(ps.nreq == 2 && strstr(ps.body[1], "compacted into the following summary") != 0 &&
+          strstr(ps.body[1], long_prompt) != 0 && strstr(ps.body[1], "[User]: hello") == 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 2);
+    CHECK_INT(s3_open(&st, path), 0);
+    CHECK_INT(count_type(&st, S3_COMPACTION), 1);
+    {
+        int ci = -1, k;
+        for (k = 0; k < st.n; k++)
+            if (st.e[k].type == S3_COMPACTION)
+                ci = k;
+        CHECK(ci > 0 && st.e[ci - 1].role == S3R_USER);     /* the compaction sits after the new user message */
+        CHECK(text_in_file(&st, "\"firstKeptEntryId\":\"") != 0);
+        {
+            long n;
+            const char *t = s3_text(&st, ci, &n);
+            jv o, v;
+            CHECK(t && !json_parse(t, n, &o) && json_get(o, "systemMessage", &v) && json_type(v) == J_OBJ);
+            CHECK(t && json_get(o, "fromHook", &v) && json_type(v) == J_FALSE);
+            CHECK(t && json_get(o, "firstKeptEntryId", &v) && json_streq(v, s3_id(&st, ci - 1)));
+            CHECK(t && json_get(o, "summary", &v) && json_streq(v, "Hello from the Amiga! Gr\xc3\xbc\xc3\x9f" "e \xe2\x80\x94 ok"));
+        }
+    }
+    s3_free(&st);
+
+    /* /compact [instructions] from the prompt: three questions, then the summary of everything but the last turn
+     * (the history, with the instructions) and of the turn's start (its own request), merged */
+    window = 0;
+    strcpy(cmd, "rm -rf ");
+    strcat(cmd, sdir);
+    CHECK_INT(system(cmd), 0);
+    {
+        cl_io io;
+        pi_platform pl;
+        int k;
+        ps_reset();
+        ps_pool_up(LLM_POOL);
+        line_io(&io);
+        in_lines[0] = "q one";
+        in_lines[1] = "q two";
+        in_lines[2] = "q three";
+        in_lines[3] = "/compact only decisions";
+        in_lines[4] = "/exit";
+        in_lines[5] = 0;
+        memset(&pl, 0, sizeof(pl));
+        pl.io = &io;
+        pl.pool = &ps_pool;
+        pl.h.poll = ps_poll;
+        pl.h.sleep = ps_sleep;
+        pl.h.ms = ps_ms;
+        pl.h.resolve = ps_resolve;
+        pl.now = adv_now;
+        pl.getenv = no_env;
+        pl.cwd = "/work/proj";
+        pl.sys = &sys;
+        pl.tmp = root;
+        pl.utc = 1;
+        pl.data_dir = data;
+        pl.agent_dir = agent;
+        for (k = 0; k < 5; k++)
+            ps_sse("../pi/openai_text.sse", 0);
+        CHECK_INT(pi_app(ARGC(c3), c3, &pl), 0);
+        CHECK(out.p && strstr(out.p, "* compacting the conversation") != 0);
+        CHECK(out.p && strstr(out.p, "* Compacted: about") != 0);
+    }
+    CHECK_INT(ps.nreq, 5);
+    CHECK(ps.nreq == 5 && strstr(ps.body[3], "Additional focus: only decisions") != 0 &&
+          strstr(ps.body[3], "[User]: q one") != 0 && strstr(ps.body[3], "q three") == 0);
+    CHECK(ps.nreq == 5 && strstr(ps.body[4], "# Conversation") != 0 && strstr(ps.body[4], "[User]: q three") != 0);
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 3);
+    CHECK_INT(s3_open(&st, path), 0);
+    CHECK_INT(count_type(&st, S3_COMPACTION), 1);
+    CHECK(text_in_file(&st, "**Turn Context (split turn):**") != 0);
+    s3_free(&st);
+    /* and again at once: the last entry is the compaction, pi refuses with its words, nothing is requested */
+    {
+        char *c4[] = { "amiga-pi", "--base-url", "http://192.168.1.10:11434/v1", "-c", 0 };
+        in_lines[0] = "/compact";
+        in_lines[1] = "/exit";
+        in_lines[2] = 0;
+        CHECK_INT(run(ARGC(c4), c4, 0), 0);
+        CHECK_INT(ps.nreq, 0);
+        CHECK(out.p && strstr(out.p, "[ERROR] Compaction failed: Already compacted") != 0);
+    }
+    /* a new session has nothing to compact */
+    {
+        char *c5[] = { "amiga-pi", MODEL_ARGS, "--no-session", 0 };
+        in_lines[0] = "/compact";
+        in_lines[1] = "/exit";
+        in_lines[2] = 0;
+        CHECK_INT(run(ARGC(c5), c5, 0), 0);
+        CHECK_INT(ps.nreq, 0);
+        CHECK(out.p && strstr(out.p, "[ERROR] Compaction failed: Nothing to compact (session too small)") != 0);
+    }
+}
+
 void suite_pi_store(void)
 {
     const char *base = getenv("TMPDIR");
@@ -399,12 +611,15 @@ void suite_pi_store(void)
     }
     strcpy(data, root);
     strcat(data, "/data");
+    strcpy(agent, root);
+    strcat(agent, "/agent");
     mkdir(data, 0777);
     sys_posix_init(&sp, &sys);
     s3_dir(data, "/work/proj", sdir, sizeof(sdir));
     jw_init(&out);
     test_flow();
     test_find();
+    test_compaction();
     jw_free(&out);
     ps_reset();
     {

@@ -41,6 +41,9 @@ typedef struct pi_store {
     long persisted;             /* messages appended on message_end (the tests' sentinel) */
     long syncs;                 /* system messages appended */
     long compactions;           /* compaction entries appended */
+    long keep, reserve;         /* compaction settings (settings.json "compaction"; pi's defaults) */
+    int cp_enabled;
+    char editor[4096];          /* a message taken back by /tree, waiting in the line mode's next input */
     char err[200];
 } pi_store;
 
@@ -53,6 +56,11 @@ int pi_store_open(pi_store *st, int mode, const char *data_dir, const char *cwd,
 /* the model the opened session names (its branch's last model_change or answer): 1 with provider and
  * id, 0 none */
 int pi_store_model(pi_store *st, char *provider, long pcap, char *id, long icap);
+/* settings.json's "compaction" object ({enabled, reserveTokens, keepRecentTokens}) taken; text a JSON object */
+void pi_store_settings(pi_store *st, const char *text, long n);
+/* /compact: the conversation summarized now (instructions 0 none). 0, -1 with the reason in err */
+int pi_store_compact(pi_store *st, const char *instructions);
+
 /* tied to the agent: subscribed to its events, the branch's messages loaded, the system prompt the replay.
  * A new session records the model and the thinking level. 0, -1 */
 int pi_store_attach(pi_store *st, pi_session *s);

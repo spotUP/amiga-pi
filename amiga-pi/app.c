@@ -111,6 +111,23 @@ static int usage(const pi_platform *pl, const pi_args *a)
     return 2;
 }
 
+/* <agent dir>/settings.json: the compaction settings taken by the store */
+static void store_settings(const pi_platform *pl, pi_store *st)
+{
+    char path[300], *b = 0;
+    long n = 0;
+    if (!pl->sys || !pl->agent_dir || !pl->agent_dir[0])
+        return;
+    cl_copy(path, pl->agent_dir, sizeof(path));
+    if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+        cl_cat(path, "/", sizeof(path));
+    cl_cat(path, "settings.json", sizeof(path));
+    if (pl->sys->kind(pl->sys->u, path) != 1 || pl->sys->read(pl->sys->u, path, 256L * 1024, &b, &n))
+        return;
+    pi_store_settings(st, b, n);
+    CL_FREE(b);
+}
+
 int pi_app(int argc, char **argv, const pi_platform *pl)
 {
     static pi_args a;
@@ -146,6 +163,10 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         pi_store_free(&store);
         return usage(pl, &a);
     }
+    /* the window pi compacts against: Anthropic's from C:Claude's table; another provider's is not known yet (0:
+     * no automatic compaction, /compact still works) */
+    if (!strcmp(m.provider, "anthropic"))
+        m.context_window = repl_window(m.id);
     pi_key_name(m.provider, kn, sizeof(kn));
     key[0] = 0;
     if (pl->getenv && pl->getenv(kn, key, sizeof(key)) > 0)
@@ -177,6 +198,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     }
     if (pl->ready)
         pl->ready(&s);
+    store_settings(pl, &store);
     if (pi_store_attach(&store, &s)) {
         say(pl->io, "amiga-pi: the session could not be loaded", 0);
         pi_store_free(&store);

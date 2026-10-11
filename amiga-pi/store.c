@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "store.h"
+#include "compact.h"
+#include "cp_prompts.h"
 #include "claude/util.h"
 
 static llm_ts store_now(pi_store *st)
@@ -30,6 +32,9 @@ void pi_store_init(pi_store *st, cl_sys *sys, llm_ts (*now)(void *u), void *u, i
     seed ^= (unsigned long)(size_t)st << 4;
     s3_init(&st->s3, sys, now, u, utc, seed ? seed : 1UL);
     jw_init(&st->system);
+    st->keep = CP_KEEP;
+    st->reserve = CP_RESERVE;
+    st->cp_enabled = 1;
 }
 
 void pi_store_free(pi_store *st)
@@ -352,10 +357,253 @@ static int load_messages(pi_store *st)
     return rc;
 }
 
+/* ---- compaction ---- */
+
+static void cp_event(pi_store *st, int type, int reason, int is_error, const char *text)
+{
+    pi_event e;
+    pi_event_init(&e, type);
+    e.stop = reason;
+    e.is_error = is_error;
+    e.msg = text;
+    e.msg_n = text ? (long)strlen(text) : 0;
+    pi_emit(&st->s->em, &e);
+}
+
+/* one summarization request to the session's model: the answer's pieces in r */
+static int store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
+{
+    pi_store *st = (pi_store *)u;
+    pi_session *s = st->s;
+    llm_acc acc;
+    llm_sink k;
+    llm_ctx c;
+    llm_req q;
+    jw blocks, um, msg, sys;
+    const char *msgs[1];
+    long mn[1];
+    llm_info inf;
+    llm_ts ts = store_now(st);
+    jv m, v, b, t, x;
+    jit it;
+    int any = 0;
+    jw_init(&blocks);
+    jw_init(&um);
+    jw_init(&msg);
+    jw_init(&sys);
+    jw_rawz(&blocks, "[");
+    llm_b_text(&blocks, prompt, (long)strlen(prompt), 0);
+    jw_rawz(&blocks, "]");
+    llm_m_user(&um, blocks.p, blocks.n, ts);
+    {
+        const char *const *l;
+        for (l = cp_summarization_system_prompt; *l; l++)
+            jw_rawz(&sys, *l);
+    }
+    msgs[0] = um.p;
+    mn[0] = um.n;
+    memset(&c, 0, sizeof(c));
+    c.model = &s->model;
+    c.system = sys.p;
+    c.msgs = msgs;
+    c.msg_n = mn;
+    c.nmsg = 1;
+    c.max_tokens = max_tokens;
+    llm_acc_init(&acc, s->model.api, s->model.provider);
+    k.u = &acc;
+    k.ev = llm_acc_event;
+    memset(&q, 0, sizeof(q));
+    q.pool = s->pool;
+    q.model = &s->model;
+    q.be = llm_backend_of(s->model.api);
+    q.ctx = &c;
+    q.key = s->key;
+    q.user_agent = s->user_agent;
+    q.h = s->h;
+    q.sink = &k;
+    if (!q.be) {
+        llm_event e;
+        llm_event_init(&e, LE_ERROR);
+        e.stop = LS_ERROR;
+        e.err_type = "error";
+        e.p = "No API provider registered for this model's api";
+        e.n = (long)strlen(e.p);
+        llm_acc_event(&acc, &e);
+    } else
+        llm_request(&q);
+    llm_acc_message(&acc, ts, &msg);
+    r->stop = LS_NONE;
+    if (!msg.oom && msg.p && llm_msg_info(msg.p, msg.n, &inf) >= 0 && !json_parse(msg.p, msg.n, &m)) {
+        r->stop = inf.stop;
+        r->tool_call = inf.ntools > 0;
+        if (json_get(m, "usage", &v))
+            llm_r_usage(v, &r->usage);
+        if (json_get(m, "errorMessage", &v) && json_type(v) == J_STR)
+            json_str(v, r->error, sizeof(r->error));
+        if (json_get(m, "content", &v) && json_type(v) == J_ARR) {
+            json_iter(v, &it);
+            while (json_next(&it, 0, &b))
+                if (json_get(b, "type", &t) && json_streq(t, "text") && json_get(b, "text", &x)) {
+                    long zn;
+                    char *z = json_strdup(x, &zn);
+                    if (any++)
+                        jw_rawz(&r->text, "\n");
+                    if (z)
+                        jw_raw(&r->text, z, zn);
+                    free(z);
+                }
+        }
+    } else {
+        r->stop = LS_ERROR;
+        cl_copy(r->error, "out of memory", sizeof(r->error));
+    }
+    llm_acc_free(&acc);
+    jw_free(&blocks);
+    jw_free(&um);
+    jw_free(&msg);
+    jw_free(&sys);
+    return 0;
+}
+
+/* the model's messages for the branch loaded again and the replay refreshed (after a compaction or a tree move) */
+static int reload(pi_store *st)
+{
+    if (load_messages(st) || replay(st))
+        return -1;
+    st->s->system = st->system.n ? st->system.p : st->s->system;
+    return 0;
+}
+
+static int run_compaction(pi_store *st, const char *instr, int reason)
+{
+    pi_session *s = st->s;
+    pi_prep p;
+    cp_result res;
+    pi_ctx c;
+    jw usage, sysm, info;
+    int rc, ok = -1, i;
+    long after = 0;
+    cp_event(st, PE_COMPACTION_START, reason, 0, 0);
+    st->err[0] = 0;
+    rc = cp_prepare(&st->s3, st->s3.leaf, st->keep, &p);
+    if (rc < 0) {
+        cl_copy(st->err, "out of memory", sizeof(st->err));
+    } else if (rc == 0) {
+        cl_copy(st->err, "Compaction failed: ", sizeof(st->err));
+        cl_cat(st->err, st->s3.leaf >= 0 && st->s3.e[st->s3.leaf].type == S3_COMPACTION
+                            ? "Already compacted"
+                            : "Nothing to compact (session too small)",
+               sizeof(st->err));
+    } else {
+        char err[200];
+        if (cp_compact(&p, st->reserve, s->model.max_tokens, instr, store_complete, st, &res, err, sizeof(err))) {
+            if (s->h.poll && s->h.poll(s->h.u))
+                cl_copy(st->err, "Compaction cancelled", sizeof(st->err));
+            else {
+                cl_copy(st->err, "Compaction failed: ", sizeof(st->err));
+                cl_cat(st->err, err, sizeof(st->err));
+            }
+        } else {
+            jw_init(&usage);
+            jw_init(&sysm);
+            llm_w_usage(&usage, &res.usage);
+            ctx_init(&c);
+            if (!ctx_build(&st->s3, st->s3.leaf, &c)) {
+                ctx_system(&c, &sysm);
+                if (s3_compaction(&st->s3, res.summary.p, p.first_kept, res.tokens_before, res.details.p, usage.p, 0,
+                                  sysm.n ? sysm.p : 0) >= 0)
+                    ok = 0;
+                ctx_free(&c);
+            }
+            jw_free(&usage);
+            jw_free(&sysm);
+            if (ok) {
+                cl_copy(st->err, st->s3.err[0] ? st->s3.err : "the compaction could not be recorded", sizeof(st->err));
+            } else {
+                st->compactions++;
+                if (reload(st)) {
+                    cl_copy(st->err, "the session could not be reloaded", sizeof(st->err));
+                    ok = -1;
+                } else {
+                    ctx_init(&c);
+                    if (!ctx_build(&st->s3, st->s3.leaf, &c)) {
+                        for (i = 0; i < c.n; i++)
+                            after += cp_estimate(c.msg[i], c.msg_n[i]);
+                        ctx_free(&c);
+                    }
+                    jw_init(&info);
+                    jw_rawz(&info, "Compacted: about ");
+                    jw_long(&info, res.tokens_before);
+                    jw_rawz(&info, " tokens before, ");
+                    jw_long(&info, after);
+                    jw_rawz(&info, " after");
+                    cp_event(st, PE_COMPACTION_END, reason, 0, info.p);
+                    jw_free(&info);
+                }
+            }
+            cp_result_free(&res);
+        }
+        cp_prep_free(&p);
+    }
+    if (st->err[0] && ok) {
+        cp_event(st, PE_COMPACTION_END, reason, 1, st->err);
+        return -1;
+    }
+    return ok ? -1 : 0;
+}
+
+int pi_store_compact(pi_store *st, const char *instructions)
+{
+    return run_compaction(st, instructions, 0);
+}
+
+void pi_store_settings(pi_store *st, const char *text, long n)
+{
+    jv o, c, v;
+    if (json_parse(text, n, &o) || !json_get(o, "compaction", &c) || json_type(c) != J_OBJ)
+        return;
+    if (json_get(c, "enabled", &v) && (json_type(v) == J_TRUE || json_type(v) == J_FALSE))
+        st->cp_enabled = json_type(v) == J_TRUE;
+    if (json_get(c, "reserveTokens", &v) && json_type(v) == J_NUM)
+        st->reserve = json_long(v, CP_RESERVE);
+    if (json_get(c, "keepRecentTokens", &v) && json_type(v) == J_NUM)
+        st->keep = json_long(v, CP_KEEP);
+}
+
+/* before each answer: the context against the model's window (pi: a threshold compaction before the next
+ * assistant response); a window of 0 (unknown) never compacts by itself */
 static int prepare(void *u, pi_session *s)
 {
-    (void)u;
+    pi_store *st = (pi_store *)u;
+    pi_ctx c;
+    long tokens;
+    if (!st->cp_enabled || s->model.context_window <= 0)
+        return 0;
+    ctx_init(&c);
+    if (ctx_build(&st->s3, st->s3.leaf, &c))
+        return 0;
+    tokens = cp_context_tokens(&st->s3, st->s3.leaf, &c);
+    ctx_free(&c);
+    if (cp_should(tokens, s->model.context_window, st->reserve))
+        run_compaction(st, 0, 1);      /* a failure is shown by its event; the request goes on */
+    return 0;
+}
+
+/* ---- slash commands ---- */
+
+static int command(void *u, pi_session *s, const char *line, jw *reply, jw *editor)
+{
+    pi_store *st = (pi_store *)u;
     (void)s;
+    (void)editor;
+    if (!strncmp(line, "/compact", 8) && (line[8] == 0 || line[8] == ' ')) {
+        const char *instr = line + 8;
+        while (*instr == ' ')
+            instr++;
+        run_compaction(st, *instr ? instr : 0, 0);      /* its events tell how it went */
+        (void)reply;
+        return 1;
+    }
     return 0;
 }
 
@@ -375,5 +623,7 @@ int pi_store_attach(pi_store *st, pi_session *s)
         s->system = st->system.p;
     s->prepare = prepare;
     s->prepare_u = st;
+    s->command = command;
+    s->command_u = st;
     return pi_subscribe(&s->em, on_event, st);
 }
