@@ -371,7 +371,7 @@ static void cp_event(pi_store *st, int type, int reason, int is_error, const cha
 }
 
 /* one summarization request to the session's model: the answer's pieces in r */
-static int store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
+int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
 {
     pi_store *st = (pi_store *)u;
     pi_session *s = st->s;
@@ -466,7 +466,7 @@ static int store_complete(void *u, const char *prompt, long max_tokens, cp_reply
 }
 
 /* the model's messages for the branch loaded again and the replay refreshed (after a compaction or a tree move) */
-static int reload(pi_store *st)
+int pi_store_reload(pi_store *st)
 {
     if (load_messages(st) || replay(st))
         return -1;
@@ -496,7 +496,7 @@ static int run_compaction(pi_store *st, const char *instr, int reason)
                sizeof(st->err));
     } else {
         char err[200];
-        if (cp_compact(&p, st->reserve, s->model.max_tokens, instr, store_complete, st, &res, err, sizeof(err))) {
+        if (cp_compact(&p, st->reserve, s->model.max_tokens, instr, pi_store_complete, st, &res, err, sizeof(err))) {
             if (s->h.poll && s->h.poll(s->h.u))
                 cl_copy(st->err, "Compaction cancelled", sizeof(st->err));
             else {
@@ -521,7 +521,7 @@ static int run_compaction(pi_store *st, const char *instr, int reason)
                 cl_copy(st->err, st->s3.err[0] ? st->s3.err : "the compaction could not be recorded", sizeof(st->err));
             } else {
                 st->compactions++;
-                if (reload(st)) {
+                if (pi_store_reload(st)) {
                     cl_copy(st->err, "the session could not be reloaded", sizeof(st->err));
                     ok = -1;
                 } else {
@@ -595,7 +595,6 @@ static int command(void *u, pi_session *s, const char *line, jw *reply, jw *edit
 {
     pi_store *st = (pi_store *)u;
     (void)s;
-    (void)editor;
     if (!strncmp(line, "/compact", 8) && (line[8] == 0 || line[8] == ' ')) {
         const char *instr = line + 8;
         while (*instr == ' ')
@@ -604,7 +603,7 @@ static int command(void *u, pi_session *s, const char *line, jw *reply, jw *edit
         (void)reply;
         return 1;
     }
-    return 0;
+    return pi_cmd(st, line, reply, editor);
 }
 
 int pi_store_attach(pi_store *st, pi_session *s)

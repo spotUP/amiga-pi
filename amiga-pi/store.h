@@ -26,6 +26,8 @@
 #include "context.h"
 #include "prompt.h"
 
+struct cp_reply;
+
 enum { PS_MODE_NEW, PS_MODE_CONTINUE, PS_MODE_SESSION, PS_MODE_NONE };
 
 typedef struct pi_store {
@@ -60,6 +62,14 @@ int pi_store_model(pi_store *st, char *provider, long pcap, char *id, long icap)
 void pi_store_settings(pi_store *st, const char *text, long n);
 /* /compact: the conversation summarized now (instructions 0 none). 0, -1 with the reason in err */
 int pi_store_compact(pi_store *st, const char *instructions);
+
+/* the branch's messages and the replayed system prompt put into the agent again (after a compaction, a tree
+ * move, a fork): 0, -1 */
+int pi_store_reload(pi_store *st);
+/* one summarization request to the session's model (compact.h's cp_complete) */
+int pi_store_complete(void *u, const char *prompt, long max_tokens, struct cp_reply *r);
+/* the slash commands of the session (cmds.c): /tree /fork /clone /label /name /session; 1 when handled */
+int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor);
 
 /* tied to the agent: subscribed to its events, the branch's messages loaded, the system prompt the replay.
  * A new session records the model and the thinking level. 0, -1 */

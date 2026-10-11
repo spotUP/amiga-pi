@@ -598,6 +598,238 @@ static void test_compaction(void)
     }
 }
 
+/* ---- E5, E6, E10: the tree, forks and clones through the prompt ---- */
+
+/* pi_app interactive over scripted input lines (end the script with /exit), n answers queued */
+static int script(const char *const *lines, int nsse, char **argv, int argc)
+{
+    cl_io io;
+    pi_platform pl;
+    int i;
+    ps_reset();
+    ps_pool_up(LLM_POOL);
+    line_io(&io);
+    for (i = 0; lines[i] && i < 11; i++)
+        in_lines[i] = lines[i];
+    in_lines[i] = 0;
+    memset(&pl, 0, sizeof(pl));
+    pl.io = &io;
+    pl.pool = &ps_pool;
+    pl.h.poll = ps_poll;
+    pl.h.sleep = ps_sleep;
+    pl.h.ms = ps_ms;
+    pl.h.resolve = ps_resolve;
+    pl.now = adv_now;
+    pl.getenv = no_env;
+    pl.cwd = "/work/proj";
+    pl.sys = &sys;
+    pl.tmp = root;
+    pl.utc = 1;
+    pl.data_dir = data;
+    pl.agent_dir = agent;
+    pl.ready = set_window;
+    for (i = 0; i < nsse; i++)
+        ps_sse("../pi/openai_text.sse", 0);
+    return pi_app(argc, argv, &pl);
+}
+
+static void wipe(void)
+{
+    char cmd[600];
+    strcpy(cmd, "rm -rf ");
+    strcat(cmd, sdir);
+    CHECK_INT(system(cmd), 0);
+}
+
+static int user_count(pi_s3 *st)
+{
+    int i, n = 0;
+    for (i = 0; i < st->n; i++)
+        n += st->e[i].type == S3_MESSAGE && st->e[i].role == S3R_USER;
+    return n;
+}
+
+static void test_tree(void)
+{
+    char *argv[] = { "amiga-pi", MODEL_ARGS, 0 };
+    char path[600];
+    pi_s3 st;
+    int i, u1 = -1, u3 = -1;
+    set_settings("{}");
+    window = 0;
+
+    /* E10: two prompts, /tree back to the first user message, the message edited, a third prompt: the file
+     * holds both branches, the model sees only the new one */
+    wipe();
+    {
+        const char *const l[] = { "first question", "second question", "/tree", "/tree 1", "edited first", "/exit", 0 };
+        CHECK_INT(script(l, 3, argv, ARGC(argv)), 0);
+    }
+    CHECK(out.p && strstr(out.p, "user: first question") != 0 && strstr(out.p, "user: second question") != 0 &&
+          strstr(out.p, "<- you are here") != 0);
+    CHECK(out.p && strstr(out.p, "[INFO] Moved.") != 0 && strstr(out.p, "[INFO] The message is back") != 0);
+    CHECK_INT(ps.nreq, 3);
+    CHECK(strstr(ps.body[2], "edited first") != 0 && strstr(ps.body[2], "first question") == 0 &&
+          strstr(ps.body[2], "second question") == 0);
+    CHECK(strstr(ps.body[1], "first question") != 0);     /* the second prompt still saw the first */
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 1);
+    CHECK_INT(s3_open(&st, path), 0);
+    CHECK_INT(user_count(&st), 3);
+    for (i = 0; i < st.n; i++)
+        if (st.e[i].type == S3_MESSAGE && st.e[i].role == S3R_USER) {
+            if (u1 < 0)
+                u1 = i;
+            u3 = i;
+        }
+    CHECK(u1 >= 0 && u3 > u1 && st.e[u1].parent == st.e[u3].parent);    /* two branches from one point */
+    {
+        pi_ctx cx;
+        jw cj;
+        ctx_init(&cx);
+        jw_init(&cj);
+        CHECK_INT(ctx_build(&st, st.leaf, &cx), 0);
+        ctx_json(&cx, &cj);
+        CHECK(strstr(cj.p, "edited first") != 0 && strstr(cj.p, "second question") == 0);
+        jw_free(&cj);
+        ctx_free(&cx);
+    }
+    s3_free(&st);
+
+    /* the number 0 and a number past the end are refused, nothing moves */
+    {
+        const char *const l[] = { "/tree 99", "/tree 0", "/tree x", "/exit", 0 };
+        char *a2[] = { "amiga-pi", "--base-url", "http://192.168.1.10:11434/v1", "-c", 0 };
+        CHECK_INT(script(l, 0, a2, ARGC(a2)), 0);
+        CHECK(out.p && strstr(out.p, "No such entry") != 0);
+        CHECK_INT(ps.nreq, 0);
+    }
+
+    /* a summary of the branch left, attached at the new leaf, asked for with its focus */
+    wipe();
+    {
+        const char *const l[] = { "one", "two", "/tree 1 summarize check the parser", "/exit", 0 };
+        CHECK_INT(script(l, 3, argv, ARGC(argv)), 0);
+    }
+    CHECK_INT(ps.nreq, 3);
+    CHECK(strstr(ps.body[2], "Additional focus: check the parser") != 0 && strstr(ps.body[2], "<conversation>") != 0);
+    CHECK(strstr(ps.body[2], "[User]: two") != 0 && strstr(ps.body[2], "[User]: one") == 0);
+    CHECK(out.p && strstr(out.p, "Moved, with a summary of the branch left") != 0);
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 2);
+    CHECK_INT(s3_open(&st, path), 0);
+    CHECK_INT(count_type(&st, S3_BRANCH_SUMMARY), 1);
+    for (i = 0; i < st.n; i++)
+        if (st.e[i].type == S3_BRANCH_SUMMARY) {
+            long n;
+            const char *t = s3_text(&st, i, &n);
+            jv o, v;
+            CHECK(t && !json_parse(t, n, &o) && json_get(o, "summary", &v));
+            CHECK(t && strstr(t, "The user explored a different conversation branch before returning here.") != 0);
+            CHECK(t && json_get(o, "fromId", &v) && json_type(v) == J_STR);
+            CHECK(t && json_get(o, "fromHook", &v) && json_type(v) == J_FALSE);
+            CHECK(st.e[i].parent >= 0 && st.e[st.e[i].parent].type != S3_BRANCH_SUMMARY);
+        }
+    CHECK(st.leaf >= 0 && st.e[st.leaf].type == S3_BRANCH_SUMMARY);
+    s3_free(&st);
+}
+
+static void test_fork(void)
+{
+    char *argv[] = { "amiga-pi", MODEL_ARGS, 0 };
+    char path[600], first[600];
+    pi_s3 st;
+    int files;
+    wipe();
+    /* /fork lists the user messages; /fork 2 starts a session from just before the second: its text comes back,
+     * Enter sends it as it was; /clone copies the whole branch */
+    {
+        const char *const l[] = { "alpha", "beta", "/fork", "/fork 2", "", "/clone", "/exit", 0 };
+        CHECK_INT(script(l, 3, argv, ARGC(argv)), 0);
+    }
+    CHECK(out.p && strstr(out.p, "   1   user: alpha") != 0 && strstr(out.p, "   2   user: beta") != 0);
+    CHECK(out.p && strstr(out.p, "[INFO] Forked into a new session.") != 0 && strstr(out.p, "[INFO] Cloned into a new session.") != 0);
+    CHECK_INT(ps.nreq, 3);
+    CHECK(strstr(ps.body[2], "alpha") != 0 && strstr(ps.body[2], "beta") != 0);
+    files = count_files();
+    CHECK_INT(files, 3);
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 1);
+    CHECK_INT(s3_open(&st, path), 0);
+    /* the clone: its parent is the fork, which holds alpha and the resent beta */
+    {
+        jv h, v;
+        char par[600];
+        par[0] = 0;
+        v.p = "\"\"";
+        v.n = 2;
+        CHECK(st.head && !json_parse(st.head, (long)strlen(st.head), &h) && json_get(h, "parentSession", &v));
+        json_str(v, par, sizeof(par));
+        CHECK(strstr(par, ".jsonl") != 0);
+        cl_copy(first, par, sizeof(first));
+        CHECK_INT(user_count(&st), 2);
+    }
+    s3_free(&st);
+    s3_init(&st, &sys, adv_now, 0, 1, 2);
+    CHECK_INT(s3_open(&st, first), 0);
+    CHECK_INT(user_count(&st), 2);
+    {
+        jv h, v;
+        CHECK(st.head && !json_parse(st.head, (long)strlen(st.head), &h) && json_get(h, "parentSession", &v));
+    }
+    s3_free(&st);
+    /* a fork of the first message of a session is an empty session pointing at the old one */
+    wipe();
+    {
+        const char *const l[] = { "only", "/fork 1", "/exit", 0 };
+        CHECK_INT(script(l, 1, argv, ARGC(argv)), 0);
+    }
+    CHECK_INT(count_files(), 1);        /* the new empty session is not written until it has a message */
+    CHECK(out.p && strstr(out.p, "[INFO] Forked into a new session.") != 0);
+    /* nothing to clone or fork before anything was said */
+    wipe();
+    {
+        const char *const l[] = { "/clone", "/fork 1", "/exit", 0 };
+        CHECK_INT(script(l, 0, argv, ARGC(argv)), 0);
+        CHECK(out.p && strstr(out.p, "This session has not been saved yet") != 0 &&
+              strstr(out.p, "Invalid entry for forking") != 0);
+    }
+    /* --no-session: the tree and the forks work in memory */
+    {
+        char *a3[] = { "amiga-pi", MODEL_ARGS, "--no-session", 0 };
+        const char *const l[] = { "uniqone", "uniqtwo", "/fork 2", "again", "/exit", 0 };
+        CHECK_INT(script(l, 3, a3, ARGC(a3)), 0);
+        CHECK_INT(count_files(), 0);
+        CHECK(strstr(ps.body[2], "uniqone") != 0 && strstr(ps.body[2], "uniqtwo") == 0 && strstr(ps.body[2], "again") != 0);
+    }
+}
+
+static void test_names_labels(void)
+{
+    char *argv[] = { "amiga-pi", MODEL_ARGS, 0 };
+    char path[600];
+    pi_s3 st;
+    wipe();
+    {
+        const char *const l[] = { "hello there", "/label 1 start", "/label 1", "/label 1 again", "/name my session", "/name",
+                                  "/session", "/tree", "/exit", 0 };
+        CHECK_INT(script(l, 1, argv, ARGC(argv)), 0);
+    }
+    CHECK(out.p && strstr(out.p, "[INFO] Label set.") != 0 && strstr(out.p, "[INFO] Label cleared.") != 0);
+    CHECK(out.p && strstr(out.p, "my session") != 0 && strstr(out.p, "user: hello there [again]") != 0);
+    CHECK(out.p && strstr(out.p, "entries ") != 0 && strstr(out.p, "id ") != 0);
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 1);
+    CHECK_INT(s3_open(&st, path), 0);
+    CHECK_INT(count_type(&st, S3_LABEL), 3);
+    {
+        char nm[100];
+        CHECK_INT(s3_name(&st, nm, sizeof(nm)), 1);
+        CHECK_STR(nm, "my session");
+    }
+    s3_free(&st);
+}
+
 void suite_pi_store(void)
 {
     const char *base = getenv("TMPDIR");
@@ -620,6 +852,9 @@ void suite_pi_store(void)
     test_flow();
     test_find();
     test_compaction();
+    test_tree();
+    test_fork();
+    test_names_labels();
     jw_free(&out);
     ps_reset();
     {
