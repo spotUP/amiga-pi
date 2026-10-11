@@ -14,6 +14,8 @@
 #include "pi_test.h"
 #include "claude/util.h"
 #include "claude/sys_posix.h"
+#include "claude/datadir.h"
+#include "claude/config.h"
 #include "pi_stub.h"
 #include "../amiga-pi/tools_pi.h"
 #include "../amiga-pi/truncate.h"
@@ -1120,6 +1122,54 @@ static void test_gate(void)
     CHECK_INT(pi_prompt(&ses, "do three things"), LS_STOP);
     CHECK(ps.nreq == 2 && has(ps.body[1], "Permission to use write was denied: nobody can approve it in this run."));
     gate_down();
+    /* "yes, always in this project": C:Claude's rule kept in the project's file under the
+     * data directory; the same command asks no more, in this run or the next */
+    {
+        static const char *const two[] = { "bash", "{\"command\":\"echo one\"}", "bash", "{\"command\":\"echo two\"}",
+                                           0, 0 };
+        static const char *const other[] = { "bash", "{\"command\":\"ls\"}", 0, 0 };
+        char data[600], pf[700];
+        full("data", data);
+        gate_up(1, 0);
+        CHECK_INT(pi_gate_project(&gate, data, "/Work/Projects/x"), 0);
+        answer = ASK_PROJECT;
+        calls_sse(two);
+        ps_sse("../pi/openai_final.sse", 0);
+        CHECK_INT(pi_prompt(&ses, "echo twice"), LS_STOP);
+        CHECK_INT(asked, 1);
+        CHECK_INT(gate.kept, 1);
+        gate_down();
+        CHECK_INT(pi_gate_project_file(data, "/Work/Projects/x", pf, sizeof(pf)), 0);
+        CHECK(has(pf, "/data/permissions/--Work-Projects-x--.json"));
+        f = get(pf, 0);
+        CHECK(has(f, "\"allow\"") && has(f, "\"Bash(echo *)\""));
+        free(f);
+        /* the next run: read back, no question for echo; ls still asks */
+        gate_up(1, 0);
+        CHECK_INT(pi_gate_project(&gate, data, "/Work/Projects/x"), 0);
+        calls_sse(two);
+        ps_sse("../pi/openai_final.sse", 0);
+        CHECK_INT(pi_prompt(&ses, "echo twice"), LS_STOP);
+        CHECK_INT(asked, 0);
+        calls_sse(other);
+        ps_sse("../pi/openai_final.sse", 0);
+        CHECK_INT(pi_prompt(&ses, "ls"), LS_STOP);
+        CHECK_INT(asked, 1);
+        gate_down();
+        /* another project has its own file: it asks */
+        gate_up(1, 0);
+        CHECK_INT(pi_gate_project(&gate, data, "/Work/Other"), 0);
+        calls_sse(two);
+        ps_sse("../pi/openai_final.sse", 0);
+        CHECK_INT(pi_prompt(&ses, "echo twice"), LS_STOP);
+        CHECK_INT(asked, 2);
+        gate_down();
+        /* pi's directory naming on AmigaDOS names */
+        CHECK_INT(pi_gate_project_file("UP-Term:var/amiga-pi", "Work:Projects/x", pf, sizeof(pf)), 0);
+        CHECK_STR(pf, "UP-Term:var/amiga-pi/permissions/--Work-Projects-x--.json");
+        CHECK_INT(pi_gate_project_file("ENVARC:amiga-pi", "RAM:", pf, sizeof(pf)), 0);
+        CHECK_STR(pf, "ENVARC:amiga-pi/permissions/--RAM---.json");
+    }
     /* the setting */
     pi_gate_init(&gate, &pt, &ses);
     CHECK_INT(pi_gate_settings(&gate, "{\"permissionGate\":true}", 23, "s", &g), 0);
@@ -1256,6 +1306,33 @@ static void test_reach(void)
     CHECK_INT(pi_app(7, argv, &pl), 0);
     CHECK_INT(pi_tool_runs[PT_EDIT] - e0, 0);
     CHECK(ps.nreq == 2 && has(ps.body[1], "nobody can approve it"));
+    /* the project's kept rules (pi_app reads them from the data directory): with Edit and
+     * Bash(echo *) kept for this directory the gated print run edits */
+    {
+        char data[600], pf[700];
+        full("pdata", data);
+        CHECK_INT(pi_gate_project_file(data, dir, pf, sizeof(pf)), 0);
+        dd_mkdirs(&sys, data);
+        {
+            char perm[700];
+            cl_copy(perm, data, sizeof(perm));
+            cl_cat(perm, "/permissions", sizeof(perm));
+            dd_mkdirs(&sys, perm);
+        }
+        CHECK_INT(cfg_write_rule(&sys, pf, RULE_ALLOW, "Edit", 1), 0);
+        CHECK_INT(cfg_write_rule(&sys, pf, RULE_ALLOW, "Bash(echo *)", 1), 0);
+        put("pi-test.txt", "hello\n", -1);
+        app_platform(&pl, &io);
+        pl.data_dir = data;
+        calls_sse(edit_bash);
+        ps_sse("../pi/openai_final.sse", 0);
+        e0 = pi_tool_runs[PT_EDIT];
+        CHECK_INT(pi_app(7, argv, &pl), 0);
+        CHECK_INT(pi_tool_runs[PT_EDIT] - e0, 1);
+        f = get_rel("pi-test.txt");
+        CHECK_STR(f ? f : "", "hello from amiga-pi\n");
+        free(f);
+    }
     {
         char p[600];
         full("settings.json", p);

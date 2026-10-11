@@ -96,6 +96,8 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
             s.shell_note = pi_tools_shell_note(&tools);
         pi_gate_init(&gate, &tools, &s);
         gate.on = gate_setting(pl, &gate);
+        if (pl->data_dir && pl->data_dir[0])
+            pi_gate_project(&gate, pl->data_dir, pl->cwd);
         if (a.gate >= 0)
             gate.on = a.gate;
         pi_ext_add(&s.ext, &gate.ext);

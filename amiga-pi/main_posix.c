@@ -150,5 +150,6 @@ int main(int argc, char **argv)
         strcat(agent, "/.pi/agent");
     }
     pl.agent_dir = agent;
+    pl.data_dir = agent;        /* pi keeps what grows in its agent dir */
     return pi_app(argc, argv, &pl);
 }

@@ -18,6 +18,7 @@
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include "app.h"
+#include "claude/datadir.h"
 #include "claude/io_amiga.h"
 #include "claude/net_amiga.h"
 #include "claude/sys_amiga.h"
@@ -99,7 +100,7 @@ int main(int argc, char **argv)
     static llm_pool pool;
     static cl_io io;
     static pi_platform pl;
-    static char cwd[512], agent[256];
+    static char cwd[512], agent[256], data[256];
     static sys_amiga sa;
     static cl_sys sys;
     cl_net *nets[1];
@@ -134,6 +135,8 @@ int main(int argc, char **argv)
     if (a_getenv("PI_CODING_AGENT_DIR", agent, sizeof(agent)) <= 0)
         cl_copy(agent, "ENVARC:amiga-pi", sizeof(agent));
     pl.agent_dir = agent;
+    if (dd_dir(&sys, "amiga-pi", data, sizeof(data)) >= 0)
+        pl.data_dir = data;     /* the data-directory rule (claude/datadir.h) */
     rc = pi_app(argc, argv, &pl);
     io_amiga_end();
     llm_pool_close(&pool);

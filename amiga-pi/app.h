@@ -21,6 +21,8 @@ typedef struct pi_platform {
     cl_sys *sys;
     const char *tmp;            /* where cut tool output is kept: "T:" */
     const char *agent_dir;      /* settings.json's directory: "ENVARC:amiga-pi" (pi: ~/.pi/agent), 0 none */
+    const char *data_dir;       /* what grows (claude/datadir.c: UP-Term:var/amiga-pi, else ENVARC:amiga-pi;
+                                 * the agent dir on the host), 0 none */
     int shell;                  /* PI_SH_*: what the bash tool runs */
     /* the session once made, before the prompt (the tests add their tools here), 0 none */
     void (*ready)(pi_session *s);
