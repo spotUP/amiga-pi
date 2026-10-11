@@ -14,7 +14,9 @@ HOSTCFLAGS = $(call vtvar,HOSTCFLAGS) -I$(VTCON_DIR) -I$(VTCON_DIR)/tests
 # amiga-pi itself (plan phase C): the agent loop, its events and extensions, the
 # system prompt, the command line, the prompt on C:Claude's screen code
 PI_CORE := amiga-pi/events.c amiga-pi/ext.c amiga-pi/agent.c amiga-pi/prompt.c amiga-pi/args.c amiga-pi/app.c \
-           amiga-pi/ui_pi.c amiga-pi/truncate.c amiga-pi/tools_pi.c amiga-pi/ext_gate.c
+           amiga-pi/ui_pi.c amiga-pi/truncate.c amiga-pi/tools_pi.c amiga-pi/ext_gate.c amiga-pi/image.c
+# stb_image / stb_image_write (vendor/stb) for read's images: built on their own, warnings off
+STB := amiga-pi/stb_impl.c vendor/stb/stb_image.h vendor/stb/stb_image_write.h
 PI_HDR := $(wildcard amiga-pi/*.h)
 # what the host binaries need of vtcon besides C:Claude's core: the view (show.c's
 # Markdown), the line discipline's helpers, the clipboard text; the tests also the
@@ -31,15 +33,19 @@ test: build/pi_test
 
 # the suites run in VTCON_DIR (its recordings: tests/claude, tests/pi); amiga-pi's
 # own goldens through PI_TESTS
-build/pi_test: $(PI_CORE) $(PI_HDR) $(PI_TESTS) $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) $(VT_TEST) tests/pi_test.h
+build/pi_test: $(PI_CORE) $(PI_HDR) $(PI_TESTS) $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) $(VT_TEST) tests/pi_test.h build/stb_impl.o
 	@mkdir -p build
 	$(HOSTCC) $(HOSTCFLAGS) -DVT_COUNT_ALLOC -DPI_TESTS='"$(CURDIR)/tests"' -o $@ $(PI_TESTS) $(PI_CORE) \
-	  $(CLAUDE_CORE) $(CLAUDE_PI) $(VT_HOST) $(VT_TEST)
+	  $(CLAUDE_CORE) $(CLAUDE_PI) $(VT_HOST) $(VT_TEST) build/stb_impl.o
+
+build/stb_impl.o: $(STB)
+	@mkdir -p build
+	$(HOSTCC) -std=c99 -O1 -g -fsanitize=address,undefined -w -Ivendor/stb -Iamiga-pi -c -o $@ amiga-pi/stb_impl.c
 
 # amiga-pi on the host (manual runs against tools/claude_fixture.py), plain http only
-build/amiga-pi-host: $(PI_CORE) $(PI_HDR) amiga-pi/main_posix.c $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST)
+build/amiga-pi-host: $(PI_CORE) $(PI_HDR) amiga-pi/main_posix.c $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) build/stb_impl.o
 	@mkdir -p build
-	$(HOSTCC) $(HOSTCFLAGS) -o $@ amiga-pi/main_posix.c $(PI_CORE) $(CLAUDE_CORE) $(CLAUDE_PI) $(VT_HOST)
+	$(HOSTCC) $(HOSTCFLAGS) -o $@ amiga-pi/main_posix.c $(PI_CORE) $(CLAUDE_CORE) $(CLAUDE_PI) $(VT_HOST) build/stb_impl.o
 
 # the layering rule lives in vtcon (llm/ is there, D9) and checks this tree too
 layers:
@@ -62,13 +68,15 @@ lua-probe-host:
 PI_AMIGA_SRC := $(abspath $(PI_CORE) amiga-pi/main_amiga.c) $(filter-out $(CL_DIR)claude/main_amiga.c,$(CLAUDE_PORTABLE)) \
                 $(filter-out $(LLM_CLAUDE),$(LLM_CORE)) $(CLAUDE_PI)
 amiga: build/amiga/amiga-pi
-build/amiga/amiga-pi: $(PI_CORE) $(PI_HDR) amiga-pi/main_amiga.c $(CLAUDE_PORTABLE) $(CLAUDE_PI) $(CLAUDE_HDR) $(LLM_CORE)
+build/amiga/amiga-pi: $(PI_CORE) $(PI_HDR) amiga-pi/main_amiga.c $(CLAUDE_PORTABLE) $(CLAUDE_PI) $(CLAUDE_HDR) $(LLM_CORE) $(STB)
 	@mkdir -p build/amiga/obj
 	$(MAKE) -s -C $(VTCON_DIR) build/amiga/obj/cpuchk-amiga-pi.o
+	cd $(VTCON_DIR) && $(filter-out -warnings-as-errors -warn=-1,$(call vtvar,VC)) -dontwarn=-1 -I$(CURDIR)/vendor/stb \
+	  -c -o $(CURDIR)/build/amiga/obj/stb_impl.o $(CURDIR)/amiga-pi/stb_impl.c
 	cd $(VTCON_DIR) && $(call vtvar,VC) -dontwarn=153,65 -I$(call vtvar,VTCON_NETINCLUDE) \
 	  -c -o $(CURDIR)/build/amiga/obj/net_amiga.o claude/net_amiga.c
 	cd $(VTCON_DIR) && $(call vtvar,VC) -dontwarn=153,65 $(call vtvar,CLAUDE_TLS_INC) \
 	  -c -o $(CURDIR)/build/amiga/obj/tls.o $(call vtvar,CLAUDE_TLS)
 	cd $(VTCON_DIR) && $(call vtvar,VC) -Dmain=up_main -dontwarn=153,65 -I$(VTCON_DIR) -o $(CURDIR)/$@ \
-	  $(PI_AMIGA_SRC) $(CURDIR)/build/amiga/obj/net_amiga.o $(CURDIR)/build/amiga/obj/tls.o \
+	  $(PI_AMIGA_SRC) $(CURDIR)/build/amiga/obj/net_amiga.o $(CURDIR)/build/amiga/obj/tls.o $(CURDIR)/build/amiga/obj/stb_impl.o \
 	  build/amiga/obj/cpuchk-amiga-pi.o

@@ -150,12 +150,20 @@ int pi_cut(cl_sys *sys, const char *tmp, const char *id, const char *text, long 
         jw_rawz(out, a);
         jw_rawz(out, ")");
     } else if (r.partial) {
+        long ls = r.off;
+        while (ls > 0 && text[ls - 1] != '\n')
+            ls--;
         pi_size(r.n, a, sizeof(a));
         jw_rawz(out, "Showing last ");
         jw_rawz(out, a);
         jw_rawz(out, " of line ");
         cl_ltoa(r.total_lines, num);
         jw_rawz(out, num);
+        /* pi: the size of that whole line */
+        pi_size(r.off + r.n - ls, b, sizeof(b));
+        jw_rawz(out, " (line is ");
+        jw_rawz(out, b);
+        jw_rawz(out, ")");
     } else {
         long first = tail ? r.total_lines - r.out_lines + 1 : 1;
         jw_rawz(out, "Showing lines ");
@@ -181,4 +189,32 @@ int pi_cut(cl_sys *sys, const char *tmp, const char *id, const char *text, long 
         jw_rawz(out, ". The full output could not be kept");
     jw_rawz(out, "]");
     return 1;
+}
+
+void pi_head(const char *s, long n, const char *first, const char *last, jw *out)
+{
+    pi_trunc r;
+    char b[32];
+    int k = 0;
+    pi_truncate(s, n, 0, 0x7fffffffL, PI_MAX_BYTES, &r);
+    jw_raw(out, s + r.off, r.n);
+    if (first) {
+        jw_rawz(out, "\n\n[");
+        jw_rawz(out, first);
+        k = 1;
+    }
+    if (r.by != PT_NONE) {
+        jw_rawz(out, k ? ". " : "\n\n[");
+        pi_size(PI_MAX_BYTES, b, sizeof(b));
+        jw_rawz(out, b);
+        jw_rawz(out, " limit reached");
+        k = 1;
+    }
+    if (last) {
+        jw_rawz(out, k ? ". " : "\n\n[");
+        jw_rawz(out, last);
+        k = 1;
+    }
+    if (k)
+        jw_rawz(out, "]");
 }

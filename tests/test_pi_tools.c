@@ -17,6 +17,7 @@
 #include "pi_stub.h"
 #include "../amiga-pi/tools_pi.h"
 #include "../amiga-pi/truncate.h"
+#include "../amiga-pi/image.h"
 #include "../amiga-pi/ext_gate.h"
 #include "../amiga-pi/args.h"
 #include "../amiga-pi/app.h"
@@ -147,21 +148,19 @@ static void test_read_write(void)
     CHECK_STR(f ? f : "", "made");
     free(f);
     CHECK_INT(pi_tool_runs[PT_WRITE] - w0, 3);
-    /* read: whole, offset and limit, the rest named */
+    /* read: whole, offset and limit, the rest named (pi's notice) */
     CHECK_INT(call(PT_READ, "{\"path\":\"a.txt\"}", &t), 0);
-    CHECK(has(t, "one") && has(t, "four"));
+    CHECK_STR(t, "one\ntwo\nthree\nfour\n");
     free(t);
     CHECK_INT(call(PT_READ, "{\"path\":\"a.txt\",\"offset\":2,\"limit\":1}", &t), 0);
-    CHECK(has(t, "two") && !has(t, "one") && !has(t, "three"));
-    CHECK(has(t, "2 more lines"));
+    CHECK_STR(t, "two\n\n[3 more lines in file. Use offset=3 to continue.]");
     free(t);
-    /* a binary file refused with tools.c's words; a missing one */
+    /* pi decodes any file as text: a NUL is text too; a missing one is node's ENOENT */
     put("bin.dat", "ab\0cd", 5);
-    CHECK_INT(call(PT_READ, "{\"path\":\"bin.dat\"}", &t), 1);
-    CHECK(has(t, "this is a binary file, not text"));
+    CHECK_INT(call(PT_READ, "{\"path\":\"bin.dat\"}", &t), 0);
     free(t);
     CHECK_INT(call(PT_READ, "{\"path\":\"nope.txt\"}", &t), 1);
-    CHECK(has(t, "File does not exist"));
+    CHECK(has(t, "ENOENT: no such file or directory, access '") && has(t, "nope.txt'"));
     free(t);
     /* pi's schema checks the arguments before anything runs */
     CHECK_INT(call(PT_READ, "{\"offset\":1}", &t), 1);
@@ -399,10 +398,13 @@ static void test_bash(void)
     CHECK(has(t, "out\n") && has(t, "err\n"));
     CHECK(has(t, "\n\nCommand exited with code 3"));
     free(t);
+    CHECK_INT(call(PT_BASH, "{\"command\":\"exit 4\"}", &t), 1);
+    CHECK_STR(t, "(no output)\n\nCommand exited with code 4");
+    free(t);
     /* the time limit: stopped, not moved to the background */
     t0 = time(0);
     CHECK_INT(call(PT_BASH, "{\"command\":\"sleep 20\",\"timeout\":1}", &t), 1);
-    CHECK(has(t, "Command timed out after 1 seconds"));
+    CHECK_STR(t, "Command timed out after 1 seconds");      /* pi: no "(no output)" before a time-out */
     CHECK(time(0) - t0 < 10);
     free(t);
     /* Ctrl+C: the command stopped, the prompt too (run answers 1) */
@@ -434,6 +436,14 @@ static void test_bash(void)
     CHECK(has(t, path));
     CHECK((long)strlen(t) < PI_MAX_BYTES + 300);
     free(t);
+    /* pi: the notice belongs to the output, the status comes after it */
+    {
+        static const char c2[] = "{\"command\":\"i=0; while [ $i -lt 2500 ]; do echo n$i; i=$((i+1)); done; exit 2\"}";
+        CHECK_INT(call(PT_BASH, c2, &t), 1);
+        CHECK(has(t, "n2499\n\n[Showing lines 501-2500 of 2500. Full output: "));
+        CHECK(has(t, ".txt]\n\nCommand exited with code 2"));
+        free(t);
+    }
     f = get(path, 0);
     CHECK(has(f, "line0-") && has(f, "line2999-"));
     free(f);
@@ -451,7 +461,7 @@ static void test_search(void)
     CHECK(has(t, "s1.txt") && has(t, "s2.c"));
     free(t);
     CHECK_INT(call(PT_GREP, "{\"pattern\":\"a.b\",\"literal\":true}", &t), 0);
-    CHECK(has(t, "s1.txt:1:alpha a.b") && !has(t, "s2.c"));
+    CHECK_STR(t, "s1.txt:1: alpha a.b");
     free(t);
     CHECK_INT(call(PT_GREP, "{\"pattern\":\"axb\",\"ignoreCase\":true,\"glob\":\"*.txt\"}", &t), 0);
     CHECK(has(t, "AXB") && !has(t, "s2.c"));
@@ -469,8 +479,370 @@ static void test_search(void)
     CHECK(has(t, "[2 entries limit reached. Use limit=4 for more]"));
     free(t);
     CHECK_INT(call(PT_LS, "{\"path\":\"a.txt\"}", &t), 1);
-    CHECK_STR(t, "Not a directory: a.txt");
+    CHECK(has(t, "Not a directory: ") && has(t, "/a.txt"));
     free(t);
+}
+
+/* pi's own read, grep, find and ls cases (test/tools.test.ts), in "pc/" */
+static void lines_file(const char *name, long n, const char *fmt_pad)
+{
+    jw b;
+    long i;
+    char num[16];
+    jw_init(&b);
+    for (i = 1; i <= n; i++) {
+        if (i > 1)
+            jw_raw(&b, "\n", 1);
+        jw_rawz(&b, "Line ");
+        cl_ltoa(i, num);
+        jw_rawz(&b, num);
+        if (fmt_pad) {
+            jw_rawz(&b, ": ");
+            jw_rawz(&b, fmt_pad);
+        }
+    }
+    put(name, b.p ? b.p : "", b.n);
+    jw_free(&b);
+}
+
+static void test_pi_cases(void)
+{
+    char *t, pad[201], p[600];
+    memset(pad, 'x', 200);
+    pad[200] = 0;
+    full("pc", p);
+    mkdir(p, 0755);
+    /* read */
+    put("pc/test.txt", "Hello, world!\nLine 2\nLine 3", -1);
+    CHECK_INT(call(PT_READ, "{\"path\":\"pc/test.txt\"}", &t), 0);
+    CHECK_STR(t, "Hello, world!\nLine 2\nLine 3");
+    free(t);
+    CHECK_INT(call(PT_READ, "{\"path\":\"pc/nonexistent.txt\"}", &t), 1);
+    CHECK(has(t, "ENOENT"));
+    free(t);
+    lines_file("pc/large.txt", 2500, 0);
+    CHECK_INT(call(PT_READ, "{\"path\":\"pc/large.txt\"}", &t), 0);
+    CHECK(has(t, "Line 1\n") && has(t, "Line 2000") && !has(t, "Line 2001"));
+    CHECK(has(t, "[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]"));
+    free(t);
+    lines_file("pc/large-bytes.txt", 500, pad);
+    CHECK_INT(call(PT_READ, "{\"path\":\"pc/large-bytes.txt\"}", &t), 0);
+    CHECK(has(t, "Line 1:") && has(t, "[Showing lines 1-243 of 500 (50.0KB limit). Use offset=244 to continue.]"));
+    free(t);
+    lines_file("pc/offset-test.txt", 100, 0);
+    CHECK_INT(call(PT_READ, "{\"path\":\"pc/offset-test.txt\",\"offset\":51}", &t), 0);
+    CHECK(!has(t, "Line 50") && has(t, "Line 51") && has(t, "Line 100") && !has(t, "Use offset="));
+    free(t);
+    CHECK_INT(call(PT_READ, "{\"path\":\"pc/offset-test.txt\",\"limit\":10}", &t), 0);
+    CHECK(has(t, "Line 1\n") && has(t, "Line 10") && !has(t, "Line 11"));
+    CHECK(has(t, "[90 more lines in file. Use offset=11 to continue.]"));
+    free(t);
+    CHECK_INT(call(PT_READ, "{\"path\":\"pc/offset-test.txt\",\"offset\":41,\"limit\":20}", &t), 0);
+    CHECK(!has(t, "Line 40") && has(t, "Line 41") && has(t, "Line 60") && !has(t, "Line 61"));
+    CHECK(has(t, "[40 more lines in file. Use offset=61 to continue.]"));
+    free(t);
+    put("pc/short.txt", "Line 1\nLine 2\nLine 3", -1);
+    CHECK_INT(call(PT_READ, "{\"path\":\"pc/short.txt\",\"offset\":100}", &t), 1);
+    CHECK_STR(t, "Offset 100 is beyond end of file (3 lines total)");
+    free(t);
+    put("pc/not-an-image.png", "definitely not a png", -1);
+    CHECK_INT(call(PT_READ, "{\"path\":\"pc/not-an-image.png\"}", &t), 0);
+    CHECK_STR(t, "definitely not a png");
+    free(t);
+    /* grep */
+    put("pc/example.txt", "first line\nmatch line\nlast line", -1);
+    CHECK_INT(call(PT_GREP, "{\"pattern\":\"match\",\"path\":\"pc/example.txt\"}", &t), 0);
+    CHECK_STR(t, "example.txt:2: match line");
+    free(t);
+    put("pc/context.txt", "before\nmatch one\nafter\nmiddle\nmatch two\nafter two", -1);
+    CHECK_INT(call(PT_GREP, "{\"pattern\":\"match\",\"path\":\"pc/context.txt\",\"limit\":1,\"context\":1}", &t), 0);
+    CHECK_STR(t, "context.txt-1- before\ncontext.txt:2: match one\ncontext.txt-3- after\n\n"
+                 "[1 matches limit reached. Use limit=2 for more, or refine pattern]");
+    free(t);
+    put("pc/target.txt", "target\n", -1);
+    CHECK_INT(call(PT_GREP, "{\"pattern\":\"--pre=payload.sh\",\"path\":\"pc\"}", &t), 0);
+    CHECK_STR(t, "No matches found");
+    free(t);
+    /* find */
+    full("pc/.secret", p);
+    mkdir(p, 0755);
+    put("pc/.secret/hidden.txt", "hidden", -1);
+    put("pc/visible.txt", "visible", -1);
+    CHECK_INT(call(PT_FIND, "{\"pattern\":\"**/*.txt\",\"path\":\"pc\"}", &t), 0);
+    CHECK(has(t, ".secret/hidden.txt\n") && has(t, "\nvisible.txt"));
+    free(t);
+    put("pc/.gitignore", "ignored.txt\n", -1);
+    put("pc/ignored.txt", "ignored", -1);
+    put("pc/kept.txt", "kept", -1);
+    CHECK_INT(call(PT_FIND, "{\"pattern\":\"**/*.txt\",\"path\":\"pc\"}", &t), 0);
+    CHECK(has(t, "kept.txt") && !has(t, "ignored.txt"));
+    free(t);
+    CHECK_INT(call(PT_FIND, "{\"pattern\":\"[\",\"path\":\"pc\"}", &t), 1);
+    CHECK(has(t, "error parsing glob"));
+    free(t);
+    CHECK_INT(call(PT_FIND, "{\"pattern\":\"--help\",\"path\":\"pc\"}", &t), 0);
+    CHECK_STR(t, "No files found matching pattern");
+    free(t);
+    /* ls */
+    put("pc/.hidden-file", "secret", -1);
+    full("pc/.hidden-dir", p);
+    mkdir(p, 0755);
+    CHECK_INT(call(PT_LS, "{\"path\":\"pc\"}", &t), 0);
+    CHECK(has(t, ".hidden-file") && has(t, ".hidden-dir/"));
+    free(t);
+}
+
+/* ls sorts as pi's localeCompare (ICU, English), checked with node 24:
+ * names.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase(), "en")) */
+static void test_ls_order(void)
+{
+    static const char *const names[] = { "_a", ".hidden", "~x", "10", "1a", "9", "a_c", "a-b", "a.c", "ab", "aeon",
+                                         "\xc3\xa6on", "apfel", "\xc3\x84pfel", "B", "eclair", "\xc3\xa9" "clair",
+                                         "zeta", "Zulu", 0 };
+    static const char *const shuffled[] = { "Zulu", "9", "\xc3\xa9" "clair", "a.c", "_a", "B", "aeon", "~x", "ab",
+                                            "\xc3\x84pfel", "10", "a-b", ".hidden", "zeta", "1a", "apfel",
+                                            "\xc3\xa6on", "a_c", "eclair", 0 };
+    char p[600], *t;
+    jw want;
+    int i;
+    full("lso", p);
+    mkdir(p, 0755);
+    for (i = 0; shuffled[i]; i++) {
+        char n[100];
+        strcpy(n, "lso/");
+        strcat(n, shuffled[i]);
+        put(n, "x", -1);
+    }
+    jw_init(&want);
+    for (i = 0; names[i]; i++) {
+        if (i)
+            jw_raw(&want, "\n", 1);
+        jw_rawz(&want, names[i]);
+    }
+    jw_raw(&want, "", 0);
+    CHECK_INT(call(PT_LS, "{\"path\":\"lso\"}", &t), 0);
+    CHECK_STR(t, want.p);
+    free(t);
+    jw_free(&want);
+}
+
+/* ---- read's images (pi's processImage) ---- */
+
+
+/* a read's content: the text, and the one image's bytes and type (0 none) */
+typedef struct rd_img {
+    char *text, *mime;
+    unsigned char *data;
+    long n;
+    int images;
+} rd_img;
+
+static long b64_val(int c)
+{
+    return c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 : c >= '0' && c <= '9' ? c - '0' + 52
+           : c == '+' ? 62 : c == '/' ? 63 : -1;
+}
+
+static int read_img(const char *args, rd_img *r)
+{
+    jw c;
+    jv v, b, x;
+    jit it;
+    int err = -1;
+    memset(r, 0, sizeof(*r));
+    jw_init(&c);
+    pt.tool[PT_READ].run(pt.tool[PT_READ].u, &ses, args, (long)strlen(args), &c, &err);
+    if (c.p && json_parse(c.p, c.n, &v) == 0) {
+        json_iter(v, &it);
+        while (json_next(&it, 0, &b)) {
+            if (json_get(b, "type", &x) && json_streq(x, "text") && json_get(b, "text", &x))
+                r->text = json_strdup(x, 0);
+            else if (json_get(b, "type", &x) && json_streq(x, "image")) {
+                char *d = 0;
+                long dn = 0, i, acc = 0, bits = 0;
+                r->images++;
+                if (json_get(b, "mimeType", &x))
+                    r->mime = json_strdup(x, 0);
+                if (json_get(b, "data", &x) && (d = json_strdup(x, &dn)) != 0) {
+                    r->data = (unsigned char *)malloc((size_t)dn + 1);
+                    for (i = 0; i < dn && r->data; i++) {
+                        long k = b64_val((unsigned char)d[i]);
+                        if (k < 0)
+                            continue;
+                        acc = ((acc << 6) | k) & 0xffffL;
+                        bits += 6;
+                        if (bits >= 8) {
+                            bits -= 8;
+                            r->data[r->n++] = (unsigned char)((acc >> bits) & 0xff);
+                        }
+                    }
+                }
+                free(d);
+            }
+        }
+    }
+    if (!r->text) {
+        r->text = (char *)malloc(1);
+        r->text[0] = 0;
+    }
+    jw_free(&c);
+    return err;
+}
+
+static void rd_free(rd_img *r)
+{
+    free(r->text);
+    free(r->mime);
+    free(r->data);
+}
+
+/* a 24-bit BMP of w x h: red where red(x, y), else blue */
+static void put_bmp(const char *name, long w, long h)
+{
+    long row = (w * 3 + 3) & ~3L, n = 54 + row * h, x, y;
+    unsigned char *b = (unsigned char *)calloc(1, (size_t)n);
+    unsigned char hdr[54];
+    memset(hdr, 0, sizeof(hdr));
+    hdr[0] = 'B';
+    hdr[1] = 'M';
+    hdr[2] = (unsigned char)n;
+    hdr[3] = (unsigned char)(n >> 8);
+    hdr[4] = (unsigned char)(n >> 16);
+    hdr[10] = 54;
+    hdr[14] = 40;
+    hdr[18] = (unsigned char)w;
+    hdr[19] = (unsigned char)(w >> 8);
+    hdr[22] = (unsigned char)h;
+    hdr[23] = (unsigned char)(h >> 8);
+    hdr[26] = 1;
+    hdr[28] = 24;
+    memcpy(b, hdr, 54);
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++) {
+            unsigned char *q = b + 54 + y * row + x * 3;
+            q[0] = 255;         /* blue (BGR) */
+        }
+    put(name, (const char *)b, n);
+    free(b);
+}
+
+static void test_images(void)
+{
+    /* pi's 1x1 PNG (tools.test.ts) under a .txt name: the type is the file's magic */
+    static const unsigned char png1[] = {
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
+        0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x60, 0x60, 0x60, 0xf8, 0x0f, 0x00, 0x01, 0x04, 0x01, 0x00,
+        0x5f, 0xe5, 0xc3, 0x4b, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
+    };
+    /* pi's createTinyBmp1x1Red24bpp */
+    unsigned char bmp1[58];
+    /* a 1x1 lossless WebP, and a WebP header (VP8X) of 3000x3000 */
+    static const unsigned char webp1[] = { 'R', 'I', 'F', 'F', 0x1a, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', 'L',
+                                           0x0d, 0, 0, 0, 0x2f, 0, 0, 0, 0x10, 0x07, 0x10, 0x11, 0x11, 0x88, 0x88,
+                                           0xfe, 0x07, 0 };
+    static const unsigned char webpbig[] = { 'R', 'I', 'F', 'F', 0x16, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', 'X',
+                                             0x0a, 0, 0, 0, 0, 0, 0, 0, 0xb7, 0x0b, 0, 0xb7, 0x0b, 0 };
+    char p[600], *f;
+    long fn = 0;
+    rd_img r;
+    int w = 0, h = 0;
+    unsigned char *px;
+    full("im", p);
+    mkdir(p, 0755);
+    put("im/image.txt", (const char *)png1, (long)sizeof(png1));
+    CHECK_INT(read_img("{\"path\":\"im/image.txt\"}", &r), 0);
+    CHECK_STR(r.text, "Read image file [image/png]");
+    CHECK_INT(r.images, 1);
+    CHECK_STR(r.mime ? r.mime : "", "image/png");
+    CHECK(r.n == (long)sizeof(png1) && !memcmp(r.data, png1, sizeof(png1)));
+    rd_free(&r);
+    memset(bmp1, 0, sizeof(bmp1));
+    bmp1[0] = 'B';
+    bmp1[1] = 'M';
+    bmp1[2] = 58;
+    bmp1[10] = 54;
+    bmp1[14] = 40;
+    bmp1[18] = 1;
+    bmp1[22] = 1;
+    bmp1[26] = 1;
+    bmp1[28] = 24;
+    bmp1[34] = 4;
+    bmp1[56] = 0xff;
+    put("im/image.bmp", (const char *)bmp1, 58);
+    CHECK_INT(read_img("{\"path\":\"im/image.bmp\"}", &r), 0);
+    CHECK_STR(r.text, "Read image file [image/png]\n[Image converted from image/bmp to image/png.]");
+    CHECK_STR(r.mime ? r.mime : "", "image/png");
+    CHECK(r.n > 8 && r.data[0] == 0x89);
+    px = r.data ? pi_stb_load(r.data, (int)r.n, &w, &h) : 0;
+    CHECK(px && w == 1 && h == 1 && px[0] == 255 && px[1] == 0 && px[2] == 0);
+    pi_stb_free(px);
+    rd_free(&r);
+    /* wider than 2000: scaled (Lanczos3), sent as PNG, pi's notes */
+    put_bmp("im/wide.bmp", 2400, 10);
+    CHECK_INT(read_img("{\"path\":\"im/wide.bmp\"}", &r), 0);
+    CHECK_STR(r.text, "Read image file [image/png]\n[Image converted from image/bmp to image/png.]\n"
+                      "[Image: original 2400x10, displayed at 2000x8. Multiply coordinates by 1.20 to map to "
+                      "original image.]");
+    px = r.data ? pi_stb_load(r.data, (int)r.n, &w, &h) : 0;
+    CHECK(px && w == 2000 && h == 8 && px[2] == 255 && px[0] == 0);
+    pi_stb_free(px);
+    rd_free(&r);
+    /* a JPEG with EXIF orientation 6: turned first (1200x2400), then scaled to 1000x2000;
+     * the red top-left quarter ends up at the top right */
+    strcpy(p, PI_TESTS "/img/rot6.jpg");
+    f = get(p, &fn);
+    CHECK(f != 0);
+    put("im/rot6.jpg", f ? f : "", fn);
+    free(f);
+    CHECK_INT(read_img("{\"path\":\"im/rot6.jpg\"}", &r), 0);
+    CHECK_STR(r.text, "Read image file [image/png]\n[Image: original 1200x2400, displayed at 1000x2000. Multiply "
+                      "coordinates by 1.20 to map to original image.]");
+    CHECK_STR(r.mime ? r.mime : "", "image/png");
+    px = r.data ? pi_stb_load(r.data, (int)r.n, &w, &h) : 0;
+    CHECK(px && w == 1000 && h == 2000);
+    if (px && w == 1000 && h == 2000) {
+        const unsigned char *tr = px + (100 * 1000 + 900) * 4, *tl = px + (100 * 1000 + 100) * 4,
+                            *br = px + (1900 * 1000 + 900) * 4;
+        CHECK(tr[0] > 200 && tr[2] < 60);
+        CHECK(tl[2] > 200 && tl[0] < 60);
+        CHECK(br[2] > 200 && br[0] < 60);
+    }
+    pi_stb_free(px);
+    rd_free(&r);
+    /* a GIF that fits: its own bytes */
+    strcpy(p, PI_TESTS "/img/small.gif");
+    f = get(p, &fn);
+    put("im/small.gif", f ? f : "", fn);
+    CHECK_INT(read_img("{\"path\":\"im/small.gif\"}", &r), 0);
+    CHECK_STR(r.text, "Read image file [image/gif]");
+    CHECK(f && r.n == fn && !memcmp(r.data, f, (size_t)fn));
+    free(f);
+    rd_free(&r);
+    /* WebP: passed through when it fits; no WebP decoder, so a big one is omitted */
+    put("im/one.webp", (const char *)webp1, (long)sizeof(webp1));
+    CHECK_INT(read_img("{\"path\":\"im/one.webp\"}", &r), 0);
+    CHECK_STR(r.text, "Read image file [image/webp]");
+    CHECK_INT(r.images, 1);
+    rd_free(&r);
+    put("im/big.webp", (const char *)webpbig, (long)sizeof(webpbig));
+    CHECK_INT(read_img("{\"path\":\"im/big.webp\"}", &r), 0);
+    CHECK_STR(r.text, "Read image file [image/webp]\n[Image omitted: could not be resized below the inline image "
+                      "size limit.]");
+    CHECK_INT(r.images, 0);
+    rd_free(&r);
+    /* an animated PNG is not an image to pi: text */
+    {
+        unsigned char apng[60];
+        memcpy(apng, png1, 33);
+        memcpy(apng + 33, "\0\0\0\x08" "acTL\0\0\0\x01\0\0\0\0\0\0\0\0", 20);
+        put("im/anim.png", (const char *)apng, 53);
+        CHECK_INT(read_img("{\"path\":\"im/anim.png\"}", &r), 0);
+        CHECK_INT(r.images, 0);
+        CHECK(!has(r.text, "Read image file"));
+        rd_free(&r);
+    }
+    CHECK_INT(pi_image_orientation((const unsigned char *)"\xff\xd8\xff\xd9", 4), 1);
 }
 
 /* ---- D4: which tools a session gets ---- */
@@ -566,7 +938,7 @@ static void test_truncate(void)
     CHECK_STR(sz, "50.0KB");
     pi_size(1536L * 1024, sz, sizeof(sz));
     CHECK_STR(sz, "1.5MB");
-    /* read goes through it too: a 60 KB file */
+    /* read has its own notice (pi: an offset hint, no file): a 60 KB file */
     big = (char *)malloc(62000);
     for (i = 0; i < 61999; i++)
         big[i] = i % 60 == 59 ? '\n' : 'r';
@@ -576,8 +948,9 @@ static void test_truncate(void)
     ses.call_id = "call_read";
     CHECK_INT(call(PT_READ, "{\"path\":\"big.txt\"}", &t), 0);
     ses.call_id = "call_t1";
+    CHECK(has(t, "\n\n[Showing lines 1-853 of 1034 (50.0KB limit). Use offset=854 to continue.]"));
     pi_cut_path(tmpd, "call_read", path, sizeof(path));
-    CHECK(has(t, "(50.0KB limit). Full output: ") && has(t, path));
+    CHECK(!has(t, path));
     free(t);
 }
 
@@ -905,6 +1278,9 @@ void suite_pi_tools(void)
     test_read_write();
     test_edit();
     test_edit_pi();
+    test_pi_cases();
+    test_ls_order();
+    test_images();
     test_bash();
     test_search();
     test_select();

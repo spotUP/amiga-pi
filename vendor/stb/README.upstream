@@ -1,0 +1,21 @@
+stb_image.h v2.30 and stb_image_write.h v1.16 from
+https://github.com/nothings/stb at commit 2c980bb59875b0d32144a71867fbdebb2f77cd20
+(2026-08-02). Public domain (or MIT, the reader's choice; the text is at the
+end of each file).
+
+sha256 as fetched
+  594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3  stb_image.h
+  cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05  stb_image_write.h
+
+Local change (marked "amiga-pi"), so no floating point is compiled in: vbcc
+keeps unused static functions, and a float operation on a 68020 without an
+FPU calls mathieeesingbas.library, which amiga-pi does not open:
+  stb_image.h        stbi_hdr_to_ldr_gamma/_scale under #ifndef STBI_NO_HDR
+  stb_image_write.h  the JPEG writer under #ifndef STBIW_NO_JPEG
+sha256 after it
+  5c0dfbd20ea723c215da6ac09906e08f37aff290481ec43483799c4b72bd56c1  stb_image.h
+  b9f8e7f4fe8fa6d2c3da21e1488f2a898bce8151adf89f1435164e8d44e9e874  stb_image_write.h
+
+amiga-pi's read decodes PNG, JPEG, BMP and GIF with stb_image and writes
+PNG with stb_image_write (amiga-pi/image.c, compiled through
+amiga-pi/stb_impl.c), as pi's read shrinks images and turns BMP into PNG.

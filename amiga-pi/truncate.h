@@ -34,6 +34,11 @@ void pi_size(long bytes, char *out, long cap);
  * 5000. Full output: T:amiga-pi-call_1.txt]"), the whole text written to
  * that file first. 1 when cut, 0 not cut. */
 int pi_cut(cl_sys *sys, const char *tmp, const char *id, const char *text, long n, int tail, jw *out);
+/* pi's ending of grep, find and ls (no temp file): s[0..n) cut to
+ * PI_MAX_BYTES (whole lines, no line limit) into out, then the notices
+ * that apply joined by ". " in one "\n\n[...]": first (the limit's, or 0),
+ * "50.0KB limit reached" when cut, last (grep's long lines, or 0) */
+void pi_head(const char *s, long n, const char *first, const char *last, jw *out);
 /* the file pi_cut keeps text in for call id: <tmp>amiga-pi-<id>.txt, the id's
  * characters other than letters, digits, '-' and '_' as '_' */
 void pi_cut_path(const char *tmp, const char *id, char *out, long cap);

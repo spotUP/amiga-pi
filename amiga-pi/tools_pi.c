@@ -3,17 +3,18 @@
 #include <string.h>
 #include "tools_pi.h"
 #include "truncate.h"
+#include "image.h"
 #include "claude/tools_int.h"   /* tl_resolve: ls's path as C:Claude's tools resolve one */
 #include "claude/schema.h"
 #include "claude/util.h"
 #include "llm/llm.h"
 
 /* ---- pi's definitions (descriptions and schemas as pi f10993bc has them;
- * where amiga-pi differs the text says so: no .gitignore, the shell) ---- */
+ * where amiga-pi differs the text says so: the shell) ---- */
 
 static const char d_read[] =
-    "Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as "
-    "attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use "
+    "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent "
+    "as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use "
     "offset/limit for large files. When you need the full file, continue with offset until complete.";
 static const char s_read[] =
     "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file to "
@@ -67,8 +68,9 @@ static const char s_bash[] =
     "timeout)\"}},\"required\":[\"command\"]}";
 
 static const char d_grep[] =
-    "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Output is "
-    "truncated to 100 matches or 50KB (whichever is hit first).";
+    "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects "
+    ".gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated "
+    "to 500 chars.";
 static const char *const s_grep[] = {
     "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Search pattern "
     "(regex or literal string)\"},\"path\":{\"type\":\"string\",\"description\":\"Directory or file to "
@@ -84,8 +86,8 @@ static const char *const s_grep[] = {
 };
 
 static const char d_find[] =
-    "Search for files by glob pattern. Returns matching file paths, newest first. Output is truncated to 2000 "
-    "lines or 50KB (whichever is hit first).";
+    "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects "
+    ".gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).";
 static const char s_find[] =
     "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Glob pattern to "
     "match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'\"},\"path\":{\"type\":\"string\","
@@ -290,43 +292,106 @@ static int ls_one(void *c, const cl_dirent *d)
     return 0;
 }
 
-/* pi: sorted case-insensitively */
+/* pi sorts with a.toLowerCase().localeCompare(b.toLowerCase()): ICU's
+ * order (English), base letters first, accents to break a tie
+ * (collate_tab.h); a name that is not UTF-8 is Latin-1, as AmigaDOS's */
+#include "collate_tab.h"
+
+/* the next weights of s at *i: up to two (an expansion), 0 at the end */
+static int co_next(const unsigned char *s, long *i, unsigned long *w, int sec)
+{
+    for (;;) {
+        unsigned long c;
+        int k;
+        if (!s[*i])
+            return 0;
+        k = s[*i] < 0x80 ? 1 : json_utf8((const char *)s + *i, (long)strlen((const char *)s + *i), &c);
+        if (s[*i] < 0x80)
+            c = s[*i];
+        else if (k <= 0) {
+            c = s[*i];          /* Latin-1 */
+            k = 1;
+        }
+        *i += k;
+        if (c >= 0x100) {
+            w[0] = 0x1000 + c;  /* past the Latin-1 letters, in code point order */
+            return 1;
+        }
+        if (!sec && (c == 0xE6 || c == 0xC6)) {
+            w[0] = co_pri['a'];
+            w[1] = co_pri['e'];
+            return 2;
+        }
+        if (!sec && c == 0xDF) {
+            w[0] = w[1] = co_pri['s'];
+            return 2;
+        }
+        if (!co_pri[c])
+            continue;           /* ignored (the soft hyphen, controls) */
+        w[0] = sec ? co_sec[c] : co_pri[c];
+        return 1;
+    }
+}
+
+static int co_level(const unsigned char *a, const unsigned char *b, int sec)
+{
+    long i = 0, j = 0;
+    unsigned long wa[2], wb[2];
+    int na = 0, nb = 0, ka = 0, kb = 0;
+    for (;;) {
+        if (ka == na) {
+            na = co_next(a, &i, wa, sec);
+            ka = 0;
+        }
+        if (kb == nb) {
+            nb = co_next(b, &j, wb, sec);
+            kb = 0;
+        }
+        if (!na || !nb)
+            return na ? 1 : nb ? -1 : 0;
+        if (wa[ka] != wb[kb])
+            return wa[ka] < wb[kb] ? -1 : 1;
+        ka++;
+        kb++;
+    }
+}
+
 static int ls_cmp(const void *x, const void *y)
 {
     const unsigned char *a = *(const unsigned char *const *)x, *b = *(const unsigned char *const *)y;
-    for (;; a++, b++) {
+    int c = co_level(a, b, 0);
+    if (!c)
+        c = co_level(a, b, 1);
+    for (; !c && *a && *b; a++, b++) {
         int ca = *a >= 'A' && *a <= 'Z' ? *a + 32 : *a, cb = *b >= 'A' && *b <= 'Z' ? *b + 32 : *b;
-        if (ca != cb || !ca)
-            return ca - cb;
+        c = ca - cb;
     }
+    return c;
 }
 
 static int run_ls(pi_tools *p, jv a, jw *text)
 {
     char *arg;
-    char full[512], num[16];
+    char full[512], num[16], note[80];
     long limit = num_of(a, "limit", 500), i;
     int outside = 0, kind, err = 0;
     ls_list l;
     jv x;
     memset(&l, 0, sizeof(l));
     arg = json_get(a, "path", &x) && json_type(x) == J_STR ? json_strdup(x, 0) : 0;
-    if (limit <= 0)
-        limit = 500;
-    if (tl_resolve(&p->t, arg ? arg : "", full, sizeof(full), &outside)) {
+    if (tl_resolve(&p->t, arg && *arg ? arg : ".", full, sizeof(full), &outside)) {
         jw_rawz(text, "Path not found: ");
         jw_rawz(text, arg ? arg : ".");
         free(arg);
         return 1;
     }
+    free(arg);
     kind = p->t.sys->kind(p->t.sys->u, full);
     if (kind != 2) {
         jw_rawz(text, kind ? "Not a directory: " : "Path not found: ");
-        jw_rawz(text, arg ? arg : full);
-        free(arg);
+        jw_rawz(text, full);
         return 1;
     }
-    free(arg);
     if (p->t.sys->list(p->t.sys->u, full, ls_one, &l) && !l.n) {
         jw_rawz(text, "Cannot read directory: ");
         jw_rawz(text, p->t.sys->err(p->t.sys->u));
@@ -334,29 +399,260 @@ static int run_ls(pi_tools *p, jv a, jw *text)
     } else if (l.oom) {
         jw_rawz(text, "out of memory");
         err = 1;
-    } else if (!l.n)
+    } else if (!l.n || limit <= 0)
         jw_rawz(text, "(empty directory)");
     else {
+        jw rows;
+        jw_init(&rows);
         qsort(l.e, (size_t)l.n, sizeof(char *), ls_cmp);
         for (i = 0; i < l.n && i < limit; i++) {
             if (i)
-                jw_raw(text, "\n", 1);
-            jw_rawz(text, l.e[i]);
+                jw_raw(&rows, "\n", 1);
+            jw_rawz(&rows, l.e[i]);
         }
+        note[0] = 0;
         if (l.n > limit) {
-            jw_rawz(text, "\n\n[");
             cl_ltoa(limit, num);
-            jw_rawz(text, num);
-            jw_rawz(text, " entries limit reached. Use limit=");
+            cl_copy(note, num, sizeof(note));
+            cl_cat(note, " entries limit reached. Use limit=", sizeof(note));
             cl_ltoa(limit * 2, num);
-            jw_rawz(text, num);
-            jw_rawz(text, " for more]");
+            cl_cat(note, num, sizeof(note));
+            cl_cat(note, " for more", sizeof(note));
         }
+        pi_head(rows.p ? rows.p : "", rows.n, note[0] ? note : 0, 0, text);
+        jw_free(&rows);
     }
     for (i = 0; i < l.n; i++)
         free(l.e[i]);
     free(l.e);
     return err;
+}
+
+/* ---- read as pi's (read.ts) ---- */
+
+#define PI_READ_MAX (16L * 1024 * 1024)     /* the most read takes into memory */
+
+/* is s[0..n) UTF-8 throughout? */
+static int utf8_ok(const char *s, long n)
+{
+    long i = 0;
+    unsigned long c;
+    while (i < n) {
+        int k = (unsigned char)s[i] < 0x80 ? 1 : json_utf8(s + i, n - i, &c);
+        if (k <= 0)
+            return 0;
+        i += k;
+    }
+    return 1;
+}
+
+static void put_long(jw *w, long v)
+{
+    char num[16];
+    cl_ltoa(v, num);
+    jw_rawz(w, num);
+}
+
+static int run_read(pi_tools *p, jv a, jw *text, jw *imgs, int *nimg)
+{
+    char *arg, *b = 0, full[512], what[300], sz[32];
+    const char *mime;
+    long n = 0, total, start, end, i, line, from, to, offset = num_of(a, "offset", 0);
+    int outside = 0, kind, rc, limited = 0;
+    jv x;
+    arg = json_get(a, "path", &x) && json_type(x) == J_STR ? json_strdup(x, 0) : 0;
+    if (!arg || tl_resolve(&p->t, arg, full, sizeof(full), &outside)) {
+        jw_rawz(text, "ENOENT: no such file or directory, access '");
+        jw_rawz(text, arg ? arg : "");
+        jw_rawz(text, "'");
+        free(arg);
+        return 1;
+    }
+    tl_summary(what, sizeof(what), full, 0);
+    if (p->t.show)
+        p->t.show(p->t.u, tools_name(T_READ), what);
+    kind = p->t.sys->kind(p->t.sys->u, full);
+    if (kind != 1) {
+        jw_rawz(text, kind == 2 ? "EISDIR: illegal operation on a directory, read"
+                                : "ENOENT: no such file or directory, access '");
+        if (kind != 2) {
+            jw_rawz(text, full);
+            jw_rawz(text, "'");
+        }
+        free(arg);
+        return 1;
+    }
+    rc = p->t.sys->read(p->t.sys->u, full, PI_READ_MAX, &b, &n);
+    if (rc) {
+        jw_rawz(text, rc == SYS_TOO_BIG ? "the file is larger than 16 MB, the most read takes on the Amiga: use offset "
+                                          "with bash (sed -n '1,2000p' file), or grep"
+                                        : "cannot read the file: ");
+        if (rc != SYS_TOO_BIG)
+            jw_rawz(text, p->t.sys->err(p->t.sys->u));
+        free(arg);
+        return 1;
+    }
+    mime = pi_image_type((const unsigned char *)b, n);
+    if (mime) {
+        pi_img im;
+        int omitted = pi_image_process((const unsigned char *)b, n, mime, &im);
+        jw_rawz(text, "Read image file [");
+        jw_rawz(text, omitted ? mime : im.mime);
+        jw_rawz(text, "]");
+        if (im.note[0]) {
+            jw_rawz(text, "\n");
+            jw_rawz(text, im.note);
+        }
+        if (!omitted) {
+            jw d;
+            jw_init(&d);
+            tl_base64(&d, im.data, im.n);
+            jw_rawz(imgs, ",");
+            llm_b_image(imgs, d.p ? d.p : "", im.mime);
+            (*nimg)++;
+            jw_free(&d);
+        }
+        pi_image_free(&im);
+        free(b);
+        free(arg);
+        return 0;
+    }
+    if (!utf8_ok(b, n)) {
+        /* not UTF-8: Latin-1, AmigaDOS's text (pi would decode it as UTF-8) */
+        jw u;
+        jw_init(&u);
+        for (i = 0; i < n; i++) {
+            unsigned char c = (unsigned char)b[i];
+            char e[2];
+            if (c < 0x80)
+                jw_raw(&u, b + i, 1);
+            else {
+                e[0] = (char)(0xc0 | (c >> 6));
+                e[1] = (char)(0x80 | (c & 0x3f));
+                jw_raw(&u, e, 2);
+            }
+        }
+        free(b);
+        b = u.p;
+        n = u.n;
+        if (!b) {
+            b = (char *)malloc(1);
+            n = 0;
+        }
+    }
+    /* content.split("\n") */
+    for (total = 1, i = 0; i < n; i++)
+        total += b[i] == '\n';
+    start = offset > 0 ? offset - 1 : 0;
+    if (start >= total) {
+        jw_rawz(text, "Offset ");
+        put_long(text, offset);
+        jw_rawz(text, " is beyond end of file (");
+        put_long(text, total);
+        jw_rawz(text, " lines total)");
+        free(b);
+        free(arg);
+        return 1;
+    }
+    end = total;
+    if (json_get(a, "limit", &x) && json_type(x) == J_NUM) {
+        long lim = json_long(x, 0);
+        limited = 1;
+        end = start + lim < total ? start + lim : total;
+    }
+    /* the bytes of lines [start, end) joined by '\n' */
+    for (line = 0, from = 0; line < start; from++)
+        line += b[from] == '\n';
+    to = from;
+    for (line = start; line < end; line++) {
+        while (to < n && b[to] != '\n')
+            to++;
+        if (line + 1 < end && to < n)
+            to++;
+    }
+    if (end <= start)
+        to = from;
+    {
+        pi_trunc tr;
+        pi_truncate(b + from, to - from, 0, PI_MAX_LINES, PI_MAX_BYTES, &tr);
+        if (tr.first_over) {
+            long le = from;
+            while (le < n && b[le] != '\n')
+                le++;
+            jw_rawz(text, "[Line ");
+            put_long(text, start + 1);
+            jw_rawz(text, " is ");
+            pi_size(le - from, sz, sizeof(sz));
+            jw_rawz(text, sz);
+            jw_rawz(text, ", exceeds ");
+            pi_size(PI_MAX_BYTES, sz, sizeof(sz));
+            jw_rawz(text, sz);
+            jw_rawz(text, " limit. Use bash: sed -n '");
+            put_long(text, start + 1);
+            jw_rawz(text, "p' ");
+            jw_rawz(text, arg);
+            jw_rawz(text, " | head -c ");
+            put_long(text, PI_MAX_BYTES);
+            jw_rawz(text, "]");
+        } else if (tr.by != PT_NONE) {
+            jw_raw(text, b + from + tr.off, tr.n);
+            jw_rawz(text, "\n\n[Showing lines ");
+            put_long(text, start + 1);
+            jw_rawz(text, "-");
+            put_long(text, start + tr.out_lines);
+            jw_rawz(text, " of ");
+            put_long(text, total);
+            if (tr.by == PT_BYTES) {
+                pi_size(PI_MAX_BYTES, sz, sizeof(sz));
+                jw_rawz(text, " (");
+                jw_rawz(text, sz);
+                jw_rawz(text, " limit)");
+            }
+            jw_rawz(text, ". Use offset=");
+            put_long(text, start + tr.out_lines + 1);
+            jw_rawz(text, " to continue.]");
+        } else {
+            jw_raw(text, b + from, to - from);
+            if (limited && end < total) {
+                jw_rawz(text, "\n\n[");
+                put_long(text, total - end);
+                jw_rawz(text, " more lines in file. Use offset=");
+                put_long(text, end + 1);
+                jw_rawz(text, " to continue.]");
+            }
+        }
+    }
+    free(b);
+    free(arg);
+    return 0;
+}
+
+/* grep and find (claude/search_pi.c) with pi's endings */
+static int run_search(pi_tools *p, int kind, const char *args, long an, jw *text)
+{
+    pi_rows r;
+    char first[120], num[16];
+    int e = kind == PT_GREP ? tools_pi_grep(&p->t, args, an, &r) : tools_pi_find(&p->t, args, an, &r);
+    if (e)
+        jw_raw(text, r.text.p ? r.text.p : "", r.text.n);
+    else if (!r.rows)
+        jw_rawz(text, kind == PT_GREP ? "No matches found" : "No files found matching pattern");
+    else {
+        first[0] = 0;
+        if (r.limit_hit) {
+            cl_ltoa(r.limit, num);
+            cl_copy(first, num, sizeof(first));
+            cl_cat(first, kind == PT_GREP ? " matches limit reached. Use limit=" : " results limit reached. Use limit=",
+                   sizeof(first));
+            cl_ltoa(r.limit * 2, num);
+            cl_cat(first, num, sizeof(first));
+            cl_cat(first, " for more, or refine pattern", sizeof(first));
+        }
+        pi_head(r.text.p ? r.text.p : "", r.text.n, first[0] ? first : 0,
+                r.lines_cut ? "Some lines truncated to 500 chars. Use read tool to see full lines" : 0, text);
+    }
+    jw_free(&r.text);
+    return e;
 }
 
 /* ---- C:Claude's tool_result as pi content ---- */
@@ -440,8 +736,13 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
         *is_error = 1;
     } else {
         pi_tool_runs[kind]++;
+        p->t.pi_status_n = 0;
         if (kind == PT_LS)
             *is_error = run_ls(p, a, &text);
+        else if (kind == PT_GREP || kind == PT_FIND)
+            *is_error = run_search(p, kind, args, an, &text);
+        else if (kind == PT_READ)
+            *is_error = run_read(p, a, &text, &imgs, &nimg);
         else {
             if (kind == PT_EDIT)
                 tools_edit_orig(&p->t, id, args, an, &res);
@@ -456,13 +757,19 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
         }
     }
     jw_rawz(content, "[");
-    {
+    if (kind == PT_BASH) {
+        /* pi: the output's tail (the whole of it kept in a file when cut),
+         * then the status (its bytes at the end, tools.c pi_status_n) */
         jw cut;
+        long sn = p->t.pi_status_n > 0 && p->t.pi_status_n <= text.n ? p->t.pi_status_n : 0;
         jw_init(&cut);
-        pi_cut(p->t.sys, p->tmp, id, text.p ? text.p : "", text.n, kind == PT_BASH, &cut);
+        pi_cut(p->t.sys, p->tmp, id, text.p ? text.p : "", text.n - sn, 1, &cut);
+        if (sn)
+            jw_raw(&cut, text.p + text.n - sn, sn);
         llm_b_text(content, cut.p ? cut.p : "", cut.n, 0);
         jw_free(&cut);
-    }
+    } else
+        llm_b_text(content, text.p ? text.p : "", text.n, 0);
     if (imgs.n)
         jw_raw(content, imgs.p, imgs.n);
     jw_rawz(content, "]");
@@ -492,8 +799,8 @@ int pi_tools_init(pi_tools *p, cl_sys *sys, const char *root, const char *tmp, i
     static const char *const snippets[PT_COUNT] = {
         "Read file contents", "Create or overwrite files",
         "Make precise file edits with exact text replacement, including multiple disjoint edits in one call",
-        "Execute bash commands (ls, grep, find, etc.)", "Search file contents for patterns",
-        "Find files by glob pattern", "List directory contents"
+        "Execute bash commands (ls, grep, find, etc.)", "Search file contents for patterns (respects .gitignore)",
+        "Find files by glob pattern (respects .gitignore)", "List directory contents"
     };
     static const char *const *const guides[PT_COUNT] = { g_read, g_write, g_edit, 0, 0, 0, 0 };
     int i;
