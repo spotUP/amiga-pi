@@ -1,0 +1,76 @@
+/* agent -- amiga-pi's agent loop (plan C1), pi-agent-core's runAgentLoop
+ * (pi f10993bc packages/agent/src/agent-loop.ts) in C:
+ *   pi_prompt(s, text): the user's message, then rounds -- a request with
+ *   the whole conversation (llm_transform: no failed answers, no orphaned
+ *   tool calls), the answer streamed through the accumulator, its tool
+ *   calls run one after another in message order (pi may run them in
+ *   parallel), one toolResult each -- until an answer stops for anything
+ *   but toolUse. stop and toolUse as pi; length: its tool calls are not
+ *   run, each answered with pi's error text; error and aborted end the
+ *   prompt. At most PI_ROUNDS rounds (C:Claude's cap, claude/repl.c).
+ * Every step is an event through s->em (events.h); extensions (ext.h) may
+ * block or rewrite a call and replace its result. The top-level entry of
+ * every amiga-pi reachability test.
+ * Portable C89 over llm/ (vtcon). */
+#ifndef PI_AGENT_H
+#define PI_AGENT_H
+
+#include "llm/request.h"
+#include "llm/accum.h"
+#include "events.h"
+#include "ext.h"
+
+#define PI_ROUNDS 64
+#define PI_TOOLS 32
+
+struct pi_session;
+
+typedef struct pi_tool {
+    const char *name;
+    const char *description;
+    const char *parameters;     /* JSON schema of the arguments */
+    const char *snippet;        /* the system prompt's one line, 0 none */
+    void *u;
+    /* the call: args a JSON object; the result's blocks appended to content
+     * as a JSON array; *is_error. 0, or 1 when the user stopped it */
+    int (*run)(void *u, struct pi_session *s, const char *args, long an, jw *content, int *is_error);
+    long calls;                 /* the tests' sentinel */
+} pi_tool;
+
+typedef struct pi_session {
+    llm_model model;
+    const char *key;            /* 0 none */
+    const char *user_agent;
+    llm_pool *pool;
+    llm_hooks h;                /* poll (Ctrl+C), sleep, ms, notice, resolve, log */
+    llm_ts (*now)(void *u);     /* the messages' timestamps (h.u) */
+    const char *system;         /* the system prompt (prompt.c), 0 none */
+    pi_tool *tools[PI_TOOLS];
+    int ntools;
+    pi_emitter em;
+    pi_exts ext;
+    /* the conversation: pi-ai messages, each its own allocation */
+    char **msg;
+    long *msg_n;
+    int nmsg, cap;
+    int oom;
+    long rounds;                /* rounds run since the start (the tests' sentinel) */
+    int stop;                   /* the last answer's stop reason (LS_*) */
+    char err[256];              /* its errorMessage, or why the prompt stopped */
+} pi_session;
+
+/* model copied; pool and hooks the caller's; extensions are subscribed to the events */
+void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_pool *pool, const llm_hooks *h);
+void pi_session_free(pi_session *s);
+/* 0, -1 full */
+int pi_tool_add(pi_session *s, pi_tool *t);
+/* the prompt to the end: the last answer's stop reason (LS_STOP, LS_LENGTH,
+ * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it) */
+int pi_prompt(pi_session *s, const char *text);
+/* the text blocks of the last assistant message, joined (print mode): its length, out terminated */
+long pi_last_text(const pi_session *s, jw *out);
+
+/* calls of the loop's round since the start (agent_round in the plan) */
+extern long pi_agent_rounds;
+
+#endif

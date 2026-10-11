@@ -1,0 +1,20 @@
+agent_start
+turn_start
+message_start user
+message_end user
+message_start assistant
+message_end assistant
+tool_execution_start read
+tool_execution_end read
+message_start toolResult
+message_end toolResult
+tool_execution_start ls
+tool_execution_end ls
+message_start toolResult
+message_end toolResult
+turn_end
+turn_start
+message_start assistant
+message_end assistant
+turn_end
+agent_end
