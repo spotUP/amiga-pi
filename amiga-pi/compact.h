@@ -59,6 +59,11 @@ typedef struct cp_result {
 } cp_result;
 
 long cp_estimate(const char *msg, long n);
+/* calculateContextTokens of a message's usage (totalTokens, else the four counts summed), 0 none */
+long cp_usage_total(const char *msg, long n);
+/* estimateContextTokens: the last usable answer's usage plus an estimate of the messages after it (all of them
+ * estimated when none is usable); *last_usage that answer's index, -1 none */
+long cp_estimate_context(char *const *msg, const long *msg_n, int n, int *last_usage);
 /* the context's tokens as pi estimates them for a branch ending at leaf */
 long cp_context_tokens(pi_s3 *st, int leaf, const pi_ctx *c);
 int cp_should(long tokens, long window, long reserve);

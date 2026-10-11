@@ -281,4 +281,87 @@ for (const [name, list] of [["writer", scn], ["branched", branched]] as [string,
 	writeFileSync(join(sessions, name + ".scn"), list.map((s) => JSON.stringify(s)).join("\n") + "\n");
 	writeFileSync(join(sessions, name + ".expected"), runScenario(list));
 }
+// ---- automatic compaction through pi's own AgentSession (agent-session.ts, agent-loop.ts) ----
+// Where pi checks the context against the window: prompt() before the user message (the last answer's usage),
+// prepareNextTurn between turns, _handlePostAgentRun after agent_end. These live in AgentSession, which needs
+// pi's whole package: PI_NPM names a node_modules holding @earendil-works/pi-coding-agent 1.0.4 (the version
+// f10993bc's package.json carries; its _checkCompaction and trigger points read the same as the source).
+// The model is a provider answering every request with tests/pi/openai_text.sse's text and usage, as the C
+// side's stub does. Two runs over one file, as tests/test_pi_store.c's: "hello" with a large window, then -c
+// with a 400-character prompt and a window whose threshold (window - reserveTokens) is 100 tokens. Written:
+// agent_compaction.expected -- the requests of each run (answer / summary) and the file's user, assistant and
+// compaction entries in order, a compaction's parentId and firstKeptEntryId as ordinals of that list.
+if (process.env.PI_NPM) {
+	const npm = process.env.PI_NPM;
+	const ai = await import(pathToFileURL(join(npm, "@earendil-works/pi-ai/dist/index.js")).href);
+	const ca = await import(pathToFileURL(join(npm, "@earendil-works/pi-coding-agent/dist/index.js")).href);
+	const RealDate = Date;
+	let clock = 1760100000000;
+	// one second per reading of the clock: an answer and a compaction never share a millisecond
+	class StepDate extends RealDate {
+		constructor(...a: any[]) {
+			if (a.length === 0) {
+				clock += 1000;
+				super(clock);
+			} else super(...(a as []));
+		}
+		static now() {
+			clock += 1000;
+			return clock;
+		}
+	}
+	(globalThis as any).Date = StepDate;
+	const usage = { input: 100, output: 9, cacheRead: 20, cacheWrite: 0, totalTokens: 129,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+	let kinds: string[] = [];
+	let window = 128000;
+	const stream = (m: any, context: any) => {
+		const out = ai.createAssistantMessageEventStream();
+		kinds.push(JSON.stringify(context).includes("context summarization assistant") ? "summary" : "answer");
+		const msg = { role: "assistant", content: [{ type: "text", text: "Hello from the Amiga! Grüße — ok" }],
+			api: m.api, provider: m.provider, model: m.id, usage: structuredClone(usage), stopReason: "stop", timestamp: Date.now() };
+		queueMicrotask(() => {
+			out.push({ type: "start", partial: { ...msg, content: [], stopReason: "pending" } });
+			out.push({ type: "done", reason: "stop", message: msg });
+			out.end(msg);
+		});
+		return out;
+	};
+	const dir = mkdtempSync(join(tmpdir(), "piagent"));
+	const runs: string[] = [];
+	const run = async (sm: any, prompt: string) => {
+		const rt = await ca.ModelRuntime.create({ modelsPath: null, authPath: join(dir, "auth.json") });
+		rt.registerNativeProvider(ai.createProvider({ id: "fixture", auth: { apiKey: { name: "Fixture", resolve: async () => ({ auth: {} }) } },
+			models: [{ id: "m", name: "m", api: "fixture-api", provider: "fixture", baseUrl: "http://x", reasoning: false, input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: window, maxTokens: 4096 }],
+			api: { stream, streamSimple: stream } }));
+		const { session } = await ca.createAgentSession({ cwd: dir, agentDir: dir, modelRuntime: rt, model: rt.getModel("fixture", "m"),
+			sessionManager: sm, settingsManager: ca.SettingsManager.inMemory({ compaction: { keepRecentTokens: 5 } }), noTools: "all" });
+		kinds = [];
+		await session.prompt(prompt);
+		runs.push(`run ${runs.length + 1}: ${kinds.join(" ")}`);
+	};
+	const sm1 = ca.SessionManager.create(dir, join(dir, "sessions"));
+	await run(sm1, "hello");
+	const file = sm1.getSessionFile();
+	window = 16384 + 100;
+	let long = "";
+	for (let i = 0; i < 400; i++) long += String.fromCharCode(97 + (i % 26));
+	await run(ca.SessionManager.open(file), long);
+	(globalThis as any).Date = RealDate;
+	const listed: any[] = [];
+	for (const line of readFileSync(file, "utf8").split("\n")) {
+		if (!line.trim()) continue;
+		const e = JSON.parse(line);
+		if (e.type === "compaction" || (e.type === "message" && e.message.role !== "system")) listed.push(e);
+	}
+	const ord = (id: string) => listed.findIndex((e) => e.id === id) + 1;
+	const lines = [...runs];
+	for (const e of listed)
+		lines.push(e.type === "compaction"
+			? `compaction parent=${ord(e.parentId)} firstKept=${ord(e.firstKeptEntryId)} tokensBefore=${e.tokensBefore}`
+			: e.message.role);
+	writeFileSync(join(sessions, "agent_compaction.expected"), lines.join("\n") + "\n");
+} else console.log("gen: PI_NPM not set, agent_compaction.expected left as it is");
+
 console.log("gen: " + readdirSync(sessions).filter((n) => n.endsWith(".expected")).length + " expected files");
