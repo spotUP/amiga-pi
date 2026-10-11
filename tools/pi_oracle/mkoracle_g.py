@@ -90,7 +90,7 @@ write("g/trust-manager.ts", head + tm)
 rl = pi(src + "core/resource-loader.ts")
 parts = [head,
          'import { existsSync, readFileSync, statSync } from "node:fs";\n',
-         'import { join, resolve } from "node:path";\n',
+         'import { basename, dirname, join, resolve, sep } from "node:path";\n',
          'import { chalk } from "./stubs.ts";\n',
          'import { CONFIG_DIR_NAME } from "./config.ts";\n',
          'import { canonicalizePath, resolvePath } from "./paths.ts";\n',

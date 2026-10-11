@@ -11,7 +11,7 @@
 // replaced by @ROOT@ (tests/test_pi_resources.c makes the same trees and does the same).
 // Writes tests/pi/resources/<layout>.json: the prompt's sections in order ({name: text}), and
 // trust.json (the store's file after a series of updates) and trust.txt (labels, needed checks).
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -24,7 +24,7 @@ const { buildSystemPromptSections } = await import(g("system-prompt.ts"));
 const R = await import(g("resources.ts"));
 const T = await import(g("trust-manager.ts"));
 
-const root = mkdtempSync(join(tmpdir(), "pi_res_"));
+const root = realpathSync(mkdtempSync(join(tmpdir(), "pi_res_")));
 const norm = (s: string) => s.split(root).join("@ROOT@");
 function put(rel: string, text: string) {
 	const p = join(root, rel);
