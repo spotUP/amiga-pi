@@ -4,7 +4,7 @@ Sources: pi at commit f10993bc (see `thoughts/shared/research/2026-10-07_pi-sour
 
 Decision D3: the pi `bash` tool is named `bash` and runs `vsh -c` (AmigaDOS Shell fallback). `shell` in older plan text is superseded.
 
-Rows per group (124 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tui 6; sessions 19; tools 7; extensions 20; skills 4; prompt templates 2; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 9.
+Rows per group (131 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tui 6; sessions 26; tools 7; extensions 20; skills 4; prompt templates 2; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 9.
 
 
 ## pi-ai
