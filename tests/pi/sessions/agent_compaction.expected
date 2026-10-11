@@ -1,0 +1,8 @@
+run 1: answer
+run 2: summary answer summary summary
+user
+assistant
+compaction parent=2 firstKept=2 tokensBefore=129
+user
+assistant
+compaction parent=5 firstKept=5 tokensBefore=129

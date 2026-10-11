@@ -7,6 +7,7 @@
 #include "tools_pi.h"
 #include "ext_gate.h"
 #include "store.h"
+#include "mcp.h"
 #include "claude/util.h"
 #include "claude/repl.h"       /* cl_key_clean */
 
@@ -107,7 +108,7 @@ static int usage(const pi_platform *pl, const pi_args *a)
 {
     say(pl->io, "amiga-pi: ", a->err);
     say(pl->io, "usage: amiga-pi [-p] [--model provider/id] [--base-url URL] [--tools list] [--no-tools] "
-                "[--gate|--no-gate] [-c] [--session path-or-id] [-r] [--no-session] [-n name] [prompt]", 0);
+                "[--gate|--no-gate] [--no-mcp] [-c] [--session path-or-id] [-r] [--no-session] [-n name] [prompt]", 0);
     return 2;
 }
 
@@ -136,6 +137,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     static pi_tools tools;
     static pi_gate gate;
     static pi_store store;
+    static mcp mc;
     llm_model m;
     char kn[64], err[160], picked[320];
     int rc, mode;
@@ -196,6 +198,28 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
             gate.on = a.gate;
         pi_ext_add(&s.ext, &gate.ext);
     }
+    /* MCP servers from <agent dir>/mcp.json (pi: ~/.pi/agent/mcp.json); the project's .pi/mcp.json is read
+     * only for a trusted project, and amiga-pi has no trust yet (phase G3) */
+    mcp_init(&mc, pl->sys, pl->mcp_pool ? pl->mcp_pool : pl->pool, &s.h, pl->getenv, pl->cwd, pl->tmp);
+    if (pl->sys && !a.no_mcp && pl->agent_dir && pl->agent_dir[0]) {
+        char path[300];
+        long i, st = 0;
+        cl_copy(path, pl->agent_dir, sizeof(path));
+        if (path[0] && path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+            cl_cat(path, "/", sizeof(path));
+        cl_cat(path, "mcp.json", sizeof(path));
+        mcp_load(&mc, path, 0);
+        if (mc.n)
+            mcp_connect(&mc);
+        for (i = 0; i < mc.errors.n; i++)
+            if (mc.errors.p[i] == '\n') {
+                mc.errors.p[i] = 0;
+                say(pl->io, "amiga-pi: MCP: ", mc.errors.p + st);
+                st = i + 1;
+            }
+        if (mcp_attach(&mc, &s))
+            say(pl->io, "amiga-pi: MCP: too many tools; some are not available", 0);
+    }
     if (pl->ready)
         pl->ready(&s);
     store_settings(pl, &store);
@@ -203,6 +227,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         say(pl->io, "amiga-pi: the session could not be loaded", 0);
         pi_store_free(&store);
         pi_session_free(&s);
+        mcp_free(&mc);
         return 1;
     }
     if (a.name[0])
@@ -213,6 +238,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         rc = pi_ui_run(&s, pl->io, a.prompt[0] ? a.prompt : 0);
     pi_store_free(&store);
     pi_session_free(&s);
+    mcp_free(&mc);
     if (pl->sys) {
         pi_gate_free(&gate);
         pi_tools_free(&tools);

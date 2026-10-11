@@ -25,6 +25,8 @@ typedef struct pi_platform {
                                  * the agent dir on the host), 0 none */
     int shell;                  /* PI_SH_*: what the bash tool runs */
     int utc;                    /* the clock is UTC (host: timestamps end in Z); else the Amiga's local time */
+    /* MCP over HTTP's connections (mcp_http.c), 0: pool's */
+    llm_pool *mcp_pool;
     /* the session once made, before the prompt (the tests add their tools here), 0 none */
     void (*ready)(pi_session *s);
 } pi_platform;

@@ -21,7 +21,14 @@
 #include "ext.h"
 
 #define PI_ROUNDS 64
-#define PI_TOOLS 32
+#define PI_TOOLS 64
+
+/* where pi checks the context against the window (agent-session.ts f10993bc): before a prompt's user
+ * message is kept (prompt(), the last answer's usage), before each turn after the first (agent-loop's
+ * prepareNextTurn, the projected estimate), after agent_end (_handlePostAgentRun, the run's last answer) */
+#define PI_CP_PROMPT 0
+#define PI_CP_TURN 1
+#define PI_CP_END 2
 
 struct pi_session;
 
@@ -60,14 +67,15 @@ typedef struct pi_session {
     const char *call_id;        /* the tool call running now (a tool names its kept output after it) */
     const char *shell_note;     /* the system prompt's sentence on the bash tool's shell, 0 none */
     const struct pi_res *res;   /* context files, SYSTEM.md, APPEND_SYSTEM.md for the prompt (resources.h), 0 none */
+    const char *mcp_section;    /* pi's mcp_servers section (mcp.c), 0 none */
     /* the gate's question (ext_gate.h), set by the prompt's UI: ASK_* of
      * claude/tools.h; 0 nobody can answer (print mode) */
     int (*ask)(void *u, int tool, const char *name, const char *what, int outside);
     void *ask_u;
-    /* the session store (store.h): called before each answer's request, after the messages so far were kept
-     * (compaction rewrites the conversation here); 0, or -1 to stop the prompt with err set */
-    int (*prepare)(void *u, struct pi_session *s);
-    void *prepare_u;
+    /* the session store's automatic compaction (store.h), at pi's points (PI_CP_*); it may rewrite the
+     * conversation, a failure is told by its own events and the prompt goes on */
+    void (*compact)(void *u, struct pi_session *s, int when);
+    void *compact_u;
     /* slash commands (store.c): a line the prompt got that starts with '/'. 1 when handled -- the lines to show
      * go to reply, and editor receives text the user takes back to edit (a message left by /tree); 0 not a command
      * of the store's (the line goes to the model) */

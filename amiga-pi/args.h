@@ -1,6 +1,6 @@
 /* args -- amiga-pi's command line (plan C7): pi's flags that exist so far.
  *   amiga-pi [-p|--print] [--model provider/id] [--base-url URL]
- *            [--tools|-t list] [--no-tools|-nt] [--gate|--no-gate]
+ *            [--tools|-t list] [--no-tools|-nt] [--gate|--no-gate] [--no-mcp]
  *            [--continue|-c] [--session path-or-id] [--resume|-r] [--no-session]
  *            [--name|-n name] [prompt ...]
  * Sessions (store.h): -c continues the newest session of the working directory,
@@ -27,6 +27,7 @@ typedef struct pi_args {
     char tools[256];            /* --tools as given, "-" for --no-tools, "" the defaults */
     int gate;                   /* --gate 1, --no-gate 0, -1 settings.json decides */
     int cont, resume, no_session;
+    int no_mcp;                 /* --no-mcp: no MCP servers this run (pi's flag) */
     char session[300];          /* --session's argument, "" none */
     char name[128];             /* --name, "" none */
     char provider[48], id[96], base_url[256];

@@ -1,0 +1,72 @@
+tool mcp__gh__create_issue
+description Create a new issue in a GitHub repository.
+parameters {"type":"object","properties":{"owner":{"type":"string","description":"Repository owner"},"repo":{"type":"string"},"title":{"type":"string","description":"Issue title"},"body":{"type":"string"}},"required":["owner","repo","title"]}
+tool mcp__gh__list_issues
+description List issues in a repository, filtered by state and labels.
+parameters {"type":"object","properties":{"state":{"type":"string","description":"open, closed or all"},"labels":{"type":"array","items":{"type":"string","description":"A label name"}}}}
+tool mcp__gh__search_code
+description Search code across repositories.
+Second line of the description.
+parameters {"type":"object","properties":{"q":{"type":"string","description":"Search query"}}}
+tool mcp__gh__getFileContents
+description Get the contents of a file or directory.
+parameters {"type":"object","properties":{"path":{"type":"string","description":"Path to the file"}}}
+tool mcp__gh__create_pull_request
+description Create a pull request from a branch.
+parameters {"type":"object","properties":{"head":{"type":"string"},"base":{"type":"string"},"draft":{"anyOf":[{"type":"boolean","description":"Open as a draft"},{"type":"null"}]}}}
+tool mcp__gh__mergePR
+description Merge a pull request.
+parameters {"type":"object","properties":{"pullNumber":{"type":"number"}}}
+tool mcp__gh__list_branches
+description List the branches of a repository.
+parameters {"type":"object","properties":{}}
+tool mcp__gh__get_me
+description Details of the authenticated user.
+parameters {"type":"object","properties":{}}
+tool mcp__gh__add_comment
+description Add a comment to an issue or pull request.
+parameters {"type":"object","properties":{"body":{"type":"string","description":"The comment's text"}}}
+tool mcp__gh__HTTPServerStatus
+description Status of the HTTPServer behind the API.
+parameters {"type":"object","properties":{}}
+search description "# Tool discovery\n\nSearches over deferred tool metadata with BM25 and exposes matching tools for the next model call.\n\nSome of the tools, such as tools of MCP servers, may not have been provided to you upfront, and you should use this tool (`tool_search`) to search for the required tools. For MCP tool discovery, always use `tool_search`."
+== issue (limit -)
+Loaded 8 tools. They are available from your next call:
+- mcp__gh__create_issue: Create a new issue in a GitHub repository.
+- mcp__gh__list_issues: List issues in a repository, filtered by state and labels.
+- mcp__gh__add_comment: Add a comment to an issue or pull request.
+- mcp__gh__list_branches: List the branches of a repository.
+- mcp__gh__get_me: Details of the authenticated user.
+- mcp__gh__mergePR: Merge a pull request.
+- mcp__gh__HTTPServerStatus: Status of the HTTPServer behind the API.
+- mcp__gh__getFileContents: Get the contents of a file or directory.
+loaded mcp__gh__create_issue,mcp__gh__list_issues,mcp__gh__add_comment,mcp__gh__list_branches,mcp__gh__get_me,mcp__gh__mergePR,mcp__gh__HTTPServerStatus,mcp__gh__getFileContents
+== create pull request (limit 1)
+Loaded 1 tool. They are available from your next call:
+- mcp__gh__create_pull_request: Create a pull request from a branch.
+loaded mcp__gh__create_pull_request
+== file contents (limit -)
+No matching tools found.
+loaded 
+== HTTP server (limit -)
+No matching tools found.
+loaded 
+== comment on an issue (limit -)
+Loaded 1 tool. They are available from your next call:
+- mcp__gh__search_code: Search code across repositories.
+loaded mcp__gh__search_code
+== the a of (limit -)
+No matching tools found.
+loaded 
+== zzz (limit -)
+No matching tools found.
+loaded 
+== issues (limit -)
+No matching tools found.
+loaded 
+== pull request draft (limit 2)
+No matching tools found.
+loaded 
+== repository branches (limit -)
+No matching tools found.
+loaded 
