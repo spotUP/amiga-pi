@@ -111,6 +111,14 @@ int pi_prompt_sections(const pi_session *s, const char *cwd, pi_psec *out)
     jw_rawz(&out->text, cwd ? cwd : "");
     close_tag(&out->text, "cwd");
     section(out, "cwd", at);
+    if (s->mcp_section) {
+        /* pi's MCP extension adds it in before_agent_start: after the sections before it */
+        at = out->text.n;
+        open_tag(&out->text, "mcp_servers");
+        jw_rawz(&out->text, s->mcp_section);
+        close_tag(&out->text, "mcp_servers");
+        section(out, "mcp_servers", at);
+    }
     return out->text.oom ? -1 : 0;
 }
 

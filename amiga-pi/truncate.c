@@ -111,10 +111,10 @@ void pi_size(long b, char *out, long cap)
     cl_cat(out, unit, cap);
 }
 
-void pi_cut_path(const char *tmp, const char *id, char *out, long cap)
+void pi_tmp_path(const char *tmp, const char *id, const char *ext, char *out, long cap)
 {
     char stem[240];
-    long k;
+    long k, room = 30 - (long)strlen(ext);
     cl_copy(stem, "amiga-pi-", sizeof(stem));
     k = (long)strlen(stem);
     for (; id && *id && k < 200; id++)
@@ -123,12 +123,17 @@ void pi_cut_path(const char *tmp, const char *id, char *out, long cap)
                         ? *id
                         : '_';
     stem[k] = 0;
-    /* FFS names are 30 characters: ".txt" leaves 26 for the stem; a longer id (Anthropic's toolu_...) keeps its
-     * end and a hash, as C:Claude's session names do */
-    sess_fit(stem, sess_hash(stem), 26);
+    /* FFS names are 30 characters: the extension (".txt") leaves the rest for the stem; a longer id
+     * (Anthropic's toolu_...) keeps its end and a hash, as C:Claude's session names do */
+    sess_fit(stem, sess_hash(stem), room < 12 ? 12 : room);
     cl_copy(out, tmp ? tmp : "", cap);
     cl_cat(out, stem, cap);
-    cl_cat(out, ".txt", cap);
+    cl_cat(out, ext, cap);
+}
+
+void pi_cut_path(const char *tmp, const char *id, char *out, long cap)
+{
+    pi_tmp_path(tmp, id, ".txt", out, cap);
 }
 
 int pi_cut(cl_sys *sys, const char *tmp, const char *id, const char *text, long n, int tail, jw *out)
