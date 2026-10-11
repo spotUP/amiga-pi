@@ -999,20 +999,9 @@ static int obj_put(jv o, jw *out, const char *key, const char *val, const char *
     return out->oom ? -1 : 0;
 }
 
-static int replace_text(pi_s3 *st, int i, jw *w)
-{
-    s3_ent *e = &st->e[i];
-    free(e->text);
-    e->text = w->p;
-    e->len = w->n;
-    w->p = 0;
-    w->n = w->cap = 0;
-    return e->text ? 0 : -1;
-}
-
 int s3_branched(pi_s3 *st, int leaf)
 {
-    int *path = 0, np, i, k, kept = 0, prev = -1;
+    int *path = 0, np, i, k, prev = -1;
     int *map;                   /* label entry -> the entry that follows it on the path */
     pi_s3 nw;
     llm_ts t = now_of(st);
@@ -1102,7 +1091,6 @@ int s3_branched(pi_s3 *st, int leaf)
             }
             jw_free(&w);
             prev = j;
-            kept++;
         }
     }
     resolve(&nw);
