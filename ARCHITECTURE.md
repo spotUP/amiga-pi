@@ -58,6 +58,18 @@ Owner rule (2026-10-07): `http://` is accepted only for a LAN host: an address i
 - Project dir `<root>/.pi/` (pi's name kept so a project works with pi on a Mac): same resource folders, trust-gated (phase G).
 - Temp: `T:amiga-pi-<id>.txt` for truncated tool output.
 
+## MCP stdio pipes (K1, measured on rig 3, 2026-10-11)
+
+Probe: vtcon `tests/amiga/spawnprobe.c` (`make build/amiga/spawnprobe`, run as `VTC:spawnprobe` on the rig; FS-UAE A1200 --max, Workbench 3.1, PTY: from vtcon's pty-handler). A native (vbcc, no ixemul) parent starts `spawnprobe child` with `SystemTags(SYS_Input, SYS_Output, SYS_Asynch)` on two pipes, writes `ping\n`, sends one 4096-byte ACTION_READ on the child's output, then closes its write end. The child reads 4096 at a time and answers each read with one line.
+
+| handler | child's stdin gets the line | parent gets the child's line | EOF after the parent's close | verdict |
+|---|---|---|---|---|
+| `PIPE:` (one name, both ends) | no: the child's 4096-byte Read waits until the writer closes (its log is empty after 3 s) | no answer in 3 s | yes (the held bytes, then 0) | unusable: a request/answer protocol deadlocks |
+| `PTY:<id>/w` + `PTY:<id>/r` (pty-handler pipe pair) | yes | yes, `echo 5\n` at once | yes (`eof\n`, then 0) | **chosen** |
+| `IXPIPE:` | - | - | - | not usable from a native program: an ordinary Open fails by design (ixpipe-handler.c only answers ACTION_IXEMUL_MAGIC, which clones a descriptor of an ixemul process, F_INTERNALIZE); amiga-pi links no ixemul |
+
+So `spawn2` on the Amiga (K5) makes two PTY: pipe pairs, `PTY:mcpi<n>/w|r` (to the child) and `PTY:mcpo<n>/w|r` (from it). PTY: is the kit's (the Installer mounts PTY:, XCON:, IXPIPE:); without it a stdio server is refused with a message naming PTY:, and HTTP servers still work. What the server's own C library buffers is the server's business: a server must flush each answer line, as on any OS.
+
 ## Shared with C:Claude / owned by each
 
 | Shared (in vtcon, compiled in place from VTCON_DIR, not copied) | C:Claude owns | amiga-pi owns |
