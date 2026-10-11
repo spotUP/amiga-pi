@@ -433,6 +433,16 @@ static void test_bash(void)
     ses.call_id = "call_t1";
     pi_cut_path(tmpd, "call_big|1", path, sizeof(path));
     CHECK(has(path, "amiga-pi-call_big_1.txt"));
+    /* E8: a tool call id as long as Anthropic's still gives a 30-character file name, and different ids differ */
+    {
+        char p1[300], p2[300];
+        pi_cut_path("T:", "toolu_01A09q90qw90lq917835lq9a", p1, sizeof(p1));
+        pi_cut_path("T:", "toolu_01A09q90qw90lq917835lq9b", p2, sizeof(p2));
+        CHECK_INT((int)strlen(p1) - 2, 30);
+        CHECK(strcmp(p1, p2) != 0);
+        pi_cut_path("T:", "call_big_1", p1, sizeof(p1));
+        CHECK_STR(p1, "T:amiga-pi-call_big_1.txt");
+    }
     CHECK(has(t, "line2999-") && !has(t, "line0-"));
     CHECK(has(t, "(50.0KB limit). Full output: "));
     CHECK(has(t, path));
@@ -1169,6 +1179,16 @@ static void test_gate(void)
         CHECK_STR(pf, "UP-Term:var/amiga-pi/permissions/--Work-Projects-x--.json");
         CHECK_INT(pi_gate_project_file("ENVARC:amiga-pi", "RAM:", pf, sizeof(pf)), 0);
         CHECK_STR(pf, "ENVARC:amiga-pi/permissions/--RAM---.json");
+        /* E8: a long working directory still gives a name an FFS volume takes (30 characters), and two long ones differ */
+        {
+            char pf2[300];
+            const char *name;
+            CHECK_INT(pi_gate_project_file("UP-Term:var/amiga-pi", "Work:Projects/amiga-pi/some/deep/tree/of/dirs/x", pf, sizeof(pf)), 0);
+            CHECK_INT(pi_gate_project_file("UP-Term:var/amiga-pi", "Work:Projects/amiga-pi/some/deep/tree/of/dirs/y", pf2, sizeof(pf2)), 0);
+            name = strrchr(pf, '/') + 1;
+            CHECK_INT((int)strlen(name), 30);
+            CHECK(strcmp(pf, pf2) != 0);
+        }
     }
     /* the setting */
     pi_gate_init(&gate, &pt, &ses);

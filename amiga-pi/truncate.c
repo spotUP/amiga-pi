@@ -1,6 +1,7 @@
 /* see truncate.h */
 #include <string.h>
 #include "truncate.h"
+#include "claude/session.h"
 #include "claude/util.h"
 
 /* the length of s[0..n) with the final newline (one) left out: pi splits
@@ -112,16 +113,21 @@ void pi_size(long b, char *out, long cap)
 
 void pi_cut_path(const char *tmp, const char *id, char *out, long cap)
 {
+    char stem[240];
     long k;
+    cl_copy(stem, "amiga-pi-", sizeof(stem));
+    k = (long)strlen(stem);
+    for (; id && *id && k < 200; id++)
+        stem[k++] = (*id >= 'a' && *id <= 'z') || (*id >= 'A' && *id <= 'Z') || (*id >= '0' && *id <= '9') ||
+                            *id == '-' || *id == '_'
+                        ? *id
+                        : '_';
+    stem[k] = 0;
+    /* FFS names are 30 characters: ".txt" leaves 26 for the stem; a longer id (Anthropic's toolu_...) keeps its
+     * end and a hash, as C:Claude's session names do */
+    sess_fit(stem, sess_hash(stem), 26);
     cl_copy(out, tmp ? tmp : "", cap);
-    cl_cat(out, "amiga-pi-", cap);
-    k = (long)strlen(out);
-    for (; id && *id && k < cap - 5 && k < 200; id++)
-        out[k++] = (*id >= 'a' && *id <= 'z') || (*id >= 'A' && *id <= 'Z') || (*id >= '0' && *id <= '9') ||
-                           *id == '-' || *id == '_'
-                       ? *id
-                       : '_';
-    out[k] = 0;
+    cl_cat(out, stem, cap);
     cl_cat(out, ".txt", cap);
 }
 

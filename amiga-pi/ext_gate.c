@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ext_gate.h"
+#include "claude/session.h"
 #include "claude/tools_int.h"   /* tl_resolve: "outside" as C:Claude decides it */
 #include "claude/util.h"
 #include "claude/datadir.h"
@@ -123,21 +124,28 @@ int pi_gate_settings(pi_gate *g, const char *json, long n, const char *name, int
 
 int pi_gate_project_file(const char *data_dir, const char *cwd, char *out, long cap)
 {
-    long k;
+    char stem[300];
+    long k = 2;
     const char *c = cwd;
+    stem[0] = stem[1] = '-';
+    if (*c == '/' || *c == '\\')
+        c++;                    /* pi: the leading separator dropped */
+    for (; *c && k < (long)sizeof(stem) - 3; c++)
+        stem[k++] = *c == '/' || *c == '\\' || *c == ':' ? '-' : *c;
+    if (*c)
+        return -1;
+    stem[k++] = '-';
+    stem[k++] = '-';
+    stem[k] = 0;
+    /* an FFS name is 30 characters: ".json" leaves 25 for pi's "--<cwd>--", cut as C:Claude's session names are */
+    sess_fit(stem, sess_hash(stem), 25);
     cl_copy(out, data_dir, cap);
     k = (long)strlen(out);
     if (k && out[k - 1] != ':' && out[k - 1] != '/')
         cl_cat(out, "/", cap);
-    cl_cat(out, "permissions/--", cap);
-    if (*c == '/' || *c == '\\')
-        c++;                    /* pi: the leading separator dropped */
-    for (k = (long)strlen(out); *c && k < cap - 8; c++)
-        out[k++] = *c == '/' || *c == '\\' || *c == ':' ? '-' : *c;
-    out[k] = 0;
-    if (*c)
-        return -1;
-    cl_cat(out, "--.json", cap);
+    cl_cat(out, "permissions/", cap);
+    cl_cat(out, stem, cap);
+    cl_cat(out, ".json", cap);
     return (long)strlen(out) >= cap - 1 ? -1 : 0;
 }
 
