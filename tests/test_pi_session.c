@@ -169,6 +169,7 @@ static void same_as_pi(const char *name, const char *want, const char *got)
 /* ---- compaction: prepare and compact with a model that answers "SUMMARY n" (gen.ts's fake) ---- */
 typedef struct mock {
     int n;
+    int branch;                 /* answer "BRANCH SUMMARY" with the usage of a first call, whatever n is */
     int fail;                   /* 0 ok, LS_ERROR, LS_LENGTH */
     jw log;                     /* the requests: "request maxTokens=.. system=.. prompt=.." lines */
 } mock;
@@ -181,7 +182,7 @@ static int mock_complete(void *u, const char *prompt, long max_tokens, cp_reply 
     int n;
     char num[48];
     m->n++;
-    n = m->n;
+    n = m->branch ? 1 : m->n;
     jw_init(&sys);
     {
         const char *const *l;
@@ -197,7 +198,10 @@ static int mock_complete(void *u, const char *prompt, long max_tokens, cp_reply 
     jw_rawz(&m->log, " prompt=");
     jw_str(&m->log, prompt, (long)strlen(prompt));
     jw_rawz(&m->log, "\n");
-    sprintf(num, "SUMMARY %d", n);
+    if (m->branch)
+        strcpy(num, "BRANCH SUMMARY");
+    else
+        sprintf(num, "SUMMARY %d", n);
     jw_rawz(&r->text, num);
     memset(us, 0, sizeof(*us));
     us->input = 100L * n;
@@ -323,6 +327,94 @@ static void dump_compaction(pi_s3 *st, int leaf, const pi_ctx *ctx, jw *w)
     (void)ctx;
 }
 
+
+/* ---- branch summaries: the same selection of targets as gen.ts's branchDump ---- */
+static int on_branch(const int *path, int np, int i)
+{
+    int k;
+    for (k = 0; k < np; k++)
+        if (path[k] == i)
+            return 1;
+    return 0;
+}
+
+static void dump_branches(pi_s3 *st, jw *w)
+{
+    int targets[4], nt = 0, i, *path = 0, np, t;
+    if (st->n == 0)
+        return;
+    np = s3_path(st, st->leaf, &path);
+    targets[nt++] = 0;
+    if (st->n > 1)
+        targets[nt++] = st->n / 2;
+    for (i = 0; i < st->n && nt < 4; i++)
+        if (!on_branch(path, np, i))
+            targets[nt++] = i;
+    free(path);
+    for (t = 0; t < nt; t++) {
+        int *ent, anc, n, k, b;
+        static const long budgets[] = { 0, 40 };
+        mock m;
+        cp_branch r;
+        char err[200], num[48];
+        const char *instr = t == 1 ? "focus on tests" : t == 2 ? "Only say hi" : 0;
+        n = cp_collect(st, st->leaf, targets[t], &ent, &anc);
+        CHECK(n >= 0);
+        if (n < 0)
+            continue;
+        jw_rawz(w, "branch target=");
+        jw_rawz(w, s3_id(st, targets[t]));
+        jw_rawz(w, " ancestor=");
+        jw_rawz(w, anc >= 0 ? s3_id(st, anc) : "-");
+        jw_rawz(w, " entries=");
+        for (k = 0; k < n; k++) {
+            if (k)
+                jw_rawz(w, ",");
+            jw_rawz(w, s3_id(st, ent[k]));
+        }
+        jw_rawz(w, "\n");
+        for (b = 0; b < 2; b++) {
+            cp_bprep p;
+            CHECK_INT(cp_branch_prepare(st, ent, n, budgets[b], &p), 0);
+            sprintf(num, "%ld", budgets[b]);
+            jw_rawz(w, "branchprep budget=");
+            jw_rawz(w, num);
+            jw_rawz(w, " {\"messages\":");
+            json_msgs(w, &p.msgs);
+            jw_rawz(w, ",\"fileOps\":{\"read\":");
+            json_list(w, &p.read);
+            jw_rawz(w, ",\"written\":");
+            json_list(w, &p.written);
+            jw_rawz(w, ",\"edited\":");
+            json_list(w, &p.edited);
+            jw_rawz(w, "},\"totalTokens\":");
+            jw_long(w, p.total);
+            jw_rawz(w, "}\n");
+            cp_bprep_free(&p);
+        }
+        memset(&m, 0, sizeof(m));
+        m.branch = 1;
+        jw_init(&m.log);
+        CHECK_INT(cp_branch_summary(st, ent, n, t == 1 ? CP_RESERVE + 40 : 0, CP_RESERVE, 20000, instr, t == 2,
+                                    mock_complete, &m, &r, err, sizeof(err)),
+                  0);
+        jw_rawz(w, "branchsum {\"summary\":");
+        jw_str(w, r.summary.p, r.summary.n);
+        if (r.has_usage) {
+            jw_rawz(w, ",\"usage\":");
+            llm_w_usage(w, &r.usage);
+            /* r.details is {"readFiles":[..],"modifiedFiles":[..]}: its members join the result's */
+            jw_rawz(w, ",");
+            jw_raw(w, r.details.p + 1, r.details.n - 2);
+        }
+        jw_rawz(w, "}\n");
+        jw_raw(w, m.log.p, m.log.n);
+        jw_free(&m.log);
+        cp_branch_free(&r);
+        free(ent);
+    }
+}
+
 /* ---- the dump of an opened session: gen.ts's dump(), line for line ---- */
 typedef struct idmap {
     char id[256][48];
@@ -355,7 +447,7 @@ static void member(pi_s3 *st, int i, const char *key, char *out, long cap)
         json_str(v, out, cap);
 }
 
-static void dump_session(pi_s3 *st, const char *path, long size_before, int norm, jw *w)
+static void dump_session(pi_s3 *st, const char *path, long size_before, int norm, int skip_branch, jw *w)
 {
     idmap *m = (idmap *)calloc(1, sizeof(*m));
     char b1[64], b2[64], b3[64], tmp[300], type[64];
@@ -463,6 +555,8 @@ static void dump_session(pi_s3 *st, const char *path, long size_before, int norm
         jw_rawz(w, "\n");
         jw_free(&sysm);
         dump_compaction(st, st->leaf, &c, w);
+        if (!skip_branch)
+            dump_branches(st, w);
         {
             int ti;
             char num[24];
@@ -523,7 +617,7 @@ static void test_fixture(const char *name, int norm)
     if (rc)
         jw_rawz(&w, "open error\n");
     else
-        dump_session(&st, dst, size, norm, &w);
+        dump_session(&st, dst, size, norm, !strcmp(name, "bad_content"), &w);
     dump_file(dst, size, norm, &w);
     strcpy(ex, PI_TESTS "/pi/sessions/");
     strcat(ex, name);

@@ -20,6 +20,7 @@ const { SessionManager } = await import(pathToFileURL(join(oracle, "core/session
 const { convertToLlm } = await import(pathToFileURL(join(oracle, "core/messages.ts")).href);
 const { getCurrentSystemMessage } = await import(pathToFileURL(join(oracle, "ai/transcript.ts")).href);
 const { prepareCompaction, compact, estimateTokens, shouldCompact } = await import(pathToFileURL(join(oracle, "core/compaction/compaction.ts")).href);
+const { collectEntriesForBranchSummary, prepareBranchEntries, generateBranchSummary } = await import(pathToFileURL(join(oracle, "core/compaction/branch-summarization.ts")).href);
 const { serializeConversation } = await import(pathToFileURL(join(oracle, "core/compaction/utils.ts")).href);
 const { getSystemMessageText } = await import(pathToFileURL(join(oracle, "ai/text.ts")).href);
 
@@ -82,6 +83,41 @@ async function failureDump(sm: any): Promise<string> {
 	return out;
 }
 
+// ---- branch summaries (/tree with a summary of the branch left) ----
+// targets: the first entry, the middle one, and the first two entries that are not on the leaf's branch
+async function branchDump(sm: any): Promise<string> {
+	const es = sm.getEntries();
+	if (es.length === 0) return "";
+	const onPath = new Set(sm.getBranch().map((e: any) => e.id));
+	const targets: string[] = [es[0].id];
+	if (es.length > 1) targets.push(es[Math.floor(es.length / 2)].id);
+	for (const e of es) if (!onPath.has(e.id) && targets.length < 4) targets.push(e.id);
+	let out = "";
+	let n = 0;
+	for (const t of targets) {
+		const { entries, commonAncestorId } = collectEntriesForBranchSummary(sm, sm.getLeafId(), t);
+		out += `branch target=${t} ancestor=${commonAncestorId ?? "-"} entries=${entries.map((e: any) => e.id).join(",")}\n`;
+		for (const budget of [0, 40]) {
+			const prep = prepareBranchEntries(entries, budget);
+			const fo = { read: [...prep.fileOps.read], written: [...prep.fileOps.written], edited: [...prep.fileOps.edited] };
+			out += `branchprep budget=${budget} ${JSON.stringify({ messages: prep.messages, fileOps: fo, totalTokens: prep.totalTokens })}\n`;
+		}
+		const reqs: any[] = [];
+		const streamFn = async (_m: any, ctx: any, opts: any) => {
+			reqs.push({ system: ctx.messages[0].content, prompt: ctx.messages[1].content[0].text, maxTokens: opts.maxTokens });
+			return { result: async () => ({ role: "assistant", content: [{ type: "text", text: "BRANCH SUMMARY" }],
+				usage: SUMMARY_USAGE(1), stopReason: "stop", timestamp: 1 }) };
+		};
+		const instr = n === 1 ? { customInstructions: "focus on tests" } : n === 2 ? { customInstructions: "Only say hi", replaceInstructions: true } : {};
+		const model = { id: "m", provider: "p", maxTokens: 20000, reasoning: false, contextWindow: n === 1 ? 16384 + 40 : undefined };
+		const r = await generateBranchSummary(entries, { model, signal: undefined, streamFn, ...instr });
+		out += `branchsum ${JSON.stringify(r)}\n`;
+		for (const q of reqs) out += `request maxTokens=${q.maxTokens} system=${JSON.stringify(q.system)} prompt=${JSON.stringify(q.prompt)}\n`;
+		n++;
+	}
+	return out;
+}
+
 // ---- opening a fixture ----
 async function dump(src: string, norm: boolean): Promise<string> {
 	const dir = mkdtempSync(join(tmpdir(), "pigen-"));
@@ -132,6 +168,8 @@ async function dump(src: string, norm: boolean): Promise<string> {
 			out += `systemtext ${sys === undefined ? "-" : JSON.stringify(getSystemMessageText(sys))}\n`;
 			for (const k of [20000, 5000, 5]) out += await compactionDump(sm, k);
 			out += await failureDump(sm);
+			// pi throws on a message without content (bad_content.jsonl): no case to match
+			if (!/bad_content/.test(src)) out += await branchDump(sm);
 			// estimateTokens of every context message, shouldCompact at the edges
 			out += `tokens ${JSON.stringify(ctx.messages.map((m: any) => estimateTokens(m)))}\n`;
 		}

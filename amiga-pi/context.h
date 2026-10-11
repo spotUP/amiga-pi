@@ -40,6 +40,9 @@ void ctx_free(pi_ctx *c);
 int ctx_push(pi_ctx *c, const char *json, long n);
 /* the context of the branch ending at leaf (-1: empty). 0, -1 out of memory or unreadable */
 int ctx_build(pi_s3 *st, int leaf, pi_ctx *c);
+/* getMessageFromEntry of branch-summarization.ts: the message entry i stands for in a branch summary (a tool result
+ * none, a branch summary or compaction its summary message even when empty or alone), appended to c. 0, -1 */
+int ctx_branch_message(pi_s3 *st, int i, pi_ctx *c);
 /* the number of messages sessionEntryToContextMessages gives entry i (before any edit) */
 int ctx_entry_count(pi_s3 *st, int i);
 /* {"messages":[...],"thinkingLevel":..,"model":..} as pi's JSON.stringify of the context */

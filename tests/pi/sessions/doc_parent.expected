@@ -14,6 +14,10 @@ systemtext -
 prepare keep=20000 none
 prepare keep=5000 none
 prepare keep=5 none
+branch target=30000001 ancestor=30000001 entries=
+branchprep budget=0 {"messages":[],"fileOps":{"read":[],"written":[],"edited":[]},"totalTokens":0}
+branchprep budget=40 {"messages":[],"fileOps":{"read":[],"written":[],"edited":[]},"totalTokens":0}
+branchsum {"summary":"No content to summarize"}
 tokens [2]
 size same
 file

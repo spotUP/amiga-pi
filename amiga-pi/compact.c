@@ -715,6 +715,10 @@ static int summarize(cp_complete fn, void *u, const char *label, const jw *promp
     rc = fn(u, prompt->p, max_tokens, &r);
     if (rc) {
         cl_copy(err, "out of memory", errcap);
+    } else if (r.stop == LS_ABORTED) {
+        cl_copy(err, label, errcap);
+        cl_cat(err, " aborted", errcap);
+        rc = 1;
     } else if (r.stop == LS_ERROR) {
         cl_copy(err, label, errcap);
         cl_cat(err, " failed: ", errcap);
@@ -734,6 +738,54 @@ static int summarize(cp_complete fn, void *u, const char *label, const jw *promp
     }
     jw_free(&r.text);
     return rc;
+}
+
+/* formatFileOperations: the <read-files> and <modified-files> blocks */
+static void file_lists_text(jw *summary, const cp_strs *ro, const cp_strs *mod)
+{
+    int i, sec = 0;
+    if (!ro->n && !mod->n)
+        return;
+    jw_rawz(summary, "\n\n");
+    if (ro->n) {
+        jw_rawz(summary, "<read-files>\n");
+        for (i = 0; i < ro->n; i++) {
+            if (i)
+                jw_rawz(summary, "\n");
+            jw_rawz(summary, ro->s[i]);
+        }
+        jw_rawz(summary, "\n</read-files>");
+        sec = 1;
+    }
+    if (mod->n) {
+        if (sec)
+            jw_rawz(summary, "\n\n");
+        jw_rawz(summary, "<modified-files>\n");
+        for (i = 0; i < mod->n; i++) {
+            if (i)
+                jw_rawz(summary, "\n");
+            jw_rawz(summary, mod->s[i]);
+        }
+        jw_rawz(summary, "\n</modified-files>");
+    }
+}
+
+static void file_lists_json(jw *d, const cp_strs *ro, const cp_strs *mod)
+{
+    int i;
+    jw_rawz(d, "{\"readFiles\":[");
+    for (i = 0; i < ro->n; i++) {
+        if (i)
+            jw_rawz(d, ",");
+        jw_strz(d, ro->s[i]);
+    }
+    jw_rawz(d, "],\"modifiedFiles\":[");
+    for (i = 0; i < mod->n; i++) {
+        if (i)
+            jw_rawz(d, ",");
+        jw_strz(d, mod->s[i]);
+    }
+    jw_rawz(d, "]}");
 }
 
 static long min_tokens(long a, long model_max)
@@ -857,44 +909,8 @@ int cp_compact(const pi_prep *p, long reserve, long model_max_tokens, const char
             qsort(ro.s, (size_t)ro.n, sizeof(char *), cmp_str);
         if (mod.n > 1)
             qsort(mod.s, (size_t)mod.n, sizeof(char *), cmp_str);
-        if (ro.n || mod.n) {
-            int sec = 0;
-            jw_rawz(&summary, "\n\n");
-            if (ro.n) {
-                jw_rawz(&summary, "<read-files>\n");
-                for (i = 0; i < ro.n; i++) {
-                    if (i)
-                        jw_rawz(&summary, "\n");
-                    jw_rawz(&summary, ro.s[i]);
-                }
-                jw_rawz(&summary, "\n</read-files>");
-                sec = 1;
-            }
-            if (mod.n) {
-                if (sec)
-                    jw_rawz(&summary, "\n\n");
-                jw_rawz(&summary, "<modified-files>\n");
-                for (i = 0; i < mod.n; i++) {
-                    if (i)
-                        jw_rawz(&summary, "\n");
-                    jw_rawz(&summary, mod.s[i]);
-                }
-                jw_rawz(&summary, "\n</modified-files>");
-            }
-        }
-        jw_rawz(&out->details, "{\"readFiles\":[");
-        for (i = 0; i < ro.n; i++) {
-            if (i)
-                jw_rawz(&out->details, ",");
-            jw_strz(&out->details, ro.s[i]);
-        }
-        jw_rawz(&out->details, "],\"modifiedFiles\":[");
-        for (i = 0; i < mod.n; i++) {
-            if (i)
-                jw_rawz(&out->details, ",");
-            jw_strz(&out->details, mod.s[i]);
-        }
-        jw_rawz(&out->details, "]}");
+        file_lists_text(&summary, &ro, &mod);
+        file_lists_json(&out->details, &ro, &mod);
         strs_free(&mod);
         strs_free(&ro);
         jw_raw(&out->summary, summary.p ? summary.p : "", summary.n);
@@ -914,4 +930,235 @@ void cp_result_free(cp_result *r)
 {
     jw_free(&r->summary);
     jw_free(&r->details);
+}
+
+/* ---- branch summaries ---- */
+
+int cp_collect(pi_s3 *st, int old_leaf, int target, int **out, int *ancestor)
+{
+    int *oldp = 0, *tp = 0, no, nt, i, j, cur, n = 0;
+    int *res;
+    *out = 0;
+    *ancestor = -1;
+    if (old_leaf < 0)
+        return 0;
+    no = s3_path(st, old_leaf, &oldp);
+    nt = s3_path(st, target, &tp);
+    if (no < 0 || nt < 0) {
+        free(oldp);
+        free(tp);
+        return -1;
+    }
+    for (i = nt - 1; i >= 0 && *ancestor < 0; i--)
+        for (j = 0; j < no; j++)
+            if (oldp[j] == tp[i]) {
+                *ancestor = tp[i];
+                break;
+            }
+    res = (int *)malloc((size_t)(no + 1) * sizeof(int));
+    if (!res) {
+        free(oldp);
+        free(tp);
+        return -1;
+    }
+    for (cur = old_leaf; cur >= 0 && cur != *ancestor; cur = st->e[cur].parent)
+        res[n++] = cur;
+    for (i = 0; i < n / 2; i++) {
+        int t = res[i];
+        res[i] = res[n - 1 - i];
+        res[n - 1 - i] = t;
+    }
+    free(oldp);
+    free(tp);
+    *out = res;
+    return n;
+}
+
+void cp_bprep_free(cp_bprep *p)
+{
+    ctx_free(&p->msgs);
+    strs_free(&p->read);
+    strs_free(&p->written);
+    strs_free(&p->edited);
+    memset(p, 0, sizeof(*p));
+}
+
+static void details_files(jv d, cp_strs *read, cp_strs *edited)
+{
+    jv v, x;
+    jit it;
+    long n;
+    if (json_get(d, "readFiles", &v) && json_type(v) == J_ARR) {
+        json_iter(v, &it);
+        while (json_next(&it, 0, &x)) {
+            char *z = json_type(x) == J_STR ? json_strdup(x, &n) : 0;
+            if (z)
+                strs_add(read, z, n);
+            free(z);
+        }
+    }
+    if (json_get(d, "modifiedFiles", &v) && json_type(v) == J_ARR) {
+        json_iter(v, &it);
+        while (json_next(&it, 0, &x)) {
+            char *z = json_type(x) == J_STR ? json_strdup(x, &n) : 0;
+            if (z)
+                strs_add(edited, z, n);
+            free(z);
+        }
+    }
+}
+
+int cp_branch_prepare(pi_s3 *st, const int *ent, int n, long budget, cp_bprep *p)
+{
+    int i, rc = -1, k;
+    pi_ctx rev, tmp;
+    pi_prep fo;
+    memset(p, 0, sizeof(*p));
+    ctx_init(&p->msgs);
+    ctx_init(&rev);
+    memset(&fo, 0, sizeof(fo));
+    /* first pass: the file lists of the branch summaries already in it (pi's own, not an extension's) */
+    for (i = 0; i < n; i++)
+        if (st->e[ent[i]].type == S3_BRANCH_SUMMARY) {
+            long tn;
+            const char *t = s3_text(st, ent[i], &tn);
+            jv o, v, d;
+            if (t && !json_parse(t, tn, &o) && !(json_get(o, "fromHook", &v) && json_type(v) == J_TRUE) &&
+                json_get(o, "details", &d) && json_type(d) == J_OBJ)
+                details_files(d, &p->read, &p->edited);
+        }
+    /* second pass: newest to oldest until the budget is spent */
+    for (i = n - 1; i >= 0; i--) {
+        long tokens;
+        ctx_init(&tmp);
+        if (ctx_branch_message(st, ent[i], &tmp)) {
+            ctx_free(&tmp);
+            goto out;
+        }
+        if (tmp.n == 0) {
+            ctx_free(&tmp);
+            continue;
+        }
+        fo.read = p->read;
+        fo.written = p->written;
+        fo.edited = p->edited;
+        file_ops(tmp.msg[0], tmp.msg_n[0], &fo);
+        p->read = fo.read;
+        p->written = fo.written;
+        p->edited = fo.edited;
+        tokens = cp_estimate(tmp.msg[0], tmp.msg_n[0]);
+        if (budget > 0 && p->total + tokens > budget) {
+            int t = st->e[ent[i]].type;
+            if ((t == S3_COMPACTION || t == S3_BRANCH_SUMMARY) && p->total * 10 < budget * 9) {
+                if (ctx_push(&rev, tmp.msg[0], tmp.msg_n[0])) {
+                    ctx_free(&tmp);
+                    goto out;
+                }
+                p->total += tokens;
+            }
+            ctx_free(&tmp);
+            break;
+        }
+        if (ctx_push(&rev, tmp.msg[0], tmp.msg_n[0])) {
+            ctx_free(&tmp);
+            goto out;
+        }
+        p->total += tokens;
+        ctx_free(&tmp);
+    }
+    for (k = rev.n - 1; k >= 0; k--)
+        if (ctx_push(&p->msgs, rev.msg[k], rev.msg_n[k]))
+            goto out;
+    rc = 0;
+out:
+    ctx_free(&rev);
+    if (rc)
+        cp_bprep_free(p);
+    return rc;
+}
+
+void cp_branch_free(cp_branch *b)
+{
+    jw_free(&b->summary);
+    jw_free(&b->details);
+}
+
+int cp_branch_summary(pi_s3 *st, const int *ent, int n, long window, long reserve, long model_max_tokens,
+                      const char *instr, int replace, cp_complete fn, void *u, cp_branch *out, char *err, long errcap)
+{
+    cp_bprep p;
+    jw conv, prompt, text, summary;
+    llm_usage usage;
+    int rc, i;
+    cp_strs mod, ro;
+    memset(out, 0, sizeof(*out));
+    jw_init(&out->summary);
+    jw_init(&out->details);
+    err[0] = 0;
+    if (cp_branch_prepare(st, ent, n, (window > 0 ? window : 128000L) - reserve, &p)) {
+        cl_copy(err, "out of memory", errcap);
+        return -1;
+    }
+    if (p.msgs.n == 0) {
+        jw_rawz(&out->summary, "No content to summarize");
+        jw_rawz(&out->details, "{\"readFiles\":[],\"modifiedFiles\":[]}");
+        cp_bprep_free(&p);
+        return 0;
+    }
+    jw_init(&conv);
+    jw_init(&prompt);
+    jw_init(&text);
+    jw_init(&summary);
+    memset(&usage, 0, sizeof(usage));
+    cp_serialize(&p.msgs, &conv);
+    jw_rawz(&prompt, "<conversation>\n");
+    jw_raw(&prompt, conv.p ? conv.p : "", conv.n);
+    jw_rawz(&prompt, "\n</conversation>\n\n");
+    if (replace && instr && *instr)
+        jw_rawz(&prompt, instr);
+    else {
+        cat_lines(&prompt, cp_branch_summary_prompt);
+        if (instr && *instr) {
+            jw_rawz(&prompt, "\n\nAdditional focus: ");
+            jw_rawz(&prompt, instr);
+        }
+    }
+    rc = summarize(fn, u, "Branch summarization", &prompt, min_tokens(4096, model_max_tokens), &text, &usage, err,
+                   errcap);
+    if (!rc) {
+        cat_lines(&summary, cp_branch_summary_preamble);
+        jw_raw(&summary, text.p ? text.p : "", text.n);
+        memset(&mod, 0, sizeof(mod));
+        memset(&ro, 0, sizeof(ro));
+        for (i = 0; i < p.edited.n; i++)
+            strs_add(&mod, p.edited.s[i], (long)strlen(p.edited.s[i]));
+        for (i = 0; i < p.written.n; i++)
+            strs_add(&mod, p.written.s[i], (long)strlen(p.written.s[i]));
+        for (i = 0; i < p.read.n; i++) {
+            int j, in_mod = 0;
+            for (j = 0; j < mod.n; j++)
+                in_mod |= !strcmp(mod.s[j], p.read.s[i]);
+            if (!in_mod)
+                strs_add(&ro, p.read.s[i], (long)strlen(p.read.s[i]));
+        }
+        if (ro.n > 1)
+            qsort(ro.s, (size_t)ro.n, sizeof(char *), cmp_str);
+        if (mod.n > 1)
+            qsort(mod.s, (size_t)mod.n, sizeof(char *), cmp_str);
+        file_lists_text(&summary, &ro, &mod);
+        file_lists_json(&out->details, &ro, &mod);
+        strs_free(&mod);
+        strs_free(&ro);
+        jw_raw(&out->summary, summary.p ? summary.p : "", summary.n);
+        out->usage = usage;
+        out->has_usage = 1;
+    }
+    jw_free(&conv);
+    jw_free(&prompt);
+    jw_free(&text);
+    jw_free(&summary);
+    cp_bprep_free(&p);
+    if (rc)
+        cp_branch_free(out);
+    return rc;
 }

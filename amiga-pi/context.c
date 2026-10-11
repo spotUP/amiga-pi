@@ -138,7 +138,7 @@ static void put_key(jw *w, const char *key, int *first)
 
 /* sessionEntryToContextMessages for entry i: its messages appended to out (a leading system message
  * of a compaction first) as separate JSON texts into c. 0, -1 */
-static int entry_messages(pi_s3 *st, int i, pi_ctx *c)
+static int entry_messages(pi_s3 *st, int i, pi_ctx *c, int bm)
 {
     long n;
     const char *t = s3_text(st, i, &n);
@@ -157,6 +157,10 @@ static int entry_messages(pi_s3 *st, int i, pi_ctx *c)
         role[0] = 0;
         if (json_get(m, "role", &v) && json_type(v) == J_STR)
             json_str(v, role, sizeof(role));
+        if (bm && !strcmp(role, "toolResult")) {
+            jw_free(&w);
+            return 0;           /* branch summaries leave tool results out: the call says enough */
+        }
         /* a file written elsewhere can hold a message with null or missing content */
         if (!json_get(m, "content", &v) || json_type(v) == J_NULL) {
             if (!strcmp(role, "system") && json_get(m, "content", &v) && json_type(v) == J_NULL)
@@ -190,7 +194,7 @@ static int entry_messages(pi_s3 *st, int i, pi_ctx *c)
         rc = ctx_add_jw(c, &w);
     } else if (type == S3_BRANCH_SUMMARY) {
         char *s = json_get(o, "summary", &v) && json_type(v) == J_STR ? json_strdup(v, &n) : 0;
-        if (s && *s) {
+        if (bm || (s && *s)) {
             jw_rawz(&w, "{\"role\":\"branchSummary\"");
             first = 0;
             put_member(&w, o, "summary", 0, &first);
@@ -202,7 +206,7 @@ static int entry_messages(pi_s3 *st, int i, pi_ctx *c)
         }
         free(s);
     } else if (type == S3_COMPACTION) {
-        if (json_get(o, "systemMessage", &v) && json_type(v) != J_NULL && ctx_push(c, v.p, v.n))
+        if (!bm && json_get(o, "systemMessage", &v) && json_type(v) != J_NULL && ctx_push(c, v.p, v.n))
             rc = -1;
         jw_rawz(&w, "{\"role\":\"compactionSummary\"");
         first = 0;
@@ -369,7 +373,7 @@ int ctx_build(pi_s3 *st, int leaf, pi_ctx *c)
         int before = c->n;
         /* an older compaction kept inside the range contributes nothing */
         if (!(st->e[ent[i]].type == S3_COMPACTION && i > 0)) {
-            if (entry_messages(st, ent[i], c))
+            if (entry_messages(st, ent[i], c, 0))
                 goto out;
             if (edit[i] >= 0 && edit_message(st, edit[i], c, before))
                 goto out;
@@ -385,6 +389,11 @@ out:
     if (rc)
         ctx_free(c);
     return rc;
+}
+
+int ctx_branch_message(pi_s3 *st, int i, pi_ctx *c)
+{
+    return entry_messages(st, i, c, 1);
 }
 
 int ctx_entry_count(pi_s3 *st, int i)

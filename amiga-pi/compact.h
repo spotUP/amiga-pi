@@ -72,4 +72,33 @@ void cp_result_free(cp_result *r);
 /* serializeConversation over AgentMessages (converted to LLM messages first), appended to out */
 void cp_serialize(const pi_ctx *msgs, jw *out);
 
+/* ---- branch summaries (/tree leaving a branch; pi's branch-summarization.ts) ---- */
+
+/* collectEntriesForBranchSummary: the entries from the common ancestor (exclusive) of old_leaf and target to
+ * old_leaf, oldest first, into a malloc'ed array: their number (-1 out of memory); *ancestor its tree index, -1 none */
+int cp_collect(pi_s3 *st, int old_leaf, int target, int **out, int *ancestor);
+
+typedef struct cp_bprep {
+    pi_ctx msgs;                /* the messages that fit the budget, oldest first */
+    cp_strs read, written, edited;
+    long total;
+} cp_bprep;
+
+/* prepareBranchEntries: newest to oldest until budget tokens (0: no limit) */
+int cp_branch_prepare(pi_s3 *st, const int *ent, int n, long budget, cp_bprep *p);
+void cp_bprep_free(cp_bprep *p);
+
+typedef struct cp_branch {
+    jw summary;                 /* preamble, the text, the file lists */
+    llm_usage usage;
+    int has_usage;              /* 0 when there was nothing to summarize */
+    jw details;                 /* {"readFiles":[..],"modifiedFiles":[..]} */
+} cp_branch;
+
+/* generateBranchSummary: 0 done, 1 the user stopped it, -1 failed with err. window: the model's context window
+ * (0: 128000), reserve pi's branchSummary reserveTokens (16384); replace: instr replaces the default prompt */
+int cp_branch_summary(pi_s3 *st, const int *ent, int n, long window, long reserve, long model_max_tokens,
+                      const char *instr, int replace, cp_complete fn, void *u, cp_branch *out, char *err, long errcap);
+void cp_branch_free(cp_branch *b);
+
 #endif
