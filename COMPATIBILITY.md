@@ -40,7 +40,7 @@ Rows per group (124 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tu
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
 | Agent loop (turn, tool round, stop) | amiga-pi/agent.h pi_prompt() | planned | C |
-| Agent events (agent_start/end/settled, turn_*, message_*, tool_execution_*) | one event sink, feeds JSON and RPC modes | planned | C, H |
+| Agent events (agent_start/end/settled, turn_*, message_*, tool_execution_*) | one emitter (amiga-pi/events.c), pi's order (golden tests/pi_agent/events_two_rounds.txt); message_update carries the stream event, not a rebuilt partial message; no agent_settled yet | partial (C) | C, H |
 | Steering queue (delivered after current tool calls) | queue checked between tool calls | planned | C |
 | Follow-up queue (delivered when agent would stop) | queue checked at stop | planned | C |
 | Abort | Ctrl+C | planned | C |
@@ -50,7 +50,7 @@ Rows per group (124 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tu
 
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
-| Default system prompt (named sections, under about 1000 tokens) | built from pi's system-prompt.ts text, read in phase G | planned | G |
+| Default system prompt (named sections, under about 1000 tokens) | amiga-pi/prompt.c: pi's preamble ("inside amiga-pi"), tools, rules, cwd, plus an amiga section; pi's docs section left out (amiga-pi ships no docs yet); project context and skills in G, I | partial (C) | C, G |
 | Tools read/write/edit/grep/find/ls | amiga-pi/tools_pi.c over claude/tools.c | planned | D1-D5 |
 | Truncation 2000 lines / 50 KB with temp file | one shared helper, T:amiga-pi-<id>.txt | planned | D5 |
 | Project trust (trust.json) | reuse claude/trust.c | planned | G |
@@ -116,7 +116,7 @@ Rows per group (124 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tu
 | Loading (TS via jiti in pi) | Lua 5.4 script loaded by the embedded interpreter (decision D4) | planned (different language) | L |
 | Event group: session_* | ext.h table | planned | L |
 | Event group: agent/turn/message | ext.h table | planned | L |
-| Event group: tool_call (block, mutate), tool_result (replace) | ext.h table; carries the gate | planned | L, D6 |
+| Event group: tool_call (block, mutate), tool_result (replace) | amiga-pi/ext.c for built-in C extensions (C3); hooks and Lua in L; carries the gate | partial (C) | L, D6 |
 | Event group: input, user_bash | ext.h table | planned | L |
 | Event group: context, before_agent_start | ext.h table | planned | L |
 | Event group: model_select, thinking_level_select, provider_stream_event | ext.h table | planned | L |
