@@ -958,6 +958,28 @@ int s3_path(const pi_s3 *st, int i, int **out)
     return len;
 }
 
+/* a session_info entry's name, trimmed: 1, 0 when it has none (an explicit clear) */
+static int info_name(jv o, char *out, long cap)
+{
+    jv v;
+    char *z;
+    long a, b, zn;
+    out[0] = 0;
+    if (!json_get(o, "name", &v) || json_type(v) != J_STR)
+        return 0;
+    z = json_strdup(v, &zn);
+    if (!z)
+        return 0;
+    for (a = 0; z[a] == ' '; a++)
+        ;
+    for (b = zn; b > a && z[b - 1] == ' '; b--)
+        ;
+    z[b] = 0;
+    cl_copy(out, z + a, cap);
+    free(z);
+    return out[0] != 0;
+}
+
 int s3_name(pi_s3 *st, char *out, long cap)
 {
     int i;
@@ -965,23 +987,11 @@ int s3_name(pi_s3 *st, char *out, long cap)
         if (st->e[i].type == S3_SESSION_INFO) {
             long n;
             const char *t = s3_text(st, i, &n);
-            jv o, v;
-            char *z;
-            long a, b, zn;
+            jv o;
             out[0] = 0;
-            if (!t || json_parse(t, n, &o) || !json_get(o, "name", &v) || json_type(v) != J_STR)
+            if (!t || json_parse(t, n, &o))
                 return 0;
-            z = json_strdup(v, &zn);
-            if (!z)
-                return 0;
-            for (a = 0; z[a] == ' '; a++)
-                ;
-            for (b = zn; b > a && z[b - 1] == ' '; b--)
-                ;
-            z[b] = 0;
-            cl_copy(out, z + a, cap);
-            free(z);
-            return out[0] != 0;
+            return info_name(o, out, cap);
         }
     return 0;
 }
@@ -1234,7 +1244,7 @@ fail:
 /* ---- loading ---- */
 
 typedef struct reader {
-    pi_s3 *st;
+    cl_sys *sys;
     const char *path;
     long off;                   /* where the next chunk starts */
     char buf[S3_CHUNK];
@@ -1253,7 +1263,7 @@ static int next_line(reader *r, jw *w, long *at, int *nl)
             long got = 0;
             if (r->eof)
                 break;
-            if (r->st->sys->pread(r->st->sys->u, r->path, r->off, r->buf, S3_CHUNK, &got) || got <= 0) {
+            if (r->sys->pread(r->sys->u, r->path, r->off, r->buf, S3_CHUNK, &got) || got <= 0) {
                 r->eof = 1;
                 break;
             }
@@ -1331,7 +1341,7 @@ int s3_open(pi_s3 *st, const char *path)
     if (!r)
         return -1;
     memset(r, 0, sizeof(*r));
-    r->st = st;
+    r->sys = st->sys;
     r->path = path;
     jw_init(&w);
     while (next_line(r, &w, &at, &nl)) {
@@ -1716,39 +1726,61 @@ int s3_list(cl_sys *sys, const char *dir, int max, void (*fn)(void *c, const cha
     int i, k = 0;
     if (sorted(sys, dir, &s))
         return 0;
+    /* pi's buildSessionInfo: a read of each file, never a write (s3_open's
+     * repairs and migrations happen only when a session is opened for use) */
     for (i = 0; i < s.n && k < max; i++) {
-        pi_s3 st;
-        char p[360], title[100];
+        reader *r;
+        jw w;
+        long at;
+        int nl, got_head = 0;
+        char p[360], id[48], name[100], first[100];
         join(dir, s.names[i], p, sizeof(p));
-        s3_init(&st, sys, 0, 0, 0, 1);
-        if (s3_open(&st, p)) {
-            s3_free(&st);
-            continue;
-        }
-        if (!s3_name(&st, title, sizeof(title))) {
+        r = (reader *)malloc(sizeof(reader));
+        if (!r)
+            break;
+        memset(r, 0, sizeof(*r));
+        r->sys = sys;
+        r->path = p;
+        name[0] = first[0] = 0;
+        jw_init(&w);
+        while (sys->pread && next_line(r, &w, &at, &nl)) {
+            jv o, v, m, cc, b, x;
+            jit it;
+            if (blank(w.p, w.n) || !parse_obj(w.p, w.n, &o))
+                continue;
+            if (!got_head) {
+                if (!json_get(o, "type", &v) || !json_streq(v, "session") || !json_get(o, "id", &v) ||
+                    json_type(v) != J_STR)
+                    break;
+                json_str(v, id, sizeof(id));
+                got_head = 1;
+                continue;
+            }
+            if (!json_get(o, "type", &v))
+                continue;
+            if (json_streq(v, "session_info")) {
+                /* the latest, an explicit clear included */
+                info_name(o, name, sizeof(name));
+                continue;
+            }
             /* the first user message's text */
-            int j;
-            title[0] = 0;
-            for (j = 0; j < st.n && !title[0]; j++)
-                if (st.e[j].type == S3_MESSAGE && st.e[j].role == S3R_USER) {
-                    long n;
-                    const char *t = s3_text(&st, j, &n);
-                    jv o, m, cc, b, x;
-                    jit it;
-                    if (!t || json_parse(t, n, &o) || !json_get(o, "message", &m) || !json_get(m, "content", &cc))
-                        continue;
-                    if (json_type(cc) == J_STR)
-                        json_str(cc, title, sizeof(title));
-                    else {
-                        json_iter(cc, &it);
-                        while (!title[0] && json_next(&it, 0, &b))
-                            if (json_get(b, "type", &x) && json_streq(x, "text") && json_get(b, "text", &x))
-                                json_str(x, title, sizeof(title));
-                    }
-                }
+            if (first[0] || !json_streq(v, "message") || !json_get(o, "message", &m) || !json_get(m, "role", &x) ||
+                !json_streq(x, "user") || !json_get(m, "content", &cc))
+                continue;
+            if (json_type(cc) == J_STR)
+                json_str(cc, first, sizeof(first));
+            else {
+                json_iter(cc, &it);
+                while (!first[0] && json_next(&it, 0, &b))
+                    if (json_get(b, "type", &x) && json_streq(x, "text") && json_get(b, "text", &x))
+                        json_str(x, first, sizeof(first));
+            }
         }
-        fn(c, p, st.id, title);
-        s3_free(&st);
+        jw_free(&w);
+        free(r);
+        if (!got_head)
+            continue;
+        fn(c, p, id, name[0] ? name : first);
         k++;
     }
     free(s.names);
