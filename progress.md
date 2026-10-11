@@ -28,5 +28,12 @@ Done, 21 of 21 including the phase B take-overs; ledger in vtcon thoughts/shared
 ## Phase D (2026-10-11)
 Tools read, write, edit, bash, grep, find, ls on C:Claude's tools.c; truncation; the gate. Ledger (items D1-D12, G1-G4) in vtcon thoughts/shared/plans/2026-10-07-amiga-pi.progress.md.
 
+## Phase D parity follow-up (2026-10-11)
+The tools to pi's parity (edit's fuzzy match/CRLF/BOM, grep/find with rg's and fd's ignore rules, read
+without line numbers and with pi's image shrink and BMP->PNG, ls in ICU's order, pi's notices, the gate's
+"always in this project"); ledger section "Phase D parity follow-up" (Q1-Q12, G1-G3) in vtcon
+thoughts/shared/plans/2026-10-07-amiga-pi.progress.md. Image codecs: vendor/stb (+60 KB on the Amiga).
+Rig 2 step 4 PASS (vsh via the kit's Dir file, no requester without UP-Term:, vsh <script> kept over -c).
+
 ## Next
 Phase E (sessions, pi JSONL v3).
