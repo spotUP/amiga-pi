@@ -1,0 +1,22 @@
+{
+  "instructions": "Tools for GitHub repositories.\nUse them for issues, pull requests and code.",
+  "tools": [
+    {"name": "create_issue", "description": "Create a new issue in a GitHub repository.",
+     "inputSchema": {"type": "object", "properties": {"owner": {"type": "string", "description": "Repository owner"}, "repo": {"type": "string"}, "title": {"type": "string", "description": "Issue title"}, "body": {"type": "string"}}, "required": ["owner", "repo", "title"]}},
+    {"name": "list_issues", "description": "List issues in a repository, filtered by state and labels.",
+     "inputSchema": {"type": "object", "properties": {"state": {"type": "string", "description": "open, closed or all"}, "labels": {"type": "array", "items": {"type": "string", "description": "A label name"}}}}},
+    {"name": "search_code", "description": "Search code across repositories.\nSecond line of the description.",
+     "inputSchema": {"type": "object", "properties": {"q": {"type": "string", "description": "Search query"}}}},
+    {"name": "getFileContents", "description": "Get the contents of a file or directory.",
+     "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "Path to the file"}}}},
+    {"name": "create_pull_request", "description": "Create a pull request from a branch.",
+     "inputSchema": {"type": "object", "properties": {"head": {"type": "string"}, "base": {"type": "string"}, "draft": {"anyOf": [{"type": "boolean", "description": "Open as a draft"}, {"type": "null"}]}}}},
+    {"name": "mergePR", "description": "Merge a pull request.",
+     "inputSchema": {"type": "object", "properties": {"pullNumber": {"type": "number"}}}},
+    {"name": "list_branches", "description": "List the branches of a repository.", "inputSchema": {"type": "object"}},
+    {"name": "get_me", "description": "Details of the authenticated user.", "inputSchema": {"type": "object"}},
+    {"name": "add-comment", "description": "Add a comment to an issue or pull request.",
+     "inputSchema": {"type": "object", "properties": {"body": {"type": "string", "description": "The comment's text"}}}},
+    {"name": "HTTPServerStatus", "description": "Status of the HTTPServer behind the API.", "inputSchema": {"type": "object"}}
+  ]
+}

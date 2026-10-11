@@ -4,7 +4,7 @@ Sources: pi at commit f10993bc (see `thoughts/shared/research/2026-10-07_pi-sour
 
 Decision D3: the pi `bash` tool is named `bash` and runs `vsh -c` (AmigaDOS Shell fallback). `shell` in older plan text is superseded.
 
-Rows per group (131 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tui 6; sessions 26; tools 7; extensions 20; skills 4; prompt templates 2; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 9.
+Rows per group (149 total): pi-ai 23; pi-agent-core 6; pi-coding-agent 11; pi-tui 6; sessions 26; tools 7; extensions 20; skills 4; prompt templates 2; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 27.
 
 
 ## pi-ai
@@ -198,16 +198,36 @@ Phase E (2026-10-11). Every row below was compared with pi's own code: `tools/pi
 
 ## MCP
 
+Phase K (2026-10-11). Expected outputs from pi's own code: `tools/pi_oracle/mcp_oracle.sh` -> `tests/pi/mcp/*.expected`.
+
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
-| Transport stdio | needs process pipes (ixpipe-handler / vsh) | planned | K |
-| Transport streamable HTTP | over llm HTTP stack | planned | K |
-| Legacy SSE transport | - | not planned: pi itself rejects it | - |
-| Exposure direct | tools named mcp__server__tool | planned | K |
-| Exposure deferred (tool_search), hidden | tool_search tool | planned | K |
-| Exposure codemode (default in pi) | - | not planned: needs QuickJS; amiga-pi default is direct | - |
-| mcp.json config | JSON loader | planned | K |
+| Transport stdio | `cl_sys` spawn2: argv (not a shell line), env, cwd; on the Amiga two PTY: pipe pairs (K1, ARCHITECTURE.md). The server's stderr: on the Amiga it goes with its output (System() has no error stream on 3.x), on the host to /dev/null; pi keeps a tail for /mcp | done; differences: stderr | K4, K5 |
+| Transport streamable HTTP | `llm_post`: POST, application/json or event-stream answer, Mcp-Session-Id, MCP-Protocol-Version; 404 on a session: initialize again and the request once more. No GET stream (single-threaded: no server messages outside a request), no DELETE at close | done; differences: GET stream, DELETE | K3 |
+| Server requests (ping, roots/list) | answered (roots: the session directory as a file URL); over stdio at once, over HTTP after the answer in progress (one connection at a time) | done; difference: HTTP timing | K2 |
+| Connect retries | HTTP: after 250 ms and 1 s on a network error, 408, 429, 5xx but 501 (pi's); tool calls not retried | done | K3 |
+| Connecting | every enabled server when the session starts, one after the other, before the first prompt (pi: in the background; the first prompt waits up to 10 s for direct servers) | done; difference | K |
+| LAN rule for plain http | amiga-pi's rule (ARCHITECTURE.md): plain http only to a LAN address; an Authorization header is not sent over it (one notice) | done; amiga-pi's, not pi's | K3 |
+| Legacy SSE transport | refused with pi's words | done | K2 |
+| Exposure direct | declared to the model; also amiga-pi's default when a server sets none (pi's default is codemode) | done; difference: default | K6 |
+| Exposure deferred | `tool_search` (pi's description, schema, BM25 ranking -- in integer arithmetic, no FPU -- and result words); loaded tools declared from the next call and recorded as tool changes in the session | done | K6 |
+| Exposure hidden | never reachable; its names still taken | done | K6 |
+| Exposure codemode (default in pi) | not planned: needs a JavaScript engine; a codemode server or tool is reached through tool_search (as pi allows) | not planned | - |
+| toolExposure | exact names over patterns, the first matching pattern (`*`), `codemode-deferred` alias | done | K6 |
+| mcp_servers section | pi's renderServersSection (4096 characters, 250 per description, the omission line); the reach is always tool_search; made when the session starts (pi re-renders before each prompt and appends a changed one) | done; difference: re-render | K6 |
+| mcp.json config | `ENVARC:amiga-pi/mcp.json` with pi's validation and words; `<root>/.pi/mcp.json` with pi's override rule is read only for a trusted project, and amiga-pi has no project trust yet, so it is not read | partial: the project file waits for G3 | K2, G3 |
+| env and headers values | `${NAME}` from the environment (unset: empty), a whole value `!command` its output | done | K2 |
+| Tool names mcp__server__tool | pi's createMcpToolName (per UTF-16 unit, 64 characters, sha256 suffix) and registerTools' collision rule | done | K2 |
+| Results as model content | text, images, audio placeholder, resource links, embedded text, image and binary resources (binary saved to T:), structuredContent alone as JSON.stringify(..., 2) with numbers as the server wrote them; pi's "Read it with read_mcp_resource" part left out (no resource tools) | done | K2 |
+| Result truncation over 20 KB to a temp file | Codex's format; the file `T:amiga-pi-<call id>.txt` (30-character names) where pi writes `pi-mcp-*.txt` | done; difference: file name | K2 |
+| Invalid arguments | checked against the server's schema before the call (claude/schema.c), pi's "Validation failed" words | done | K2 |
+| Resource tools (list_mcp_resources, list_mcp_resource_templates, read_mcp_resource) | - | not planned in K (no plan item) | - |
+| Progress notifications, request timeout | per server (default 60 s), counted from the last byte received; progress notifications are read, not shown | partial | K |
+| Tool list changes (notifications/tools/list_changed) | ignored: the list is read when the server connects | not planned in K | - |
+| /mcp, pi mcp add/list/remove/login | - | not planned in K | - |
 | OAuth with dynamic client registration | - | not planned until probe O1 shows feasibility | O |
-| Result truncation over 20 KB to temp file | shared truncation helper | planned | K |
+| --no-mcp | no servers this run | done | K |
+| --tools with mcp__ entries | MCP tools are always kept | not built in K | - |
+| clientInfo | `amiga-pi` 0.1 (pi sends `pi` and its version) | done; difference | K2 |
 
 Phase F (2026-10-11). Models and the switch: `/model` is a numbered list (providers with a credential, or a plain-http endpoint) and `/model <number|provider/pattern>` instead of pi's full-screen selector; `/thinking [level]`; `--provider`, `--thinking`, `--api-key`, `--list-models [search]`; `provider/id:level` patterns as pi's resolveCliModel (ids sorted with strcmp, not ICU localeCompare). The switch appends model_change and, only when the clamped level changed, thinking_level_change (pi's setModel); a new session records the real starting level (pi default "medium", "off" for a model without reasoning); resume restores it from the branch (E7's thinking half). Context window and cost come from the registry for every model; the status line shows model, level and context left; `/session` shows cost. A provider the registry does not know with `--base-url` is kept as the old form (not in pi). Not built: Ctrl+P cycling, scoped models, per-model thinking defaults in settings, /login.

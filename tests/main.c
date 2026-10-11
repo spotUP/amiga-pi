@@ -9,13 +9,15 @@ void suite_pi_tools(void);
 void suite_pi_session(void);
 void suite_pi_store(void);
 void suite_pi_model(void);
+void suite_pi_mcp(void);
 
 static const h_suite suites[] = {
     { "pi_agent", suite_pi_agent },
     { "pi_tools", suite_pi_tools },
     { "pi_session", suite_pi_session },
     { "pi_store", suite_pi_store },
-    { "pi_model", suite_pi_model }
+    { "pi_model", suite_pi_model },
+    { "pi_mcp", suite_pi_mcp }
 };
 
 int pi_golden(const char *name, const char *got)

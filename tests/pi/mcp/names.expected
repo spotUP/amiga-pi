@@ -1,0 +1,7 @@
+fake|echo|0 -> mcp__fake__echo
+my-server|get.file/contents|0 -> mcp__my_server__get_file_contents
+s|xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|0 -> mcp__s__xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx_3bfbb539
+github|a_tool_with_a_name_long_enough_to_pass_the_limit_of_64|0 -> mcp__github__a_tool_with_a_name_long_enough_to_pass_the_65526085
+fake|echo|1 -> mcp__fake__echo_d249b1c3
+dev-radius|do-it|0 -> mcp__dev_radius__do_it
+s|üml|0 -> mcp__s___ml

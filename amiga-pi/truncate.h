@@ -42,5 +42,7 @@ void pi_head(const char *s, long n, const char *first, const char *last, jw *out
 /* the file pi_cut keeps text in for call id: <tmp>amiga-pi-<id>.txt, the id's
  * characters other than letters, digits, '-' and '_' as '_' */
 void pi_cut_path(const char *tmp, const char *id, char *out, long cap);
+/* the same with another extension (".png", ".bin"; MCP's binary resources), the name at most 30 */
+void pi_tmp_path(const char *tmp, const char *id, const char *ext, char *out, long cap);
 
 #endif
