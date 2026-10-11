@@ -6,6 +6,7 @@
 #include "ui_pi.h"
 #include "tools_pi.h"
 #include "ext_gate.h"
+#include "store.h"
 #include "claude/util.h"
 #include "claude/repl.h"       /* cl_key_clean */
 
@@ -56,6 +57,60 @@ static int gate_setting(const pi_platform *pl, pi_gate *g)
     return on == 1;
 }
 
+/* -r: the sessions of this directory listed, one picked by number (0 or no input: none) */
+typedef struct pick {
+    cl_io *io;
+    int n;
+    char path[9][320];
+} pick;
+
+static void pick_fn(void *c, const char *path, const char *id, const char *title)
+{
+    pick *p = (pick *)c;
+    char line[160], num[8];
+    if (p->n >= 9)
+        return;
+    cl_copy(p->path[p->n], path, sizeof(p->path[0]));
+    num[0] = (char)('1' + p->n);
+    num[1] = 0;
+    cl_copy(line, "  ", sizeof(line));
+    cl_cat(line, num, sizeof(line));
+    cl_cat(line, "  ", sizeof(line));
+    cl_copy(line + strlen(line), id, 9);
+    cl_cat(line, "  ", sizeof(line));
+    cl_cat(line, title, sizeof(line));
+    say(p->io, line, 0);
+    p->n++;
+}
+
+static int pick_session(const pi_platform *pl, const char *data_dir, char *out, long cap)
+{
+    pick p;
+    char dir[300], buf[16];
+    long n;
+    p.io = pl->io;
+    p.n = 0;
+    if (s3_dir(data_dir, pl->cwd, dir, sizeof(dir)))
+        return -1;
+    say(pl->io, "Sessions in this directory (number to resume, anything else to start a new one):", 0);
+    s3_list(pl->sys, dir, 9, pick_fn, &p);
+    if (!p.n || !pl->io->read_line)
+        return -1;
+    n = pl->io->read_line(pl->io->u, buf, sizeof(buf));
+    if (n != 1 || buf[0] < '1' || buf[0] >= '1' + p.n)
+        return -1;
+    cl_copy(out, p.path[buf[0] - '1'], cap);
+    return 0;
+}
+
+static int usage(const pi_platform *pl, const pi_args *a)
+{
+    say(pl->io, "amiga-pi: ", a->err);
+    say(pl->io, "usage: amiga-pi [-p] [--model provider/id] [--base-url URL] [--tools list] [--no-tools] "
+                "[--gate|--no-gate] [-c] [--session path-or-id] [-r] [--no-session] [-n name] [prompt]", 0);
+    return 2;
+}
+
 int pi_app(int argc, char **argv, const pi_platform *pl)
 {
     static pi_args a;
@@ -63,15 +118,33 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     static char key[512];
     static pi_tools tools;
     static pi_gate gate;
+    static pi_store store;
     llm_model m;
-    jw sys;
-    char kn[64], err[160];
-    int rc;
-    if (pi_args_parse(&a, argc, argv) || pi_args_model(&a, &m)) {
-        say(pl->io, "amiga-pi: ", a.err);
-        say(pl->io, "usage: amiga-pi [-p] [--model provider/id] [--base-url URL] [--tools list] [--no-tools] "
-                    "[--gate|--no-gate] [prompt]", 0);
+    char kn[64], err[160], picked[320];
+    int rc, mode;
+    if (pi_args_parse(&a, argc, argv))
+        return usage(pl, &a);
+    /* the session first: the model it names is the default (pi restores it on resume) */
+    mode = a.no_session || !pl->sys || !pl->data_dir || !pl->data_dir[0] ? PS_MODE_NONE : PS_MODE_NEW;
+    picked[0] = 0;
+    if (mode != PS_MODE_NONE && a.resume && !pick_session(pl, pl->data_dir, picked, sizeof(picked)))
+        mode = PS_MODE_SESSION;
+    else if (mode != PS_MODE_NONE && a.session[0]) {
+        mode = PS_MODE_SESSION;
+        cl_copy(picked, a.session, sizeof(picked));
+    } else if (mode != PS_MODE_NONE && a.cont)
+        mode = PS_MODE_CONTINUE;
+    pi_store_init(&store, pl->sys, pl->now, pl->h.u, pl->utc);
+    if (pi_store_open(&store, mode, pl->data_dir, pl->cwd, picked)) {
+        say(pl->io, "amiga-pi: ", store.err);
+        pi_store_free(&store);
         return 2;
+    }
+    if (!a.provider[0])
+        pi_store_model(&store, a.provider, sizeof(a.provider), a.id, sizeof(a.id));
+    if (pi_args_model(&a, &m)) {
+        pi_store_free(&store);
+        return usage(pl, &a);
     }
     pi_key_name(m.provider, kn, sizeof(kn));
     key[0] = 0;
@@ -104,19 +177,24 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     }
     if (pl->ready)
         pl->ready(&s);
-    jw_init(&sys);
-    pi_system_prompt(&s, pl->cwd, &sys);
-    s.system = sys.p;
+    if (pi_store_attach(&store, &s)) {
+        say(pl->io, "amiga-pi: the session could not be loaded", 0);
+        pi_store_free(&store);
+        pi_session_free(&s);
+        return 1;
+    }
+    if (a.name[0])
+        s3_session_info(&store.s3, a.name);
     if (a.print)
         rc = pi_ui_print(&s, pl->io, a.prompt);
     else
         rc = pi_ui_run(&s, pl->io, a.prompt[0] ? a.prompt : 0);
+    pi_store_free(&store);
     pi_session_free(&s);
     if (pl->sys) {
         pi_gate_free(&gate);
         pi_tools_free(&tools);
     }
-    jw_free(&sys);
     memset(key, 0, sizeof(key));
     return rc;
 }

@@ -11,7 +11,23 @@
 
 #include "agent.h"
 
-/* the prompt for s's tools and the working directory, appended to out: 0, -1 */
+#define PI_PSECS 8
+
+/* pi's SystemPromptSections: the named sections in order (buildSystemPromptSections), each one's text
+ * in text at off/len -- preamble untagged, every other in a tag of its name */
+typedef struct pi_psec {
+    jw text;
+    char name[PI_PSECS][24];
+    long off[PI_PSECS], len[PI_PSECS];
+    int n;
+} pi_psec;
+
+/* the sections for s's tools and the working directory: 0, -1 out of memory */
+int pi_prompt_sections(const pi_session *s, const char *cwd, pi_psec *out);
+void pi_psec_free(pi_psec *p);
+
+/* the prompt for s's tools and the working directory, appended to out: the sections joined by a blank
+ * line (getSystemMessageText of a system message that is only sections). 0, -1 */
 int pi_system_prompt(const pi_session *s, const char *cwd, jw *out);
 
 #endif

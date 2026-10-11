@@ -13,7 +13,23 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
         const char *s = argv[i];
         if (!strcmp(s, "-p") || !strcmp(s, "--print"))
             a->print = 1;
-        else if (!strcmp(s, "--gate") || !strcmp(s, "--no-gate"))
+        else if (!strcmp(s, "--continue") || !strcmp(s, "-c"))
+            a->cont = 1;
+        else if (!strcmp(s, "--resume") || !strcmp(s, "-r"))
+            a->resume = 1;
+        else if (!strcmp(s, "--no-session"))
+            a->no_session = 1;
+        else if (!strcmp(s, "--session") || !strcmp(s, "--name") || !strcmp(s, "-n")) {
+            if (i + 1 >= argc) {
+                cl_copy(a->err, s, sizeof(a->err));
+                cl_cat(a->err, " needs a value", sizeof(a->err));
+                return -1;
+            }
+            if (!strcmp(s, "--session"))
+                cl_copy(a->session, argv[++i], sizeof(a->session));
+            else
+                cl_copy(a->name, argv[++i], sizeof(a->name));
+        } else if (!strcmp(s, "--gate") || !strcmp(s, "--no-gate"))
             a->gate = !strcmp(s, "--gate");
         else if (!strcmp(s, "--no-tools") || !strcmp(s, "-nt"))
             cl_copy(a->tools, "-", sizeof(a->tools));
@@ -51,6 +67,10 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
                 cl_cat(a->prompt, " ", sizeof(a->prompt));
             cl_cat(a->prompt, s, sizeof(a->prompt));
         }
+    }
+    if (a->no_session && (a->cont || a->resume || a->session[0])) {
+        cl_copy(a->err, "--no-session cannot be combined with --continue, --resume or --session", sizeof(a->err));
+        return -1;
     }
     if (a->print && !a->prompt[0]) {
         cl_copy(a->err, "-p needs a prompt", sizeof(a->err));
