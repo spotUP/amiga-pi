@@ -22,5 +22,8 @@ Local repo; share vtcon core in place via VTCON_DIR; tool `bash` = vsh -c; Lua 5
 - vtcon's generated build/vbcc-aos68k.cfg has a relative NDK path; the probe script regenerates the cfg from tools/vbcc-aos68k.cfg.in with an absolute one.
 - Shell is zsh: unquoted $VAR does not word-split; scripts use bash.
 
+## Phase C (2026-10-11)
+Done, 21 of 21 including the phase B take-overs; ledger in vtcon thoughts/shared/plans/2026-10-07-amiga-pi.progress.md. Commits here: 242db1d, 805378a. Rig 2 step 2 PASS.
+
 ## Next
-Phase B (needs the D9 decision).
+Phase D (tools read, write, edit, bash, grep/find/ls, the gate).
