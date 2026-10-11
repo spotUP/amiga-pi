@@ -1,0 +1,12 @@
+{"op":"message","message":{"role":"user","content":"q1","timestamp":2001}}
+{"op":"message","message":{"role":"assistant","content":[{"type":"text","text":"a1"}],"api":"anthropic-messages","provider":"anthropic","model":"claude-sonnet-4-5","usage":{"input":10,"output":5,"cacheRead":1,"cacheWrite":2,"totalTokens":18,"cost":{"input":0.1,"output":0.2,"cacheRead":0.01,"cacheWrite":0.02,"total":0.33}},"stopReason":"stop","timestamp":2002}}
+{"op":"label","target":1,"label":"L1"}
+{"op":"label","target":2,"label":"L2"}
+{"op":"message","message":{"role":"user","content":"q2","timestamp":2003}}
+{"op":"message","message":{"role":"assistant","content":[{"type":"text","text":"a2"}],"api":"anthropic-messages","provider":"anthropic","model":"claude-sonnet-4-5","usage":{"input":10,"output":5,"cacheRead":1,"cacheWrite":2,"totalTokens":18,"cost":{"input":0.1,"output":0.2,"cacheRead":0.01,"cacheWrite":0.02,"total":0.33}},"stopReason":"stop","timestamp":2004}}
+{"op":"compaction","summary":"S","first":4,"tokens":99}
+{"op":"message","message":{"role":"user","content":"q3 dropped","timestamp":2005}}
+{"op":"branch","to":7}
+{"op":"label","target":5,"label":"L3"}
+{"op":"message","message":{"role":"user","content":"q3 kept","timestamp":2006}}
+{"op":"branched","leaf":10}

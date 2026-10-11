@@ -23,10 +23,10 @@ PI_HDR := $(wildcard amiga-pi/*.h)
 # engine (C:Claude's screen tests run on it) and the test helpers
 VT_HOST := $(VIEW_CORE) $(call cl_src,tty/bmsg.c handler/clipfmt.c)
 VT_TEST := $(call cl_src,engine/vtengine.c tests/harness.c tests/claude_load.c tests/claude_screen.c tests/pi_stub.c)
-PI_TESTS := tests/main.c tests/test_pi_agent.c tests/test_pi_tools.c
+PI_TESTS := tests/main.c tests/test_pi_agent.c tests/test_pi_tools.c tests/test_pi_session.c
 
 .PHONY: test layers lua-probe lua-probe-host amiga
-# ONLY=pi_agent the agent suite alone, ONLY=pi_tools the tools and the gate; ONLY=layers the layering check alone
+# ONLY=pi_agent the agent suite alone, ONLY=pi_tools the tools and the gate, ONLY=pi_session the session file; ONLY=layers the layering check alone
 test: build/pi_test
 	@if [ "$(ONLY)" != layers ]; then cd $(VTCON_DIR) && $(CURDIR)/build/pi_test $(ONLY); fi
 	@if [ -z "$(ONLY)" ] || [ "$(ONLY)" = layers ]; then $(MAKE) -s layers; fi

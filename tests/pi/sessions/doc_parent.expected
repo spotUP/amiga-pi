@@ -1,0 +1,13 @@
+open ok
+version 3
+cwd /path/to/project
+parent /path/to/original/session.jsonl
+entries 1
+30000001 - message
+leaf 30000001
+name -
+branch 30000001
+size same
+file
+{"type":"session","version":3,"id":"0193a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project","parentSession":"/path/to/original/session.jsonl"}
+{"type":"message","id":"30000001","parentId":null,"timestamp":"2024-12-03T14:00:00.000Z","message":{"role":"user","content":"forked","timestamp":1733234401000}}
