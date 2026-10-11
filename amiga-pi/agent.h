@@ -17,6 +17,9 @@
 
 #include "llm/request.h"
 #include "llm/accum.h"
+#include "llm/handoff.h"
+#include "llm/creds.h"
+#include "llm/registry.h"
 #include "events.h"
 #include "ext.h"
 
@@ -40,7 +43,12 @@ typedef struct pi_tool {
 
 typedef struct pi_session {
     llm_model model;
-    const char *key;            /* 0 none */
+    const char *key;            /* 0 none: used when cfg is 0 */
+    llm_cfg *cfg;               /* credentials and config values (models.json, auth.json, --api-key); 0: key */
+    int thinking;               /* the thinking level, LT_*, as the model supports it */
+    long ctx_tokens;            /* tokens the last answer reported (its input, output and cache): the context in use */
+    long cost_micro;            /* what the answers of this run cost, micro-dollars, from the model's price */
+    char keybuf[512];           /* the credential of the request being made */
     const char *user_agent;
     llm_pool *pool;
     llm_hooks h;                /* poll (Ctrl+C), sleep, ms, notice, resolve, log */
@@ -86,6 +94,10 @@ int pi_session_push(pi_session *s, const char *json, long n);
 void pi_session_clear(pi_session *s);
 /* the tools as pi-ai's request carries them: a JSON array of {name, description, parameters} */
 void pi_tools_json(const pi_session *s, jw *w);
+
+/* the credential and the extra headers of a request to s->model, filled into q (hdr holds the header text:
+ * the caller frees it after the request); 0, or -1 with a message in s->err when a header value cannot be resolved */
+int pi_req_auth(pi_session *s, llm_req *q, jw *hdr);
 
 /* the prompt to the end: the last answer's stop reason (LS_STOP, LS_LENGTH,
  * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it) */

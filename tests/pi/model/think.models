@@ -1,0 +1,52 @@
+{
+ "providers": {
+  "t": {
+   "baseUrl": "http://localhost/v1",
+   "api": "openai-completions",
+   "models": [
+    {
+     "id": "plain"
+    },
+    {
+     "id": "reason",
+     "reasoning": true
+    },
+    {
+     "id": "reason-x",
+     "reasoning": true,
+     "thinkingLevelMap": {
+      "xhigh": "xhigh",
+      "max": "max"
+     }
+    },
+    {
+     "id": "reason-nomin",
+     "reasoning": true,
+     "thinkingLevelMap": {
+      "minimal": null,
+      "low": "lo",
+      "xhigh": "xh"
+     }
+    },
+    {
+     "id": "reason-nooff",
+     "reasoning": true,
+     "thinkingLevelMap": {
+      "off": null
+     }
+    },
+    {
+     "id": "reason-onlymax",
+     "reasoning": true,
+     "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": null,
+      "max": "max"
+     }
+    }
+   ]
+  }
+ }
+}

@@ -112,6 +112,30 @@ int pi_store_model(pi_store *st, char *provider, long pcap, char *id, long icap)
     return ok;
 }
 
+int pi_store_level(pi_store *st, char *out, long cap)
+{
+    pi_ctx c;
+    int ok;
+    ctx_init(&c);
+    if (ctx_build(&st->s3, st->s3.leaf, &c))
+        return 0;
+    ok = c.has_thinking;
+    if (ok)
+        cl_copy(out, c.thinking, cap);
+    ctx_free(&c);
+    return ok;
+}
+
+int pi_store_model_change(pi_store *st, const char *provider, const char *id)
+{
+    return s3_model(&st->s3, provider, id) < 0 ? -1 : 0;
+}
+
+int pi_store_thinking(pi_store *st, const char *level)
+{
+    return s3_thinking(&st->s3, level) < 0 ? -1 : 0;
+}
+
 /* ---- the system message ---- */
 
 /* previous sections of the replayed message: name -> text, in order (strings in sec[], names in nm[]) */
@@ -379,7 +403,7 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     llm_sink k;
     llm_ctx c;
     llm_req q;
-    jw blocks, um, msg, sys;
+    jw blocks, um, msg, sys, hdr;
     const char *msgs[1];
     long mn[1];
     llm_info inf;
@@ -409,7 +433,9 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     c.msg_n = mn;
     c.nmsg = 1;
     c.max_tokens = max_tokens;
+    c.thinking = s->thinking;
     llm_acc_init(&acc, s->model.api, s->model.provider);
+    llm_acc_model(&acc, s->model.id, s->model.cost);
     k.u = &acc;
     k.ev = llm_acc_event;
     memset(&q, 0, sizeof(q));
@@ -417,11 +443,21 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     q.model = &s->model;
     q.be = llm_backend_of(s->model.api);
     q.ctx = &c;
-    q.key = s->key;
     q.user_agent = s->user_agent;
     q.h = s->h;
     q.sink = &k;
-    if (!q.be) {
+    jw_init(&hdr);
+    if (pi_req_auth(s, &q, &hdr)) {
+        llm_event e;
+        char why[256];
+        cl_copy(why, s->err, sizeof(why));
+        llm_event_init(&e, LE_ERROR);
+        e.stop = LS_ERROR;
+        e.err_type = "error";
+        e.p = why;
+        e.n = (long)strlen(why);
+        llm_acc_event(&acc, &e);
+    } else if (!q.be) {
         llm_event e;
         llm_event_init(&e, LE_ERROR);
         e.stop = LS_ERROR;
@@ -431,6 +467,7 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
         llm_acc_event(&acc, &e);
     } else
         llm_request(&q);
+    jw_free(&hdr);
     llm_acc_message(&acc, ts, &msg);
     r->stop = LS_NONE;
     if (!msg.oom && msg.p && llm_msg_info(msg.p, msg.n, &inf) >= 0 && !json_parse(msg.p, msg.n, &m)) {
@@ -611,7 +648,7 @@ int pi_store_attach(pi_store *st, pi_session *s)
     st->s = s;
     if (!st->resumed) {
         /* a new session records what it starts with, so it can be restored on resume (sdk.ts) */
-        if (s3_model(&st->s3, s->model.provider, s->model.id) < 0 || s3_thinking(&st->s3, "off") < 0)
+        if (s3_model(&st->s3, s->model.provider, s->model.id) < 0 || s3_thinking(&st->s3, llm_think_name(s->thinking)) < 0)
             return -1;
     }
     if (load_messages(st))

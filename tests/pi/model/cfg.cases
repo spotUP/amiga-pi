@@ -1,0 +1,15 @@
+{"name":"literal","value":"sk-plain","env":{}}
+{"name":"dollar","value":"$PI_T_KEY","env":{"PI_T_KEY":"abc"}}
+{"name":"braces","value":"pre-${PI_T_KEY}-post","env":{"PI_T_KEY":"abc"}}
+{"name":"two","value":"$PI_T_A:$PI_T_B","env":{"PI_T_A":"1","PI_T_B":"2"}}
+{"name":"missing","value":"$PI_T_MISSING","env":{}}
+{"name":"missing_second","value":"$PI_T_A$PI_T_MISSING","env":{"PI_T_A":"1"}}
+{"name":"escaped_dollar","value":"cost$$5","env":{}}
+{"name":"escaped_bang","value":"$!notacommand","env":{}}
+{"name":"lone_dollar","value":"a $ b","env":{}}
+{"name":"unclosed_brace","value":"x${PI_T_A","env":{"PI_T_A":"1"}}
+{"name":"bad_brace_name","value":"x${1A}y","env":{}}
+{"name":"command","value":"!echo from-command","env":{}}
+{"name":"command_trimmed","value":"!printf '  spaced  \\n\\n'","env":{}}
+{"name":"command_fails","value":"!exit 3","env":{}}
+{"name":"command_empty","value":"!true","env":{}}

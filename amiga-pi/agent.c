@@ -3,7 +3,9 @@
 #include <string.h>
 #include "agent.h"
 #include "llm/transform.h"
+#include "llm/handoff.h"
 #include "claude/util.h"
+#include "claude/repl.h"        /* cl_key_clean */
 
 long pi_agent_rounds;
 
@@ -18,6 +20,7 @@ void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_poo
     if (h)
         s->h = *h;
     s->user_agent = "UP-Term-amiga-pi/0.1 (AmigaOS)";
+    s->thinking = LT_OFF;
     pi_emitter_init(&s->em);
     pi_exts_init(&s->ext);
     pi_subscribe(&s->em, pi_exts_event, &s->ext);
@@ -85,6 +88,18 @@ static int keep(pi_session *s, jw *w)
         s->msg = gm;
         s->msg_n = gn;
         s->cap = nc;
+    }
+    {
+        /* an answer's usage: the context in use and the cost so far */
+        jv m, v;
+        if (!json_parse(w->p, w->n, &m) && json_get(m, "role", &v) && json_streq(v, "assistant") &&
+            json_get(m, "usage", &v)) {
+            llm_usage u;
+            llm_r_usage(v, &u);
+            if (u.input + u.output + u.cache_read + u.cache_write > 0)
+                s->ctx_tokens = u.input + u.output + u.cache_read + u.cache_write;
+            s->cost_micro += u.cost[0] + u.cost[1] + u.cost[2] + u.cost[3];
+        }
     }
     s->msg[s->nmsg] = w->p;
     s->msg_n[s->nmsg] = w->n;
@@ -166,6 +181,27 @@ void pi_tools_json(const pi_session *s, jw *w)
     jw_rawz(w, "]");
 }
 
+int pi_req_auth(pi_session *s, llm_req *q, jw *hdr)
+{
+    q->key = s->key;
+    q->xhead = 0;
+    if (!s->cfg)
+        return 0;
+    s->keybuf[0] = 0;
+    llm_cfg_key(s->cfg, &s->model, s->keybuf, sizeof(s->keybuf), 0);
+    if (s->keybuf[0] && cl_key_clean(s->keybuf))
+        s->keybuf[0] = 0;           /* not a key (C:Claude's rule) */
+    q->key = s->keybuf[0] ? s->keybuf : 0;
+    if (llm_cfg_headers(s->cfg, &s->model, q->key, hdr)) {
+        cl_copy(s->err, "a header value of models.json for ", sizeof(s->err));
+        cl_cat(s->err, s->model.provider, sizeof(s->err));
+        cl_cat(s->err, " could not be resolved", sizeof(s->err));
+        return -1;
+    }
+    q->xhead = hdr->n ? hdr->p : 0;
+    return 0;
+}
+
 /* the request and the answer kept: the answer's index, -1 out of memory */
 static int answer(pi_session *s, stream *t)
 {
@@ -173,14 +209,14 @@ static int answer(pi_session *s, stream *t)
     llm_ctx c;
     llm_req q;
     llm_sink k;
-    jw tools, m;
+    jw tools, m, hdr;
     int i;
     if (s->prepare && s->prepare(s->prepare_u, s)) {
         /* the store could not make the conversation fit: the prompt stops with its reason */
         llm_acc_init(&t->acc, s->model.api, s->model.provider);
         return -3;
     }
-    if (llm_transform((const char *const *)s->msg, s->msg_n, s->nmsg, now(s), &v)) {
+    if (llm_prepare(&s->model, (const char *const *)s->msg, s->msg_n, s->nmsg, now(s), &v)) {
         llm_view_free(&v);
         s->oom = 1;
         return -1;
@@ -196,7 +232,9 @@ static int answer(pi_session *s, stream *t)
     c.nmsg = v.count;
     c.tools = s->ntools ? tools.p : 0;
     c.tools_n = tools.n;
+    c.thinking = s->thinking;
     llm_acc_init(&t->acc, s->model.api, s->model.provider);
+    llm_acc_model(&t->acc, s->model.id, s->model.cost);
     k.u = t;
     k.ev = st_ev;
     memset(&q, 0, sizeof(q));
@@ -204,11 +242,21 @@ static int answer(pi_session *s, stream *t)
     q.model = &s->model;
     q.be = llm_backend_of(s->model.api);
     q.ctx = &c;
-    q.key = s->key;
     q.user_agent = s->user_agent;
     q.h = s->h;
     q.sink = &k;
-    if (!q.be) {
+    jw_init(&hdr);
+    if (pi_req_auth(s, &q, &hdr)) {
+        llm_event e;
+        char why[256];
+        cl_copy(why, s->err, sizeof(why));
+        llm_event_init(&e, LE_ERROR);
+        e.stop = LS_ERROR;
+        e.err_type = "error";
+        e.p = why;
+        e.n = (long)strlen(why);
+        st_ev(t, &e);
+    } else if (!q.be) {
         llm_event e;
         llm_event_init(&e, LE_ERROR);
         e.stop = LS_ERROR;
@@ -220,6 +268,7 @@ static int answer(pi_session *s, stream *t)
         llm_request(&q);
     llm_view_free(&v);
     jw_free(&tools);
+    jw_free(&hdr);
     jw_init(&m);
     llm_acc_message(&t->acc, now(s), &m);
     i = keep(s, &m);

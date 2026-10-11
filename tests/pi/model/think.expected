@@ -1,0 +1,48 @@
+plain supported off
+plain clamp off off
+plain clamp minimal off
+plain clamp low off
+plain clamp medium off
+plain clamp high off
+plain clamp xhigh off
+plain clamp max off
+reason supported off,minimal,low,medium,high
+reason clamp off off
+reason clamp minimal minimal
+reason clamp low low
+reason clamp medium medium
+reason clamp high high
+reason clamp xhigh high
+reason clamp max high
+reason-x supported off,minimal,low,medium,high,xhigh,max
+reason-x clamp off off
+reason-x clamp minimal minimal
+reason-x clamp low low
+reason-x clamp medium medium
+reason-x clamp high high
+reason-x clamp xhigh xhigh
+reason-x clamp max max
+reason-nomin supported off,low,medium,high,xhigh
+reason-nomin clamp off off
+reason-nomin clamp minimal low
+reason-nomin clamp low low
+reason-nomin clamp medium medium
+reason-nomin clamp high high
+reason-nomin clamp xhigh xhigh
+reason-nomin clamp max xhigh
+reason-nooff supported minimal,low,medium,high
+reason-nooff clamp off minimal
+reason-nooff clamp minimal minimal
+reason-nooff clamp low low
+reason-nooff clamp medium medium
+reason-nooff clamp high high
+reason-nooff clamp xhigh high
+reason-nooff clamp max high
+reason-onlymax supported off,max
+reason-onlymax clamp off off
+reason-onlymax clamp minimal max
+reason-onlymax clamp low max
+reason-onlymax clamp medium max
+reason-onlymax clamp high max
+reason-onlymax clamp xhigh max
+reason-onlymax clamp max max
