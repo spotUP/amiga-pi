@@ -136,6 +136,10 @@ int s3_by_id(cl_sys *sys, const char *dir, const char *id, char *out, long cap);
 int s3_list(cl_sys *sys, const char *dir, int max, void (*fn)(void *c, const char *path, const char *id,
                                                                 const char *title), void *c);
 
+/* the object o re-written into out (appended) with member key set to the raw JSON val: replaced where it is,
+ * else appended; a member named drop left out (drop 0: none). 0, -1 out of memory */
+int s3_obj_put(jv o, jw *out, const char *key, const char *val, const char *drop);
+
 /* ISO 8601 of t with milliseconds, Z when utc: out at least 32 bytes */
 void s3_iso(llm_ts t, int utc, char *out);
 /* an ISO 8601 time back to t (the zone ignored: the clock's frame): 0, -1 */

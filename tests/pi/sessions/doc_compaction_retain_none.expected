@@ -10,6 +10,10 @@ b0000004 b0000003 message
 leaf b0000004
 name -
 branch b0000001,b0000002,b0000003,b0000004
+context {"messages":[{"role":"compactionSummary","summary":"All of it.","tokensBefore":100,"timestamp":1733234402000},{"role":"user","content":"q2","timestamp":1733234404000}],"thinkingLevel":"off","model":{"provider":"anthropic","modelId":"claude-sonnet-4-5"}}
+llm [{"role":"user","content":[{"type":"text","text":"The conversation history before this point was compacted into the following summary:\n\n<summary>\nAll of it.\n</summary>"}],"timestamp":1733234402000},{"role":"user","content":"q2","timestamp":1733234404000}]
+system -
+systemtext -
 size same
 file
 {"type":"session","version":3,"id":"0193a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project"}

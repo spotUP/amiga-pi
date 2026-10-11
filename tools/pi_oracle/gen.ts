@@ -17,6 +17,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const sessions = resolve(here, "..", "..", "tests", "pi", "sessions");
 const oracle = process.env.PI_ORACLE ?? join(process.env.HOME!, "Code/amiga-pi/build/pi-oracle/oracle");
 const { SessionManager } = await import(pathToFileURL(join(oracle, "core/session-manager.ts")).href);
+const { convertToLlm } = await import(pathToFileURL(join(oracle, "core/messages.ts")).href);
+const { getCurrentSystemMessage } = await import(pathToFileURL(join(oracle, "ai/transcript.ts")).href);
+const { getSystemMessageText } = await import(pathToFileURL(join(oracle, "ai/text.ts")).href);
 
 // ---- the text normaliser (mirrored in tests/test_pi_session.c) ----
 // the values of "id", "parentId", "targetId", "firstKeptEntryId", "fromId" become
@@ -75,6 +78,15 @@ function dump(src: string, norm: boolean): string {
 		}
 		out += `name ${sm.getSessionName() ?? "-"}\n`;
 		out += `branch ${sm.getBranch().map((e: any) => mp(e.id)).join(",")}\n`;
+		// what the model sees (E3): buildSessionContext, convertToLlm, the replayed system message
+		if (!norm) {
+			const ctx = sm.buildSessionContext();
+			out += `context ${JSON.stringify(ctx)}\n`;
+			out += `llm ${JSON.stringify(convertToLlm(ctx.messages))}\n`;
+			const sys = getCurrentSystemMessage(ctx.messages);
+			out += `system ${sys === undefined ? "-" : JSON.stringify(sys)}\n`;
+			out += `systemtext ${sys === undefined ? "-" : JSON.stringify(getSystemMessageText(sys))}\n`;
+		}
 	}
 	let file = readFileSync(path, "utf8");
 	if (norm) file = normalise(file);

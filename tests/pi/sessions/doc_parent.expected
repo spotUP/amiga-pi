@@ -7,6 +7,10 @@ entries 1
 leaf 30000001
 name -
 branch 30000001
+context {"messages":[{"role":"user","content":"forked","timestamp":1733234401000}],"thinkingLevel":"off","model":null}
+llm [{"role":"user","content":"forked","timestamp":1733234401000}]
+system -
+systemtext -
 size same
 file
 {"type":"session","version":3,"id":"0193a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project","parentSession":"/path/to/original/session.jsonl"}

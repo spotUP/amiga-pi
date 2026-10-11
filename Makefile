@@ -14,7 +14,7 @@ HOSTCFLAGS = $(call vtvar,HOSTCFLAGS) -I$(VTCON_DIR) -I$(VTCON_DIR)/tests
 # amiga-pi itself (plan phase C): the agent loop, its events and extensions, the
 # system prompt, the command line, the prompt on C:Claude's screen code
 PI_CORE := amiga-pi/events.c amiga-pi/ext.c amiga-pi/agent.c amiga-pi/prompt.c amiga-pi/args.c amiga-pi/app.c \
-           amiga-pi/ui_pi.c amiga-pi/truncate.c amiga-pi/tools_pi.c amiga-pi/ext_gate.c amiga-pi/image.c amiga-pi/session3.c
+           amiga-pi/ui_pi.c amiga-pi/truncate.c amiga-pi/tools_pi.c amiga-pi/ext_gate.c amiga-pi/image.c amiga-pi/session3.c amiga-pi/context.c
 # stb_image / stb_image_write (vendor/stb) for read's images: built on their own, warnings off
 STB := amiga-pi/stb_impl.c vendor/stb/stb_image.h vendor/stb/stb_image_write.h
 PI_HDR := $(wildcard amiga-pi/*.h)

@@ -16,6 +16,7 @@
 #include "claude/util.h"
 #include "claude/sys_posix.h"
 #include "../amiga-pi/session3.h"
+#include "../amiga-pi/context.h"
 
 static char root[400];
 static sys_posix sp;
@@ -275,6 +276,34 @@ static void dump_session(pi_s3 *st, const char *path, long size_before, int norm
     }
     free(p);
     jw_rawz(w, "\n");
+    if (!norm) {
+        /* what the model sees (E3): the context, convertToLlm, the replayed system message and its text */
+        pi_ctx c;
+        jw sysm;
+        ctx_init(&c);
+        CHECK_INT(ctx_build(st, st->leaf, &c), 0);
+        jw_rawz(w, "context ");
+        ctx_json(&c, w);
+        jw_rawz(w, "\nllm ");
+        ctx_to_llm(&c, w);
+        jw_rawz(w, "\nsystem ");
+        jw_init(&sysm);
+        if (ctx_system(&c, &sysm) == 1) {
+            jw_rawz(w, sysm.p);
+            jw_rawz(w, "\nsystemtext ");
+            {
+                jw txt;
+                jw_init(&txt);
+                ctx_system_text(sysm.p, sysm.n, &txt);
+                jw_str(w, txt.p ? txt.p : "", txt.n);
+                jw_free(&txt);
+            }
+        } else
+            jw_rawz(w, "-\nsystemtext -");
+        jw_rawz(w, "\n");
+        jw_free(&sysm);
+        ctx_free(&c);
+    }
     free(m);
     (void)sb;
     (void)path;
@@ -872,7 +901,8 @@ static void test_fixtures(void)
 {
     static const char *const names[] = { "bad_lines", "bad_no_final_newline", "bad_not_session", "doc_all_types",
                                          "doc_branch", "doc_compaction", "doc_compaction_retain_none",
-                                         "doc_context_edit", "doc_parent", "mig_v1", "mig_v2" };
+                                         "doc_context_edit", "doc_parent", "mig_v1", "mig_v2", "doc_system",
+                                         "doc_compaction_system", "bad_content" };
     size_t i;
     for (i = 0; i < sizeof(names) / sizeof(names[0]); i++)
         test_fixture(names[i], !strcmp(names[i], "mig_v1"));

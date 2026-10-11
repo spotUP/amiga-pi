@@ -966,7 +966,7 @@ void s3_set_leaf(pi_s3 *st, int i)
 }
 
 /* a member set in an object: replaced where it is, else appended; drop a member named drop */
-static int obj_put(jv o, jw *out, const char *key, const char *val, const char *drop)
+int s3_obj_put(jv o, jw *out, const char *key, const char *val, const char *drop)
 {
     jit it;
     jv k, v;
@@ -1059,7 +1059,7 @@ int s3_branched(pi_s3 *st, int leaf)
                 jw_free(&w2);
             } else
                 cl_copy(pid, "null", sizeof(pid));
-            if (obj_put(o, &w, "parentId", pid, 0)) {
+            if (s3_obj_put(o, &w, "parentId", pid, 0)) {
                 jw_free(&w);
                 goto fail;
             }
@@ -1074,7 +1074,7 @@ int s3_branched(pi_s3 *st, int leaf)
                     jw_init(&w2);
                     jw_strz(&w2, s3_id(st, map[f]));
                     jw_init(&w3);
-                    if (json_parse(w.p, w.n, &o2) || obj_put(o2, &w3, "firstKeptEntryId", w2.p, 0)) {
+                    if (json_parse(w.p, w.n, &o2) || s3_obj_put(o2, &w3, "firstKeptEntryId", w2.p, 0)) {
                         jw_free(&w);
                         jw_free(&w2);
                         jw_free(&w3);
@@ -1433,7 +1433,7 @@ static int migrate(pi_s3 *st, const char *path)
             is_head = json_get(o, "type", &v) && json_streq(v, "session");
             jw_init(&a);
             if (is_head) {
-                if (obj_put(o, &a, "version", "3", 0))
+                if (s3_obj_put(o, &a, "version", "3", 0))
                     goto fail1;
             } else {
                 jw_raw(&a, p, e - p);
@@ -1452,7 +1452,7 @@ static int migrate(pi_s3 *st, const char *path)
                     cl_copy(val, t.p ? t.p : "\"\"", sizeof(val));
                     jw_free(&t);
                     jw_init(&c);
-                    if (json_parse(a.p, a.n, &o2) || obj_put(o2, &c, "id", val, 0))
+                    if (json_parse(a.p, a.n, &o2) || s3_obj_put(o2, &c, "id", val, 0))
                         goto fail2;
                     jw_reset(&a);
                     jw_init(&t);
@@ -1460,7 +1460,7 @@ static int migrate(pi_s3 *st, const char *path)
                         jw_strz(&t, prev);
                     else
                         jw_rawz(&t, "null");
-                    if (json_parse(c.p, c.n, &o2) || obj_put(o2, &a, "parentId", t.p, 0)) {
+                    if (json_parse(c.p, c.n, &o2) || s3_obj_put(o2, &a, "parentId", t.p, 0)) {
                         jw_free(&t);
                         goto fail2;
                     }
@@ -1476,12 +1476,12 @@ static int migrate(pi_s3 *st, const char *path)
                         if (fi >= 0 && fi < nent && fi < k && ids[fi]) {
                             jw_init(&t);
                             jw_strz(&t, ids[fi]);
-                            if (obj_put(o2, &c, "firstKeptEntryId", t.p, "firstKeptEntryIndex")) {
+                            if (s3_obj_put(o2, &c, "firstKeptEntryId", t.p, "firstKeptEntryIndex")) {
                                 jw_free(&t);
                                 goto fail2;
                             }
                             jw_free(&t);
-                        } else if (obj_put(o2, &c, 0, 0, "firstKeptEntryIndex"))
+                        } else if (s3_obj_put(o2, &c, 0, 0, "firstKeptEntryIndex"))
                             goto fail2;
                         jw_free(&a);
                         a = c;
@@ -1493,7 +1493,7 @@ static int migrate(pi_s3 *st, const char *path)
                     jw mm;
                     jw_init(&mm);
                     jw_init(&c);
-                    if (obj_put(m, &mm, "role", "\"custom\"", 0) || obj_put(o, &c, "message", mm.p, 0)) {
+                    if (s3_obj_put(m, &mm, "role", "\"custom\"", 0) || s3_obj_put(o, &c, "message", mm.p, 0)) {
                         jw_free(&mm);
                         goto fail2;
                     }
