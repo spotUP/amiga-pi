@@ -21,6 +21,11 @@ typedef struct mh {
     http_resp resp;
     sse ss;
     jw errbody, body, head;
+    jw vals;                    /* the configured header values, NUL-separated, resolved once at open */
+    long offs[32];
+    char names[32][64];
+    int nc;                     /* configured headers kept */
+    int skipped_auth;           /* an Authorization header left out: plain http */
     char type[64];              /* the answer's content type, lower case, no parameters */
     mcp_server *s;
     mcp_msg_fn on;
@@ -70,62 +75,72 @@ static int h_head(void *u, const char **head, long *hn)
 static int h_poll(void *u)
 {
     mh *h = (mh *)u;
-    return h->s->m->h.poll ? h->s->m->h.poll(h->s->m->h.u) : 0;
+    const llm_hooks *k = mcp_hooks(h->s->m);
+    return k->poll ? k->poll(k->u) : 0;
 }
 
 static unsigned long h_ms(void *u)
 {
     mh *h = (mh *)u;
-    return h->s->m->h.ms ? h->s->m->h.ms(h->s->m->h.u) : 0;
+    const llm_hooks *k = mcp_hooks(h->s->m);
+    return k->ms ? k->ms(k->u) : 0;
+}
+
+/* the configured headers' values (${VAR}, "!command") are resolved once, here, when the transport opens: a
+ * "!command" runs once, not at every POST */
+static void resolve_headers(mh *h)
+{
+    mcp_server *s = h->s;
+    jw_init(&h->vals);
+    if (s->headers) {
+        jv o, k, v;
+        jit it;
+        if (!json_parse(s->headers, (long)strlen(s->headers), &o)) {
+            json_iter(o, &it);
+            while (json_next(&it, &k, &v) && h->nc < 32) {
+                char *val = json_strdup(v, 0);
+                json_str(k, h->names[h->nc], sizeof(h->names[h->nc]));
+                if (!h->url.tls && cl_strieq(h->names[h->nc], "authorization")) {
+                    /* the LAN rule: no credential over plain http */
+                    h->skipped_auth = 1;
+                    free(val);
+                    continue;
+                }
+                h->offs[h->nc] = h->vals.n;
+                mcp_value(s->m, val ? val : "", &h->vals);
+                jw_raw(&h->vals, "\0", 1);
+                free(val);
+                h->nc++;
+            }
+        }
+    }
 }
 
 static int build_head(mh *h, long body_len)
 {
     mcp_server *s = h->s;
     http_hdr hd[40];
-    jw vals;                    /* the configured header values, NUL-separated */
-    long offs[32];
-    char names[32][64];
-    int nh = 0, nc = 0, i;
-    jw_init(&vals);
+    int nh = 0, i;
     hd[nh].name = "Accept";
     hd[nh++].value = "application/json, text/event-stream";
     hd[nh].name = "Content-Type";
     hd[nh++].value = "application/json";
-    if (s->headers) {
-        jv o, k, v;
-        jit it;
-        if (!json_parse(s->headers, (long)strlen(s->headers), &o)) {
-            json_iter(o, &it);
-            while (json_next(&it, &k, &v) && nc < 32) {
-                char *val = json_strdup(v, 0);
-                json_str(k, names[nc], sizeof(names[nc]));
-                if (!h->url.tls && cl_strieq(names[nc], "authorization")) {
-                    /* the LAN rule: no credential over plain http */
-                    if (!h->noticed && s->m->h.notice) {
-                        jw t;
-                        jw_init(&t);
-                        jw_rawz(&t, "credential for MCP server ");
-                        jw_rawz(&t, s->name);
-                        jw_rawz(&t, " not sent: plain http");
-                        s->m->h.notice(s->m->h.u, t.p);
-                        jw_free(&t);
-                    }
-                    h->noticed = 1;
-                    free(val);
-                    continue;
-                }
-                offs[nc] = vals.n;
-                mcp_value(s->m, val ? val : "", &vals);
-                jw_raw(&vals, "\0", 1);
-                free(val);
-                nc++;
-            }
+    if (h->skipped_auth && !h->noticed) {
+        const llm_hooks *k = mcp_hooks(s->m);
+        if (k->notice) {
+            jw t;
+            jw_init(&t);
+            jw_rawz(&t, "credential for MCP server ");
+            jw_rawz(&t, s->name);
+            jw_rawz(&t, " not sent: plain http");
+            k->notice(k->u, t.p);
+            jw_free(&t);
         }
+        h->noticed = 1;
     }
-    for (i = 0; i < nc; i++) {
-        hd[nh].name = names[i];
-        hd[nh++].value = vals.p + offs[i];
+    for (i = 0; i < h->nc; i++) {
+        hd[nh].name = h->names[i];
+        hd[nh++].value = h->vals.p + h->offs[i];
     }
     if (s->session[0]) {
         hd[nh].name = "Mcp-Session-Id";
@@ -139,15 +154,12 @@ static int build_head(mh *h, long body_len)
     {
         long cap = 4096, n;
         char *out = (char *)malloc((size_t)cap);
-        if (!out) {
-            jw_free(&vals);
+        if (!out)
             return -1;
-        }
         n = http_post_head(h->url.host, h->url.port, h->url.tls, h->url.path, hd, nh, body_len, out, cap);
         if (n > 0)
             jw_raw(&h->head, out, n);
         free(out);
-        jw_free(&vals);
         return n > 0 ? 0 : -1;
     }
 }
@@ -273,6 +285,7 @@ static void h_close(mcp_server *s)
     jw_free(&h->errbody);
     jw_free(&h->body);
     jw_free(&h->head);
+    jw_free(&h->vals);
     free(h);
     s->tu = 0;
 }
@@ -288,7 +301,8 @@ int mcp_http_open(mcp_server *s)
     if (!u.tls) {
         /* the LAN rule (ARCHITECTURE.md): the address the name resolves to */
         unsigned char ip[4];
-        int have = llm_ipv4(u.host, ip) || (s->m->h.resolve && !s->m->h.resolve(s->m->h.u, u.host, ip));
+        const llm_hooks *k = mcp_hooks(s->m);
+        int have = llm_ipv4(u.host, ip) || (k->resolve && !k->resolve(k->u, u.host, ip));
         if (!llm_lan_ok(u.host, have ? ip : 0)) {
             cl_copy(s->err, "plain http is only for the LAN (", sizeof(s->err));
             cl_cat(s->err, u.host, sizeof(s->err));
@@ -310,6 +324,7 @@ int mcp_http_open(mcp_server *s)
     jw_init(&h->errbody);
     jw_init(&h->body);
     jw_init(&h->head);
+    resolve_headers(h);
     s->tu = h;
     s->tr.u = h;
     s->tr.inline_reply = 0;

@@ -113,6 +113,7 @@ typedef struct mcp {
 /* tools/call requests sent since the start (the reachability test's sentinel) */
 extern long mcp_call_count;
 
+const llm_hooks *mcp_hooks(mcp *m);
 void mcp_init(mcp *m, cl_sys *sys, llm_pool *pool, const llm_hooks *h,
               long (*getenv)(const char *name, char *out, long cap), const char *cwd, const char *tmp);
 void mcp_free(mcp *m);

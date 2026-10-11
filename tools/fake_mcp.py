@@ -171,7 +171,7 @@ def run_http(srv, args):
             msg = json.loads(body)
             hdrs = {k.lower(): v for k, v in self.headers.items()
                     if k.lower() in ("mcp-session-id", "mcp-protocol-version", "accept", "content-type",
-                                     "authorization", "x-token")}
+                                     "authorization", "x-token", "x-run")}
             hdrs["peer"] = self.client_address[0]
             srv.log(msg, hdrs)
             if state["fails"] < args.fail_first:
