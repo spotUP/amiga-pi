@@ -1,7 +1,7 @@
 {
  "providers": {
   "anthropic": {
-   "baseUrl": "https://api.anthropic.com/v1",
+   "baseUrl": "https://api.anthropic.com",
    "api": "anthropic-messages",
    "models": [
     {

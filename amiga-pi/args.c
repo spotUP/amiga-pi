@@ -110,7 +110,7 @@ int pi_args_model(pi_args *a, llm_model *m)
     m->provider = a->provider;
     if (!strcmp(a->provider, "anthropic")) {
         m->api = "anthropic-messages";
-        m->base_url = a->base_url[0] ? a->base_url : "https://api.anthropic.com/v1";
+        m->base_url = a->base_url[0] ? a->base_url : "https://api.anthropic.com";
         m->max_tokens = 8192;
     } else {
         m->api = "openai-completions";

@@ -228,7 +228,7 @@ writeFileSync(join(out, "think.expected"), texp);
 // ---- model patterns ----
 const rmodels = {
 	providers: {
-		anthropic: { baseUrl: "https://api.anthropic.com/v1", api: "anthropic-messages", models: [
+		anthropic: { baseUrl: "https://api.anthropic.com", api: "anthropic-messages", models: [
 			{ id: "claude-opus-5-5", name: "Claude Opus 5.5" }, { id: "claude-opus-5", name: "Claude Opus 5" },
 			{ id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" }, { id: "claude-sonnet-5-5-20260101", name: "Claude Sonnet 5.5 (dated)" },
 			{ id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5" }, { id: "claude-haiku-4-5-latest", name: "Claude Haiku 4.5" },
