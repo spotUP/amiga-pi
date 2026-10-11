@@ -222,6 +222,7 @@ static int answer(pi_session *s, stream *t)
     memset(&c, 0, sizeof(c));
     c.model = &s->model;
     c.system = s->system;
+    c.session_id = s->session_id;
     c.msgs = v.m;
     c.msg_n = v.n;
     c.nmsg = v.count;

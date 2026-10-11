@@ -90,8 +90,9 @@ static void test_catalog(void)
     CHECK(m && m->adaptive == 0 && m->context_window == 200000L);
     m = llm_reg_find(&r, "openai", "gpt-5.5");
     CHECK(m != 0);
-    CHECK(m && !strcmp(m->api, "openai-completions") && !strcmp(m->base_url, "https://api.openai.com/v1"));
-    CHECK(m && m->cost[0] == 1250000L && m->cost[2] == 125000L);
+    CHECK(m && !strcmp(m->api, "openai-responses") && !strcmp(m->base_url, "https://api.openai.com/v1"));
+    CHECK(m && m->cost[0] == 5000000L && m->cost[1] == 30000000L && m->cost[2] == 500000L);   /* pi-ai's data, base tier */
+    CHECK(m && m->context_window == 272000L && m->max_tokens == 128000L);
     m = llm_reg_find(&r, "ollama", "qwen2.5-coder:7b");
     CHECK(m && m->key == 0 && m->reasoning == 0 && m->context_window == 32768L);
     CHECK(llm_reg_find(&r, "openai", "nope") == 0);
@@ -134,7 +135,7 @@ static void test_overlay(void)
     CHECK(m && !strcmp(m->name, "Qwen") && m->max_tokens == 4096L && m->context_window == 128000L);   /* replaced, not merged */
     CHECK(m && m->key == 0);
     m = llm_reg_find(&r, "openai", "gpt-5.5");
-    CHECK(m && m->cost[0] == 1250000L && m->cost[1] == 12000000L);            /* merged per key */
+    CHECK(m && m->cost[0] == 5000000L && m->cost[1] == 12000000L);            /* merged per key */
     CHECK(m && m->thinking_map[LT_MINIMAL].kind == LTM_NULL && m->compat.developer_role == 0);
     CHECK(llm_reg_find(&r, "openai", "gpt-9") == 0);
     m = llm_reg_find(&r, "anthropic", "claude-opus-5-5");
@@ -668,19 +669,32 @@ static void wire(const llm_model *m, int level, long mt, jw *w, char *xh, long x
         be->xhead(&c, xh, xcap);
 }
 
+/* pi's openai models are openai-responses; the openai-completions backend is tested on the same model with the api
+ * swapped and its map and compat left to detect (the catalog's one completions entry is the LAN ollama model) */
+static llm_model completions_of(const llm_model *src)
+{
+    llm_model m = *src, d;
+    int i;
+    llm_model_init(&d);
+    m.api = "openai-completions";
+    m.compat = d.compat;
+    for (i = 0; i < LT_N; i++)
+        m.thinking_map[i] = d.thinking_map[i];
+    return m;
+}
+
 static void test_wire(void)
 {
     llm_reg r;
-    llm_model haiku, opus, gpt, grok, tiny, nooff;
-    const llm_model *f;
+    llm_model haiku, opus, gpt, f, grok, tiny, nooff;
     jw w;
     char xh[200];
     llm_reg_init(&r);
     CHECK_INT(llm_reg_builtin(&r), 0);
     haiku = *llm_reg_find(&r, "anthropic", "claude-haiku-4-5");
     opus = *llm_reg_find(&r, "anthropic", "claude-opus-5-5");
-    gpt = *llm_reg_find(&r, "openai", "gpt-5.5");
-    f = llm_reg_find(&r, "openai", "gpt-4.1");
+    gpt = completions_of(llm_reg_find(&r, "openai", "gpt-5.5"));
+    f = completions_of(llm_reg_find(&r, "openai", "gpt-4.1"));
     /* budget thinking: the level's tokens, the answer's room kept (adjustMaxTokensForThinking) */
     wire(&haiku, LT_MEDIUM, 0, &w, xh, sizeof(xh));
     CHECK(strstr(w.p, "\"max_tokens\":64000,") != 0);
@@ -714,7 +728,7 @@ static void test_wire(void)
     /* adaptive thinking: the effort, from the model's map or pi's levels */
     wire(&opus, LT_MINIMAL, 0, &w, xh, sizeof(xh));
     CHECK(strstr(w.p, "\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\"},\"output_config\":{\"effort\":\"low\"}") != 0);
-    CHECK(xh[0] == 0 && strstr(w.p, "\"max_tokens\":32000,") != 0);
+    CHECK(xh[0] == 0 && strstr(w.p, "\"max_tokens\":128000,") != 0);       /* the model's cap, pi-ai's data */
     jw_free(&w);
     wire(&opus, LT_MEDIUM, 0, &w, xh, sizeof(xh));
     CHECK(strstr(w.p, "\"effort\":\"medium\"}") != 0);
@@ -725,8 +739,8 @@ static void test_wire(void)
     wire(&opus, LT_MAX, 0, &w, xh, sizeof(xh));
     CHECK(strstr(w.p, "\"effort\":\"max\"}") != 0);
     jw_free(&w);
-    wire(&opus, LT_OFF, 0, &w, xh, sizeof(xh));
-    CHECK(strstr(w.p, "\"thinking\":{\"type\":\"disabled\"}") != 0 && strstr(w.p, "output_config") == 0);
+    wire(&opus, LT_OFF, 0, &w, xh, sizeof(xh));        /* opus-5-5's map has off: null; the clamp (off -> low) is pi's */
+    CHECK(strstr(w.p, "\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\"},\"output_config\":{\"effort\":\"low\"}") != 0);
     jw_free(&w);
     /* a model without reasoning sends none of it */
     {
@@ -756,7 +770,7 @@ static void test_wire(void)
     wire(&gpt, LT_LOW, 0, &w, xh, sizeof(xh));
     CHECK(strstr(w.p, "\"reasoning_effort\":\"minimal\"") != 0);
     jw_free(&w);
-    wire(f, LT_HIGH, 0, &w, xh, sizeof(xh));           /* gpt-4.1 does not reason */
+    wire(&f, LT_HIGH, 0, &w, xh, sizeof(xh));          /* gpt-4.1 does not reason */
     CHECK(strstr(w.p, "reasoning_effort") == 0);
     jw_free(&w);
     grok = gpt;
@@ -789,7 +803,7 @@ static void test_replay(void)
     (void)xh;
     llm_reg_init(&r);
     CHECK_INT(llm_reg_builtin(&r), 0);
-    oa = *llm_reg_find(&r, "openai", "gpt-5.5");
+    oa = completions_of(llm_reg_find(&r, "openai", "gpt-5.5"));
     an = *llm_reg_find(&r, "anthropic", "claude-opus-5-5");
     msgs[0] = user_msg;
     mn[0] = (long)strlen(user_msg);

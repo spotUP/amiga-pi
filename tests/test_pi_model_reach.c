@@ -72,42 +72,6 @@ static int l_brk(void *u)
 
 #define ARGC(a) ((int)(sizeof(a) / sizeof((a)[0]) - 1))
 
-/* an Anthropic answer with thinking text, as the server sends it; the model it names is a dated snapshot */
-static const char *const anth_parts[] = {
-    "event: message_start\n"
-    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\","
-    "\"model\":\"claude-opus-5-5-20260101\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":25,"
-    "\"cache_creation_input_tokens\":1200,\"cache_read_input_tokens\":0,\"output_tokens\":1}}}\n\n",
-    "event: content_block_start\n"
-    "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n",
-    "event: content_block_delta\n"
-    "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Check the greeting first.\"}}\n\n",
-    "event: content_block_delta\n"
-    "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"EqQBsig==\"}}\n\n",
-    "event: content_block_stop\n"
-    "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
-    "event: content_block_start\n"
-    "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
-    "event: content_block_delta\n"
-    "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi there.\"}}\n\n",
-    "event: content_block_stop\n"
-    "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
-    "event: message_delta\n"
-    "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},"
-    "\"usage\":{\"output_tokens\":9}}\n\n",
-    "event: message_stop\n"
-    "data: {\"type\":\"message_stop\"}\n\n",
-    0
-};
-static char anth_thinking[2200];
-static void build_anth(void)
-{
-    int i;
-    anth_thinking[0] = 0;
-    for (i = 0; anth_parts[i]; i++)
-        strcat(anth_thinking, anth_parts[i]);
-}
-static int first_text;          /* queue anth_thinking before the recordings */
 
 static int run(int argc, char **argv, const char *const *sse, int nsse)
 {
@@ -138,11 +102,6 @@ static int run(int argc, char **argv, const char *const *sse, int nsse)
     pl.utc = 1;
     pl.data_dir = data;
     pl.agent_dir = agent;
-    if (first_text)
-        {
-        build_anth();
-        ps_sse_text(anth_thinking, (long)strlen(anth_thinking), 0);
-    }
     for (i = 0; i < nsse; i++)
         ps_sse(sse[i], 0);
     return pi_app(argc, argv, &pl);
@@ -205,10 +164,10 @@ static void field(pi_s3 *st, int i, const char *key, char *o, long cap)
 static void test_switch(void)
 {
     char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0 };
-    static const char *const sse[] = { "../pi/openai_text.sse" };
+    static const char *const sse[] = { "../pi/switch_anthropic.sse", "../pi/responses/plain.sse" };
     char path[600], sh[600], v[120];
     pi_s3 st;
-    long f_open = llm_feeds_openai, f_anth = llm_feeds_anthropic;
+    long f_open = llm_feeds_responses, f_anth = llm_feeds_anthropic;
     in_lines[0] = "hello";
     in_lines[1] = "/model openai/gpt-4.1";
     in_lines[2] = "again";
@@ -216,9 +175,7 @@ static void test_switch(void)
     in_lines[4] = "/thinking high";
     in_lines[5] = "/session";
     in_lines[6] = 0;
-    first_text = 1;
-    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
-    first_text = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 2), 0);
     CHECK_INT(ps.nreq, 2);
     if (ps.nreq < 2)
         return;
@@ -227,21 +184,41 @@ static void test_switch(void)
     CHECK(strstr(ps.head[0], "x-api-key: sk-ant-test-not-real\r\n") != 0);
     CHECK(strstr(ps.body[0], "\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\"},\"output_config\":{\"effort\":\"medium\"}") != 0);
     /* the second: OpenAI, the first answer's thinking as plain text (pi's transformMessages), the key of the environment */
-    CHECK(strstr(ps.head[1], "POST /v1/chat/completions HTTP/1.1\r\nHost: api.openai.com\r\n") == ps.head[1]);
+    CHECK(strstr(ps.head[1], "POST /v1/responses HTTP/1.1\r\nHost: api.openai.com\r\n") == ps.head[1]);
     CHECK(strstr(ps.head[1], "Authorization: Bearer sk-test-openai\r\n") != 0);
     CHECK(strstr(ps.body[1], "\"model\":\"gpt-4.1\"") != 0);
-    CHECK(strstr(ps.body[1], "\"thinking\"") == 0 && strstr(ps.body[1], "reasoning_effort") == 0);
-    pi_golden("pi/model/switch_second.json", ps.body[1] ? ps.body[1] : "");
-    CHECK(llm_feeds_anthropic > f_anth && llm_feeds_openai > f_open);       /* both backends ran */
-    /* the file: pi's entries for the switch; gpt-4.1 has no reasoning, so the level fell to off; back on an
-     * Anthropic model it stays off (pi keeps the level it has: no entry) until /thinking high records one */
+    CHECK(strstr(ps.body[1], "\"thinking\"") == 0 && strstr(ps.body[1], "\"reasoning\"") == 0);
+    /* pi's body is the golden, but for the session id (random per run): its prompt_cache_key must be the session's id */
+    {
+        static const char key[] = "\"prompt_cache_key\":\"";
+        static const char fixed[] = "00000000-0000-4000-8000-000000000000";
+        char body[40000], *k;
+        CHECK_INT(newest(path, sizeof(path)), 0);
+        s3_init(&st, &sys, adv_now, 0, 1, 7);
+        CHECK_INT(s3_open(&st, path), 0);
+        CHECK(strlen(ps.body[1]) < sizeof(body));
+        strncpy(body, ps.body[1], sizeof(body) - 1);
+        body[sizeof(body) - 1] = 0;
+        k = strstr(body, key);
+        CHECK(k != 0);
+        if (k) {
+            k += sizeof(key) - 1;
+            CHECK(!strncmp(k, st.id, strlen(st.id)) && strlen(st.id) == strlen(fixed));
+            memcpy(k, fixed, strlen(fixed));
+        }
+        s3_free(&st);
+        pi_golden("pi/model/switch_second.json", body);
+    }
+    CHECK(llm_feeds_anthropic > f_anth && llm_feeds_responses > f_open);    /* both backends ran */
+    /* the file: pi's entries for the switch (setModel -> setThinkingLevel, clamped to the model): gpt-4.1 has no
+     * reasoning, so the level fell to off; back on opus-5-5, whose map has off: null, off clamps to low (a new entry) */
     CHECK_INT(newest(path, sizeof(path)), 0);
     s3_init(&st, &sys, adv_now, 0, 1, 7);
     CHECK_INT(s3_open(&st, path), 0);
     shape(&st, sh, sizeof(sh));
     CHECK_STR(sh, "model_change thinking_level_change message/system message/user message/assistant "
                   "model_change thinking_level_change message/user message/assistant model_change "
-                  "thinking_level_change");
+                  "thinking_level_change thinking_level_change");
     field(&st, 0, "modelId", v, sizeof(v));
     CHECK_STR(v, "claude-opus-5-5");
     field(&st, 1, "thinkingLevel", v, sizeof(v));
@@ -253,6 +230,8 @@ static void test_switch(void)
     field(&st, 9, "modelId", v, sizeof(v));
     CHECK_STR(v, "claude-opus-5-5");
     field(&st, 10, "thinkingLevel", v, sizeof(v));
+    CHECK_STR(v, "low");
+    field(&st, 11, "thinkingLevel", v, sizeof(v));
     CHECK_STR(v, "high");
     {
         long n;
@@ -271,12 +250,12 @@ static void test_switch(void)
     CHECK(strstr(out.p, "cost $") != 0);
 }
 
-/* the other way: OpenAI first, then an Anthropic model; the level stays what the first had (off), so thinking is disabled */
+/* the other way: OpenAI first, then an Anthropic model; the level the first had (off) clamps to the model's: low */
 static void test_switch_back(void)
 {
     char *a[] = { "amiga-pi", "--model", "openai/gpt-4.1", "--no-session", 0 };
-    static const char *const sse[] = { "../pi/openai_text.sse", "text.sse" };
-    long f_open = llm_feeds_openai, f_anth = llm_feeds_anthropic;
+    static const char *const sse[] = { "../pi/responses/plain.sse", "text.sse" };
+    long f_open = llm_feeds_responses, f_anth = llm_feeds_anthropic;
     in_lines[0] = "hello";
     in_lines[1] = "/model anthropic/claude-opus-5-5";
     in_lines[2] = "again";
@@ -285,11 +264,40 @@ static void test_switch_back(void)
     CHECK_INT(ps.nreq, 2);
     if (ps.nreq < 2)
         return;
-    CHECK(strstr(ps.head[0], "POST /v1/chat/completions HTTP/1.1\r\nHost: api.openai.com\r\n") == ps.head[0]);
+    CHECK(strstr(ps.head[0], "POST /v1/responses HTTP/1.1\r\nHost: api.openai.com\r\n") == ps.head[0]);
     CHECK(strstr(ps.head[1], "POST /v1/messages HTTP/1.1\r\nHost: api.anthropic.com\r\n") == ps.head[1]);
-    CHECK(strstr(ps.body[1], "\"thinking\":{\"type\":\"disabled\"}") != 0);
-    pi_golden("pi/model/switch_back_second.json", ps.body[1] ? ps.body[1] : "");
-    CHECK(llm_feeds_anthropic > f_anth && llm_feeds_openai > f_open);
+    CHECK(strstr(ps.body[1], "\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\"},\"output_config\":{\"effort\":\"low\"}") != 0);
+    /* pi's request for the Anthropic side is tests/pi/model/switch_back_second.json; the level lives in its thinking
+     * and output_config members, which must be in the body byte for byte. The rest of pi's Anthropic body (cache_control,
+     * eager_input_streaming, key order, the mid-conversation compat of opus-5-5) is not ported: COMPATIBILITY.md */
+    {
+        char path[600], *g;
+        FILE *f;
+        long n;
+        strcpy(path, PI_TESTS "/pi/model/switch_back_second.json");
+        f = fopen(path, "rb");
+        CHECK(f != 0);
+        if (f) {
+            fseek(f, 0, SEEK_END);
+            n = ftell(f);
+            g = (char *)malloc((size_t)n + 1);
+            fseek(f, 0, SEEK_SET);
+            n = g ? (long)fread(g, 1, (size_t)n, f) : 0;
+            fclose(f);
+            if (g) {
+                char *t;
+                g[n] = 0;
+                t = strstr(g, "\"thinking\":");
+                CHECK(t != 0 && n > 0 && g[n - 1] == '}');
+                if (t) {
+                    g[n - 1] = 0;
+                    CHECK(ps.body[1] && strstr(ps.body[1], t) != 0);
+                }
+                free(g);
+            }
+        }
+    }
+    CHECK(llm_feeds_anthropic > f_anth && llm_feeds_responses > f_open);
 }
 
 /* resume: pi restores the thinking level (and the model) from the session path (sdk.ts :253); E7 restored only the model */
@@ -352,7 +360,7 @@ static void test_commands(void)
     CHECK(strstr(out.p, "[INFO] Thinking level: high") != 0);                     /* max clamps to high too */
     in_lines[0] = 0;
     CHECK_INT(run(ARGC(lm), lm, sse, 0), 0);
-    CHECK(strstr(out.p, "openai/gpt-5.5  openai-completions  context 400000  thinking  images") != 0);
+    CHECK(strstr(out.p, "openai/gpt-5.5  openai-responses  context 272000  thinking  images") != 0);
     CHECK(strstr(out.p, "claude") == 0);
     CHECK_INT(run(ARGC(bad), bad, sse, 0), 2);
     CHECK(strstr(out.p, "Invalid thinking level \"loud\"") != 0);

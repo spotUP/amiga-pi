@@ -726,6 +726,7 @@ int pi_store_attach(pi_store *st, pi_session *s)
         return -1;
     if (st->system.n)
         s->system = st->system.p;
+    s->session_id = st->s3.id[0] ? st->s3.id : 0;
     s->compact = compact_check;
     s->compact_u = st;
     s->command = command;

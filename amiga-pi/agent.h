@@ -61,6 +61,7 @@ typedef struct pi_session {
     llm_hooks h;                /* poll (Ctrl+C), sleep, ms, notice, resolve, log */
     llm_ts (*now)(void *u);     /* the messages' timestamps (h.u) */
     const char *system;         /* the system prompt (prompt.c), 0 none */
+    const char *session_id;     /* the session's id (pi's sessionId: openai-responses prompt_cache_key and headers), 0 none */
     pi_tool *tools[PI_TOOLS];
     int ntools;
     pi_emitter em;
