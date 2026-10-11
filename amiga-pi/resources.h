@@ -46,6 +46,9 @@ typedef struct pi_res {
     long reads;                         /* files read (the tests' sentinel) */
 } pi_res;
 
+/* files read since the start, over every load (the reachability tests' sentinel) */
+extern long pi_res_reads;
+
 /* The resources for cwd (canonical: NameFromLock) and the agent directory (0 none); trusted as
  * decided (pi_trust_decide). 0, -1 out of memory. */
 int pi_res_load(pi_res *r, cl_sys *sys, const char *agent_dir, const char *cwd, int trusted);

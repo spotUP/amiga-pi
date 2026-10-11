@@ -13,6 +13,8 @@ static const mem_cand pi_files[] = {
     { "CLAUDE.md", MEMC_ALONE }, { "CLAUDE.MD", MEMC_ALONE }, { 0, 0 }
 };
 
+long pi_res_reads;
+
 typedef struct rtake {
     pi_res *r;
     cl_sys *sys;
@@ -26,6 +28,7 @@ static int read_text(pi_res *r, cl_sys *sys, const char *path, char **out, long 
     if (sys->kind(sys->u, path) != 1 || sys->read(sys->u, path, PI_RES_MAX, out, n))
         return -1;
     r->reads++;
+    pi_res_reads++;
     if (*n >= 3 && (unsigned char)(*out)[0] == 0xEF && (unsigned char)(*out)[1] == 0xBB &&
         (unsigned char)(*out)[2] == 0xBF) {
         memmove(*out, *out + 3, (size_t)(*n - 3));

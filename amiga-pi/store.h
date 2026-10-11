@@ -35,6 +35,7 @@ typedef struct pi_store {
     pi_session *s;
     cl_sys *sys;
     char data_dir[200];
+    char agent_dir[200];        /* where trust.json is (/trust), "" none */
     char cwd[256];
     int mode;
     int resumed;                /* an existing file was opened */
@@ -67,7 +68,7 @@ int pi_store_compact(pi_store *st, const char *instructions);
 int pi_store_reload(pi_store *st);
 /* one summarization request to the session's model (compact.h's cp_complete) */
 int pi_store_complete(void *u, const char *prompt, long max_tokens, struct cp_reply *r);
-/* the slash commands of the session (cmds.c): /tree /fork /clone /label /name /session; 1 when handled */
+/* the slash commands of the session (cmds.c): /tree /fork /clone /label /name /session /trust; 1 when handled */
 int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor);
 
 /* tied to the agent: subscribed to its events, the branch's messages loaded, the system prompt the replay.
