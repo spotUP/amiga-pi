@@ -383,9 +383,15 @@ static void test_find(void)
         ps_sse("../pi/openai_text.sse", 0);
         CHECK_INT(pi_app(ARGC(b4), b4, &pl), 0);
         CHECK(out.p && strstr(out.p, "  1  ") != 0 && strstr(out.p, "  2  ") != 0 && strstr(out.p, "  3  ") == 0);
-        CHECK(out.p && strstr(out.p, "second session") < strstr(out.p, "first session"));
-        /* number 2 is the older one: the first session */
-        CHECK(ps.nreq == 1 && strstr(ps.body[0], "first session") != 0 && strstr(ps.body[0], "second session") == 0);
+        /* newest first: the order of the two follows their modification times, which the run before moved */
+        {
+            const char *pf = out.p ? strstr(out.p, "first session") : 0, *pn = out.p ? strstr(out.p, "second session") : 0;
+            const char *later = pf && pn && pf > pn ? "first session" : "second session";
+            const char *earlier = pf && pn && pf > pn ? "second session" : "first session";
+            CHECK(pf && pn);
+            /* number 2 is the one listed second */
+            CHECK(ps.nreq == 1 && strstr(ps.body[0], later) != 0 && strstr(ps.body[0], earlier) == 0);
+        }
     }
     CHECK_INT(count_files(), 2);
     /* --no-session: nothing written, nothing remembered */
