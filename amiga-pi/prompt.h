@@ -3,15 +3,19 @@
  * buildSystemPromptSections: preamble untagged, every other section in a
  * tag of its name, joined by a blank line as getSystemMessageText does)
  * with an "amiga" section before cwd. pi's "docs" section names pi's own
- * README and docs, which amiga-pi does not ship: left out (COMPATIBILITY.md).
- * Project context, skills and APPEND_SYSTEM.md come in phases G and I.
+ * README and docs, which amiga-pi does not ship: left out (COMPATIBILITY.md);
+ * the "amiga" section takes its place (there exactly when pi's docs would be).
+ * Phase G (s->res, resources.h): a SYSTEM.md replaces the preamble and drops
+ * tools, rules and amiga (pi's customPrompt); APPEND_SYSTEM.md is the
+ * "addendum" section; the context files the "project_context" section (pi's
+ * renderProjectContext), both before cwd. Skills come in phase I.
  * Portable C89. */
 #ifndef PI_PROMPT_H
 #define PI_PROMPT_H
 
 #include "agent.h"
 
-#define PI_PSECS 8
+#define PI_PSECS 10
 
 /* pi's SystemPromptSections: the named sections in order (buildSystemPromptSections), each one's text
  * in text at off/len -- preamble untagged, every other in a tag of its name */
