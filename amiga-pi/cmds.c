@@ -614,8 +614,10 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
             jw_rawz(reply, err);
             return 1;
         }
-        if (lv >= 0)
-            pi_thinking_set(ms, ag, lv);
+        if (lv >= 0 && pi_thinking_set(ms, ag, lv) < 0) {
+            jw_rawz(reply, "[ERROR] the thinking level change could not be recorded");
+            return 1;
+        }
         pi_model_label(&ag->model, label, sizeof(label));
         jw_rawz(reply, "[INFO] Model: ");
         jw_rawz(reply, label);
@@ -650,6 +652,10 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
             return 1;
         }
         lv = pi_thinking_set(st->models, ag, lv);
+        if (lv < 0) {
+            jw_rawz(reply, "[ERROR] the thinking level change could not be recorded");
+            return 1;
+        }
         jw_rawz(reply, "[INFO] Thinking level: ");
         jw_rawz(reply, llm_think_name(lv));
         return 1;

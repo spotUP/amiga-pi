@@ -284,6 +284,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         if (models.warn[0])
             say(pl->io, "[WARN] ", models.warn);
         default_model_settings(pl, dprov, sizeof(dprov), did, sizeof(did), &dlevel);
+        models.default_level = dlevel;
         if (pick_model(&a, &models, &store, dprov, did, &m, &plevel, warn)) {
             pi_models_free(&models);
             pi_store_free(&store);

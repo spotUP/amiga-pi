@@ -22,6 +22,7 @@ typedef struct pi_models {
     char *auth;                 /* auth.json text, owned */
     char warn[320];             /* what was wrong with models.json, "" nothing */
     struct pi_store *store;     /* the session file the switches are recorded in, 0 none */
+    int default_level;          /* settings.json defaultThinkingLevel (LT_*), -1 none: a switch applies it (pi's getDefaultThinkingLevel) */
 } pi_models;
 
 /* a config value's `!command` (llm_cfg.run): pi's 10 second limit, the trimmed standard output, -1 failed or empty;
@@ -41,7 +42,7 @@ int pi_models_start_level(const llm_model *model, int want);
 
 /* pi's setModel: 0, or -1 with err ("No API key for provider/id") */
 int pi_model_switch(pi_models *m, pi_session *s, const llm_model *to, char *err, long cap);
-/* pi's setThinkingLevel: the level in effect afterwards */
+/* pi's setThinkingLevel: the level in effect afterwards, -1 when the session file cannot take the entry (the level is unchanged) */
 int pi_thinking_set(pi_models *m, pi_session *s, int level);
 /* "provider/id" of the model */
 void pi_model_label(const llm_model *m, char *out, long cap);

@@ -49,11 +49,19 @@ static long env(const char *name, char *o, long cap)
     return (long)strlen(v);
 }
 
+static int ro_at = -1;          /* the line number at which the session file turns read-only (a full disk) */
+static int newest(char *path, long cap);
+
 static long l_read(void *u, char *buf, long cap)
 {
     (void)u;
     if (!in_lines[in_n])
         return -1;
+    if (in_n == ro_at) {
+        char p[600];
+        if (!newest(p, sizeof(p)))
+            chmod(p, 0444);
+    }
     cl_copy(buf, in_lines[in_n++], cap);
     return (long)strlen(buf);
 }
@@ -415,6 +423,46 @@ static void test_command_once(void)
     remove(strcat(strcpy(cmd, agent), "/models.json"));
 }
 
+/* FA6: a switch applies settings.json's defaultThinkingLevel before the session's own level (pi's
+ * _getThinkingLevelForModelSwitch); a session file that cannot take the entry leaves the model and level as they were */
+static void test_switch_level(void)
+{
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", "--thinking", "high", 0 };
+    static const char *const sse[] = { "text.sse" };
+    char path[600], sh[600], v[120];
+    pi_s3 st;
+    write_file(agent, "settings.json", "{\"defaultThinkingLevel\":\"low\"}");
+    in_lines[0] = "hello";                      /* a session file exists once there is an answer */
+    in_lines[1] = "/model anthropic/claude-sonnet-5-5";
+    in_lines[2] = "/session";
+    in_lines[3] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    CHECK(strstr(out.p, "[INFO] Model: anthropic/claude-sonnet-5-5, thinking low") != 0);     /* not the session's high */
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 7);
+    CHECK_INT(s3_open(&st, path), 0);
+    shape(&st, sh, sizeof(sh));
+    CHECK_STR(sh, "model_change thinking_level_change message/system message/user message/assistant model_change "
+                  "thinking_level_change");
+    field(&st, 6, "thinkingLevel", v, sizeof(v));
+    CHECK_STR(v, "low");
+    s3_free(&st);
+    /* the session file turns read-only: the switch says so and /session still names the first model and level */
+    in_lines[0] = "hello";
+    in_lines[1] = "/model anthropic/claude-sonnet-5-5";
+    in_lines[2] = "/session";
+    in_lines[3] = 0;
+    ro_at = 1;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    ro_at = -1;
+    CHECK(strstr(out.p, "[ERROR] the model change could not be recorded") != 0);
+    CHECK(strstr(out.p, "\nmodel anthropic/claude-opus-5-5\nthinking high") != 0);
+    CHECK(strstr(out.p, "[INFO] Model: ") == 0);
+    if (!newest(path, sizeof(path)))
+        chmod(path, 0644);
+    remove(strcat(strcpy(marker, agent), "/settings.json"));
+}
+
 /* a broken models.json is a warning, the catalog stays */
 static void test_bad_models_json(void)
 {
@@ -452,6 +500,7 @@ void suite_pi_model_reach(void)
     test_resume();
     test_commands();
     test_command_once();
+    test_switch_level();
     test_bad_models_json();
     jw_free(&out);
 }

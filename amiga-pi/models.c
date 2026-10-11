@@ -66,6 +66,7 @@ int pi_models_init(pi_models *m, cl_sys *sys, const char *agent_dir, long (*gete
     long n = 0;
     memset(m, 0, sizeof(*m));
     m->sys = sys;
+    m->default_level = -1;
     m->getenv = getenv_;
     llm_reg_init(&m->reg);
     llm_cfg_init(&m->cfg);
@@ -128,9 +129,9 @@ int pi_thinking_set(pi_models *m, pi_session *s, int level)
 {
     int eff = llm_think_clamp(&s->model, level);
     if (eff != s->thinking) {
+        if (m->store && pi_store_thinking(m->store, llm_think_name(eff)) < 0)
+            return -1;          /* the level in effect is unchanged */
         s->thinking = eff;
-        if (m->store)
-            pi_store_thinking(m->store, llm_think_name(eff));
     }
     return s->thinking;
 }
@@ -144,10 +145,14 @@ static int usable(pi_models *m, const llm_model *mo)
     return llm_cfg_key(&m->cfg, mo, key, sizeof(key), 0) > 0;
 }
 
+/* pi's setModel (agent-session.js :1942): the level for the new model is the settings default, else the one the session has
+ * (_getThinkingLevelForModelSwitch), clamped to the model. The session keeps its model and level when the session file
+ * cannot take the entries. */
 int pi_model_switch(pi_models *m, pi_session *s, const llm_model *to, char *err, long cap)
 {
     char label[200];
-    int level = s->thinking;
+    llm_model was = s->model;
+    int level = m->default_level >= 0 ? m->default_level : s->thinking;
     if (!usable(m, to)) {
         pi_model_label(to, label, sizeof(label));
         cl_copy(err, "No API key for ", cap);
@@ -156,10 +161,15 @@ int pi_model_switch(pi_models *m, pi_session *s, const llm_model *to, char *err,
     }
     s->model = *to;
     if (m->store && pi_store_model_change(m->store, to->provider, to->id) < 0) {
+        s->model = was;
         cl_copy(err, "the model change could not be recorded", cap);
         return -1;
     }
-    pi_thinking_set(m, s, level);
+    if (pi_thinking_set(m, s, level) < 0) {
+        s->model = was;
+        cl_copy(err, "the thinking level change could not be recorded", cap);
+        return -1;
+    }
     return 0;
 }
 
