@@ -259,6 +259,129 @@ static void test_edit(void)
     free(f);
 }
 
+/* pi's own edit cases (test/tools.test.ts "edit tool fuzzy matching", "edit tool CRLF handling"), generated */
+static const struct { const char *name, *file, *args, *want; int fails; } pi_edit_cases[] = {
+    { "trailing white space stripped",
+      "line one   \nline two  \nline three\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"line one\\nline two\\n\", \"newText\": \"replaced\\n\"}]}",
+      "replaced\nline three\n", 0 },
+    { "fullwidth punctuation in Chinese text",
+      "\xe4\xbd\xa0\xe5\xa5\xbd\xef\xbc\x8c\xe4\xb8\x96\xe7\x95\x8c\n\xe4\xbd\xa0\xe5\xa5\xbd\xef\xbc\x88\xe4\xb8\x96\xe7\x95\x8c\xef\xbc\x89\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"\\u4f60\\u597d,\\u4e16\\u754c\\n\\u4f60\\u597d(\\u4e16\\u754c)\\n\", \"newText\": \"\\u4f60\\u597d\\uff0cpi\\n\\u4f60\\u597d(pi)\\n\"}]}",
+      "\xe4\xbd\xa0\xe5\xa5\xbd\xef\xbc\x8cpi\n\xe4\xbd\xa0\xe5\xa5\xbd(pi)\n", 0 },
+    { "compatibility-equivalent Unicode forms",
+      "\xef\xbc\xa1\xef\xbc\xa2\xef\xbc\xa3\xef\xbc\x91\xef\xbc\x92\xef\xbc\x93\ncafe\xcc\x81\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"ABC123\\ncaf\\u00e9\\n\", \"newText\": \"XYZ789\\ncoffee\\n\"}]}",
+      "XYZ789\ncoffee\n", 0 },
+    { "smart single quotes",
+      "console.log(\xe2\x80\x98hello\xe2\x80\x99);\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"console.log('hello');\", \"newText\": \"console.log('world');\"}]}",
+      "console.log('world');\n", 0 },
+    { "smart double quotes",
+      "const msg = \xe2\x80\x9cHello World\xe2\x80\x9d;\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"const msg = \\\"Hello World\\\";\", \"newText\": \"const msg = \\\"Goodbye\\\";\"}]}",
+      "const msg = \"Goodbye\";\n", 0 },
+    { "Unicode dashes",
+      "range: 1\xe2\x80\x93" "5\nbreak\xe2\x80\x94here\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"range: 1-5\\nbreak-here\", \"newText\": \"range: 10-50\\nbreak--here\"}]}",
+      "range: 10-50\nbreak--here\n", 0 },
+    { "non-breaking space",
+      "hello\xc2\xa0world\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"hello world\", \"newText\": \"hello universe\"}]}",
+      "hello universe\n", 0 },
+    { "exact preferred over fuzzy",
+      "const x = 'exact';\nconst y = 'other';\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"const x = 'exact';\", \"newText\": \"const x = 'changed';\"}]}",
+      "const x = 'changed';\nconst y = 'other';\n", 0 },
+    { "fuzzy in multi-edit mode",
+      "console.log(\xe2\x80\x98hello\xe2\x80\x99);\nhello\xc2\xa0world\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"console.log('hello');\\n\", \"newText\": \"console.log('world');\\n\"}, {\"oldText\": \"hello world\\n\", \"newText\": \"hello universe\\n\"}]}",
+      "console.log('world');\nhello universe\n", 0 },
+    { "the right occurrence when the replacement equals a nearby line",
+      "replace me   \nafter   \n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"replace me\\n\", \"newText\": \"after\\n\"}]}",
+      "after\nafter   \n", 0 },
+    { "untouched lines kept in fuzzy multi-edits",
+      "keep before  \nfirst target  \nfirst after\nkeep middle   \nsecond target  \nsecond after\nkeep after  \n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"first target\\nfirst after\", \"newText\": \"FIRST\\nFIRST2\"}, {\"oldText\": \"second target\\nsecond after\", \"newText\": \"SECOND\\nSECOND2\"}]}",
+      "keep before  \nFIRST\nFIRST2\nkeep middle   \nSECOND\nSECOND2\nkeep after  \n", 0 },
+    { "LF oldText against CRLF content",
+      "line one\r\nline two\r\nline three\r\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"line two\\n\", \"newText\": \"replaced line\\n\"}]}",
+      "line one\r\nreplaced line\r\nline three\r\n", 0 },
+    { "CRLF kept",
+      "first\r\nsecond\r\nthird\r\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"second\\n\", \"newText\": \"REPLACED\\n\"}]}",
+      "first\r\nREPLACED\r\nthird\r\n", 0 },
+    { "LF kept",
+      "first\nsecond\nthird\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"second\\n\", \"newText\": \"REPLACED\\n\"}]}",
+      "first\nREPLACED\nthird\n", 0 },
+    { "BOM kept",
+      "\xef\xbb\xbf" "first\r\nsecond\r\nthird\r\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"second\\n\", \"newText\": \"REPLACED\\n\"}]}",
+      "\xef\xbb\xbf" "first\r\nREPLACED\r\nthird\r\n", 0 },
+    { "CRLF and BOM kept in multi-edit mode",
+      "\xef\xbb\xbf" "first\r\nsecond\r\nthird\r\nfourth\r\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"second\\n\", \"newText\": \"SECOND\\n\"}, {\"oldText\": \"fourth\\n\", \"newText\": \"FOURTH\\n\"}]}",
+      "\xef\xbb\xbf" "first\r\nSECOND\r\nthird\r\nFOURTH\r\n", 0 },
+    { "not found even with fuzzy matching",
+      "completely different content\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"this does not exist\", \"newText\": \"replacement\"}]}",
+      "Could not find the exact text", 1 },
+    { "duplicates after fuzzy normalisation",
+      "hello world   \nhello world\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"hello world\", \"newText\": \"replaced\"}]}",
+      "Found 2 occurrences", 1 },
+    { "duplicates across CRLF/LF variants",
+      "hello\r\nworld\r\n---\r\nhello\nworld\n",
+      "{\"path\": \"f.txt\", \"edits\": [{\"oldText\": \"hello\\nworld\\n\", \"newText\": \"replaced\\n\"}]}",
+      "Found 2 occurrences", 1 },
+};
+
+/* pi's edit: exact first, then the fuzzy normalisation (NFKC, line ends'
+ * blanks, quotes, dashes, spaces) with the untouched lines kept, CRLF matched
+ * as LF and restored, the BOM kept */
+static void test_edit_pi(void)
+{
+    int i;
+    char *t, *f;
+    long n = 0;
+    for (i = 0; i < (int)(sizeof(pi_edit_cases) / sizeof(pi_edit_cases[0])); i++) {
+        int err;
+        put("f.txt", pi_edit_cases[i].file, -1);
+        err = call(PT_EDIT, pi_edit_cases[i].args, &t);
+        f = get_rel("f.txt");
+        if (pi_edit_cases[i].fails) {
+            if (!err || !has(t, pi_edit_cases[i].want) || strcmp(f ? f : "", pi_edit_cases[i].file))
+                printf("  pi edit case \"%s\": %s\n", pi_edit_cases[i].name, t);
+            CHECK_INT(err, 1);
+            CHECK(has(t, pi_edit_cases[i].want));
+            CHECK_STR(f ? f : "", pi_edit_cases[i].file);
+        } else {
+            if (err || strcmp(f ? f : "", pi_edit_cases[i].want))
+                printf("  pi edit case \"%s\": %s\n", pi_edit_cases[i].name, t);
+            CHECK_INT(err, 0);
+            CHECK(has(t, "Successfully replaced"));
+            CHECK_STR(f ? f : "", pi_edit_cases[i].want);
+        }
+        free(t);
+        free(f);
+    }
+    /* a NUL is text to pi: the file is edited, its other bytes as they were */
+    put("f.txt", "a\0b\nc\n", 6);
+    CHECK_INT(call(PT_EDIT, "{\"path\":\"f.txt\",\"edits\":[{\"oldText\":\"c\",\"newText\":\"d\"}]}", &t), 0);
+    free(t);
+    {
+        char p[600];
+        full("f.txt", p);
+        f = get(p, &n);
+    }
+    CHECK_INT(n, 6);
+    CHECK(f && !memcmp(f, "a\0b\nd\n", 6));
+    free(f);
+}
+
 /* ---- D3: bash through sys->run ---- */
 
 static void test_bash(void)
@@ -781,6 +904,7 @@ void suite_pi_tools(void)
     tools_up();
     test_read_write();
     test_edit();
+    test_edit_pi();
     test_bash();
     test_search();
     test_select();
