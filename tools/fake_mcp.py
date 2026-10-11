@@ -171,6 +171,7 @@ def run_http(srv, args):
             hdrs = {k.lower(): v for k, v in self.headers.items()
                     if k.lower() in ("mcp-session-id", "mcp-protocol-version", "accept", "content-type",
                                      "authorization", "x-token")}
+            hdrs["peer"] = self.client_address[0]
             srv.log(msg, hdrs)
             sid = self.headers.get("Mcp-Session-Id")
             if msg.get("method") == "initialize":

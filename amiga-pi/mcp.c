@@ -1,7 +1,6 @@
 /* mcp -- amiga-pi's MCP client; see mcp.h. */
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 #include "mcp.h"
 #include "sha256.h"
 #include "truncate.h"
@@ -33,6 +32,51 @@ static char *dupz(const char *s)
 static int ws(char c)
 {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+}
+
+/* a JSON number without floating point: its value times 10^scale, cut toward zero (scale 3: seconds to ms).
+ * 0, or -1 when it does not fit 9 digits before the point. *neg for a minus sign, *frac when digits beyond the
+ * scale are not zero. */
+static int num_scaled(jv v, int scale, long *out, int *neg, int *frac)
+{
+    const char *p = v.p, *e = v.p + v.n;
+    char dig[64];
+    int nd = 0, point = -1, ex = 0, exneg = 0, i, lead;
+    long r = 0;
+    *neg = *frac = 0;
+    if (p < e && *p == '-') {
+        *neg = 1;
+        p++;
+    }
+    for (; p < e && ((*p >= '0' && *p <= '9') || *p == '.'); p++) {
+        if (*p == '.')
+            point = nd;
+        else if (nd < (int)sizeof(dig))
+            dig[nd++] = *p;
+    }
+    if (point < 0)
+        point = nd;
+    if (p < e && (*p == 'e' || *p == 'E')) {
+        p++;
+        if (p < e && (*p == '+' || *p == '-'))
+            exneg = *p++ == '-';
+        for (; p < e && *p >= '0' && *p <= '9'; p++)
+            ex = ex * 10 + (*p - '0') > 400 ? 400 : ex * 10 + (*p - '0');
+    }
+    point += (exneg ? -ex : ex) + scale;      /* digits before the (scaled) point */
+    for (lead = 0, i = 0; i < point; i++) {
+        int d = i < nd ? dig[i] - '0' : 0;
+        if (r || d)
+            lead++;
+        if (lead > 9)
+            return -1;
+        r = r * 10 + d;
+    }
+    for (i = point < 0 ? 0 : point; i < nd; i++)
+        if (dig[i] != '0')
+            *frac = 1;
+    *out = r;
+    return 0;
 }
 
 static void err_line(mcp *m, const char *a, const char *b, const char *c)
@@ -95,6 +139,18 @@ static void namespace_of(const char *name, char *out, long cap)
     out[i] = 0;
 }
 
+/* a positive number of seconds (pi: typeof number and > 0) */
+static int timeout_ok(jv x)
+{
+    long ms;
+    int neg, frac;
+    if (json_type(x) != J_NUM)
+        return 0;
+    if (num_scaled(x, 3, &ms, &neg, &frac))
+        return !neg;            /* very large: positive unless negative */
+    return !neg && (ms > 0 || frac);
+}
+
 /* validateMcpServerConfig's checks of the fields an override may set too; 0 ok, else err set */
 static int check_common(const char *name, jv v, char *err, long cap)
 {
@@ -133,7 +189,7 @@ static int check_common(const char *name, jv v, char *err, long cap)
         cl_cat(err, "description must be a string", cap);
         return -1;
     }
-    if (json_get(v, "timeout", &x) && (json_type(x) != J_NUM || x.p[0] == '-' || atof(x.p) <= 0)) {
+    if (json_get(v, "timeout", &x) && !timeout_ok(x)) {
         cl_cat(err, "timeout must be a positive number of seconds", cap);
         return -1;
     }
@@ -263,8 +319,11 @@ static void set_config(mcp_server *s, jv v, int kind)
     s->enabled = 1;
     s->exposure = MX_NONE;
     s->timeout_ms = MCP_TIMEOUT_MS;
-    if (json_get(v, "timeout", &x))
-        s->timeout_ms = (long)(atof(x.p) * 1000.0);
+    if (json_get(v, "timeout", &x)) {
+        long ms;
+        int neg, frac;
+        s->timeout_ms = num_scaled(x, 3, &ms, &neg, &frac) ? 0x7fffffffL : ms > 0 ? ms : 1;
+    }
     s->description = member_str(v, "description");
     if (kind == MK_HTTP) {
         s->url = member_str(v, "url");
@@ -1675,6 +1734,58 @@ mcp_tool *mcp_tool_named(mcp *m, const char *name)
     return 0;
 }
 
+/* ---- fixed point for BM25 (no floating point in amiga-pi: a 68020 has no FPU) ---- */
+
+#define FX_ONE (1UL << 20)
+#define U32(x) ((x) & 0xffffffffUL)
+
+/* a * b / c with the product in 64 bits, all values 32-bit unsigned (the quotient must fit 32 bits) */
+static unsigned long mul_div(unsigned long a, unsigned long b, unsigned long c)
+{
+    unsigned long al = a & 0xffff, ah = U32(a) >> 16, bl = b & 0xffff, bh = U32(b) >> 16;
+    unsigned long lo = al * bl, m1 = al * bh, m2 = ah * bl, hi = ah * bh, t, q = 0, r;
+    int i;
+    t = (lo >> 16) + (m1 & 0xffff) + (m2 & 0xffff);
+    lo = (lo & 0xffff) | U32((t & 0xffff) << 16);
+    hi = U32(hi + (m1 >> 16) + (m2 >> 16) + (t >> 16));
+    if (!c)
+        return 0;
+    r = hi % c;                 /* hi < c when the quotient fits; the remainder carries on */
+    for (i = 31; i >= 0; i--) {
+        int top = (int)((r >> 31) & 1);
+        r = U32((r << 1) | ((lo >> i) & 1));
+        q = U32(q << 1);
+        if (top || r >= c) {
+            r = U32(r - c);
+            q |= 1;
+        }
+    }
+    return q;
+}
+
+/* ln(x) * 2^20 for x >= 1: x = 2^k m, ln m = 2 atanh((m - 1) / (m + 1)) by its series */
+static unsigned long ln_fx(unsigned long x)
+{
+    static const unsigned long ln2 = 726817UL;      /* ln 2 * 2^20 */
+    unsigned long p = 1, z, zz, term, sum;
+    int k = 0;
+    long n;
+    while (k < 31 && (p << 1) <= x) {
+        p <<= 1;
+        k++;
+    }
+    /* z = (x - p) / (x + p) at 2^28, at most 1/3 */
+    z = mul_div(x - p, 1UL << 28, x + p);
+    zz = mul_div(z, z, 1UL << 28);
+    sum = z;
+    term = z;
+    for (n = 3; term; n += 2) {
+        term = mul_div(term, zz, 1UL << 28);
+        sum += term / (unsigned long)n;
+    }
+    return (unsigned long)k * ln2 + ((2 * sum + 128) >> 8);
+}
+
 /* ---- tool_search (pi's tool-search/tool.ts) ---- */
 
 static const char *const stop_words[] = {"a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in",
@@ -1865,7 +1976,7 @@ int mcp_search(mcp *m, pi_session *s, const char *query, long limit, jw *text)
     mcp_tool **cand;
     jw *terms;
     long *len, nc = 0, i, j, nq, kept = 0;
-    double *score, avg = 0;
+    unsigned long *score, total = 0;
     jw q, qu;
     int k;
     if (blank(query)) {
@@ -1881,7 +1992,7 @@ int mcp_search(mcp *m, pi_session *s, const char *query, long limit, jw *text)
     cand = (mcp_tool **)calloc((size_t)(nc + 1), sizeof(*cand));
     terms = (jw *)calloc((size_t)(nc + 1), sizeof(jw));
     len = (long *)calloc((size_t)(nc + 1), sizeof(long));
-    score = (double *)calloc((size_t)(nc + 1), sizeof(double));
+    score = (unsigned long *)calloc((size_t)(nc + 1), sizeof(unsigned long));
     if (!cand || !terms || !len || !score) {
         free(cand);
         free(terms);
@@ -1926,30 +2037,31 @@ int mcp_search(mcp *m, pi_session *s, const char *query, long limit, jw *text)
             search_doc(cand[i], &doc);
             jw_init(&terms[i]);
             len[i] = tokenize(doc.p ? doc.p : "", &terms[i]);
-            avg += (double)len[i];
+            total += (unsigned long)len[i];
             jw_free(&doc);
         }
-        avg = avg / (double)nc;
-        if (avg == 0)
-            avg = 1;
         {
             const char *p = qu.p;
             while (*p) {
                 const char *e = strchr(p, '\n');
                 char term[128];
                 long n = (long)(e - p), freq = 0;
-                double idf;
+                unsigned long idf;
                 memcpy(term, p, (size_t)n);
                 term[n] = 0;
                 for (i = 0; i < nc; i++)
                     if (term_count(terms[i].p ? terms[i].p : "", term))
                         freq++;
-                idf = log(1.0 + ((double)nc - (double)freq + 0.5) / ((double)freq + 0.5));
+                /* log(1 + (N - f + 0.5) / (f + 0.5)) = ln(2N + 2) - ln(2f + 1) */
+                idf = ln_fx((unsigned long)(2 * nc + 2)) - ln_fx((unsigned long)(2 * freq + 1));
                 for (i = 0; i < nc; i++) {
-                    long c = term_count(terms[i].p ? terms[i].p : "", term);
+                    unsigned long c = (unsigned long)term_count(terms[i].p ? terms[i].p : "", term);
                     if (c) {
-                        double norm = 1.2 * (1.0 - 0.75 + 0.75 * (double)len[i] / avg);
-                        score[i] += idf * ((double)c * 2.2) / ((double)c + norm);
+                        /* c (k1 + 1) / (c + k1 (1 - b + b len / avg)), avg = total / N, k1 1.2, b 0.75:
+                         * 22 c L / (10 c L + 3 L + 9 len N) */
+                        unsigned long num = 22UL * c * total;
+                        unsigned long den = 10UL * c * total + 3UL * total + 9UL * (unsigned long)len[i] * (unsigned long)nc;
+                        score[i] += mul_div(idf, mul_div(num, FX_ONE, den), FX_ONE);
                     }
                 }
                 p = e + 1;
@@ -2045,8 +2157,9 @@ static int search_run(void *u, pi_session *s, const char *args, long an, jw *con
         json_get(a, "query", &x);
         query = json_strdup(x, 0);
         if (json_get(a, "limit", &x)) {
-            double d = atof(x.p);
-            limit = d == floor(d) && d > 0 && d < 1e9 ? (long)d : 0;
+            long l;
+            int neg, frac;
+            limit = !num_scaled(x, 0, &l, &neg, &frac) && !neg && !frac ? l : 0;   /* Number.isInteger and > 0 */
         }
         if (mcp_search(m, s, query ? query : "", limit, &text))
             *is_error = 1;
