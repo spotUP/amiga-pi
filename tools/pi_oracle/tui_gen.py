@@ -5,6 +5,13 @@ with `tmux capture-pane -e -p` (text and SGR colours).
 
   python3 tools/pi_oracle/tui_gen.py [--only <scenario>] [--cols 80] [--rows 25] [--keep]
 
+The mode and the theme of every scenario are written into its settings.json (TM1, TM6): `tui` is pi's tuiMode
+("fullscreen", pi 1.0.4's default and the mode of every golden captured before TM1, or "regular"), `theme` the theme
+name ("system", the default, or "dark" / "light": pi's own, with element backgrounds), `settings` more settings.json
+keys (fullscreenExitOutput, ...). <name>.mode records what tmux saw (alternate screen on or off, the pane dead or not).
+`raw` keeps pi's whole output stream (PI_TUI_WRITE_LOG) as <name>.raw; `exit` ends pi with Ctrl+D and captures the
+main screen it leaves behind.
+
 Writes, per scenario, tests/pi/tui/<name>.golden (the pane with SGR), <name>.txt (text only) and
 the SSE answers it served (<name>.N.sse: the host screen tests play the same bytes to amiga-pi).
 Scenarios run in a throw-away PI_CODING_AGENT_DIR with a models.json whose provider "fake" points
@@ -16,6 +23,22 @@ import argparse, http.server, json, os, shutil, subprocess, sys, tempfile, threa
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.normpath(os.path.join(HERE, '..', '..', 'tests', 'pi', 'tui'))
 MODEL = 'fake-model'
+
+
+def find_pi():
+    """The pi the goldens come from: $PI_BIN, else the pinned 1.0.4 install (vendor/pi-1.0.4, npm install --prefix
+    vendor/pi-1.0.4 @earendil-works/pi-coding-agent@1.0.4) in this checkout or the main one, else `pi` on the PATH."""
+    if os.environ.get('PI_BIN'):
+        return os.environ['PI_BIN']
+    for root in ('../..', '../../../..'):         # this checkout, then the main one when this is build/wt-<name>
+        c = os.path.normpath(os.path.join(HERE, root, 'vendor', 'pi-1.0.4', 'node_modules', '.bin', 'pi'))
+        if os.path.exists(c):
+            return c
+    return 'pi'
+
+
+PI = find_pi()
+PI_VERSION = subprocess.run([PI, '--version'], capture_output=True, text=True).stdout.strip()
 
 
 def sse(events):
@@ -112,6 +135,64 @@ SCENARIOS = {
     # the request itself fails
     'error': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'not available')],
                   answers=[('http', 400, ERR_BODY)]),
+    # TM1/TM3: regular mode (the main screen, no clearing, the editor follows the content) against fullscreen
+    # (the alternate screen, the editor pinned to the bottom: the `twice` golden above)
+    'reg_start': dict(steps=[], answers=[], tui='regular'),
+    'reg_empty': dict(steps=[], answers=[], tui='regular'),
+    'reg_twice': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('type', 'second'), ('enter',), ('wait', 'two')],
+                      answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))],
+                      tui='regular'),
+    'reg_markdown': dict(steps=[('type', 'show markdown'), ('enter',), ('wait', 'return 0')],
+                         answers=[('sse', text_answer('msg_md', MARKDOWN, 180))], tui='regular'),
+    # a transcript longer than the window in regular mode: the editor at the bottom, the older rows in scrollback
+    'reg_long': dict(steps=[('type', 'more markdown'), ('enter',), ('wait', 'Closing line')],
+                     answers=[('sse', text_answer('msg_md2', MARKDOWN2, 150))], tui='regular', rows=14),
+    # a transcript longer than the window in fullscreen mode: the viewport follows the end; the scrollbar's cells
+    'fs_long': dict(steps=[('type', 'more markdown'), ('enter',), ('wait', 'Closing line')],
+                    answers=[('sse', text_answer('msg_md2', MARKDOWN2, 150))], rows=14),
+    # the same after PageUp (the transcript scrolled back one page)
+    'fs_long_up': dict(steps=[('type', 'more markdown'), ('enter',), ('wait', 'Closing line'), ('key', 'PageUp'), ('sleep', 0.8)],
+                       answers=[('sse', text_answer('msg_md2', MARKDOWN2, 150))], rows=14),
+    # fullscreenScrollbar "always": the track and the thumb at the right edge of the transcript
+    'fs_long_bar': dict(steps=[('type', 'more markdown'), ('enter',), ('wait', 'Closing line'), ('key', 'PageUp'), ('sleep', 0.8)],
+                        answers=[('sse', text_answer('msg_md2', MARKDOWN2, 150))], rows=14,
+                        settings={'fullscreenScrollbar': 'always'}),
+    # leaving fullscreen: "transcript" prints the conversation on the main screen, "resume-hint" only the hint
+    'exit_transcript': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('sleep', 1.5), ('exit',)],
+                            answers=[('sse', text_answer('msg_a', 'answer one', 20))], persist=True, raw=True),
+    'exit_hint': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('sleep', 1.5), ('exit',)],
+                      answers=[('sse', text_answer('msg_a', 'answer one', 20))], persist=True, raw=True,
+                      settings={'fullscreenExitOutput': 'resume-hint'}),
+    'exit_regular': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('sleep', 1.5), ('exit',)],
+                         answers=[('sse', text_answer('msg_a', 'answer one', 20))], persist=True, raw=True, tui='regular'),
+    # TM4: what pi's output stream holds when a turn finishes (no bell, no notification)
+    'turn_raw': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'late answer'), ('sleep', 1.0)],
+                     answers=[('sse', text_answer('msg_n', 'late answer', 20))], raw=True),
+    # TM6: pi's dark and light themes draw backgrounds behind the user message, the tool boxes and the bash output
+    'dark_start': dict(steps=[], answers=[], theme='dark'),
+    'dark_twice': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('type', 'second'), ('enter',), ('wait', 'two')],
+                       answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))],
+                       theme='dark'),
+    'dark_markdown': dict(steps=[('type', 'show markdown'), ('enter',), ('wait', 'return 0')],
+                          answers=[('sse', text_answer('msg_md', MARKDOWN, 180))], theme='dark'),
+    'dark_tool': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading')],
+                      answers=[('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),
+                               ('sse', text_answer('msg_t2', 'Done reading notes.txt: three lines.', 20))], theme='dark'),
+    'dark_toolerr': dict(steps=[('type', 'run it'), ('enter',), ('wait', 'It failed')],
+                         answers=[('sse', tool_answer('msg_e1', 'toolu_2', 'bash', {'command': 'cat nothere.txt'})),
+                                  ('sse', text_answer('msg_e2', 'It failed: no such file.', 20))], theme='dark'),
+    # a tool box while the tool runs (toolPendingBg)
+    'dark_toolrun': dict(steps=[('type', 'run it'), ('enter',), ('wait', 'sleep 4'), ('sleep', 1.0), ('capture_now',)],
+                         answers=[('sse', tool_answer('msg_r1', 'toolu_3', 'bash', {'command': 'sleep 4'})),
+                                  ('sse', text_answer('msg_r2', 'Slept.', 20))], theme='dark'),
+    'dark_bang': dict(steps=[('type', '!echo hi'), ('enter',), ('sleep', 1.5)],
+                      answers=[], theme='dark'),
+    'light_twice': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('type', 'second'), ('enter',), ('wait', 'two')],
+                        answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))],
+                        theme='light'),
+    'light_tool': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading')],
+                       answers=[('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),
+                                ('sse', text_answer('msg_t2', 'Done reading notes.txt: three lines.', 20))], theme='light'),
 }
 
 
@@ -151,10 +232,20 @@ def tmux(*a):
     return subprocess.run(['tmux'] + list(a), capture_output=True, text=True).stdout
 
 
+PAD = False         # -N: trailing blanks kept (tmux trims them, backgrounds with them: a themed golden needs the cells)
+
+
+HIST = False        # -S -: the history too (a pane that kept its last output scrolls by the "Pane is dead" line)
+
+
 def capture(sess, esc):
     args = ['capture-pane', '-t', sess, '-p']
+    if HIST:
+        args += ['-S', '-']
     if esc:
         args.insert(1, '-e')
+        if PAD:
+            args.insert(1, '-N')
     return tmux(*args)
 
 
@@ -182,6 +273,10 @@ def settle(sess, secs=1.2):
 
 
 def run(name, sc, cols, rows, keep):
+    global PAD
+    PAD = sc.get('theme', 'system') != 'system'
+    global HIST
+    HIST = False
     rows = sc.get('rows', rows)
     work = '/private/tmp/pitui'      # fixed: the trust prompt and the footer show the path
     shutil.rmtree(work, ignore_errors=True)
@@ -212,15 +307,21 @@ def run(name, sc, cols, rows, keep):
                           'maxTokens': 8192, 'cost': {'input': 3, 'output': 15, 'cacheRead': 0.3, 'cacheWrite': 3.75}}]}}},
               open(os.path.join(agent, 'models.json'), 'w'))
     # quietStartup hides the header: only the scenarios about the header show it (the rest would scroll by its height)
-    json.dump({'defaultProvider': 'fake', 'defaultModel': MODEL, 'defaultThinkingLevel': 'off',
-               'retry': {'enabled': False}, 'quietStartup': name not in ('start',)},
-              open(os.path.join(agent, 'settings.json'), 'w'))
+    settings = {'defaultProvider': 'fake', 'defaultModel': MODEL, 'defaultThinkingLevel': 'off',
+                'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start'),
+                'tuiMode': sc.get('tui', 'fullscreen'), 'theme': sc.get('theme', 'system')}
+    settings.update(sc.get('settings', {}))
+    json.dump(settings, open(os.path.join(agent, 'settings.json'), 'w'))
     sess = 'pitui-' + name
     tmux('kill-session', '-t', sess)
     env = ('env -i HOME=%s PATH=%s TERM=xterm-256color LANG=en_US.UTF-8 PI_CODING_AGENT_DIR=%s PI_OFFLINE=1 '
            'PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0 ' % (work, os.environ['PATH'], agent))
+    rawlog = os.path.join(work, 'raw.log')
+    if sc.get('raw'):
+        env = env.replace('env -i ', 'env -i PI_TUI_WRITE_LOG=%s ' % rawlog)
     tmux('new-session', '-d', '-s', sess, '-x', str(cols), '-y', str(rows), '-c', proj,
-         env + ('pi --session session.jsonl' if sc.get('session') else 'pi --no-session'))
+         env + (PI + (' --session session.jsonl' if sc.get('session') else '' if sc.get('persist') else ' --no-session')))
+    tmux('set-option', '-t', sess, 'remain-on-exit', 'on')
     try:
         wait_text(sess, MODEL, 30)       # the footer names the model once pi is up
         time.sleep(4.0 if sc.get('session') else 1.0)     # a session is loaded after that
@@ -234,6 +335,14 @@ def run(name, sc, cols, rows, keep):
                 tmux('send-keys', '-t', sess, st[1])
             elif st[0] == 'sleep':
                 time.sleep(st[1])
+            elif st[0] == 'exit':       # Ctrl+D on the empty editor ends pi; its last output stays in the pane
+                alt = tmux('display-message', '-t', sess, '-p', '#{alternate_on}').strip()
+                tmux('send-keys', '-t', sess, 'C-d')
+                end = time.time() + 15
+                while time.time() < end and tmux('display-message', '-t', sess, '-p', '#{pane_dead}').strip() != '1':
+                    time.sleep(0.2)
+                time.sleep(0.5)
+                shots['alt'] = alt
             elif st[0] == 'capture_now':
                 pane = capture(sess, True)
                 shots['now'] = pane
@@ -241,11 +350,22 @@ def run(name, sc, cols, rows, keep):
                 if not wait_text(sess, st[1]):
                     print('[ERROR] %s: never saw %r' % (name, st[1]), file=sys.stderr)
             time.sleep(0.3)
+        if 'alt' not in shots:
+            shots['alt'] = tmux('display-message', '-t', sess, '-p', '#{alternate_on}').strip()
+        if any(st[0] == 'exit' for st in sc['steps']):
+            HIST = True       # what pi left on the main screen: its rows without the dead pane's notice and the blank rest
         pane = shots.get('now') or settle(sess, 1.5)
+        if HIST:
+            keep = lambda t: '\n'.join(l for l in t.split('\n') if not l.startswith('Pane is dead')).rstrip('\n ') + '\n'
+            pane = keep(pane)
         with open(os.path.join(OUT, name + '.golden'), 'w') as f:
             f.write(pane)
         with open(os.path.join(OUT, name + '.txt'), 'w') as f:
-            f.write(capture(sess, False))
+            f.write(keep(capture(sess, False)) if HIST else capture(sess, False))
+        with open(os.path.join(OUT, name + '.mode'), 'w') as f:      # what tmux saw before pi left
+            f.write('pi=%s tuiMode=%s theme=%s alternate_screen=%s\n' % (PI_VERSION, sc.get('tui', 'fullscreen'), sc.get('theme', 'system'), shots['alt']))
+        if sc.get('raw'):
+            shutil.copyfile(rawlog, os.path.join(OUT, name + '.raw'))
         for i, a in enumerate(sc['answers']):
             if a[0] in ('sse', 'slow'):
                 with open(os.path.join(OUT, '%s.%d.sse' % (name, i + 1)), 'w') as f:

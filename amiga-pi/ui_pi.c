@@ -74,6 +74,23 @@ void pi_ui_set_quiet(int quiet)
     ui_quiet = quiet;
 }
 
+static int ui_regular, ui_hint_only, ui_bar;
+static const char *(*ui_resume)(void *u);
+static void *ui_resume_u;
+
+void pi_ui_set_tui(int regular, int hint_only, int scrollbar_always)
+{
+    ui_regular = regular;
+    ui_hint_only = hint_only;
+    ui_bar = scrollbar_always;
+}
+
+void pi_ui_set_resume(const char *(*fn)(void *u), void *u)
+{
+    ui_resume = fn;
+    ui_resume_u = u;
+}
+
 void pi_ui_set_cwd(const char *cwd)
 {
     cl_copy(ui_cwd, cwd ? cwd : "", sizeof(ui_cwd));
@@ -671,6 +688,9 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     else
         pitheme_system(&p->theme);
     t->look = TUI_LOOK_PI;
+    t->screen = ui_regular ? TUI_SCREEN_REGULAR : TUI_SCREEN_FULL;
+    t->exit_hint_only = ui_hint_only;
+    t->scrollbar = ui_bar;
     t->pith = &p->theme;
     t->cmds = ui_cmds;
     t->ncmds = ui_ncmds;
@@ -918,6 +938,14 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         say_end(&p);
     }
     if (t) {
+        if (p.look && ui_resume) {
+            /* pi: "To resume this session: <command>" when the session has a file */
+            const char *cmd = ui_resume(ui_resume_u);
+            if (cmd && cmd[0]) {
+                cl_copy(t->exit_hint, "\033[2mTo resume this session:\033[22m ", sizeof(t->exit_hint));
+                cl_cat(t->exit_hint, cmd, sizeof(t->exit_hint));
+            }
+        }
         tui_stop(t);
         if (p.look)
             pshow_free(&p.ps);

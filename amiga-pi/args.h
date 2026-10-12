@@ -48,6 +48,7 @@ typedef struct pi_args {
     char pattern[160];          /* --model as given: a pattern, optionally provider/ and :thinking */
     char api_key[512];          /* --api-key */
     int thinking;               /* --thinking as LT_*, -1 not given */
+    int tui_mode;               /* --tui-mode: 1 fullscreen, 2 regular, 0 settings.json decides */
     int list_models;            /* --list-models */
     char list_search[64];
     char prompt[4096];

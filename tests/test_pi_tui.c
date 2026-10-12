@@ -37,9 +37,16 @@ typedef struct scen {
     const char *answers[4];     /* tests/pi/tui/<file>: .sse streamed, .http whole */
     int tools;                  /* 1 read answers, 2 bash fails */
     int header;                 /* the start header is shown (else settings.json has quietStartup)  */
-    int when;                   /* 0 at rest after the keys, 1 while the agent works (after the keys) */
+    int when;                   /* 0 at rest after the keys, 1 while the agent works (after the keys), 2 while a tool runs, 4 at rest like 0 with the clock running (a turn long enough for C:Claude's notice),
+                                 * 3 the screen pi leaves on the main screen when it ends (the golden's .txt) */
     mask masks[12];
 } scen;
+/* what settings.json holds for a scenario follows from its name, as tools/pi_oracle/tui_gen.py wrote it: reg_*
+ * tuiMode "regular" (else pi's default, fullscreen), dark_* / light_* the theme, *_bar fullscreenScrollbar "always" */
+#define SC_REGULAR(sc) (!strncmp((sc)->name, "reg_", 4) || !strcmp((sc)->name, "exit_regular"))
+#define SC_BAR(sc) (strstr((sc)->name, "_bar") != 0)
+#define SC_HINT(sc) (strstr((sc)->name, "exit_hint") != 0)     /* fullscreenExitOutput "resume-hint" */
+#define SC_THEME(sc) (!strncmp((sc)->name, "dark_", 5) ? 1 : !strncmp((sc)->name, "light_", 6) ? 2 : 0)
 static int cmp_shift;           /* the capture's row r is on our screen at row r + cmp_shift (a selector drawn at the bottom) */
 
 static char *slurp(const char *name, long *n)
@@ -233,11 +240,98 @@ static void compare(void)
         }
 }
 
+/* the command pi prints on leaving; its session id is a fresh uuid in every capture (masked in exit_check) */
+static const char *test_resume(void *u)
+{
+    (void)u;
+    return "pi --session 01a130bf-0000-7000-8000-000000000000";
+}
+
+/* the text of the screen pi leaves behind (tuiMode / fullscreenExitOutput), row by row against the capture's .txt */
+static void exit_check(const scen *sc)
+{
+    char fn[80];
+    char *g, *nl;
+    long n;
+    int r = 0, bad = 0;
+    cl_copy(fn, sc->name, sizeof(fn));
+    cl_cat(fn, ".txt", sizeof(fn));
+    g = slurp(fn, &n);
+    CHECK(g != 0);
+    if (!g)
+        return;
+    for (nl = g; *nl; r++) {
+        char *e = strchr(nl, '\n');
+        const char *want_row = nl;
+        long cut = 0;
+        if (e)
+            *e = 0;
+        if (!strncmp(want_row, "To resume this session: pi --session ", 37))
+            cut = 37;       /* the id is masked */
+        if (strncmp(cs_row(r), want_row, cut ? (size_t)cut : strlen(want_row) + 1) != 0) {
+            bad++;
+            printf("    exit row %d: pi [%s] amiga-pi [%s]\n", r + 1, want_row, cs_row(r));
+        }
+        if (!e)
+            break;
+        nl = e + 1;
+    }
+    CHECK_INT(bad, 0);
+    free(g);
+}
+
+/* TM4: no bell and no OSC 9 in an output stream: the stream with its OSC sequences (the title ends in BEL) cut out
+ * holds no BEL, and no OSC 9 was sent. 1 when quiet */
+static int stream_quiet(const char *b, long n)
+{
+    long i;
+    int quiet = 1;
+    for (i = 0; i < n; i++) {
+        if (b[i] == '\033' && i + 1 < n && b[i + 1] == ']') {
+            if (i + 2 < n && b[i + 2] == '9' && i + 3 < n && b[i + 3] == ';')
+                quiet = 0;                  /* OSC 9: a desktop notice */
+            for (i += 2; i < n && b[i] != 7 && !(b[i] == '\033' && i + 1 < n && b[i + 1] == '\\'); i++)
+                ;
+            continue;
+        }
+        if (b[i] == 7)
+            quiet = 0;                      /* a bare bell */
+    }
+    return quiet;
+}
+
+static void turn_quiet_check(void)
+{
+    long n = 0;
+    char *raw = slurp("turn_raw.raw", &n);
+    CHECK(raw != 0);
+    if (raw) {
+        CHECK(stream_quiet(raw, n));        /* pi 1.0.4: nothing when a turn ends */
+        CHECK(strstr(raw, "late answer") != 0);     /* (the stream holds the turn: it is not empty) */
+        free(raw);
+    }
+    CHECK(stream_quiet(cs.sent.p, cs.sent.n));
+    CHECK_INT(h_bells, 0);
+}
+
+static void compare_in_tool(pi_session *s)
+{
+    (void)s;
+    if (!taken)
+        compare();
+    tool_hook = 0;
+}
+
 static void hook(void)
 {
-    if (taken || !strstr(cs_row(cs.rows - 1), "fake-model"))   /* the footer is up */
+    int r, up = 0;
+    for (r = 0; r < cs.rows; r++)           /* the footer is up (regular mode: not on the last row) */
+        up |= strstr(cs_row(r), "fake-model") != 0;
+    if (cur->when == 4)
+        cs.clock += 12000;            /* every read of a long turn is twelve seconds on: C:Claude would ring at its end */
+    if (taken || !up || cur->when == 2 || cur->when == 3)     /* when 2: compare_in_tool takes the screen */
         return;
-    if (cur->when == 0) {
+    if (cur->when == 0 || cur->when == 4) {
         if (cs.read_ms > 0 && cs.script[cs.next] && !strcmp(cs.script[cs.next], "\004"))
             compare();
     } else if (cs.read_ms == 0 && cs.script[cs.next] && !strcmp(cs.script[cs.next], "\004") && cs.next > 0) {
@@ -267,6 +361,15 @@ static void run(const scen *sc)
     cur = sc;
     pi_ui_set_theme(0);                 /* the system theme and pi's keys, whatever an earlier test left */
     pi_ui_set_keybindings(0, 0);
+    pi_ui_set_tui(SC_REGULAR(sc), SC_HINT(sc), SC_BAR(sc));
+    pi_ui_set_resume(sc->when == 3 ? test_resume : 0, 0);
+    if (SC_THEME(sc)) {
+        static cl_pitheme th;
+        const char *bt = SC_THEME(sc) == 1 ? pi_theme_dark : pi_theme_light;
+        char err[200];
+        CHECK_INT(pitheme_load(&th, bt, (long)strlen(bt), pi_okcolor, err, sizeof(err)), 0);
+        pi_ui_set_theme(&th);
+    }
     taken = 0;
     diffs = 0;
     memset(rowdiff, 0, sizeof(rowdiff));
@@ -321,7 +424,7 @@ static void run(const scen *sc)
     CHECK(want != 0);
     if (!want)
         return;
-    cs_open(80, want_rows, script);
+    cs_open(80, want_rows + (sc->when == 3 ? 8 : 0), script);
     cs.before_read = hook;
     cs_io(&io);
     pi_ui_set_cwd("~/project");
@@ -329,7 +432,14 @@ static void run(const scen *sc)
     pi_ui_set_commands(pi_cmds, (int)(sizeof(pi_cmds) / sizeof(pi_cmds[0])));
     if (sc->when == 1)
         ps.silent = 1;
+    tool_hook = sc->when == 2 ? compare_in_tool : 0;
     CHECK_INT(pi_ui_run(&ses, &io, 0), 0);
+    if (sc->when == 3) {
+        exit_check(sc);
+        taken = 1;
+    }
+    if (sc->when == 4)
+        turn_quiet_check();
     CHECK(taken);
     if (diffs) {
         printf("  %s: %d cells differ from pi's capture\n%s", sc->name, diffs, first_diff);
@@ -675,17 +785,23 @@ static void rest_hook(void)
 
 /* pi_app with the keys typed on a screen of cols x rows; the answers streamed in order. The exit code. */
 static const char *app_session;     /* --session <file> for the next app_run, 0 none */
+static const char *app_tui_cli;     /* --tui-mode <x> for the next app_run, 0 none */
+static char *app_out;               /* every byte the last app_run wrote to the screen */
 
 static int app_run(int cols, int rows, const char **keys, const char *const *sse, int nsse, void (*rest)(void))
 {
     cl_io io;
     pi_platform pl;
-    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0, 0, 0 };
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0, 0, 0, 0, 0 };
     int i, rc, argc = 3;
     if (app_session) {
         a[3] = "--session";
         a[4] = (char *)app_session;
         argc = 5;
+    }
+    if (app_tui_cli) {
+        a[argc++] = (char *)"--tui-mode";
+        a[argc++] = (char *)app_tui_cli;
     }
     ps_reset();
     ps_pool_up(LLM_POOL);
@@ -719,6 +835,10 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pl.data_dir = adata;
     pl.agent_dir = aagent;
     rc = pi_app(argc, a, &pl);
+    free(app_out);
+    app_out = (char *)malloc((size_t)cs.sent.n + 1);
+    if (app_out)
+        memcpy(app_out, cs.sent.p, (size_t)cs.sent.n + 1);
     cs_close();
     return rc;
 }
@@ -1312,6 +1432,41 @@ static void test_theme_keys_app(void)
 }
 
 
+/* TM1 through pi_app: settings.json tuiMode / fullscreenExitOutput and --tui-mode choose the screen. Fullscreen is the
+ * default (the alternate screen is entered and left, the conversation and the resume line written on the main screen);
+ * "regular" never enters it; "resume-hint" writes the line alone; the command line wins over the file */
+static void test_tui_mode_app(void)
+{
+    static const char *keys[] = { "hello\r", "\004", 0 };
+    static const char *sse[] = { "twice.1.sse" };
+    const char *after;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 25, keys, sse, 1, 0), 0);
+    CHECK(app_out && strstr(app_out, "\033[?1049h") != 0);
+    after = app_out ? strstr(app_out, "\033[?1049l") : 0;
+    CHECK(after != 0);
+    CHECK(after && strstr(after, "answer one") != 0);                       /* the conversation on the main screen */
+    CHECK(after && strstr(after, "To resume this session:") != 0);
+    CHECK(after && strstr(after, "amiga-pi --session ") != 0);
+    app_write("settings.json", "{\"quietStartup\":true,\"fullscreenExitOutput\":\"resume-hint\"}\n");
+    CHECK_INT(app_run(80, 25, keys, sse, 1, 0), 0);
+    after = app_out ? strstr(app_out, "\033[?1049l") : 0;
+    CHECK(after != 0);
+    CHECK(after && strstr(after, "answer one") == 0);                        /* the line alone */
+    CHECK(after && strstr(after, "To resume this session:") != 0);
+    app_write("settings.json", "{\"quietStartup\":true,\"tuiMode\":\"regular\"}\n");
+    CHECK_INT(app_run(80, 25, keys, sse, 1, 0), 0);
+    CHECK(app_out && strstr(app_out, "\033[?1049h") == 0);
+    CHECK(app_out && strstr(app_out, "To resume this session:") != 0);
+    app_tui_cli = "fullscreen";
+    CHECK_INT(app_run(80, 25, keys, sse, 1, 0), 0);
+    CHECK(app_out && strstr(app_out, "\033[?1049h") != 0);
+    app_tui_cli = 0;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    free(app_out);
+    app_out = 0;
+}
+
 /* ---- the trust question as pi's selector (the capture is tests/pi/tui/approval.golden) ---- */
 
 static void approval_rest(void)
@@ -1453,6 +1608,37 @@ static const scen scenarios[] = {
       { { 21, 21, 3, 3, "spinner frame" }, { 25, 25, 0, 6, "context estimate" } } },
     { "bang", { "!!echo hi\r", "!!!echo secret\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* TM1/TM3: pi's regular mode (the editor follows the content; fullscreen's `twice` above pins it) */
+    { "reg_start", { 0 }, { 0 }, 0, 1, 0,
+      { HDR_VER, { 5, 25, 0, 79, "start header: pi's help panel and tips are not drawn, the footer follows five rows higher" } } },
+    { "reg_empty", { 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "reg_twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "reg_markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
+    { "reg_long", { "more markdown\r", 0 }, { "markdown2.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* TM1: the fullscreen viewport: the end followed, a page back (the jump indicator), the scrollbar */
+    { "fs_long", { "more markdown\r", 0 }, { "markdown2.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "fs_long_up", { "more markdown\r", "\033[5~", 0 }, { "markdown2.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "fs_long_bar", { "more markdown\r", "\033[5~", 0 }, { "markdown2.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* TM1: what pi leaves on the main screen when it ends: the conversation and the footer, then the resume line
+     * (fullscreen "transcript", regular), or the resume line alone (fullscreen "resume-hint") */
+    { "exit_transcript", { "first\r", 0 }, { "exit_transcript.1.sse", 0 }, 0, 0, 3, { { 0, 0, 0, 0, 0 } } },
+    { "exit_hint", { "first\r", 0 }, { "exit_hint.1.sse", 0 }, 0, 0, 3, { { 0, 0, 0, 0, 0 } } },
+    { "exit_regular", { "first\r", 0 }, { "exit_regular.1.sse", 0 }, 0, 0, 3, { { 0, 0, 0, 0, 0 } } },
+    /* TM4: pi rings nothing at the end of a long turn (C:Claude's screen rings and sends OSC 9) */
+    { "turn_raw", { "hello\r", 0 }, { "turn_raw.1.sse", 0 }, 0, 0, 4, { { 25, 25, 0, 6, "context estimate" } } },
+    /* TM6: pi's dark and light themes: the panels' backgrounds */
+    { "dark_start", { 0 }, { 0 }, 0, 1, 0, { HDR_VER, HDR_HELP } },
+    { "dark_twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
+    { "dark_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_toolerr", { "run it\r", 0 }, { "toolerr.1.sse", "toolerr.2.sse", 0 }, 2, 0, 0,
+      { { 13, 13, 6, 8, "elapsed time of the run" } } },
+    /* the box while the tool runs (toolPendingBg); pi's live "Elapsed" rows are not drawn */
+    { "dark_toolrun", { "run it\r", 0 }, { "dark_toolrun.1.sse", "dark_toolrun.2.sse", 0 }, 2, 0, 2,
+      { { 7, 9, 0, 79, "the live Elapsed row of a running tool" }, { 21, 21, 3, 3, "spinner frame" } } },
+    { "dark_bang", { "!!echo hi\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "light_twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "light_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
 };
 
 void suite_pi_tui(void)
@@ -1472,6 +1658,7 @@ void suite_pi_tui(void)
     test_ctrl_d();
     test_themes();
     test_theme_keys_app();
+    test_tui_mode_app();
     test_approval();
     test_footer_cost();
     app_cleanup();

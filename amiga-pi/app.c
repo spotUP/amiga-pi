@@ -91,6 +91,45 @@ static int quiet_setting(const pi_platform *pl)
     return quiet;
 }
 
+/* settings.json's tuiMode ("regular" | "fullscreen", pi's default), fullscreenExitOutput ("transcript" | "resume-hint")
+ * and fullscreenScrollbar ("auto" | "always" | "hidden"; "auto" shows the bar on a pointer's hover only, and there is
+ * no pointer here): into the arguments of pi_ui_set_tui. fullscreenCopyOnSelect and fullscreenWheelScrollLines are
+ * read by pi for its own mouse handling; amiga-pi takes no mouse (COMPATIBILITY.md, pi-tui group). cli: --tui-mode */
+static void tui_settings(const pi_platform *pl, int cli, int *regular, int *hint_only, int *bar)
+{
+    char *b, path[300], v[32];
+    long n;
+    jv o, x;
+    *regular = *hint_only = *bar = 0;
+    if (!settings_text(pl, &b, &n, path, sizeof(path))) {
+        if (!json_parse(b, n, &o)) {
+            if (json_get(o, "tuiMode", &x) && json_type(x) == J_STR && (json_str(x, v, sizeof(v)), !strcmp(v, "regular")))
+                *regular = 1;
+            if (json_get(o, "fullscreenExitOutput", &x) && json_type(x) == J_STR &&
+                (json_str(x, v, sizeof(v)), !strcmp(v, "resume-hint")))
+                *hint_only = 1;
+            if (json_get(o, "fullscreenScrollbar", &x) && json_type(x) == J_STR &&
+                (json_str(x, v, sizeof(v)), !strcmp(v, "always")))
+                *bar = 1;
+        }
+        CL_FREE(b);
+    }
+    if (cli)
+        *regular = cli == 2;
+}
+
+/* pi's resume line: the command that opens this session again, only when its file exists */
+static const char *resume_cmd(void *u)
+{
+    static char cmd[400];
+    pi_store *st = (pi_store *)u;
+    if (!st->s3.persist || !st->s3.flushed || !st->s3.id[0])
+        return "";
+    cl_copy(cmd, "amiga-pi --session ", sizeof(cmd));
+    cl_cat(cmd, st->s3.id, sizeof(cmd));
+    return cmd;
+}
+
 /* settings.json's steeringMode / followUpMode: 1 for "all", 0 for "one-at-a-time" (the default) */
 static int queue_mode_all(const pi_platform *pl, const char *key)
 {
@@ -675,6 +714,12 @@ int pi_rt_run(pi_rt *rt)
         long kn = 0;
         pi_ui_set_cwd(pl->cwd);
         pi_ui_set_quiet(quiet_setting(pl));
+        {
+            int reg, hint, bar;
+            tui_settings(pl, a.tui_mode, &reg, &hint, &bar);
+            pi_ui_set_tui(reg, hint, bar);
+            pi_ui_set_resume(resume_cmd, &store);
+        }
         load_theme(pl, &th);
         theme_depth(pl, &th);
         pi_ui_set_theme(&th);
