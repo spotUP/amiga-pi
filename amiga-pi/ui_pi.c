@@ -23,7 +23,7 @@ typedef struct pi_ui {
     cl_pitheme theme;
     pi_pstatus pst;             /* OSC 7501 program status (pstatus.h) */
     int pst_on;                 /* the screen is up and reports go through pst */
-    char name[160];             /* the session's name, part of the working and done reports */
+    char name[160];             /* the session's name as pst_name last read it from the store */
 } pi_ui;
 
 /* the slash commands the menu offers: pi's own names and descriptions (core/slash-commands.js, in its order) of
@@ -121,9 +121,15 @@ static void pst_write(void *u, const char *z, long n)
         tui_raw(p->ui.tui, z, n);
 }
 
+/* pi: getSessionName() on the session manager at every report (interactive-mode.ts programStatus), so a name given
+ * at the start (--name, a resumed named session) is there before any session-info event */
 static const char *pst_name(void *u)
 {
-    return ((pi_ui *)u)->name;
+    pi_ui *p = (pi_ui *)u;
+    pi_store *st = (pi_store *)p->s->command_u;
+    if (st && p->s->command && s3_name(&st->s3, p->name, sizeof(p->name)) > 0)
+        return p->name;
+    return 0;
 }
 
 static void status(pi_ui *p);
@@ -139,8 +145,6 @@ static void on_event(void *u, const pi_event *e)
 {
     pi_ui *p = (pi_ui *)u;
     if (p->pst_on) {
-        if (e->type == PE_SESSION_INFO)
-            cl_copy(p->name, e->msg ? e->msg : "", sizeof(p->name));
         pi_pstatus_event(&p->pst, e);
     }
     if (p->print && !(e->type == PE_COMPACTION_END && e->is_error))

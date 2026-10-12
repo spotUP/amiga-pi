@@ -792,13 +792,14 @@ static void rest_hook(void)
 /* pi_app with the keys typed on a screen of cols x rows; the answers streamed in order. The exit code. */
 static const char *app_session;     /* --session <file> for the next app_run, 0 none */
 static const char *app_tui_cli;     /* --tui-mode <x> for the next app_run, 0 none */
+static const char *app_name_cli;    /* --name <x> for the next app_run, 0 none */
 static char *app_out;               /* every byte the last app_run wrote to the screen */
 
 static int app_run(int cols, int rows, const char **keys, const char *const *sse, int nsse, void (*rest)(void))
 {
     cl_io io;
     pi_platform pl;
-    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0, 0, 0, 0, 0 };
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     int i, rc, argc = 3;
     if (app_session) {
         a[3] = "--session";
@@ -808,6 +809,10 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     if (app_tui_cli) {
         a[argc++] = (char *)"--tui-mode";
         a[argc++] = (char *)app_tui_cli;
+    }
+    if (app_name_cli) {
+        a[argc++] = (char *)"--name";
+        a[argc++] = (char *)app_name_cli;
     }
     ps_reset();
     ps_pool_up(LLM_POOL);
@@ -1370,6 +1375,37 @@ static void test_program_status(void)
     CHECK_INT(app_out ? osc7501(app_out, (long)strlen(app_out), ours, 8) : -1, 0);
 }
 
+/* Q1: pi reads the session's name from the session manager at every report (interactive-mode.ts programStatus), so a
+ * name given at the start (--name) is on the working and done reports of the first turn, with no session-info event */
+static void test_program_status_name(void)
+{
+    static const char *keys[] = { "hello\r", "\004", 0 };
+    static const char *const sse[] = { "turn_raw.1.sse" };
+    char got[8][80];
+    jw w, d;
+    int n, ok = 0;
+    jw_init(&w);
+    jw_init(&d);
+    pi_pstatus_format(&w, PST_WORKING, "amiga-pi", PSK_NONE, "named at start");
+    pi_pstatus_format(&d, PST_DONE, "amiga-pi", PSK_NONE, "named at start");
+    app_pstatus = "1";
+    app_name_cli = "named at start";
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 25, keys, sse, 1, take_shot), 0);
+    app_name_cli = 0;
+    app_pstatus = 0;
+    n = app_out ? osc7501(app_out, (long)strlen(app_out), got, 8) : 0;
+    CHECK_INT(n, 4);
+    if (n == 4 && w.p && d.p) {
+        /* osc7501 cuts the terminator off */
+        ok = !strncmp(got[1], w.p, strlen(w.p) - 2) && !strncmp(got[2], d.p, strlen(d.p) - 2);
+        CHECK(!strstr(got[0], ":msg="));                /* idle carries no message */
+    }
+    CHECK(ok);
+    jw_free(&w);
+    jw_free(&d);
+}
+
 /* the reporter's mapping of events to states (program-status-reporter.ts handleEvent) and pi's formatProgramStatus */
 static char pst_out[2000];
 static void pst_sink(void *u, const char *z, long n)
@@ -1894,6 +1930,7 @@ void suite_pi_tui(void)
     test_default_tools_setting();
     test_program_status();
     test_pstatus_states();
+    test_program_status_name();
     test_context_figure();
     test_ctrl_d();
     test_themes();
