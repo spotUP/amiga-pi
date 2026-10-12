@@ -1,3 +1,5 @@
 build/
 thoughts/spot/
 thoughts/searchable/
+__pycache__/
+*.pyc
