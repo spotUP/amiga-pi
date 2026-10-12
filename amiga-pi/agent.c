@@ -468,6 +468,7 @@ static int answer(pi_session *s, stream *t)
     llm_acc_init(&t->acc, s->model.api, s->model.provider);
     llm_acc_model(&t->acc, s->model.id, s->model.cost);
     llm_acc_level(&t->acc, llm_ant_effort(&s->model, s->thinking));
+    llm_acc_thinking(&t->acc, llm_think_name(s->thinking));     /* pi-agent-core: the level the loop asked at, "off" too */
     k.u = t;
     k.ev = st_ev;
     memset(&q, 0, sizeof(q));
@@ -507,6 +508,11 @@ static int answer(pi_session *s, stream *t)
     llm_acc_message(&t->acc, now(s), &m);
     i = keep(s, &m);
     jw_free(&m);
+    if (i >= 0) {
+        llm_info inf;
+        if (llm_msg_info(s->msg[i], s->msg_n[i], &inf) >= 0 && inf.stop != LS_ERROR && inf.stop != LS_LENGTH)
+            s->overflow_tried = 0;      /* pi: message_end of an answer that is neither an error nor a length stop */
+    }
     return i;
 }
 
@@ -596,8 +602,8 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     e.structured_n = s->structured.n;
     pi_emit(&s->em, &e);
     jw_init(&m);
-    llm_m_toolresult(&m, b->id, b->name, content.p, content.n, is_error ? "{}" : 0, is_error ? 2 : 0, is_error,
-                     now(s));
+    llm_m_toolresult(&m, b->id, b->name, content.p, content.n, is_error && !s->structured.n ? "{}" : 0,
+                     is_error && !s->structured.n ? 2 : 0, is_error, now(s));
     i = keep(s, &m);
     jw_free(&m);
     if (i >= 0) {
@@ -766,7 +772,7 @@ static int run_end(pi_session *s, int answered)
     if (!will && s->attempt && s->stop == LS_ERROR)
         emit_retry_end(s, 0, s->err[0] ? s->err : "Unknown error");
     if (!will && answered && s->compact)
-        s->compact(s->compact_u, s, PI_CP_END);
+        s->recover = s->compact(s->compact_u, s, PI_CP_END) == 1;
     return s->stop;
 }
 
@@ -786,6 +792,7 @@ static int add_user(pi_session *s, const char *text)
     i = keep(s, &w);
     jw_free(&w);
     if (i >= 0) {
+        s->overflow_tried = 0;          /* pi: message_start of a user message */
         emit_msg(s, PE_MESSAGE_START, i, LR_USER);
         emit_msg(s, PE_MESSAGE_END, i, LR_USER);
     }
@@ -984,14 +991,32 @@ int pi_prompt(pi_session *s, const char *text)
     s->active = 1;
     s->attempt = 0;
     s->retry_stop = 0;
+    s->recover = 0;
     /* the context against the window before the user message is kept */
     if (s->compact)
         s->compact(s->compact_u, s, PI_CP_PROMPT);
+    if (s->started) {
+        void (*f)(void *) = s->started;
+        s->started = 0;
+        f(s->started_u);
+    }
     rc = run(s, text);
-    while (retry_will(s)) {
+    /* a failed answer pi retries after its delay; a context overflow the store compacted is asked again at once, and
+     * only once (the store keeps count: its second overflow ends the run, as pi's _overflowRecoveryAttempted) */
+    for (;;) {
         pi_event e;
-        long delay = s->retry_base, cap = s->retry_max_delay;
-        int k, last = s->nmsg - 1;
+        long delay, cap;
+        int k, last;
+        if (!retry_will(s)) {
+            if (!s->recover)
+                break;
+            s->recover = 0;
+            rc = run(s, 0);
+            continue;
+        }
+        delay = s->retry_base;
+        cap = s->retry_max_delay;
+        last = s->nmsg - 1;
         s->attempt++;
         for (k = 1; k < s->attempt && delay < cap; k++)
             delay *= 2;

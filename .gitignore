@@ -4,3 +4,4 @@ thoughts/searchable/
 __pycache__/
 *.pyc
 vendor/pi-1.0.4/
+vendor/pi-src/

@@ -705,6 +705,11 @@ static int busy(const cmd *c)
     return 0;
 }
 
+static void prompt_started(void *u)
+{
+    ok((const cmd *)u, "{\"disposition\":\"started\"}");
+}
+
 static void cmd_prompt(const cmd *c)
 {
     pi_rpc *r = c->r;
@@ -738,7 +743,8 @@ static void cmd_prompt(const cmd *c)
         return;
     }
     free(sb);
-    ok(c, "{\"disposition\":\"started\"}");
+    s->started = prompt_started;        /* the response follows the check before the prompt, as pi's preflightResult */
+    s->started_u = (void *)c;
     pi_prompt(s, msg);
     free(msg);
     r->abort_req = 0;

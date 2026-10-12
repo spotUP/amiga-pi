@@ -1,0 +1,5 @@
+HTTP/1.1 400 X
+content-type: application/json
+content-length: 126
+
+{"type": "error", "error": {"type": "invalid_request_error", "message": "prompt is too long: 213462 tokens > 200000 maximum"}}

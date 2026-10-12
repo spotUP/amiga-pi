@@ -1,0 +1,26 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "compaction": {
+   "keepRecentTokens": 10
+  }
+ },
+ "session": "new",
+ "files": {},
+ "answers": [
+  "sse",
+  "sse",
+  "http",
+  "sse",
+  "sse",
+  "http",
+  "sse",
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write"
+}

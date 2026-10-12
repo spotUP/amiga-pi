@@ -34,6 +34,7 @@ static void partial_message(const pi_session *s, const llm_acc *a, jw *w)
     llm_meta m;
     llm_ts ts;
     llm_acc_meta(a, &m);
+    m.thinking_level = 0;       /* the agent loop adds it to the finished message only */
     ts.sec = 0;
     ts.ms = 0;
     if (s->now)
@@ -180,7 +181,7 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
             jw_rawz(w, ",\"structuredContent\":");
             jw_raw(w, e->structured, e->structured_n);
         }
-        if (e->is_error)
+        if (e->is_error && !e->structured)      /* a thrown error has details {}; bash's non-zero exit is a result */
             jw_rawz(w, ",\"details\":{}");
         jw_rawz(w, "}");
         put_key(w, "isError");

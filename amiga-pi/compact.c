@@ -736,6 +736,10 @@ static void add_usage(llm_usage *a, const llm_usage *b)
     a->output += b->output;
     a->cache_read += b->cache_read;
     a->cache_write += b->cache_write;
+    if (a->has_1h || b->has_1h) {   /* pi's combineUsage: the sum has cacheWrite1h when either has it, in its place */
+        a->cache_write_1h += b->cache_write_1h;
+        a->has_1h = a->combined = 1;
+    }
     for (i = 0; i < 4; i++)
         a->cost[i] += b->cost[i];
 }

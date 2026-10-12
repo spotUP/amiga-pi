@@ -218,12 +218,13 @@ static void test_reach_openai(void)
 
 /* ---- the session store's compaction checks, at pi's points ---- */
 
-static void check_rec(void *u, pi_session *s, int when)
+static int check_rec(void *u, pi_session *s, int when)
 {
     static const char *const names[] = { "check prompt\n", "check turn\n", "check end\n" };
     (void)u;
     (void)s;
     jw_rawz(&evlog, when >= 0 && when <= 2 ? names[when] : "check ?\n");
+    return 0;
 }
 
 /* pi (agent-session.ts prompt(), agent-loop.ts prepareNextTurn, _handlePostAgentRun): before the agent starts

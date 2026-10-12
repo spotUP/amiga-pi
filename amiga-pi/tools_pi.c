@@ -695,6 +695,89 @@ static int from_result(const char *block, long n, jw *text, jw *imgs, int *nimg)
     return json_get(b, "is_error", &x) && json_type(x) == J_TRUE;
 }
 
+static llm_ts clock_of(pi_session *s)
+{
+    llm_ts t;
+    t.sec = 0;
+    t.ms = 0;
+    return s && s->now ? s->now(s->h.u) : t;
+}
+
+/* ---- structuredContent of a result (pi-agent-core AgentToolResult.structuredContent), what tool_execution_end carries ---- */
+
+/* read (pi read.js toReadOutput): the text, or for an image {type, data, mimeType, note} */
+static void structured_read(jw *st, const jw *text, const jw *imgs)
+{
+    jv arr, img, d, mt;
+    jw wrap;
+    int ok = 0;
+    jw_reset(st);
+    if (imgs->n > 1) {
+        jw_init(&wrap);
+        jw_rawz(&wrap, "[");
+        jw_raw(&wrap, imgs->p + 1, imgs->n - 1);        /* imgs starts with the "," that joins it to the text block */
+        jw_rawz(&wrap, "]");
+        if (!wrap.oom && json_parse(wrap.p, wrap.n, &arr) == 0) {
+            jit it;
+            json_iter(arr, &it);
+            if (json_next(&it, 0, &img) && json_get(img, "data", &d) && json_get(img, "mimeType", &mt)) {
+                jw_rawz(st, "{\"type\":\"image\",\"data\":");
+                jw_raw(st, d.p, d.n);
+                jw_rawz(st, ",\"mimeType\":");
+                jw_raw(st, mt.p, mt.n);
+                jw_rawz(st, ",\"note\":");
+                jw_str(st, text->p ? text->p : "", text->n);
+                jw_rawz(st, "}");
+                ok = 1;
+            }
+        }
+        jw_free(&wrap);
+    }
+    if (!ok)
+        jw_str(st, text->p ? text->p : "", text->n);
+}
+
+/* bash (pi bash.js BashToolOutput): the output without the status, truncated false (PI_CAPTURE is under pi's
+ * 1 MiB structured limit), the command's exit code and its wall time in tenths of a second */
+static void structured_bash(jw *st, const char *out, long n, long exit_code, long tenths)
+{
+    jw_reset(st);
+    jw_rawz(st, "{\"output\":");
+    if (n == 11 && !memcmp(out, "(no output)", 11))
+        n = 0;                  /* the placeholder is in the model's text only */
+    jw_str(st, out, n);
+    jw_rawz(st, ",\"truncated\":false,\"exit_code\":");
+    jw_long(st, exit_code);
+    jw_rawz(st, ",\"wall_time_seconds\":");
+    jw_long(st, tenths / 10);
+    if (tenths % 10) {
+        jw_rawz(st, ".");
+        jw_long(st, tenths % 10);
+    }
+    jw_rawz(st, "}");
+}
+
+/* the exit code in a bash result's status ("Command exited with code N"); 0 without a status, -1 the command did not
+ * finish (timed out, aborted: pi throws, the result has no structured content) */
+static int bash_exit(const char *status, long sn, long *code)
+{
+    static const char ex[] = "Command exited with code ";
+    long i = 0, v = 0;
+    while (i < sn && status[i] == '\n')
+        i++;
+    if (i >= sn) {
+        *code = 0;
+        return 0;
+    }
+    if (sn - i <= (long)sizeof(ex) - 1 || memcmp(status + i, ex, sizeof(ex) - 1))
+        return -1;
+    i += (long)sizeof(ex) - 1;
+    for (; i < sn && status[i] >= '0' && status[i] <= '9'; i++)
+        v = v * 10 + (status[i] - '0');
+    *code = v;
+    return 0;
+}
+
 /* ---- the run ---- */
 
 static int run(void *u, pi_session *s, const char *args, long an, jw *content, int *is_error)
@@ -706,11 +789,16 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
     char err[300];
     jv a, sch;
     jw text, res, imgs, in;
+    llm_ts t0 = { 0, 0 }, t1 = { 0, 0 };
+    long sn0 = 0;
+    int ran = 0;
     jw_init(&text);
     jw_init(&res);
     jw_init(&imgs);
     jw_init(&in);
     *is_error = 0;
+    if (s)
+        jw_reset(&s->structured);
     if (json_parse(args, an, &a) || json_type(a) != J_OBJ) {
         jw_rawz(&text, "Validation failed for tool \"");
         jw_rawz(&text, names[kind]);
@@ -727,6 +815,8 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
     } else {
         pi_tool_runs[kind]++;
         p->t.pi_status_n = 0;
+        ran = 1;
+        t0 = clock_of(s);
         if (kind == PT_LS)
             *is_error = run_ls(p, a, &text);
         else if (kind == PT_GREP || kind == PT_FIND)
@@ -740,11 +830,21 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
                 tools_run(&p->t, id, tools_name(tool), 1, in.p, in.n, &res);
             *is_error = from_result(res.p ? res.p : "", res.n, &text, &imgs, &nimg);
         }
+        t1 = clock_of(s);
+        sn0 = p->t.pi_status_n > 0 && p->t.pi_status_n <= text.n ? p->t.pi_status_n : 0;
         if (p->t.stop) {
             /* Ctrl+C stopped the command: the prompt stops too */
             p->t.stop = 0;
             stopped = 1;
         }
+    }
+    if (s && ran && !*is_error && kind == PT_READ)
+        structured_read(&s->structured, &text, &imgs);
+    else if (s && ran && kind == PT_BASH) {
+        long code;
+        if (bash_exit(text.p ? text.p + text.n - sn0 : "", sn0, &code) == 0 && (sn0 > 0 || !*is_error))
+            structured_bash(&s->structured, text.p ? text.p : "", text.n - sn0, code,
+                            ((t1.sec - t0.sec) * 1000L + (t1.ms - t0.ms) + 50) / 100);
     }
     jw_rawz(content, "[");
     if (kind == PT_BASH) {
