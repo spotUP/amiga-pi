@@ -231,7 +231,7 @@ static void on_event(void *u, const pi_event *e)
         break;
     case PE_TOOL_END:
         if (p->look) {
-            pshow_tool_end(&p->ps, e->result, e->result_n, e->is_error, -1);    /* live: the call's clock (batch A's tool_execution_end durationMs replaces -1) */
+            pshow_tool_end(&p->ps, e->result, e->result_n, e->is_error, e->duration_ms);    /* pi 1.1.0: the recorded durationMs, -1 the clock */
             break;
         }
         if (e->is_error) {
