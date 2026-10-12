@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "show_pi.h"
+#include "ansi.h"
 #include "claude/util.h"
 #include "claude/json.h"
 #include "claude/show.h"
@@ -24,6 +25,8 @@ static long pwid(const pi_show *s)
     return s->t->cols - 2 * (long)s->pad;
 }
 
+static void box_forget(pi_show *s);
+
 /* the SGR of a role into buf */
 static const char *sg(const pi_show *s, int role, char *buf)
 {
@@ -39,6 +42,8 @@ static void raw(pi_show *s, const char *z)
 static void out(pi_show *s)
 {
     if (s->batch.n) {
+        if (s->nbox)
+            jw_raw(&s->shadow, s->batch.p, s->batch.n);       /* a box may have to be drawn again with this below it */
         tui_lines(s->t, s->batch.p, s->batch.n);
         jw_reset(&s->batch);
     }
@@ -74,6 +79,22 @@ static void say(pi_show *s, int role, const char *attr, const char *text)
     say_pad(s, s->pad, role, attr, text);
 }
 
+/* the length of an SGR sequence at p that starts from a reset (ESC[0m, ESC[m, ESC[0;..m: hl_sgr writes a style that way),
+ * else 0 */
+static long sgr_reset_len(const char *p, long n)
+{
+    long i = 2;
+    if (n < 3 || p[0] != '\033' || p[1] != '[')
+        return 0;
+    if (p[i] == 'm')
+        return 3;
+    if (p[i] != '0' || i + 1 >= n || (p[i + 1] != 'm' && p[i + 1] != ';'))
+        return 0;
+    for (i = 3; i < n && ((p[i] >= '0' && p[i] <= '9') || p[i] == ';'); i++)
+        ;
+    return i < n && p[i] == 'm' ? i + 1 : 0;
+}
+
 /* the rows of the batch from `from` on become a panel, pi's Box: the background of role bg behind every row over
  * the whole width, put back after each reset inside the row. Nothing changes when the theme draws no background
  * there (pi's system theme). The ONE place the panels' backgrounds are drawn; the colours are the theme's tokens. */
@@ -98,10 +119,11 @@ static void panel(pi_show *s, long from, int bgrole)
         w = tui_width(tmp + a, i - a);
         jw_rawz(&s->batch, bg);
         for (j = a; j < i; j++) {
-            if (tmp[j] == '\033' && j + 3 < i && tmp[j + 1] == '[' && tmp[j + 2] == '0' && tmp[j + 3] == 'm') {
-                jw_rawz(&s->batch, SGR0);
+            long rl = sgr_reset_len(tmp + j, i - j);
+            if (rl) {
+                jw_raw(&s->batch, tmp + j, rl);
                 jw_rawz(&s->batch, bg);
-                j += 3;
+                j += rl - 1;
             } else
                 jw_raw(&s->batch, tmp + j, 1);
         }
@@ -126,7 +148,7 @@ void pshow_init(pi_show *s, cl_tui *t, const cl_pitheme *th)
     s->pad = 1;
     jw_init(&s->line);
     jw_init(&s->batch);
-    jw_init(&s->args);
+    jw_init(&s->shadow);
     pshow_theme(s, th);
 }
 
@@ -137,7 +159,8 @@ void pshow_free(pi_show *s)
     s->md = 0;
     jw_free(&s->line);
     jw_free(&s->batch);
-    jw_free(&s->args);
+    box_forget(s);
+    jw_free(&s->shadow);
 }
 
 /* ---- the answer ---- */
@@ -335,6 +358,9 @@ void pshow_error(pi_show *s, const char *text)
 
 /* ---- tool calls ---- */
 
+/* pi's getTextOutput (core/tools/render-utils.ts:39-48): the text blocks of a result, each cleaned of its escape sequences, binary
+ * garbage and carriage returns (stripAnsi, sanitizeBinaryOutput; ansi.c), joined by newlines. The bash, read, ls, find and
+ * grep renderers all show this, and executeBash (!cmd) keeps the same text. */
 long pshow_result_text(const char *json, long n, jw *o)
 {
     jv c, b, t, x;
@@ -352,7 +378,7 @@ long pshow_result_text(const char *json, long n, jw *o)
             if (z) {
                 if (any)
                     jw_raw(o, "\n", 1);
-                jw_raw(o, z, l);
+                pi_ansi_clean(z, l, o);
                 any = 1;
             }
             free(z);
@@ -490,26 +516,187 @@ static void header_line(pi_show *s, const char *name, jv a)
     raw(s, "\n");
 }
 
-void pshow_tool_start(pi_show *s, const char *name, const char *args, long an)
+static unsigned long clock_ms(const pi_show *s)
 {
+    return s->t->io->ms ? s->t->io->ms(s->t->io->u) : 0;
+}
+
+/* the tool boxes no longer tracked (the screen was cleared, a session drawn again, the end) */
+static void box_forget(pi_show *s)
+{
+    int i;
+    for (i = 0; i < s->nbox; i++) {
+        jw_free(&s->box[i].args);
+        jw_free(&s->box[i].partial);
+    }
+    s->nbox = 0;
+    jw_reset(&s->shadow);
+}
+
+static void box_drop(pi_show *s, int i)
+{
+    jw_free(&s->box[i].args);
+    jw_free(&s->box[i].partial);
+    for (; i + 1 < s->nbox; i++)
+        s->box[i] = s->box[i + 1];
+    s->nbox--;
+    if (!s->nbox)
+        jw_reset(&s->shadow);
+}
+
+static ps_box *box_find(pi_show *s, const char *id)
+{
+    int i;
+    for (i = 0; i < s->nbox; i++)
+        if (!strcmp(s->box[i].id, id))
+            return &s->box[i];
+    return 0;
+}
+
+static long count_lines(const char *p, long n)
+{
+    long k = 0, i;
+    for (i = 0; i < n; i++)
+        k += p[i] == '\n';
+    return k;
+}
+
+/* what the end of a tool puts in its box */
+typedef struct box_result {
+    const char *json;
+    long n;
+    int is_error;
+    long duration_ms;
+} box_result;
+
+static void bash_result(pi_show *s, const char *text, unsigned long ms, long recorded, int live);
+static void result_lines(pi_show *s, const char *text, int role, int max);
+
+/* the rows of a tool's box into the batch: pi's ToolExecutionComponent, a Box(outputPad, 1) holding the call's header
+ * and the result renderer's rows, over toolPendingBg until the result is final, then toolSuccessBg / toolErrorBg */
+static void box_build(pi_show *s, const ps_box *b, const box_result *r)
+{
+    jw text;
     jv a;
-    s->n_tools++;
-    cl_copy(s->name, name, sizeof(s->name));
-    jw_reset(&s->args);
-    jw_raw(&s->args, args, an);
-    jw_rawz(&s->args, "");
-    s->t0 = s->t->io->ms ? s->t->io->ms(s->t->io->u) : 0;
-    if (json_parse(s->args.p, s->args.n, &a))
+    long from = s->batch.n;
+    if (json_parse(b->args.p, b->args.n, &a))
         a.p = 0, a.n = 0;
+    blank(s);
+    header_line(s, b->name, a);
+    jw_init(&text);
+    if (!r) {
+        /* running: bash shows its output so far and "Elapsed" (bash.ts:61-111); pi's renderResult runs only once a
+         * partial result exists, and the bash tool sends an empty one when it starts (core/tools/bash.ts:318) */
+        if (b->elapsed)
+            bash_result(s, b->partial.p ? b->partial.p : "", clock_ms(s) - b->t0, -1, 1);
+    } else {
+        pshow_result_text(r->json, r->n, &text);
+        jw_rawz(&text, "");
+        if (!strcmp(b->name, "bash"))
+            bash_result(s, text.p ? text.p : "", clock_ms(s) - b->t0, r->duration_ms, 0);
+        else if (r->is_error && text.n) {
+            blank(s);
+            say(s, PR_ERROR, "", text.p);
+        } else if (!strcmp(b->name, "ls") || !strcmp(b->name, "find"))
+            result_lines(s, text.p ? text.p : "", PR_TOOL_OUTPUT, 20);
+        else if (!strcmp(b->name, "grep"))
+            result_lines(s, text.p ? text.p : "", PR_TOOL_OUTPUT, 15);
+    }
+    blank(s);                       /* the box's bottom padding */
+    jw_free(&text);
+    panel(s, from, !r ? PR_TOOL_PENDING_BG : r->is_error ? PR_TOOL_ERROR_BG : PR_TOOL_SUCCESS_BG);
+}
+
+/* box b drawn again where it is: its text in the copy replaced, the transcript from its first line on replaced by the
+ * copy from there (the boxes and lines written after it stay as they were). 0, -1 when the transcript is not what the
+ * copy says (cleared, other lines written meanwhile): nothing is tracked then */
+static int box_redraw(pi_show *s, ps_box *b, const box_result *r)
+{
+    long delta, at;
+    int i;
+    if (s->t->n_lines != s->base + count_lines(s->shadow.p ? s->shadow.p : "", s->shadow.n)) {
+        box_forget(s);
+        jw_reset(&s->batch);
+        return -1;
+    }
+    box_build(s, b, r);
+    delta = s->batch.n - b->len;
+    {
+        jw copy;
+        jw_init(&copy);
+        jw_raw(&copy, s->shadow.p, b->off);
+        jw_raw(&copy, s->batch.p, s->batch.n);
+        jw_raw(&copy, s->shadow.p + b->off + b->len, s->shadow.n - b->off - b->len);
+        jw_free(&s->shadow);
+        s->shadow = copy;
+    }
+    for (i = 0; i < s->nbox; i++)
+        if (s->box[i].off > b->off)
+            s->box[i].off += delta;
+    b->len = s->batch.n;
+    jw_reset(&s->batch);
+    at = s->base + count_lines(s->shadow.p, b->off);
+    tui_replace_tail(s->t, at, s->shadow.p + b->off, s->shadow.n - b->off);
+    return 0;
+}
+
+void pshow_tool_start(pi_show *s, const char *id, const char *name, const char *args, long an)
+{
+    ps_box nb, *b = 0;
+    s->n_tools++;
     spacer(s);                      /* the block is a blank line below what is above it, with one of its own inside */
     out(s);
-    s->box_mark = s->t->n_lines;
-    blank(s);
-    header_line(s, name, a);
-    blank(s);
-    panel(s, 0, PR_TOOL_PENDING_BG);    /* pi's box while the tool runs; the end draws it again in its final colour */
+    memset(&nb, 0, sizeof(nb));
+    cl_copy(nb.id, id ? id : "", sizeof(nb.id));
+    cl_copy(nb.name, name, sizeof(nb.name));
+    jw_init(&nb.args);
+    jw_raw(&nb.args, args, an);
+    jw_rawz(&nb.args, "");
+    jw_init(&nb.partial);
+    nb.t0 = clock_ms(s);
+    nb.elapsed = !s->replay && !strcmp(name, "bash");
+    box_build(s, &nb, 0);           /* pi's box while the tool runs; the end draws it again in its final colour */
+    if (s->nbox < PS_BOXES) {
+        if (!s->nbox) {
+            jw_reset(&s->shadow);
+            s->base = s->t->n_lines;
+        }
+        s->box[s->nbox] = nb;
+        b = &s->box[s->nbox++];
+        b->off = s->shadow.n;
+        b->len = s->batch.n;
+    } else
+        jw_free(&nb.args), jw_free(&nb.partial);
     out(s);
-    s->box_end = s->t->n_lines;
+}
+
+void pshow_tool_update(pi_show *s, const char *id, const char *result, long rn)
+{
+    ps_box *b = box_find(s, id ? id : "");
+    if (!b || !b->elapsed)
+        return;
+    jw_reset(&b->partial);
+    pshow_result_text(result, rn, &b->partial);
+    jw_rawz(&b->partial, "");
+    box_redraw(s, b, 0);
+}
+
+void pshow_tick(pi_show *s)
+{
+    int i;
+    unsigned long now;
+    if (!s->nbox)
+        return;
+    now = clock_ms(s);
+    for (i = 0; i < s->nbox; i++) {
+        ps_box *b = &s->box[i];
+        long secs = (long)((now - b->t0) / 1000);
+        if (b->elapsed && secs > b->ticks) {
+            b->ticks = secs;
+            if (box_redraw(s, b, 0))
+                return;
+        }
+    }
 }
 
 /* the duration as pi writes it */
@@ -570,8 +757,9 @@ static void result_lines(pi_show *s, const char *text, int role, int max)
     }
 }
 
-/* bash: the last five lines of the output, "... (N earlier lines, ctrl+o to expand)" above when more */
-static void bash_result(pi_show *s, const char *text, unsigned long ms, long recorded)
+/* bash: the last five lines of the output, "... (N earlier lines, ctrl+o to expand)" above when more, then how long it
+ * took (live: how long it has run so far) */
+static void bash_result(pi_show *s, const char *text, unsigned long ms, long recorded, int live)
 {
     char b[48], dur[24], m[96], num[16];
     jw all;
@@ -619,62 +807,181 @@ static void bash_result(pi_show *s, const char *text, unsigned long ms, long rec
     /* pi 1.1.0 renderers/bash.ts:104-111: a final result's recorded durationMs wins (it survives a reload); the clock of
      * the call is the fallback while the tool runs and for results recorded without one, and a replayed result with
      * none shows no Took */
-    if (recorded >= 0)
+    if (!live && recorded >= 0)
         ms = (unsigned long)recorded;
-    else if (s->replay)
+    else if (!live && s->replay)
         return;
     duration(ms, dur);
     blank(s);
-    cl_copy(m, "Took ", sizeof(m));
+    cl_copy(m, live ? "Elapsed " : "Took ", sizeof(m));
     cl_cat(m, dur, sizeof(m));
     show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_MUTED, b), m, (long)strlen(m), pwid(s));
     (void)rows;
 }
 
-void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error, long duration_ms)
+void pshow_tool_end(pi_show *s, const char *id, const char *result, long rn, int is_error, long duration_ms)
 {
-    jw text;
-    jv a;
-    long hdr_end, hdr_rows;
-    unsigned long ms = (s->t->io->ms ? s->t->io->ms(s->t->io->u) : 0) - s->t0;
+    ps_box *b;
+    box_result r;
     out(s);
-    if (json_parse(s->args.p, s->args.n, &a))
-        a.p = 0, a.n = 0;
-    blank(s);                       /* the box again: its top padding and the header ... */
-    header_line(s, s->name, a);
-    for (hdr_rows = 0, hdr_end = 0; hdr_end < s->batch.n; hdr_end++)
-        hdr_rows += s->batch.p[hdr_end] == '\n';
-    jw_init(&text);
-    pshow_result_text(result, rn, &text);
-    jw_rawz(&text, "");
-    if (!strcmp(s->name, "bash"))
-        bash_result(s, text.p ? text.p : "", ms, duration_ms);
-    else if (is_error && text.n) {
-        blank(s);
-        say(s, PR_ERROR, "", text.p);
-    } else if (!strcmp(s->name, "ls") || !strcmp(s->name, "find"))
-        result_lines(s, text.p ? text.p : "", PR_TOOL_OUTPUT, 20);
-    else if (!strcmp(s->name, "grep"))
-        result_lines(s, text.p ? text.p : "", PR_TOOL_OUTPUT, 15);
-    blank(s);                       /* the block's bottom padding */
-    jw_free(&text);
-    panel(s, 0, is_error ? PR_TOOL_ERROR_BG : PR_TOOL_SUCCESS_BG);
-    if (s->box_end == s->t->n_lines && s->box_end > s->box_mark) {
-        /* nothing came after the pending box: it is replaced by the finished one */
-        tui_replace_tail(s->t, s->box_mark, s->batch.p, s->batch.n);
-        jw_reset(&s->batch);
-    } else {
-        /* something is under it (a second tool): the result goes below, the header keeps its colour */
-        long skip = 0, at = 0;
-        while (skip < hdr_rows && at < s->batch.n) {
-            if (s->batch.p[at] == '\n')
-                skip++;
-            at++;
-        }
-        tui_lines(s->t, s->batch.p + at, s->batch.n - at);
-        jw_reset(&s->batch);
+    b = box_find(s, id ? id : "");
+    if (!b)
+        return;                     /* not one of ours (the screen was cleared meanwhile) */
+    r.json = result;
+    r.n = rn;
+    r.is_error = is_error;
+    r.duration_ms = duration_ms;
+    box_redraw(s, b, &r);
+    b = box_find(s, id ? id : "");  /* box_redraw may have forgotten them all */
+    if (b)
+        box_drop(s, (int)(b - s->box));
+}
+
+/* ---- custom, compaction-summary and branch-summary messages ---- */
+
+/* pi 1.1.0 components/{custom-message,compaction-summary-message,branch-summary-message}.ts: a Box(outputPad, 1) over
+ * customMessageBg holding a bold label in customMessageLabel, a blank row and the text in customMessageText. The blank
+ * row above the box is a Spacer(1) that interactive-mode.ts:3903,3914 (summaries) and custom-message.ts:34 (custom)
+ * add whether or not the chat has anything above. The box's rows are collected from `from` and drawn by panel(). */
+static long box_begin(pi_show *s, const char *label)
+{
+    char b[48], l[200];
+    long from;
+    blank(s);
+    s->any = 1;
+    from = s->batch.n;
+    blank(s);                       /* the box's top padding row */
+    cl_copy(l, pd(s), sizeof(l));
+    cl_cat(l, BOLD, sizeof(l));
+    cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_LABEL, b), sizeof(l));
+    cl_cat(l, "[", sizeof(l));
+    cl_cat(l, label, sizeof(l));
+    cl_cat(l, "]" SGR0, sizeof(l));
+    raw(s, l);
+    raw(s, "\n");
+    blank(s);                       /* Spacer(1) under the label */
+    return from;
+}
+
+static void box_end(pi_show *s, long from)
+{
+    blank(s);                       /* the bottom padding row */
+    panel(s, from, PR_CUSTOM_MESSAGE_BG);
+    out(s);
+}
+
+/* tokensBefore.toLocaleString(): groups of three digits split by commas */
+static void grouped(long v, char *o)
+{
+    char d[24];
+    int n, i, k = 0;
+    cl_ltoa(v < 0 ? -v : v, d);
+    n = (int)strlen(d);
+    if (v < 0)
+        o[k++] = '-';
+    for (i = 0; i < n; i++) {
+        if (i && (n - i) % 3 == 0)
+            o[k++] = ',';
+        o[k++] = d[i];
     }
-    s->box_end = s->box_mark = 0;
+    o[k] = 0;
+}
+
+/* the collapsed line: customMessageText around the dim key hint */
+static void box_collapsed(pi_show *s, const char *before, const char *after)
+{
+    char b[48], l[300];
+    cl_copy(l, pd(s), sizeof(l));
+    cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_TEXT, b), sizeof(l));
+    cl_cat(l, before, sizeof(l));
+    cl_cat(l, sg(s, PR_DIM, b), sizeof(l));
+    cl_cat(l, "ctrl+o", sizeof(l));
+    cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_TEXT, b), sizeof(l));
+    cl_cat(l, after, sizeof(l));
+    cl_cat(l, SGR0, sizeof(l));
+    raw(s, l);
+    raw(s, "\n");
+}
+
+void pshow_compaction_summary(pi_show *s, long tokens_before)
+{
+    char n[32], t[80];
+    long from;
+    grouped(tokens_before, n);
+    cl_copy(t, "Compacted from ", sizeof(t));
+    cl_cat(t, n, sizeof(t));
+    cl_cat(t, " tokens (", sizeof(t));
+    from = box_begin(s, "compaction");
+    box_collapsed(s, t, " to expand)");
+    box_end(s, from);
+}
+
+void pshow_branch_summary(pi_show *s)
+{
+    long from = box_begin(s, "branch");
+    box_collapsed(s, "Branch summary (", " to expand)");
+    box_end(s, from);
+}
+
+static void mdbox_sink(void *u, const char *p, long n)
+{
+    jw_raw((jw *)u, p, n);
+}
+
+/* Markdown(text, 0, 0, theme, {color: customMessageText}): the Markdown at the box's width, every row in the base
+ * colour put back after each reset; the blank rows before and after the text are not kept */
+static void mdbox_text(pi_show *s, const char *text, long n)
+{
+    jw md;
+    vw_out vo;
+    md_opts mo;
+    char base[48];
+    long a = 0, i, start = 0, stop = 0;
+    jw_init(&md);
+    vo_init(&vo, mdbox_sink, &md, VW_UTF8, s->th->depth >= 256 ? s->th->depth : 16, &s->hlt);
+    mo.width = pwid(s);
+    mo.urls = 1;
+    mo.look = MD_LOOK_PI;
+    md_render(text, n, &mo, &vo);
+    vo_flush(&vo);
+    sg(s, PR_CUSTOM_MESSAGE_TEXT, base);
+    for (i = 0; i < md.n; i++)      /* the first and last rows with something on them */
+        if (md.p[i] == '\n') {
+            if (tui_width(md.p + a, i - a)) {
+                if (!stop)
+                    start = a;
+                stop = i + 1;
+            }
+            a = i + 1;
+        }
+    for (a = start, i = start; i < stop; i++) {
+        long j;
+        if (md.p[i] != '\n')
+            continue;
+        raw(s, pd(s));
+        raw(s, base);
+        for (j = a; j < i; j++) {
+            long rl = sgr_reset_len(md.p + j, i - j);
+            if (rl) {
+                jw_raw(&s->batch, md.p + j, rl);
+                raw(s, base);
+                j += rl - 1;
+            } else
+                jw_raw(&s->batch, md.p + j, 1);
+        }
+        raw(s, SGR0 "\n");
+        a = i + 1;
+    }
+    jw_free(&md);
+}
+
+/* a custom message (a session's custom_message entry) with display true: its customType as the label, its text as
+ * Markdown. Extension message renderers (custom-message.ts:80-98) are not run. */
+void pshow_custom(pi_show *s, const char *type, const char *text, long n)
+{
+    long from = box_begin(s, type);
+    mdbox_text(s, text, n);
+    box_end(s, from);
 }
 
 /* ---- the conversation again ---- */
@@ -690,7 +997,7 @@ static void flush_calls(pi_show *s, pcall *c, int *n)
     int i;
     for (i = 0; i < *n; i++) {
         if (!c[i].shown)
-            pshow_tool_start(s, c[i].name, c[i].args.p ? c[i].args.p : "{}", c[i].args.n);
+            pshow_tool_start(s, c[i].id, c[i].name, c[i].args.p ? c[i].args.p : "{}", c[i].args.n);
         jw_free(&c[i].args);
     }
     *n = 0;
@@ -698,17 +1005,23 @@ static void flush_calls(pi_show *s, pcall *c, int *n)
 
 void pshow_replay(pi_show *s, const struct pi_session *ses)
 {
+    pshow_replay_msgs(s, ses->msg, ses->msg_n, ses->nmsg);
+}
+
+void pshow_replay_msgs(pi_show *s, char *const *msg, const long *msg_n, int nmsg)
+{
     pcall calls[PI_TOOLS];
     int ncall = 0, i;
     cl_render r;
+    box_forget(s);
     s->replay = 1;
     s->any = 0;
     pshow_render(s, &r);
-    for (i = 0; i < ses->nmsg; i++) {
+    for (i = 0; i < nmsg; i++) {
         jv m, v, c, b, t, x;
         jit it;
         char role[24];
-        if (json_parse(ses->msg[i], ses->msg_n[i], &m) || !json_get(m, "role", &v))
+        if (json_parse(msg[i], msg_n[i], &m) || !json_get(m, "role", &v))
             continue;
         json_str(v, role, sizeof(role));
         if (strcmp(role, "toolResult"))
@@ -768,6 +1081,47 @@ void pshow_replay(pi_show *s, const struct pi_session *ses)
                     ncall++;
                 }
             }
+        } else if (!strcmp(role, "compactionSummary")) {
+            long tb = json_get(m, "tokensBefore", &v) && json_type(v) == J_NUM ? json_long(v, 0) : 0;
+            pshow_compaction_summary(s, tb);
+        } else if (!strcmp(role, "branchSummary")) {
+            pshow_branch_summary(s);
+        } else if (!strcmp(role, "custom")) {
+            /* interactive-mode.ts:3889: only a message with display true is drawn */
+            if (json_get(m, "display", &v) && v.n >= 4 && !memcmp(v.p, "true", 4)) {
+                char ty[80];
+                jw w;
+                ty[0] = 0;
+                if (json_get(m, "customType", &v))
+                    json_str(v, ty, sizeof(ty));
+                jw_init(&w);
+                if (json_get(m, "content", &c)) {
+                    if (json_type(c) == J_STR) {
+                        long n;
+                        char *z = json_strdup(c, &n);
+                        if (z)
+                            jw_raw(&w, z, n);
+                        free(z);
+                    } else if (json_type(c) == J_ARR) {
+                        int any = 0;
+                        json_iter(c, &it);
+                        while (json_next(&it, 0, &b))
+                            if (json_get(b, "type", &t) && json_streq(t, "text") && json_get(b, "text", &x)) {
+                                long n;
+                                char *z = json_strdup(x, &n);
+                                if (z) {
+                                    if (any)
+                                        jw_raw(&w, "\n", 1);
+                                    jw_raw(&w, z, n);
+                                    any = 1;
+                                }
+                                free(z);
+                            }
+                    }
+                }
+                pshow_custom(s, ty, w.p ? w.p : "", w.n);
+                jw_free(&w);
+            }
         } else if (!strcmp(role, "toolResult")) {
             char id[80];
             int k;
@@ -780,17 +1134,18 @@ void pshow_replay(pi_show *s, const struct pi_session *ses)
                     long dur = -1;          /* the toolResult's durationMs (pi 1.1.0 ToolResultMessage), -1 none recorded */
                     if (json_get(m, "durationMs", &v) && json_type(v) == J_NUM)
                         dur = json_long(v, -1);
-                    pshow_tool_start(s, calls[k].name, calls[k].args.p ? calls[k].args.p : "{}", calls[k].args.n);
+                    pshow_tool_start(s, calls[k].id, calls[k].name, calls[k].args.p ? calls[k].args.p : "{}", calls[k].args.n);
                     if (json_get(m, "content", &c))
-                        pshow_tool_end(s, c.p, c.n, err, dur);
+                        pshow_tool_end(s, calls[k].id, c.p, c.n, err, dur);
                     else
-                        pshow_tool_end(s, "[]", 2, err, dur);
+                        pshow_tool_end(s, calls[k].id, "[]", 2, err, dur);
                     calls[k].shown = 1;
                     break;
                 }
         }
     }
     flush_calls(s, calls, &ncall);
+    box_forget(s);
     s->replay = 0;
 }
 

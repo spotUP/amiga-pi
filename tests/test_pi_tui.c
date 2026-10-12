@@ -318,9 +318,55 @@ static void turn_quiet_check(void)
 
 static void compare_in_tool(pi_session *s)
 {
-    (void)s;
-    if (!taken)
+    if (!taken) {
+        if (strstr(cur->name, "toolrun")) {
+            /* Q9: pi's Elapsed row of a running bash call changes once a second (renderers/bash.ts:131); the golden was
+             * taken a second into `sleep 4` ("Elapsed 1.0s"): the pinned clock goes a second on and the poll ticks
+             * (every read of this clock is 10 ms on: 960 here, the reads since the start and this one make up the rest) */
+            if (strstr(cur->name, "toolrun_out")) {
+                /* the bash tool's update with the output so far (Q6: tool_execution_update per chunk) */
+                pi_event e;
+                pi_event_init(&e, PE_TOOL_UPDATE);
+                e.tool_id = s->call_id;
+                e.tool_name = "bash";
+                e.args = "{}";
+                e.args_n = 2;
+                e.result = "[{\"type\":\"text\",\"text\":\"hi\\n\"}]";
+                e.result_n = (long)strlen(e.result);
+                pi_emit(&s->em, &e);
+            }
+            cs.clock += 960;
+            s->h.poll(s->h.u);
+        }
         compare();
+    }
+    tool_hook = 0;
+}
+
+/* Q10: pi runs the tool calls of one message in parallel, and a box takes the colour of its own result whenever that
+ * arrives. amiga-pi's agent runs them one by one, so the second call's events are made here: it starts and ends while
+ * the first one runs, and the agent's end of the first comes after, with the first box no longer the last thing on
+ * the screen. The golden is pi's screen for both calls (dark_tools2; tools/pi_oracle/tui_gen.py). */
+static void nested_tools(pi_session *s)
+{
+    static const char args[] = "{\"command\":\"echo hi\"}";
+    static const char res[] = "[{\"type\":\"text\",\"text\":\"hi\\n\"}]";
+    pi_event e;
+    pi_event_init(&e, PE_TOOL_START);
+    e.tool_id = "toolu_p2";
+    e.tool_name = "bash";
+    e.args = args;
+    e.args_n = (long)strlen(args);
+    pi_emit(&s->em, &e);
+    pi_event_init(&e, PE_TOOL_END);
+    e.tool_id = "toolu_p2";
+    e.tool_name = "bash";
+    e.args = args;
+    e.args_n = (long)strlen(args);
+    e.result = res;
+    e.result_n = (long)strlen(res);
+    e.duration_ms = 0;
+    pi_emit(&s->em, &e);
     tool_hook = 0;
 }
 
@@ -435,7 +481,7 @@ static void run(const scen *sc)
     pi_ui_set_commands(pi_cmds, (int)(sizeof(pi_cmds) / sizeof(pi_cmds[0])));
     if (sc->when == 1)
         ps.silent = 1;
-    tool_hook = sc->when == 2 ? compare_in_tool : 0;
+    tool_hook = sc->when == 2 ? compare_in_tool : !strcmp(sc->name, "dark_tools2") ? nested_tools : 0;
     CHECK_INT(pi_ui_run(&ses, &io, 0), 0);
     if (sc->when == 3) {
         exit_check(sc);
@@ -792,13 +838,15 @@ static void rest_hook(void)
 /* pi_app with the keys typed on a screen of cols x rows; the answers streamed in order. The exit code. */
 static const char *app_session;     /* --session <file> for the next app_run, 0 none */
 static const char *app_tui_cli;     /* --tui-mode <x> for the next app_run, 0 none */
+static const char *app_name_cli;    /* --name <x> for the next app_run, 0 none */
+static const char *app_sdir_cli;    /* --session-dir <x> for the next app_run, 0 none */
 static char *app_out;               /* every byte the last app_run wrote to the screen */
 
 static int app_run(int cols, int rows, const char **keys, const char *const *sse, int nsse, void (*rest)(void))
 {
     cl_io io;
     pi_platform pl;
-    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0, 0, 0, 0, 0 };
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     int i, rc, argc = 3;
     if (app_session) {
         a[3] = "--session";
@@ -808,6 +856,14 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     if (app_tui_cli) {
         a[argc++] = (char *)"--tui-mode";
         a[argc++] = (char *)app_tui_cli;
+    }
+    if (app_name_cli) {
+        a[argc++] = (char *)"--name";
+        a[argc++] = (char *)app_name_cli;
+    }
+    if (app_sdir_cli) {
+        a[argc++] = (char *)"--session-dir";
+        a[argc++] = (char *)app_sdir_cli;
     }
     ps_reset();
     ps_pool_up(LLM_POOL);
@@ -1064,30 +1120,33 @@ static void resume_rest(void)
     compare();
 }
 
-static void test_resume_took(void)
+static void resume_case(const char *name, const char *file, const char *settings)
 {
     static const char *keys[] = { "\004", 0 };
-    static scen sc = { "resume_took", { 0 }, { 0 }, 0, 0, 0, { { 21, 25, 0, 79, "the editor border (the thinking level of the model) and the footer: the capture's model is the fake one" } } };
+    static scen sc = { "", { 0 }, { 0 }, 0, 0, 0, { { 21, 25, 0, 79, "the editor border (the thinking level of the model) and the footer: the capture's model is the fake one" } } };
     char path[600];
     int i;
-    if (!put_session("took_session.jsonl", "took_session.jsonl", path))
+    sc.name = name;
+    if (!put_session(file, file, path))
         return;
-    app_write("settings.json", "{\"quietStartup\":true}\n");
+    app_write("settings.json", settings);
     cur = &sc;
     taken = 0;
     diffs = 0;
     memset(rowdiff, 0, sizeof(rowdiff));
     first_diff[0] = 0;
-    load_golden("resume_took");
+    load_golden(name);
     CHECK(want != 0);
     if (!want)
         return;
+    sc.masks[0].r0 = want_rows - 5;     /* the editor border and the footer, at the bottom of whatever the capture's height */
+    sc.masks[0].r1 = want_rows;
     app_session = path;
     CHECK_INT(app_run(80, want_rows, keys, 0, 0, resume_rest), 0);
     app_session = 0;
     CHECK(taken);
     if (diffs) {
-        printf("  resume_took: %d cells differ from pi's capture\n%s", diffs, first_diff);
+        printf("  %s: %d cells differ from pi's capture\n%s", name, diffs, first_diff);
         if (getenv("PI_TUI_ROWS"))
             for (i = 0; i < want_rows; i++)
                 if (rowdiff[i]) {
@@ -1097,6 +1156,31 @@ static void test_resume_took(void)
     }
     CHECK_INT(diffs, 0);
     vt_free(want);
+}
+
+static void test_resume_took(void)
+{
+    resume_case("resume_took", "took_session.jsonl", "{\"quietStartup\":true}\n");
+}
+
+/* Q2: pi 1.1.0 getTextOutput (core/tools/render-utils.ts:39-48, used by renderers/bash.ts:52) strips escape sequences,
+ * binary garbage and carriage returns from the text blocks of a tool result at render time. The session holds a bash
+ * result with SGR, EL and an OSC title in its text; the golden is pi's own screen for it ("red plain tail"). */
+static void test_resume_ansi(void)
+{
+    resume_case("resume_ansi", "ansi_session.jsonl", "{\"quietStartup\":true}\n");
+}
+
+/* Q8: a resumed session with a compaction summary, a custom message (display true) and a branch summary: pi 1.1.0's
+ * three components over customMessageBg (components/compaction-summary-message.ts, custom-message.ts,
+ * branch-summary-message.ts), in the system, dark and light themes and with outputPad 0 */
+static void test_resume_summaries(void)
+{
+    resume_case("resume_summaries", "summaries_session.jsonl", "{\"quietStartup\":true}\n");
+    resume_case("dark_resume_summaries", "summaries_session.jsonl", "{\"quietStartup\":true,\"theme\":\"dark\"}\n");
+    resume_case("light_resume_summaries", "summaries_session.jsonl", "{\"quietStartup\":true,\"theme\":\"light\"}\n");
+    resume_case("dark_pad0_resume_summaries", "summaries_session.jsonl",
+                "{\"quietStartup\":true,\"theme\":\"dark\",\"outputPad\":0}\n");
 }
 
 /* Enter in the selector moves the leaf (a user message goes back to the editor) and the conversation is drawn again */
@@ -1368,6 +1452,37 @@ static void test_program_status(void)
     CHECK(app_out && strstr(app_out, "\033]7501;?") == 0);      /* no query is written */
     CHECK_INT(app_run(80, 25, keys, sse, 1, take_shot), 0);      /* unset: nothing */
     CHECK_INT(app_out ? osc7501(app_out, (long)strlen(app_out), ours, 8) : -1, 0);
+}
+
+/* Q1: pi reads the session's name from the session manager at every report (interactive-mode.ts programStatus), so a
+ * name given at the start (--name) is on the working and done reports of the first turn, with no session-info event */
+static void test_program_status_name(void)
+{
+    static const char *keys[] = { "hello\r", "\004", 0 };
+    static const char *const sse[] = { "turn_raw.1.sse" };
+    char got[8][80];
+    jw w, d;
+    int n, ok = 0;
+    jw_init(&w);
+    jw_init(&d);
+    pi_pstatus_format(&w, PST_WORKING, "amiga-pi", PSK_NONE, "named at start");
+    pi_pstatus_format(&d, PST_DONE, "amiga-pi", PSK_NONE, "named at start");
+    app_pstatus = "1";
+    app_name_cli = "named at start";
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 25, keys, sse, 1, take_shot), 0);
+    app_name_cli = 0;
+    app_pstatus = 0;
+    n = app_out ? osc7501(app_out, (long)strlen(app_out), got, 8) : 0;
+    CHECK_INT(n, 4);
+    if (n == 4 && w.p && d.p) {
+        /* osc7501 cuts the terminator off */
+        ok = !strncmp(got[1], w.p, strlen(w.p) - 2) && !strncmp(got[2], d.p, strlen(d.p) - 2);
+        CHECK(!strstr(got[0], ":msg="));                /* idle carries no message */
+    }
+    CHECK(ok);
+    jw_free(&w);
+    jw_free(&d);
 }
 
 /* the reporter's mapping of events to states (program-status-reporter.ts handleEvent) and pi's formatProgramStatus */
@@ -1695,6 +1810,39 @@ static void test_tui_mode_app(void)
     app_out = 0;
 }
 
+/* Q11: with --session-dir the resume line carries the directory, quoted when it needs it, before --session (pi's
+ * formatResumeCommand; tests/pi/tui/exit_sdir.txt is pi 1.1.0's line for "<work>/my sessions"); the default directory is
+ * left out, and the session is stored in that directory */
+static void test_resume_session_dir(void)
+{
+    static const char *keys[] = { "hello\r", "\004", 0 };
+    static const char *sse[] = { "twice.1.sse" };
+    char dir[500], want[600], line[200];
+    long n = 0;
+    char *g = slurp("exit_sdir.txt", &n);
+    CHECK(g != 0);
+    if (g) {
+        char *l = strstr(g, "To resume this session:");
+        CHECK(l && strstr(l, "pi --session-dir '") != 0);          /* pi: the quoted path first, then --session */
+        CHECK(l && strstr(l, "my sessions'") != 0);
+        free(g);
+    }
+    cl_copy(dir, aroot, sizeof(dir));
+    cl_cat(dir, "/my sessions", sizeof(dir));
+    cl_copy(line, "To resume this session:", sizeof(line));
+    cl_copy(want, "amiga-pi --session-dir '", sizeof(want));
+    cl_cat(want, dir, sizeof(want));
+    cl_cat(want, "' --session ", sizeof(want));
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    app_sdir_cli = dir;
+    CHECK_INT(app_run(80, 25, keys, sse, 1, 0), 0);
+    app_sdir_cli = 0;
+    CHECK(app_out && strstr(app_out, line) != 0);
+    CHECK(app_out && strstr(app_out, want) != 0);
+    CHECK_INT(app_run(80, 25, keys, sse, 1, 0), 0);                /* no option: the line as before */
+    CHECK(app_out && strstr(app_out, "amiga-pi --session ") != 0 && strstr(app_out, "--session-dir") == 0);
+}
+
 /* ---- the trust question as pi's selector (the capture is tests/pi/tui/approval.golden) ---- */
 
 static void approval_rest(void)
@@ -1861,9 +2009,13 @@ static const scen scenarios[] = {
     { "dark_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "dark_toolerr", { "run it\r", 0 }, { "toolerr.1.sse", "toolerr.2.sse", 0 }, 2, 0, 0,
       { { 13, 13, 6, 8, "elapsed time of the run" } } },
-    /* the box while the tool runs (toolPendingBg); pi's live "Elapsed" rows are not drawn */
+    /* the box while the tool runs (toolPendingBg) with its live "Elapsed" row */
     { "dark_toolrun", { "run it\r", 0 }, { "dark_toolrun.1.sse", "dark_toolrun.2.sse", 0 }, 2, 0, 2,
-      { { 7, 9, 0, 79, "the live Elapsed row of a running tool" }, { 21, 21, 3, 3, "spinner frame" } } },
+      { { 21, 21, 3, 3, "spinner frame" } } },
+    { "dark_toolrun_out", { "run it\r", 0 }, { "dark_toolrun_out.1.sse", "dark_toolrun_out.2.sse", 0 }, 2, 0, 2,
+      { { 21, 21, 3, 3, "spinner frame" } } },
+    { "dark_tools2", { "run both\r", 0 }, { "dark_tools2.host.1.sse", "dark_tools2.host.2.sse", 0 }, 2, 0, 0,
+      { { 13, 13, 0, 9, "elapsed time of the first call" } } },
     { "dark_bang", { "!!echo hi\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
     /* P11 (pi 1.1.0): `!!` keeps its dim header; outputPad 0 takes the padding off messages, tool boxes and `!` output */
     { "bang_excluded", { "!!!echo hi\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
@@ -1888,12 +2040,16 @@ void suite_pi_tui(void)
     test_tree();
     test_tree_nav();
     test_resume_took();
+    test_resume_ansi();
+    test_resume_summaries();
     test_export();
     test_bang();
     test_output_pad_setting();
     test_default_tools_setting();
     test_program_status();
     test_pstatus_states();
+    test_program_status_name();
+    test_resume_session_dir();
     test_context_figure();
     test_ctrl_d();
     test_themes();

@@ -11,6 +11,7 @@
 #include "compact.h"
 #include "tree_pi.h"
 #include "store.h"
+#include "context.h"
 
 typedef struct pi_ui {
     cl_ui ui;
@@ -23,7 +24,7 @@ typedef struct pi_ui {
     cl_pitheme theme;
     pi_pstatus pst;             /* OSC 7501 program status (pstatus.h) */
     int pst_on;                 /* the screen is up and reports go through pst */
-    char name[160];             /* the session's name, part of the working and done reports */
+    char name[160];             /* the session's name as pst_name last read it from the store */
 } pi_ui;
 
 /* the slash commands the menu offers: pi's own names and descriptions (core/slash-commands.js, in its order) of
@@ -121,9 +122,50 @@ static void pst_write(void *u, const char *z, long n)
         tui_raw(p->ui.tui, z, n);
 }
 
+/* pi: getSessionName() on the session manager at every report (interactive-mode.ts programStatus), so a name given
+ * at the start (--name, a resumed named session) is there before any session-info event */
 static const char *pst_name(void *u)
 {
-    return ((pi_ui *)u)->name;
+    pi_ui *p = (pi_ui *)u;
+    pi_store *st = (pi_store *)p->s->command_u;
+    if (st && p->s->command && s3_name(&st->s3, p->name, sizeof(p->name)) > 0)
+        return p->name;
+    return 0;
+}
+
+
+/* pi's renderInitialMessages (interactive-mode.ts:4208-4222): the context's AgentMessages drawn (a stored session: the
+ * custom, compaction-summary and branch-summary messages as their own components; ses->msg holds only what the model
+ * is sent), then "Session compacted N time(s)" when the file holds any compaction entry */
+static void redraw_session(pi_ui *p)
+{
+    pi_store *st = (pi_store *)p->s->command_u;
+    pi_ctx c;
+    int i, compactions = 0;
+    if (st && p->s->command) {
+        ctx_init(&c);
+        if (!ctx_build(&st->s3, st->s3.leaf, &c))
+            pshow_replay_msgs(&p->ps, c.msg, c.msg_n, c.n);
+        else
+            pshow_replay(&p->ps, p->s);
+        ctx_free(&c);
+        for (i = 0; i < st->s3.n; i++)
+            compactions += st->s3.e[i].type == S3_COMPACTION;
+    } else
+        pshow_replay(&p->ps, p->s);
+    if (compactions) {
+        char t[48];
+        if (compactions == 1)
+            cl_copy(t, "Session compacted 1 time", sizeof(t));
+        else {
+            char n[16];
+            cl_ltoa(compactions, n);
+            cl_copy(t, "Session compacted ", sizeof(t));
+            cl_cat(t, n, sizeof(t));
+            cl_cat(t, " times", sizeof(t));
+        }
+        pshow_note(&p->ps, PR_DIM, t);
+    }
 }
 
 static void status(pi_ui *p);
@@ -132,15 +174,16 @@ static void sync_queue(pi_ui *p);
 
 static int u_poll(void *u)
 {
-    return ui_poll(&((pi_ui *)u)->ui);
+    pi_ui *p = (pi_ui *)u;
+    if (p->look)
+        pshow_tick(&p->ps);     /* a running bash call's Elapsed row */
+    return ui_poll(&p->ui);
 }
 
 static void on_event(void *u, const pi_event *e)
 {
     pi_ui *p = (pi_ui *)u;
     if (p->pst_on) {
-        if (e->type == PE_SESSION_INFO)
-            cl_copy(p->name, e->msg ? e->msg : "", sizeof(p->name));
         pi_pstatus_event(&p->pst, e);
     }
     if (p->print && !(e->type == PE_COMPACTION_END && e->is_error))
@@ -216,7 +259,7 @@ static void on_event(void *u, const pi_event *e)
         break;
     case PE_TOOL_START:
         if (p->look) {
-            pshow_tool_start(&p->ps, e->tool_name, e->args, e->args_n);
+            pshow_tool_start(&p->ps, e->tool_id, e->tool_name, e->args, e->args_n);
             break;
         }
         {
@@ -229,9 +272,13 @@ static void on_event(void *u, const pi_event *e)
             ui_line(&p->ui, line);
         }
         break;
+    case PE_TOOL_UPDATE:
+        if (p->look)
+            pshow_tool_update(&p->ps, e->tool_id, e->result, e->result_n);
+        break;
     case PE_TOOL_END:
         if (p->look) {
-            pshow_tool_end(&p->ps, e->result, e->result_n, e->is_error, e->duration_ms);    /* pi 1.1.0: the recorded durationMs, -1 the clock */
+            pshow_tool_end(&p->ps, e->tool_id, e->result, e->result_n, e->is_error, e->duration_ms);    /* pi 1.1.0: the recorded durationMs, -1 the clock */
             break;
         }
         if (e->is_error) {
@@ -823,7 +870,7 @@ static void tree_command(pi_ui *p, cl_tui *t)
         else {
             tui_clear(t);
             p->ps.any = 0;
-            pshow_replay(&p->ps, p->s);
+            redraw_session(p);
             if (editor.n && !t->ed.n)
                 tui_set_text(t, editor.p);
             pshow_note(&p->ps, PR_DIM, "Navigated to selected point");
@@ -950,7 +997,7 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         ui_line(&p.ui, hello);
     }
     if (p.look && s->nmsg)
-        pshow_replay(&p.ps, s);        /* a resumed session shows its conversation, as pi's renderInitialMessages */
+        redraw_session(&p);            /* a resumed session shows its conversation, as pi's renderInitialMessages */
     if (first && *first) {
         user_echo(&p, first);
         pi_prompt(s, first);

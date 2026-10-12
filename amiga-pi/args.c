@@ -57,7 +57,7 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
                 return -1;
             }
         }
-        else if (!strcmp(s, "--session") || !strcmp(s, "--name") || !strcmp(s, "-n")) {
+        else if (!strcmp(s, "--session") || !strcmp(s, "--session-dir") || !strcmp(s, "--name") || !strcmp(s, "-n")) {
             if (i + 1 >= argc) {
                 cl_copy(a->err, s, sizeof(a->err));
                 cl_cat(a->err, " needs a value", sizeof(a->err));
@@ -65,6 +65,8 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             }
             if (!strcmp(s, "--session"))
                 cl_copy(a->session, argv[++i], sizeof(a->session));
+            else if (!strcmp(s, "--session-dir"))
+                cl_copy(a->session_dir, argv[++i], sizeof(a->session_dir));
             else
                 cl_copy(a->name, argv[++i], sizeof(a->name));
         } else if (!strcmp(s, "--gate") || !strcmp(s, "--no-gate"))
