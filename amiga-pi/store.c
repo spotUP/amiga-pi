@@ -900,9 +900,8 @@ int pi_store_name(pi_store *st, const char *name)
     return 0;
 }
 
-int pi_store_bash_run(pi_store *st, const char *cmd, int exclude, jw *text, int *code, int *stopped)
+int pi_bash_exec(pi_session *s, const char *cmd, jw *text, int *code, int *stopped)
 {
-    pi_session *s = st->s;
     pi_tool *tool = 0;
     int i, is_error = 0;
     jw args, content;
@@ -931,9 +930,16 @@ int pi_store_bash_run(pi_store *st, const char *cmd, int exclude, jw *text, int 
         text->n = (long)(tail - text->p);
     } else if (is_error && !*stopped)
         *code = 1;
-    pi_store_bash(st, cmd, text->p ? text->p : "", *code, *stopped, exclude);
     jw_free(&args);
     jw_free(&content);
+    return 0;
+}
+
+int pi_store_bash_run(pi_store *st, const char *cmd, int exclude, jw *text, int *code, int *stopped)
+{
+    if (pi_bash_exec(st->s, cmd, text, code, stopped))
+        return -1;
+    pi_store_bash(st, cmd, text->p ? text->p : "", *code, *stopped, exclude);
     return 0;
 }
 

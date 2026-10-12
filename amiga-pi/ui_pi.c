@@ -752,11 +752,13 @@ static int bang(pi_ui *p, const char *line)
     if (!*cmd)
         return 0;
     jw_init(&text);
-    if (!s->command_u || pi_store_bash_run((pi_store *)s->command_u, cmd, excl, &text, &code, &stopped)) {
+    if (pi_bash_exec(s, cmd, &text, &code, &stopped)) {
         pshow_error(&p->ps, "The bash tool is not available");
         jw_free(&text);
         return 1;
     }
+    if (s->command_u && s->command)
+        pi_store_bash((pi_store *)s->command_u, cmd, text.p ? text.p : "", code, stopped, excl);
     pshow_bash(&p->ps, cmd, text.p ? text.p : "", code, stopped, excl);
     jw_free(&text);
     status(p);

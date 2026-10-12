@@ -100,6 +100,10 @@ int pi_store_name(pi_store *st, const char *name);
  * exit code, whether it was stopped. 0, -1 when there is no bash tool */
 int pi_store_bash_run(pi_store *st, const char *command, int exclude, jw *text, int *code, int *stopped);
 
+/* a command run through the session's bash tool: its output in text, the exit code (pi keeps it apart from the text), whether
+ * it was stopped. 0, -1 when there is no bash tool. Nothing is recorded (pi_store_bash_run does that) */
+int pi_bash_exec(pi_session *s, const char *command, jw *text, int *code, int *stopped);
+
 /* the leaf moved to entry idx as /tree N does (summarize, instr, replace: pi's navigateTree options): the lines to show
  * in reply ("[ERROR] ..." when it failed), the text of a user message left in editor */
 void pi_tree_navigate(pi_store *st, int idx, int summarize, const char *instr, int replace, jw *reply, jw *editor);
