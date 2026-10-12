@@ -62,6 +62,9 @@ typedef struct pi_event {
     const char *structured;
     long structured_n;
     int retry, aborted;
+    /* tool_execution_end: durationMs (pi-agent-core 1.1.0), -1 when the tool did not run: no key;
+     * agent_settled: aborted is pi's _agentRunAbortRequested */
+    long duration_ms;
     long n1, n2, n3;
 } pi_event;
 

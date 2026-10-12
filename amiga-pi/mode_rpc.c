@@ -25,6 +25,8 @@ struct pi_rpc {
     int in_poll;                /* the pump is running */
     int abort_req;              /* abort: the run is to stop */
     int abort_wait;             /* its response waits for the run to settle */
+    int retry_resp;             /* abort_retry cut a retry wait: its response follows the auto_retry_end event (pi writes them so) */
+    jw retry_id;                /* its id (raw JSON), empty none */
     jw abort_id;                /* the abort command's id (raw JSON), empty none */
     int bash_abort, in_bash;
     int compacting;
@@ -164,6 +166,8 @@ static int rpc_poll(void *u)
     pi_rpc *r = g_rpc;
     int brk = r->poll ? r->poll(u) : 0;
     pump(r);
+    if (brk && r->s->active)
+        r->s->aborted = 1;      /* Ctrl+C is session.abort() of the run */
     return brk || r->abort_req || (r->in_bash && r->bash_abort);
 }
 
@@ -779,6 +783,7 @@ static void cmd_abort(const cmd *c)
         return;
     }
     r->abort_req = 1;
+    r->s->aborted = 1;          /* agent-session.ts abort(): _agentRunAbortRequested while a run is active */
     r->abort_wait = 1;
     jw_reset(&r->abort_id);
     if (c->id)
@@ -1319,8 +1324,16 @@ static void handle_cmd(const cmd *c)
         c->r->s->retry_on = flag_of(c->obj, "enabled", 1);
         ok(c, 0);
     } else if (!strcmp(t, "abort_retry")) {
-        c->r->s->retry_stop = 1;
-        ok(c, 0);
+        pi_rpc *r = c->r;
+        if (!r->s->retry_waiting)           /* agent-session.ts abortRetry(): nothing to abort outside the wait */
+            ok(c, 0);
+        else {
+            r->s->retry_stop = 1;
+            r->retry_resp = 1;
+            jw_reset(&r->retry_id);
+            if (c->id)
+                jw_raw(&r->retry_id, c->id, c->idn);
+        }
     } else if (!strcmp(t, "bash"))
         cmd_bash(c);
     else if (!strcmp(t, "abort_bash")) {
@@ -1414,6 +1427,10 @@ static void track(void *u, const pi_event *e)
         r->compacting = 1;
     else if (e->type == PE_COMPACTION_END)
         r->compacting = 0;
+    else if (e->type == PE_RETRY_END && r->retry_resp) {
+        r->retry_resp = 0;
+        respond(r, r->retry_id.n ? r->retry_id.p : 0, r->retry_id.n, "abort_retry", 1, 0, 0, 0);
+    }
 }
 
 int pi_mode_rpc(pi_rt *rt)
@@ -1436,6 +1453,7 @@ int pi_mode_rpc(pi_rt *rt)
     r.poll = poll0;
     r.seed = (r.io->ms ? (unsigned long)r.io->ms(r.io->u) : 7UL) * 2654435761UL + 1UL;
     jw_init(&r.abort_id);
+    jw_init(&r.retry_id);
     jw_init(&r.ui_resp);
     jw_init(&r.out);
     pi_jout_init(&r.jout, s, r.io);
@@ -1462,6 +1480,7 @@ int pi_mode_rpc(pi_rt *rt)
     pi_unsubscribe(&s->em, track, &r);
     pi_jout_free(&r.jout);
     jw_free(&r.abort_id);
+    jw_free(&r.retry_id);
     jw_free(&r.ui_resp);
     jw_free(&r.out);
     free(r.in);

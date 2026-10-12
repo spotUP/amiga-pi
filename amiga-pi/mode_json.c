@@ -111,8 +111,13 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
     switch (e->type) {
     case PE_AGENT_START:
     case PE_TURN_START:
-    case PE_AGENT_SETTLED:
         type_open(w, pi_event_name(e->type));
+        jw_rawz(w, "}");
+        return 1;
+    case PE_AGENT_SETTLED:                      /* agent-session.ts:1083-1085, 1.1.0: {type, aborted} */
+        type_open(w, "agent_settled");
+        put_key(w, "aborted");
+        jw_rawz(w, e->aborted ? "true" : "false");
         jw_rawz(w, "}");
         return 1;
     case PE_MESSAGE_START:
@@ -186,6 +191,10 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
         jw_rawz(w, "}");
         put_key(w, "isError");
         jw_rawz(w, e->is_error ? "true" : "false");
+        if (e->duration_ms >= 0) {              /* agent/src/agent-loop.ts emitToolExecutionEnd: after isError */
+            put_key(w, "durationMs");
+            jw_long(w, e->duration_ms);
+        }
         jw_rawz(w, "}");
         return 1;
     case PE_COMPACTION_START:

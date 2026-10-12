@@ -1,0 +1,4 @@
+{"id":"1","type":"prompt","message":"hello"}
+#after auto_retry_start
+{"id":"2","type":"abort_retry"}
+#after agent_settled

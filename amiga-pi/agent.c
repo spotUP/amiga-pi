@@ -132,6 +132,29 @@ static llm_ts now(pi_session *s)
     return t;
 }
 
+/* a point on the millisecond clock (pi's performance.now()) and the wall time with it: the clock when the platform has
+ * one, else the wall time stands in */
+typedef struct tick {
+    unsigned long ms;
+    llm_ts ts;
+} tick;
+
+static tick tick_now(pi_session *s)
+{
+    tick t;
+    t.ms = s->h.ms ? s->h.ms(s->h.u) : 0;
+    t.ts = now(s);
+    return t;
+}
+
+/* ms since t, rounded and never below 0 (pi: Math.max(0, Math.round(performance.now() - startedAt))) */
+static long tick_since(pi_session *s, const tick *t)
+{
+    tick e = tick_now(s);
+    long d = s->h.ms ? (long)(e.ms - t->ms) : (e.ts.sec - t->ts.sec) * 1000L + (e.ts.ms - t->ts.ms);
+    return d < 0 ? 0 : d;
+}
+
 /* the message in w appended to the conversation (w keeps nothing): its index, -1 */
 static int keep(pi_session *s, jw *w)
 {
@@ -408,6 +431,7 @@ static int answer(pi_session *s, stream *t)
     long *tn = 0;
     long est;
     int o = 0;
+    tick t0;
     {
         /* pi's agent-loop declareToolChanges runs before every request, whatever the model: the tool changes become a
          * system message of the transcript (the session file); a model that takes no system messages in the
@@ -443,7 +467,8 @@ static int answer(pi_session *s, stream *t)
         pn = tn;
         pc = o;
     }
-    rc = llm_prepare(&s->model, pm, pn, pc, now(s), &v);
+    t0 = tick_now(s);           /* the request's start: the message's timestamp, and durationMs counts from here */
+    rc = llm_prepare(&s->model, pm, pn, pc, t0.ts, &v);
     free(tm);
     free(tn);
     if (rc) {
@@ -505,7 +530,9 @@ static int answer(pi_session *s, stream *t)
     jw_free(&tools);
     jw_free(&hdr);
     jw_init(&m);
-    llm_acc_message(&t->acc, now(s), &m);
+    /* pi-ai 1.1.0 (event-stream.ts #time): durationMs is set when the stream's done/error event is pushed */
+    llm_acc_duration(&t->acc, tick_since(s, &t0));
+    llm_acc_message(&t->acc, t0.ts, &m);
     i = keep(s, &m);
     jw_free(&m);
     if (i >= 0) {
@@ -541,6 +568,7 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     pi_event e;
     jw args, content, m;
     int is_error = 0, stopped = 0, i;
+    long duration = -1;         /* pi-agent-core 1.1.0: the tool's execute() time; none when it did not run */
     char reason[256], what[160];
     pi_tool *t;
     jw_init(&args);
@@ -584,7 +612,11 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     } else {
         t->calls++;
         s->call_id = b->id;
-        stopped = t->run(t->u, s, args.p, args.n, &content, &is_error);
+        {
+            tick t1 = tick_now(s);
+            stopped = t->run(t->u, s, args.p, args.n, &content, &is_error);
+            duration = tick_since(s, &t1);      /* around the tool only: not the extensions' tool_result hook below */
+        }
         s->call_id = 0;
         if (!content.n)
             jw_rawz(&content, "[]");
@@ -600,10 +632,11 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     e.is_error = is_error;
     e.structured = s->structured.n ? s->structured.p : 0;
     e.structured_n = s->structured.n;
+    e.duration_ms = duration;
     pi_emit(&s->em, &e);
     jw_init(&m);
     llm_m_toolresult(&m, b->id, b->name, content.p, content.n, is_error && !s->structured.n ? "{}" : 0,
-                     is_error && !s->structured.n ? 2 : 0, is_error, now(s));
+                     is_error && !s->structured.n ? 2 : 0, is_error, duration, now(s));
     i = keep(s, &m);
     jw_free(&m);
     if (i >= 0) {
@@ -989,6 +1022,7 @@ int pi_prompt(pi_session *s, const char *text)
     pi_agent_prompts++;
     s->err[0] = 0;
     s->active = 1;
+    s->aborted = 0;                     /* agent-session.ts _runAgentPrompt */
     s->attempt = 0;
     s->retry_stop = 0;
     s->recover = 0;
@@ -1032,7 +1066,10 @@ int pi_prompt(pi_session *s, const char *text)
         /* the failed answer stays in the history but out of the context (pi's context_edit entry) */
         if (s->omit && last >= 0)
             s->omit(s->omit_u, s, last);
-        if (retry_wait(s, delay)) {
+        s->retry_waiting = 1;
+        k = retry_wait(s, delay);
+        s->retry_waiting = 0;
+        if (k) {
             emit_retry_end(s, 0, "Retry cancelled");
             break;
         }
@@ -1040,7 +1077,12 @@ int pi_prompt(pi_session *s, const char *text)
     }
     s->retry_stop = 0;
     s->active = 0;
-    emit_simple(s, PE_AGENT_SETTLED);
+    {
+        pi_event e;
+        pi_event_init(&e, PE_AGENT_SETTLED);
+        e.aborted = s->aborted;
+        pi_emit(&s->em, &e);
+    }
     return rc;
 }
 
