@@ -120,10 +120,10 @@ typedef struct pi_session {
     char *pend[PI_QUEUE];
     int npend, pend_follow;
     /* automatic retry of a failed answer (agent-session.ts _prepareRetry; settings.json "retry"): on, how many times,
-     * the first delay in ms (it doubles, 60 s at most). attempt counts the retries of the failure being retried; retry_stop
+     * the first delay in ms (it doubles, retry_max_delay at most: settings retry.maxAgentDelayMs, 60 s). attempt counts the retries of the failure being retried; retry_stop
      * cuts the wait (abort_retry) */
     int retry_on, retry_max;
-    long retry_base;
+    long retry_base, retry_max_delay;
     int attempt, retry_stop;
     /* the failed answer, message index i, kept out of the context for the retry (the store appends pi's context_edit
      * entry); 0, -1 */
@@ -167,6 +167,8 @@ void pi_queue_json(const pi_session *s, int follow, jw *w);
 int pi_queue_len(const pi_session *s, int follow);
 /* pi's isRetryableAssistantError on an errorMessage: 1 when it looks like a transient provider or transport failure */
 int pi_retryable(const char *error_message);
+/* pi-ai's isContextOverflow on an errorMessage (the error cases): 1 when the request outgrew the window; such a failure is not retried */
+int pi_context_overflow(const char *error_message);
 /* queue a message while a prompt runs (copied): 0, -1 when the queue is full or memory is out. The run takes it
  * at pi's points (see pi_session.steer) */
 int pi_steer(pi_session *s, const char *text);
@@ -179,5 +181,6 @@ long pi_last_text(const pi_session *s, jw *out);
 
 /* calls of the loop's round since the start (agent_round in the plan) */
 extern long pi_agent_rounds;
+extern long pi_agent_prompts;       /* pi_prompt calls (the reachability tests' sentinel, with the rounds) */
 
 #endif

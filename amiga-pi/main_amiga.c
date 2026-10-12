@@ -70,6 +70,17 @@ static unsigned long a_ms(void *u)
 }
 
 /* local time without an offset (plan E9), from 1978 to 1970 (2922 days) */
+/* json and rpc mode: the program's own messages go to the process's error stream (pi: stderr), Output() when none is set */
+static void a_diag(const char *line)
+{
+    struct Process *me = (struct Process *)FindTask(0);
+    BPTR fh = me->pr_CES ? me->pr_CES : Output();
+    if (!fh)
+        return;
+    Write(fh, (APTR)line, (LONG)strlen(line));
+    Write(fh, (APTR)"\n", 1);
+}
+
 static llm_ts a_now(void *u)
 {
     struct DateStamp d;
@@ -125,6 +136,7 @@ int main(int argc, char **argv)
     pl.h.ms = a_ms;
     pl.h.resolve = a_resolve;
     pl.now = a_now;
+    pl.diag = a_diag;
     pl.getenv = a_getenv;
     pl.cwd = cwd;
     /* the tools: AmigaDOS through C:Claude's sys_amiga; bash runs vsh when it is installed */
