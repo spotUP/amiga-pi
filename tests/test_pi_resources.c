@@ -508,6 +508,94 @@ static void test_reach_context(void)
     }
 }
 
+
+static void write_file(const char *rel, const char *text)
+{
+    put(rel, text);
+}
+
+/* G2/G3: SYSTEM.md and APPEND_SYSTEM.md, and who may supply them, through pi_app */
+static void test_reach_trust(void)
+{
+    char f[420], *got;
+    long gn;
+    const char *yes[] = { "1", 0 };
+    const char *cmds[] = { "1", "/trust", "/trust 3", 0 };
+    const char *no[] = { "4", 0 };
+    put("r2/agent/SYSTEM.md", "AGENT-SYSTEM-TEXT");
+    put("r2/agent/APPEND_SYSTEM.md", "AGENT-APPEND-TEXT");
+    put("r2/w/proj/.pi/SYSTEM.md", "PROJECT-SYSTEM-TEXT");
+    put("r2/w/proj/.pi/APPEND_SYSTEM.md", "PROJECT-APPEND-TEXT");
+    at(f, sizeof(f), "r2/agent/trust.json");
+
+    /* print mode, nothing decided: not trusted, nobody asked; the agent directory's files */
+    CHECK_INT(app_run("r2/w/proj", "r2/agent", 0, 1, 0), 0);
+    CHECK(sent("AGENT-SYSTEM-TEXT") && sent("AGENT-APPEND-TEXT"));
+    CHECK(!sent("PROJECT-SYSTEM-TEXT") && !sent("PROJECT-APPEND-TEXT"));
+    CHECK(!sent("expert coding assistant"));            /* SYSTEM.md replaces the default preamble */
+    CHECK(!sent("<tools>") && !sent("<rules>") && !sent("<amiga>"));       /* pi's customPrompt: no tools, rules, docs */
+    CHECK(sent("<addendum>") && sent("<cwd>"));
+    CHECK(strstr(out.p, "Trust project folder?") == 0);
+    CHECK_INT(sys.kind(sys.u, f), 0);
+    /* -a: the project's files win, and nothing is kept */
+    CHECK_INT(app_run("r2/w/proj", "r2/agent", "-a", 1, 0), 0);
+    CHECK(sent("PROJECT-SYSTEM-TEXT") && sent("PROJECT-APPEND-TEXT"));
+    CHECK(!sent("AGENT-SYSTEM-TEXT") && !sent("AGENT-APPEND-TEXT"));
+    CHECK_INT(sys.kind(sys.u, f), 0);
+    CHECK_INT(app_run("r2/w/proj", "r2/agent", "--approve", 1, 0), 0);
+    CHECK(sent("PROJECT-SYSTEM-TEXT"));
+    /* -na */
+    CHECK_INT(app_run("r2/w/proj", "r2/agent", "-na", 1, 0), 0);
+    CHECK(sent("AGENT-SYSTEM-TEXT") && !sent("PROJECT-SYSTEM-TEXT"));
+    /* the question (typed mode): answer 1 trusts and keeps it; /trust lists, /trust 3 changes the kept decision */
+    CHECK_INT(app_run("r2/w/proj", "r2/agent", 0, 0, cmds), 0);
+    CHECK(strstr(out.p, "Trust project folder?") != 0 && strstr(out.p, "Trust parent folder (") != 0);
+    CHECK(sent("PROJECT-SYSTEM-TEXT"));
+    CHECK(strstr(out.p, "Kept: trusted (") != 0);
+    CHECK(strstr(out.p, "Kept for future sessions: Do not trust") != 0);
+    got = slurp_text(f, &gn);
+    CHECK(got && strstr(got, "false") != 0 && strstr(got, "true") == 0);
+    free(got);
+    /* the kept "no" is not asked again; print mode and a typed run both use the agent's files */
+    CHECK_INT(app_run("r2/w/proj", "r2/agent", 0, 0, yes), 0);
+    CHECK(strstr(out.p, "Trust project folder?") == 0 && sent("AGENT-SYSTEM-TEXT") && !sent("PROJECT-SYSTEM-TEXT"));
+    /* a kept "yes" in the file is read by the next print-mode run */
+    {
+        char agent[400], cwd[400];
+        at(agent, sizeof(agent), "r2/agent");
+        at(cwd, sizeof(cwd), "r2/w/proj");
+        CHECK_INT(trust_put(&sys, f, cwd, 1), 0);
+    }
+    CHECK_INT(app_run("r2/w/proj", "r2/agent", 0, 1, 0), 0);
+    CHECK(sent("PROJECT-SYSTEM-TEXT"));
+    /* the typed run, "Do not trust" (4), kept for a fresh project */
+    put("r3/w/proj/.pi/SYSTEM.md", "P3-SYSTEM");
+    put("r3/agent/SYSTEM.md", "A3-SYSTEM");
+    CHECK_INT(app_run("r3/w/proj", "r3/agent", 0, 0, no), 0);
+    CHECK(strstr(out.p, "Trust project folder?") != 0 && sent("A3-SYSTEM") && !sent("P3-SYSTEM"));
+    at(f, sizeof(f), "r3/agent/trust.json");
+    got = slurp_text(f, &gn);
+    CHECK(got && strstr(got, "false") != 0);
+    free(got);
+    /* settings.json defaultProjectTrust */
+    put("r4/w/proj/.pi/SYSTEM.md", "P4-SYSTEM");
+    put("r4/agent/SYSTEM.md", "A4-SYSTEM");
+    write_file("r4/agent/settings.json", "{\"defaultProjectTrust\": \"always\"}");
+    CHECK_INT(app_run("r4/w/proj", "r4/agent", 0, 1, 0), 0);
+    CHECK(sent("P4-SYSTEM") && !sent("A4-SYSTEM"));
+    write_file("r4/agent/settings.json", "{\"defaultProjectTrust\": \"never\"}");
+    CHECK_INT(app_run("r4/w/proj", "r4/agent", 0, 0, yes), 0);
+    CHECK(strstr(out.p, "Trust project folder?") == 0 && sent("A4-SYSTEM"));
+    CHECK_INT(app_run("r4/w/proj", "r4/agent", "-a", 1, 0), 0);          /* -a over the setting */
+    CHECK(sent("P4-SYSTEM"));
+    /* a project with nothing trust guards loads its context files without a question */
+    put("r5/w/proj/AGENTS.md", "R5-RULES");
+    CHECK_INT(app_run("r5/w/proj", "r5/agent", 0, 0, yes), 0);
+    CHECK(strstr(out.p, "Trust project folder?") == 0 && sent("R5-RULES"));
+    /* the flags are pi's: an unknown one is refused, -a and -na parse */
+    CHECK_INT(app_run("r5/w/proj", "r5/agent", "--approved", 1, 0), 2);
+}
+
 void suite_pi_resources(void)
 {
     const char *base = getenv("TMPDIR");
@@ -525,6 +613,7 @@ void suite_pi_resources(void)
     test_trust_store();
     test_decide();
     test_reach_context();
+    test_reach_trust();
     jw_free(&out);
     ps_reset();
     {
