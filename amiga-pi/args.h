@@ -60,6 +60,7 @@ typedef struct pi_args {
     char list_search[64];
     char prompt[4096];
     char err[160];
+    char warn[1024];            /* "Warning: <message>" lines, newline separated, "" none (pi parsed.diagnostics type warning) */
 } pi_args;
 
 /* 0, -1 with err set */

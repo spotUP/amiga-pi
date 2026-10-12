@@ -1211,6 +1211,22 @@ static void test_resume_summaries(void)
                 "{\"quietStartup\":true,\"theme\":\"dark\",\"outputPad\":0}\n");
 }
 
+/* R4: Ctrl+O (app.tools.expand) toggles pi's toolOutputExpanded (interactive-mode.ts:4557-4574): the compaction and branch
+ * summaries show their Markdown (compaction-summary-message.ts:49-54, branch-summary-message.ts:43-48) and the status
+ * "Tool output: expanded" takes the place of the last status line ("Session compacted 1 time", showStatus replaces a
+ * status that is the last row); a second Ctrl+O collapses them again. Goldens are pi 1.1.0's own screens. */
+static void test_expand_summaries(void)
+{
+    static const char *one[] = { "\017", "\004", 0 };
+    static const char *two[] = { "\017", "\017", "\004", 0 };
+    session_case("resume_summaries_expanded", "summaries_session.jsonl", "{\"quietStartup\":true}\n", one, 0, 0);
+    session_case("dark_resume_summaries_expanded", "summaries_session.jsonl", "{\"quietStartup\":true,\"theme\":\"dark\"}\n", one,
+                 0, 0);
+    session_case("dark_pad0_resume_summaries_expanded", "summaries_session.jsonl",
+                 "{\"quietStartup\":true,\"theme\":\"dark\",\"outputPad\":0}\n", one, 0, 0);
+    session_case("resume_summaries_toggled", "summaries_session.jsonl", "{\"quietStartup\":true}\n", two, 0, 0);
+}
+
 /* Enter in the selector moves the leaf (a user message goes back to the editor) and the conversation is drawn again */
 static void test_tree_nav(void)
 {
@@ -2070,6 +2086,7 @@ void suite_pi_tui(void)
     test_resume_took();
     test_resume_ansi();
     test_resume_summaries();
+    test_expand_summaries();
     test_compact_live();
     test_export();
     test_bang();

@@ -1,0 +1,64 @@
+
+[48;5;59m                                                                                
+ [1m[38;5;140m[compaction][0m[48;5;59m                                                                   
+                                                                                
+ [1m[38;5;145mCompacted from 12,345 tokens[0m[48;5;59m                                                   
+                                                                                
+ [1m[38;5;172mGoal[0m[48;5;59m                                                                           
+                                                                                
+ [38;5;145mThe user asked two questions.[39m                                                  
+                                                                                
+ [38;5;140m- [38;5;145mfirst answered[39m                                                               
+ [38;5;140m- [38;5;145msecond answered[39m                                                              
+                                                                                
+
+[48;5;23m                                                                                
+ [38;5;254msecond question[39m                                                                
+                                                                                
+
+[49m second answer      
+
+[48;5;23m                                                                                
+ [38;5;254mthird question[39m                                                                 
+                                                                                
+
+[49m third answer       
+
+[48;5;59m                                                                                
+ [1m[38;5;140m[note][0m[48;5;59m                                                                         
+                                                                                
+ [38;5;145mInjected [1mnote[0m[38;5;145m[48;5;59m for the model.[39m                                                   
+                                                                                
+
+                                                                                
+ [1m[38;5;140m[branch][0m[48;5;59m                                                                       
+                                                                                
+ [1m[38;5;145mBranch Summary[0m[48;5;59m                                                                 
+                                                                                
+ [38;5;145mThe other branch tried a different approach.[39m                                   
+                                                                                
+ [38;5;140m- [38;5;145mit edited the parser[39m                                                         
+                                                                                
+
+[48;5;23m                                                                                
+ [38;5;254mfourth question[39m                                                                
+                                                                                
+
+[49m fourth answer      
+
+ [38;5;102mTool output: expanded[39m                  
+
+
+
+
+
+
+
+
+
+
+[38;5;66m────────────────────────────────────────────────────────────────────────────────
+[7m[39m [0m                   
+[38;5;66m────────────────────────────────────────────────────────────────────────────────
+[38;5;102m~/project[39m           
+[38;5;102m↑40 ↓20 0.0%/200k (auto)                                              fake-model

@@ -644,8 +644,9 @@ static void test_commands(void)
     CHECK_INT(run(ARGC(lm), lm, sse, 0), 0);
     CHECK(strstr(out.p, "openai/gpt-5.5  openai-responses  context 272000  thinking  images") != 0);
     CHECK(strstr(out.p, "claude") == 0);
-    CHECK_INT(run(ARGC(bad), bad, sse, 0), 1);
-    CHECK(strstr(out.p, "Invalid thinking level \"loud\"") != 0);
+    /* --thinking loud is a warning and the run goes on (pi cli/args.ts:169-176; oracle 1.1.0: Warning line, then the answer, rc 0) */
+    CHECK_INT(run(ARGC(bad), bad, sse, 1), 0);
+    CHECK(strstr(out.p, "Warning: Invalid thinking level \"loud\". Valid values: off, minimal, low, medium, high, xhigh, max") != 0);
 }
 
 /* models.json: a provider with `!command` key and a header, three requests, the command ran once */

@@ -113,12 +113,16 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             else if (!strcmp(s, "--api-key"))
                 cl_copy(a->api_key, argv[++i], sizeof(a->api_key));
             else if (!strcmp(s, "--thinking")) {
-                a->thinking = llm_think_of(argv[++i]);
-                if (a->thinking < 0) {
-                    cl_copy(a->err, "Invalid thinking level \"", sizeof(a->err));
-                    cl_cat(a->err, argv[i], sizeof(a->err));
-                    cl_cat(a->err, "\". Valid values: off, minimal, low, medium, high, xhigh, max", sizeof(a->err));
-                    return -1;
+                /* an invalid level is a warning, not an error: it is skipped and the parse goes on (pi cli/args.ts:169-176) */
+                int lv = llm_think_of(argv[++i]);
+                if (lv >= 0)
+                    a->thinking = lv;
+                else {
+                    if (a->warn[0])
+                        cl_cat(a->warn, "\n", sizeof(a->warn));
+                    cl_cat(a->warn, "Warning: Invalid thinking level \"", sizeof(a->warn));
+                    cl_cat(a->warn, argv[i], sizeof(a->warn));
+                    cl_cat(a->warn, "\". Valid values: off, minimal, low, medium, high, xhigh, max", sizeof(a->warn));
                 }
             } else {
                 const char *v = argv[++i], *sl = strchr(v, '/');

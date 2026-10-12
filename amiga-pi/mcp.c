@@ -1251,6 +1251,239 @@ static void js_string(jw *w, jv v)
     free(s);
 }
 
+/* A JSON number as JavaScript prints it: JSON.stringify(JSON.parse(text)) = Number.prototype.toString (ECMA-262
+ * Number::toString): 1.0 -> 1, -0 -> 0, 1E2 -> 100, 1e21 -> 1e+21, 1e-7 -> 1e-7, 0.000001 stays, a number past the double
+ * range (Infinity) -> null. Up to 15 significant digits the written digits are already the shortest form that reads back
+ * as the same double, so they are only laid out; with more, the fewest digits (rounded from the literal) that strtod
+ * reads back as the literal's double are taken. No printf: amiga-pi has none. */
+#define JSN_DIGITS 340
+
+/* digits d[0..k) (no leading or trailing zero) with the point before d[0] shifted by pt: value = 0.d * 10^pt */
+static void js_digits(jw *w, const char *d, long k, long pt)
+{
+    long i;
+    if (k <= pt && pt <= 21) {
+        jw_raw(w, d, k);
+        for (i = k; i < pt; i++)
+            jw_rawz(w, "0");
+    } else if (0 < pt && pt <= 21) {
+        jw_raw(w, d, pt);
+        jw_rawz(w, ".");
+        jw_raw(w, d + pt, k - pt);
+    } else if (-6 < pt && pt <= 0) {
+        jw_rawz(w, "0.");
+        for (i = pt; i < 0; i++)
+            jw_rawz(w, "0");
+        jw_raw(w, d, k);
+    } else {
+        long e = pt - 1, div = 1;
+        char num[8];
+        int nn = 0;
+        jw_raw(w, d, 1);
+        if (k > 1) {
+            jw_rawz(w, ".");
+            jw_raw(w, d + 1, k - 1);
+        }
+        jw_rawz(w, e < 0 ? "e-" : "e+");
+        if (e < 0)
+            e = -e;
+        while (e / div >= 10)
+            div *= 10;
+        for (; div; div /= 10)
+            num[nn++] = (char)('0' + (e / div) % 10);
+        jw_raw(w, num, nn);
+    }
+}
+
+/* the first n digits of d, rounded half up; the result digits in out (n or 1 of them after a carry out of the top, with
+ * *pt raised); trailing zeros dropped. Returns the digit count. */
+static long js_round(const char *d, long k, long n, char *out, long *pt)
+{
+    long i;
+    if (n > k)
+        n = k;
+    memcpy(out, d, (size_t)n);
+    if (n < k && d[n] >= '5') {
+        for (i = n - 1; i >= 0 && out[i] == '9'; i--)
+            out[i] = '0';
+        if (i >= 0)
+            out[i]++;
+        else {
+            out[0] = '1';
+            for (i = 1; i < n; i++)
+                out[i] = '0';
+            (*pt)++;
+        }
+    }
+    while (n > 1 && out[n - 1] == '0')
+        n--;
+    return n;
+}
+
+static double js_read(const char *d, long k, long pt)
+{
+    char b[JSN_DIGITS + 32];
+    char *q = b;
+    long e = pt, div = 1;
+    *q++ = '0';
+    *q++ = '.';
+    memcpy(q, d, (size_t)k);
+    q += k;
+    *q++ = 'e';
+    if (e < 0) {
+        *q++ = '-';
+        e = -e;
+    }
+    while (e / div >= 10)
+        div *= 10;
+    for (; div; div /= 10)
+        *q++ = (char)('0' + (e / div) % 10);
+    *q = 0;
+    return strtod(b, 0);
+}
+
+/* The exact decimal expansion of the positive finite double x: digits in out (no trailing zero), value = 0.out * 10^*pt.
+ * x = m * 2^e, m of 53 bits (powers of two scale a double exactly): m * 2^e for e >= 0, m * 5^-e * 10^e for e < 0, in a
+ * base 1e8 bignum. */
+#define JSB_WORDS 112
+#define JSB_BASE 100000000UL
+
+static long js_exact(double x, char *out, long cap, long *pt)
+{
+    unsigned long b[JSB_WORDS], hi, lo, carry, t;
+    long nw = 1, e = 0, i, k = 0, f;
+    double two26 = 67108864.0;
+    while (x >= 9007199254740992.0) {
+        x /= 2.0;
+        e++;
+    }
+    while (x < 4503599627370496.0) {
+        x *= 2.0;
+        e--;
+    }
+    hi = (unsigned long)(x / two26);
+    lo = (unsigned long)(x - (double)hi * two26);
+    memset(b, 0, sizeof(b));
+    b[0] = hi;
+    for (f = 0; f < 26; f++) {          /* hi * 2^26 */
+        carry = 0;
+        for (i = 0; i < nw; i++) {
+            t = b[i] * 2 + carry;
+            b[i] = t % JSB_BASE;
+            carry = t / JSB_BASE;
+        }
+        if (carry)
+            b[nw++] = carry;
+    }
+    for (carry = lo, i = 0; carry && i < JSB_WORDS; i++) {      /* + lo */
+        t = (i < nw ? b[i] : 0) + carry;
+        b[i] = t % JSB_BASE;
+        carry = t / JSB_BASE;
+        if (i >= nw)
+            nw = i + 1;
+    }
+    for (f = e < 0 ? -e : e; f > 0; f--) {  /* * 2^e, or * 5^-e */
+        unsigned long mul = e < 0 ? 5 : 2;
+        carry = 0;
+        for (i = 0; i < nw; i++) {
+            t = b[i] * mul + carry;
+            b[i] = t % JSB_BASE;
+            carry = t / JSB_BASE;
+        }
+        while (carry && nw < JSB_WORDS) {
+            b[nw++] = carry % JSB_BASE;
+            carry /= JSB_BASE;
+        }
+    }
+    for (i = nw - 1; i >= 0 && k + 8 <= cap; i--) {
+        unsigned long w = b[i];
+        long d;
+        char dig[8];
+        for (d = 7; d >= 0; d--) {
+            dig[d] = (char)('0' + w % 10);
+            w /= 10;
+        }
+        for (d = 0; d < 8; d++)
+            if (k > 0 || dig[d] != '0')
+                out[k++] = dig[d];
+    }
+    *pt = k + (e < 0 ? e : 0);
+    while (k > 1 && out[k - 1] == '0')
+        k--;
+    return k;
+}
+
+static void js_number(jw *w, jv v)
+{
+    char d[JSN_DIGITS + 2], r[JSN_DIGITS + 2], x[800];
+    long k = 0, pt = 0, ex = 0, lead = 0;
+    int neg = 0, dot = 0, exps = 1;
+    double want;
+    const char *p = v.p, *e = v.p + v.n;
+    if (p < e && *p == '-') {
+        neg = 1;
+        p++;
+    }
+    for (; p < e && *p != 'e' && *p != 'E'; p++) {
+        if (*p == '.')
+            dot = 1;
+        else if (*p >= '0' && *p <= '9') {
+            if (k == 0 && *p == '0') {      /* a leading zero: not a digit; behind the point it moves the point */
+                if (dot)
+                    lead++;
+            } else if (k < JSN_DIGITS) {
+                d[k++] = *p;
+                if (!dot)
+                    pt++;
+            } else if (!dot)
+                pt++;                       /* an integer digit past the cap: its place counts, not the digit */
+        }
+    }
+    if (p < e) {
+        p++;
+        if (p < e && (*p == '+' || *p == '-'))
+            exps = *p++ == '-' ? -1 : 1;
+        for (; p < e && *p >= '0' && *p <= '9'; p++)
+            if (ex < 100000)
+                ex = ex * 10 + (*p - '0');
+    }
+    while (k > 0 && d[k - 1] == '0')
+        k--;
+    if (k == 0) {                           /* 0, 0.0, -0, 0e5 */
+        jw_rawz(w, "0");
+        return;
+    }
+    pt = pt - lead + exps * ex;
+    if (pt > 400 || pt < -400) {            /* far past the double range: Infinity (null) or 0 */
+        jw_rawz(w, pt > 0 ? "null" : "0");
+        return;
+    }
+    want = js_read(d, k, pt);
+    if (want > 1.7976931348623157e308) {    /* Infinity: JSON.stringify writes null */
+        jw_rawz(w, "null");
+        return;
+    }
+    if (want == 0.0) {                      /* underflow: 0 */
+        jw_rawz(w, "0");
+        return;
+    }
+    if (k > 15) {       /* the shortest digits of the double itself (its exact expansion), not of the literal */
+        long n, xp, xk = js_exact(want, x, (long)sizeof(x), &xp);
+        for (n = 1; n <= 17; n++) {
+            long rp = xp, rk = js_round(x, xk, n, r, &rp);
+            if (js_read(r, rk, rp) == want) {
+                if (neg)
+                    jw_rawz(w, "-");
+                js_digits(w, r, rk, rp);
+                return;
+            }
+        }
+    }
+    if (neg)
+        jw_rawz(w, "-");
+    js_digits(w, d, k, pt);
+}
+
 static void indent(jw *w, int d)
 {
     int i;
@@ -1283,6 +1516,8 @@ static void js_pretty(jw *w, jv v, int d)
         jw_rawz(w, t == J_OBJ ? "}" : "]");
     } else if (t == J_STR)
         js_string(w, v);
+    else if (t == J_NUM)
+        js_number(w, v);
     else
         jw_raw(w, v.p, v.n);
 }
@@ -1601,7 +1836,7 @@ int mcp_limit(cl_sys *sys, const char *tmp, const char *id, const char *blocks, 
     return 1;
 }
 
-/* JSON.stringify of a parsed value: no whitespace, strings as js_string writes them */
+/* JSON.stringify of a parsed value: no whitespace, strings as js_string writes them, numbers as js_number */
 static void js_compact(jw *w, jv v)
 {
     jit it;
@@ -1623,6 +1858,8 @@ static void js_compact(jw *w, jv v)
         jw_rawz(w, t == J_OBJ ? "}" : "]");
     } else if (t == J_STR)
         js_string(w, v);
+    else if (t == J_NUM)
+        js_number(w, v);
     else
         jw_raw(w, v.p, v.n);
 }

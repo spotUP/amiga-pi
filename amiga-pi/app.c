@@ -439,15 +439,40 @@ static int pick_session(const pi_platform *pl, const char *data_dir, const char 
 
 /* an argument error: pi prints "Error: <message>" on stderr in every mode (cli/args.ts diagnostics, main.ts);
  * before the json/rpc redirect pl->io is stdout, so the platform's diagnostic channel takes it when there is one */
+static void diag_out(const pi_platform *pl, const char *line)
+{
+    if (pl->diag)
+        pl->diag(line);
+    else
+        say(pl->io, line, 0);
+}
+
+/* the argument warnings, one diagnostic line each, before anything else (pi main.ts:621-625 prints every diagnostic
+ * in order, the warnings of a run that goes on too) */
+static void arg_warnings(const pi_platform *pl, const pi_args *a)
+{
+    char line[256];
+    const char *p = a->warn;
+    while (*p) {
+        const char *nl = strchr(p, '\n');
+        long n = nl ? nl - p : (long)strlen(p);
+        if (n >= (long)sizeof(line))
+            n = sizeof(line) - 1;
+        memcpy(line, p, n);
+        line[n] = 0;
+        diag_out(pl, line);
+        p += n + (nl ? 1 : 0);
+        if (!nl)
+            break;
+    }
+}
+
 static int usage(const pi_platform *pl, const pi_args *a)
 {
     char line[256];
     cl_copy(line, "Error: ", sizeof(line));
     cl_cat(line, a->err, sizeof(line));
-    if (pl->diag)
-        pl->diag(line);
-    else
-        say(pl->io, line, 0);
+    diag_out(pl, line);
     return 1;
 }
 
@@ -622,8 +647,11 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     rt->pl = *plat;
     rt->io = plat->io;
     pl = &rt->pl;
-    if (pi_args_parse(&a, argc, argv))
+    if (pi_args_parse(&a, argc, argv)) {
+        arg_warnings(pl, &a);
         return usage(pl, &a);
+    }
+    arg_warnings(pl, &a);
     if (a.version) {
         say(pl->io, PI_VERSION, 0);     /* pi main.ts:632: console.log(VERSION), exit 0, before any mode or session */
         return -1;

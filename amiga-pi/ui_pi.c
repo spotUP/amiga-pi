@@ -138,26 +138,30 @@ static const char *pst_name(void *u)
 /* pi's renderInitialMessages (interactive-mode.ts:4208-4222): the context's AgentMessages drawn (a stored session: the
  * custom, compaction-summary and branch-summary messages as their own components; ses->msg holds only what the model
  * is sent), then "Session compacted N time(s)" when the file holds any compaction entry */
-static void redraw_chat(pi_ui *p, int after_compaction);
+/* redraw_chat's modes: renderInitialMessages (with its "Session compacted" note), compaction_end's, and a redraw that
+ * only flips the expansion of the components (ctrl+o: no note) */
+enum { REDRAW_INITIAL, REDRAW_COMPACTED, REDRAW_EXPAND };
+static void redraw_chat(pi_ui *p, int mode);
 
 static void redraw_session(pi_ui *p)
 {
-    redraw_chat(p, 0);
+    redraw_chat(p, REDRAW_INITIAL);
 }
 
 /* pi's compaction_end (interactive-mode.ts:3700-3715): the chat cleared, the context's entries after the compaction
  * redrawn (renderSessionEntries(entries.slice(1))), the summary box appended below them at its chronological place,
  * and no "Session compacted" note (that is renderInitialMessages' alone) */
-static void redraw_compacted(pi_ui *p, long tokens_before)
+static void redraw_compacted(pi_ui *p, long tokens_before, const char *summary, long summary_n)
 {
     tui_clear(p->ui.tui);
     p->ps.any = 0;
-    redraw_chat(p, 1);
-    pshow_compaction_summary(&p->ps, tokens_before);
+    redraw_chat(p, REDRAW_COMPACTED);
+    pshow_compaction_summary(&p->ps, tokens_before, summary, summary_n);
 }
 
-static void redraw_chat(pi_ui *p, int after_compaction)
+static void redraw_chat(pi_ui *p, int mode)
 {
+    int after_compaction = mode == REDRAW_COMPACTED;
     pi_store *st = (pi_store *)p->s->command_u;
     pi_ctx c;
     int i, compactions = 0;
@@ -187,7 +191,7 @@ static void redraw_chat(pi_ui *p, int after_compaction)
             compactions += st->s3.e[i].type == S3_COMPACTION;
     } else
         pshow_replay(&p->ps, p->s);
-    if (compactions && !after_compaction) {
+    if (compactions && mode == REDRAW_INITIAL) {
         char t[48];
         if (compactions == 1)
             cl_copy(t, "Session compacted 1 time", sizeof(t));
@@ -284,7 +288,10 @@ static void on_event(void *u, const pi_event *e)
             if (!e->is_error && e->result && p->s->command_u) {
                 jv o, v;
                 if (!json_parse(e->result, e->result_n, &o) && json_get(o, "tokensBefore", &v) && json_type(v) == J_NUM) {
-                    redraw_compacted(p, json_long(v, 0));
+                    long tb = json_long(v, 0), sn = 0;
+                    char *sum = json_get(o, "summary", &v) && json_type(v) == J_STR ? json_strdup(v, &sn) : 0;
+                    redraw_compacted(p, tb, sum, sn);
+                    free(sum);
                     break;
                 }
             }
@@ -501,6 +508,23 @@ static void cb_cycle(void *u, int what, int dir)
         pshow_error(&p->ps, msg);
     else
         pshow_note(&p->ps, PR_DIM, msg);
+    status(p);
+}
+
+/* app.tools.expand (Ctrl+O): pi's toggleToolOutputExpansion (interactive-mode.ts:4557-4574) flips toolOutputExpanded, sets it
+ * on every expandable component and shows "Tool output: expanded|collapsed". The screen is lines already written, so the
+ * chat is drawn again from the context with the new setting (while a turn runs only the setting changes: the turn's own
+ * lines are not in the store yet). Only the compaction and branch summaries have an expanded form here. */
+static void cb_expand(void *u)
+{
+    pi_ui *p = (pi_ui *)u;
+    p->ps.expanded = !p->ps.expanded;
+    if (p->s->em.count[PE_AGENT_START] <= p->s->em.count[PE_AGENT_END]) {
+        tui_clear(p->ui.tui);
+        p->ps.any = 0;
+        redraw_chat(p, REDRAW_EXPAND);
+    }
+    pshow_note(&p->ps, PR_DIM, p->ps.expanded ? "Tool output: expanded" : "Tool output: collapsed");
     status(p);
 }
 
@@ -837,6 +861,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     t->on_queue = cb_queue;
     t->on_dequeue = cb_dequeue;
     t->on_cycle = cb_cycle;
+    t->on_expand = cb_expand;
     t->qu = p;
     km_free(&t->km);
     if (ui_kb)
