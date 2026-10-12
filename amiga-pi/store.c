@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "store.h"
+#include "ansi.h"
 #include "compact.h"
 #include "models.h"
 #include "cp_prompts.h"
@@ -1043,7 +1044,15 @@ int pi_bash_exec(pi_session *s, const char *cmd, jw *text, int *code, int *stopp
     jw_raw(&args, "}", 1);
     *code = 0;
     *stopped = tool->run(tool->u, s, args.p, args.n, &content, &is_error);
-    pshow_result_text(content.p ? content.p : "[]", content.n, text);
+    {
+        /* pi's executeBash (bash-executor.ts:73-115) strips the escape sequences, binary garbage and carriage returns of
+         * what a user command printed; the tool result here is the whole output at once */
+        jw raw;
+        jw_init(&raw);
+        pshow_result_text(content.p ? content.p : "[]", content.n, &raw);
+        pi_ansi_clean(raw.p ? raw.p : "", raw.n, text);
+        jw_free(&raw);
+    }
     jw_rawz(text, "");
     /* the tool appends "Command exited with code N" to the output of a failed command: pi keeps the code apart */
     tail = text->p ? strstr(text->p, "Command exited with code ") : 0;
