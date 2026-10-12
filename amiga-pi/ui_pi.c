@@ -137,23 +137,56 @@ static const char *pst_name(void *u)
 /* pi's renderInitialMessages (interactive-mode.ts:4208-4222): the context's AgentMessages drawn (a stored session: the
  * custom, compaction-summary and branch-summary messages as their own components; ses->msg holds only what the model
  * is sent), then "Session compacted N time(s)" when the file holds any compaction entry */
+static void redraw_chat(pi_ui *p, int after_compaction);
+
 static void redraw_session(pi_ui *p)
+{
+    redraw_chat(p, 0);
+}
+
+/* pi's compaction_end (interactive-mode.ts:3700-3715): the chat cleared, the context's entries after the compaction
+ * redrawn (renderSessionEntries(entries.slice(1))), the summary box appended below them at its chronological place,
+ * and no "Session compacted" note (that is renderInitialMessages' alone) */
+static void redraw_compacted(pi_ui *p, long tokens_before)
+{
+    tui_clear(p->ui.tui);
+    p->ps.any = 0;
+    redraw_chat(p, 1);
+    pshow_compaction_summary(&p->ps, tokens_before);
+}
+
+static void redraw_chat(pi_ui *p, int after_compaction)
 {
     pi_store *st = (pi_store *)p->s->command_u;
     pi_ctx c;
     int i, compactions = 0;
     if (st && p->s->command) {
         ctx_init(&c);
-        if (!ctx_build(&st->s3, st->s3.leaf, &c))
+        if (!ctx_build(&st->s3, st->s3.leaf, &c)) {
+            /* the context holds the latest compaction as a message (after the system message, when it records one);
+             * the live redraw takes it out and puts its box last */
+            int k = 0;
+            if (after_compaction)
+                while (k < c.n && !strstr(c.msg[k], "\"role\":\"compactionSummary\""))
+                    k++;
+            if (after_compaction && k < c.n) {
+                int j;
+                free(c.msg[k]);
+                for (j = k; j + 1 < c.n; j++) {
+                    c.msg[j] = c.msg[j + 1];
+                    c.msg_n[j] = c.msg_n[j + 1];
+                }
+                c.n--;
+            }
             pshow_replay_msgs(&p->ps, c.msg, c.msg_n, c.n);
-        else
+        } else
             pshow_replay(&p->ps, p->s);
         ctx_free(&c);
         for (i = 0; i < st->s3.n; i++)
             compactions += st->s3.e[i].type == S3_COMPACTION;
     } else
         pshow_replay(&p->ps, p->s);
-    if (compactions) {
+    if (compactions && !after_compaction) {
         char t[48];
         if (compactions == 1)
             cl_copy(t, "Session compacted 1 time", sizeof(t));
@@ -247,6 +280,13 @@ static void on_event(void *u, const pi_event *e)
             p->ui.tui->pi_work[0] = 0;
             if (p->s->em.count[PE_AGENT_START] > p->s->em.count[PE_AGENT_END])
                 cl_copy(p->ui.tui->pi_work, "Working", sizeof(p->ui.tui->pi_work));
+            if (!e->is_error && e->result && p->s->command_u) {
+                jv o, v;
+                if (!json_parse(e->result, e->result_n, &o) && json_get(o, "tokensBefore", &v) && json_type(v) == J_NUM) {
+                    redraw_compacted(p, json_long(v, 0));
+                    break;
+                }
+            }
             pshow_note(&p->ps, e->is_error ? PR_ERROR : PR_MUTED, e->msg ? e->msg : "");
             break;
         }

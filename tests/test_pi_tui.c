@@ -1120,9 +1120,9 @@ static void resume_rest(void)
     compare();
 }
 
-static void resume_case(const char *name, const char *file, const char *settings)
+static void session_case(const char *name, const char *file, const char *settings, const char **keys,
+                         const char *const *sse, int nsse)
 {
-    static const char *keys[] = { "\004", 0 };
     static scen sc = { "", { 0 }, { 0 }, 0, 0, 0, { { 21, 25, 0, 79, "the editor border (the thinking level of the model) and the footer: the capture's model is the fake one" } } };
     char path[600];
     int i;
@@ -1142,7 +1142,7 @@ static void resume_case(const char *name, const char *file, const char *settings
     sc.masks[0].r0 = want_rows - 5;     /* the editor border and the footer, at the bottom of whatever the capture's height */
     sc.masks[0].r1 = want_rows;
     app_session = path;
-    CHECK_INT(app_run(80, want_rows, keys, 0, 0, resume_rest), 0);
+    CHECK_INT(app_run(80, want_rows, keys, sse, nsse, resume_rest), 0);
     app_session = 0;
     CHECK(taken);
     if (diffs) {
@@ -1156,6 +1156,34 @@ static void resume_case(const char *name, const char *file, const char *settings
     }
     CHECK_INT(diffs, 0);
     vt_free(want);
+}
+
+static void resume_case(const char *name, const char *file, const char *settings)
+{
+    static const char *keys[] = { "\004", 0 };
+    session_case(name, file, settings, keys, 0, 0);
+}
+
+/* Q17: a live /compact: pi clears the chat, redraws what the context keeps and appends the compaction summary box
+ * (interactive-mode.ts compaction_end, 3700-3715) instead of a muted "Compacted: about N tokens" note. The second
+ * model call (the summarization) is compact.1.sse. The golden is pi's own screen. */
+static void test_compact_live(void)
+{
+    static const char *keys[] = { "/compact\r", "\004", 0 };
+    static const char *const sse[] = { "compact.1.sse" };
+    session_case("compact", "took_session.jsonl", "{\"quietStartup\":true,\"compaction\":{\"keepRecentTokens\":10}}\n",
+                 keys, sse, 1);
+    CHECK(strstr(app_out, "Compacted from 15 tokens") != 0);
+    CHECK(strstr(app_out, "Compacted: about") == 0);
+    {
+        /* the automatic one: the turn's usage (1,260 tokens) passes the window less reserveTokens (999000 of 1.0M) */
+        static const char *akeys[] = { "and then?\r", "\004", 0 };
+        static const char *const asse[] = { "compact_auto.1.sse", "compact_auto.2.sse" };
+        session_case("compact_auto", "took_session.jsonl",
+                     "{\"quietStartup\":true,\"compaction\":{\"keepRecentTokens\":10,\"reserveTokens\":999000}}\n", akeys,
+                     asse, 2);
+        CHECK(strstr(app_out, "Compacted from 1,220 tokens") != 0);
+    }
 }
 
 static void test_resume_took(void)
@@ -2042,6 +2070,7 @@ void suite_pi_tui(void)
     test_resume_took();
     test_resume_ansi();
     test_resume_summaries();
+    test_compact_live();
     test_export();
     test_bang();
     test_output_pad_setting();
