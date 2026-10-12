@@ -465,8 +465,18 @@ static void test_convert(void)
         jw sg;
         char *longres;
         long ln = 25000, i;
+        int pass;
         jw_init(&sg);
-        if (res && !json_parse(res, n, &all)) {
+        for (pass = 0; pass < 2; pass++) {      /* results.json, then numbers.json (R3) */
+        char *txt = res;
+        long tn = n;
+        if (pass) {
+            char np[600];
+            cl_copy(np, PI_TESTS "/pi/mcp/numbers.json", sizeof(np));
+            txt = read_all(np, &tn);
+            CHECK(txt != 0);
+        }
+        if (txt && !json_parse(txt, tn, &all)) {
             json_iter(all, &it);
             while (json_next(&it, &k, &v)) {
                 char name[64];
@@ -485,11 +495,18 @@ static void test_convert(void)
                 jw_raw(&sg, st.p, st.n);
                 if (is_error)
                     jw_rawz(&sg, ",\"isError\":true");
+                if (!strncmp(name, "numbers", 7)) {     /* R3: the model content too (the pretty-printed text) */
+                    jw_rawz(&sg, ",\"content\":");
+                    jw_raw(&sg, out.p, out.n);
+                }
                 jw_rawz(&sg, "}\n");
                 jw_free(&out);
                 jw_free(&det);
                 jw_free(&st);
             }
+        }
+        if (pass)
+            free(txt);
         }
         longres = (char *)malloc((size_t)ln + 128);
         if (longres) {
