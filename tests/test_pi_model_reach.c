@@ -400,6 +400,45 @@ static void test_declare(void)
     s3_free(&st);
 }
 
+/* PX2: the first request to a model whose context window is the output cap (gpt-4: 8192 and 8192) carries the cap pi's
+ * buildBaseOptions clamps it to, from the estimate over the transcript pi_app sends (tests/pi/model/clamp_first.json,
+ * pi-ai's request for the same prompt and tools). Through pi_app: the estimate is computed by the agent */
+static void test_clamp_first(void)
+{
+    char *a[] = { "amiga-pi", "--model", "openai/gpt-4", 0 };
+    static const char *const sse[] = { "../pi/responses/plain.sse" };
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq < 1)
+        return;
+    CHECK(strstr(ps.body[0], "\"max_output_tokens\":8192") == 0);          /* not the model's own cap */
+    CHECK(strstr(ps.body[0], "\"max_output_tokens\":") != 0);
+    {
+        /* pi's body is the golden, but for the session id (random per run): its prompt_cache_key must be the session's id */
+        static const char key[] = "\"prompt_cache_key\":\"";
+        static const char fixed[] = "00000000-0000-4000-8000-000000000000";
+        char path[600], body[40000], *k;
+        pi_s3 st;
+        CHECK_INT(newest(path, sizeof(path)), 0);
+        s3_init(&st, &sys, adv_now, 0, 1, 7);
+        CHECK_INT(s3_open(&st, path), 0);
+        CHECK(strlen(ps.body[0]) < sizeof(body));
+        strncpy(body, ps.body[0], sizeof(body) - 1);
+        body[sizeof(body) - 1] = 0;
+        k = strstr(body, key);
+        CHECK(k != 0);
+        if (k) {
+            k += sizeof(key) - 1;
+            CHECK(!strncmp(k, st.id, strlen(st.id)) && strlen(st.id) == strlen(fixed));
+            memcpy(k, fixed, strlen(fixed));
+        }
+        s3_free(&st);
+        pi_golden("pi/model/clamp_first.json", body);
+    }
+}
+
 /* PX3: pi's declareToolChanges runs before every request whatever the model. A tool added during the run on a model
  * without mid-conversation system messages (gpt-4.1): the session file gets the declaring system message after the
  * tool result, as pi's agent loop writes it (tests/pi/model/declare_{roles.txt,message.json}, made by
@@ -698,6 +737,7 @@ void suite_pi_model_reach(void)
     test_levels();
     test_declare();
     test_declare_every_model();
+    test_clamp_first();
     test_resume();
     test_commands();
     test_command_once();
