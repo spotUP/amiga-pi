@@ -158,10 +158,12 @@ int mcp_stdio_open(mcp_server *s)
             eoffs[ne++] = strs.n;
             jw_rawz(&strs, name ? name : "");
             jw_rawz(&strs, "=");
-            mcp_value(m, val ? val : "", &strs);
+            rc = mcp_value(s, "env", name ? name : "", val ? val : "", &strs);
             jw_raw(&strs, "\0", 1);
             free(name);
             free(val);
+            if (rc)
+                goto done;              /* pi: the server fails with the message, nothing is started */
         }
     }
     if (strs.oom) {

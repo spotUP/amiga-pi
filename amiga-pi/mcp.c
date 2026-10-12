@@ -496,12 +496,23 @@ static long cfg_run(void *u, const char *cmd, char *out, long cap)
 }
 
 
-void mcp_value(mcp *m, const char *v, jw *out)
+int mcp_value(mcp_server *s, const char *kind, const char *key, const char *v, jw *out)
 {
     static char buf[4096];
-    long n = llm_cfg_value(&m->cfg, v, buf, sizeof(buf));
-    if (n > 0)
-        jw_raw(out, buf, n);
+    char what[240];
+    long n;
+    cl_copy(what, "MCP server \"", sizeof(what));
+    cl_cat(what, s->name, sizeof(what));
+    cl_cat(what, "\" ", sizeof(what));
+    cl_cat(what, kind, sizeof(what));
+    cl_cat(what, " \"", sizeof(what));
+    cl_cat(what, key, sizeof(what));
+    cl_cat(what, "\"", sizeof(what));
+    n = llm_cfg_value_strict(&s->m->cfg, v, what, buf, sizeof(buf), s->err, sizeof(s->err));
+    if (n < 0)
+        return -1;
+    jw_raw(out, buf, n);
+    return 0;
 }
 
 /* ---- JSON-RPC ---- */
@@ -2390,7 +2401,6 @@ void mcp_init(mcp *m, cl_sys *sys, llm_pool *pool, const llm_hooks *h,
     m->cfg.u = m;
     m->cfg.getenv = cfg_getenv;
     m->cfg.run = cfg_run;
-    m->cfg.unset_empty = 1;
     jw_init(&m->errors);
     jw_init(&m->section);
 }
