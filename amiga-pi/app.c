@@ -445,7 +445,7 @@ static void diag_write(void *u, const char *text, long n)
         rt->pl.diag(line);
 }
 
-/* settings.json's "retry" object: enabled, maxRetries, baseDelayMs (pi's settings.md) */
+/* settings.json's "retry" object: enabled, maxRetries, baseDelayMs, maxAgentDelayMs (pi's settings.md) */
 static void retry_settings(const pi_platform *pl, pi_session *ses)
 {
     char *b, path[300];
@@ -460,6 +460,8 @@ static void retry_settings(const pi_platform *pl, pi_session *ses)
             ses->retry_max = (int)json_long(v, 3);
         if (json_get(r, "baseDelayMs", &v) && json_type(v) == J_NUM)
             ses->retry_base = json_long(v, 2000);
+        if (json_get(r, "maxAgentDelayMs", &v) && json_type(v) == J_NUM)
+            ses->retry_max_delay = json_long(v, 60000);
     }
     CL_FREE(b);
 }

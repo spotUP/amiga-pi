@@ -1,7 +1,8 @@
 /* amiga-pi on the host (build/amiga-pi-host): app.c over stdin/stdout and
  * POSIX TCP (claude/net_posix.c: plain http, no TLS), for manual runs
  * against tools/claude_fixture.py:
- *   build/amiga-pi-host --model fixture/qwen2.5-coder:7b --base-url http://127.0.0.1:8080/v1 -p hello */
+ *   build/amiga-pi-host --model fixture/qwen2.5-coder:7b --base-url http://127.0.0.1:8080/v1 -p hello
+ * pi_host_run() is the whole platform (main_posix.c is its main); the host test drives it with another transport. */
 #define _POSIX_C_SOURCE 200112L
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,7 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include "app.h"
+#include "host_posix.h"
 #include "tools_pi.h"
 #include "claude/net_posix.h"
 #include "claude/sys_posix.h"
@@ -127,7 +129,7 @@ static long p_getenv(const char *name, char *out, long cap)
     return (long)strlen(out);
 }
 
-int main(int argc, char **argv)
+int pi_host_run(int argc, char **argv, const pi_platform *over)
 {
     static net_posix np;
     static cl_net net;
@@ -156,6 +158,11 @@ int main(int argc, char **argv)
     pl.h.sleep = p_sleep;
     pl.h.ms = p_ms;
     pl.h.resolve = p_resolve;
+    if (over) {                 /* the host test's transport: the pool and the names it answers */
+        pl.pool = over->pool;
+        pl.h.resolve = over->h.resolve;
+        pl.h.u = over->h.u;
+    }
     pl.now = p_now;
     pl.diag = p_diag;
     pl.getenv = p_getenv;

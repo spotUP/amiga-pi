@@ -34,9 +34,9 @@ test: build/pi_test
 
 # the suites run in VTCON_DIR (its recordings: tests/claude, tests/pi); amiga-pi's
 # own goldens through PI_TESTS
-build/pi_test: $(PI_CORE) $(PI_HDR) $(PI_TESTS) $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) $(VT_TEST) tests/pi_test.h build/stb_impl.o
+build/pi_test: $(PI_CORE) $(PI_HDR) amiga-pi/host_posix.c amiga-pi/host_posix.h $(PI_TESTS) $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) $(VT_TEST) tests/pi_test.h build/stb_impl.o
 	@mkdir -p build
-	$(HOSTCC) $(HOSTCFLAGS) -DVT_COUNT_ALLOC -DPI_TESTS='"$(CURDIR)/tests"' -o $@ $(PI_TESTS) $(PI_CORE) \
+	$(HOSTCC) $(HOSTCFLAGS) -DVT_COUNT_ALLOC -DPI_TESTS='"$(CURDIR)/tests"' -o $@ $(PI_TESTS) amiga-pi/host_posix.c $(PI_CORE) \
 	  $(CLAUDE_CORE) $(CLAUDE_PI) $(VT_HOST) $(VT_TEST) build/stb_impl.o
 
 build/stb_impl.o: $(STB)
@@ -44,9 +44,9 @@ build/stb_impl.o: $(STB)
 	$(HOSTCC) -std=c99 -O1 -g -fsanitize=address,undefined -w -Ivendor/stb -Iamiga-pi -c -o $@ amiga-pi/stb_impl.c
 
 # amiga-pi on the host (manual runs against tools/claude_fixture.py), plain http only
-build/amiga-pi-host: $(PI_CORE) $(PI_HDR) amiga-pi/main_posix.c $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) build/stb_impl.o
+build/amiga-pi-host: $(PI_CORE) $(PI_HDR) amiga-pi/main_posix.c amiga-pi/host_posix.c $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) build/stb_impl.o
 	@mkdir -p build
-	$(HOSTCC) $(HOSTCFLAGS) -o $@ amiga-pi/main_posix.c $(PI_CORE) $(CLAUDE_CORE) $(CLAUDE_PI) $(VT_HOST) build/stb_impl.o
+	$(HOSTCC) $(HOSTCFLAGS) -o $@ amiga-pi/main_posix.c amiga-pi/host_posix.c $(PI_CORE) $(CLAUDE_CORE) $(CLAUDE_PI) $(VT_HOST) build/stb_impl.o
 
 # the layering rule lives in vtcon (llm/ is there, D9) and checks this tree too
 layers:
