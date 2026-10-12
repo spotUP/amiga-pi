@@ -114,6 +114,8 @@ SCENARIOS = {
     # the editor with typed text, the autocomplete menu for a slash
     'editor': dict(steps=[('type', 'hello there')], answers=[]),
     'slash': dict(steps=[('type', '/')], answers=[]),
+    # J: prompt templates in the menu (the agent directory's prompts/: description with its [u] tag, argument hint first)
+    'slash_prompts': dict(steps=[('type', '/rev')], answers=[], agent_tree='agent_dir'),
     # a markdown answer
     'markdown': dict(steps=[('type', 'show markdown'), ('enter',), ('wait', 'return 0')],
                      answers=[('sse', text_answer('msg_md', MARKDOWN, 180))]),
@@ -387,6 +389,8 @@ def run(name, sc, cols, rows, keep):
         own = os.path.join(OUT, sc['session'])       # a fixture of this directory first (took_session.jsonl), else tests/pi/sessions
         txt = open(own if os.path.exists(own) else os.path.join(HERE, '..', '..', 'tests', 'pi', 'sessions', sc['session'])).read()
         open(os.path.join(proj, 'session.jsonl'), 'w').write(txt.replace('/path/to/project', proj))   # else pi asks about the folder
+    if sc.get('agent_tree'):    # J: a tree copied into the agent directory (prompts/*.md of the templates scenarios)
+        shutil.copytree(os.path.join(OUT, sc['agent_tree']), agent, dirs_exist_ok=True)
     for rel, text in sc.get('files', {}).items():
         os.makedirs(os.path.dirname(os.path.join(proj, rel)), exist_ok=True)
         open(os.path.join(proj, rel), 'w').write(text)

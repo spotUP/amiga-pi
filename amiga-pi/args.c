@@ -31,6 +31,13 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             a->approve = !strcmp(s, "--approve") || !strcmp(s, "-a");
         else if (!strcmp(s, "--no-mcp"))
             a->no_mcp = 1;
+        else if (!strcmp(s, "--no-prompt-templates") || !strcmp(s, "-np"))
+            a->no_templates = 1;
+        else if (!strcmp(s, "--prompt-template") && i + 1 < argc) {
+            if (a->ntmpl_paths < PI_ARG_TMPLS)
+                cl_copy(a->tmpl_paths[a->ntmpl_paths++], argv[i + 1], sizeof(a->tmpl_paths[0]));
+            i++;
+        }
         else if (!strcmp(s, "--no-extensions") || !strcmp(s, "-ne"))
             ;                   /* pi's flag: amiga-pi has no extension host to switch off */
         else if (!strcmp(s, "--mode")) {

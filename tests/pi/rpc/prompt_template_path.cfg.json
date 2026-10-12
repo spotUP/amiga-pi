@@ -1,0 +1,26 @@
+{
+ "mode": "rpc",
+ "args": [
+  "--no-extensions",
+  "--no-prompt-templates",
+  "--prompt-template",
+  "extra"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "defaultProjectTrust": "always"
+ },
+ "session": null,
+ "files": {},
+ "text_files": {
+  "project/extra/ext.md": "Extra $2 then $1\n",
+  "project/extra/.dot.md": "dot\n",
+  "agent/prompts/skipped.md": "skipped\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write"
+}

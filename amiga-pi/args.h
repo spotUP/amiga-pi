@@ -29,6 +29,7 @@
 #include "llm/backend.h"
 
 #define PI_ARG_MSGS 16
+#define PI_ARG_TMPLS 8
 
 /* the pi release amiga-pi matches (tag v1.1.0): the start header and --version both print it */
 #define PI_VERSION "1.1.0"
@@ -47,6 +48,9 @@ typedef struct pi_args {
     int approve;                /* -a / --approve 1 trusts the project's .pi/ resources, -na / --no-approve 0, -1 ask */
     int version;                /* --version / -v: print PI_VERSION and exit 0, over every later check (pi main.ts:632) */
     int no_mcp;                 /* --no-mcp: no MCP servers this run (pi's flag) */
+    int no_templates;           /* --no-prompt-templates / -np: only the --prompt-template paths */
+    char tmpl_paths[PI_ARG_TMPLS][300];   /* --prompt-template <file or directory>, repeatable */
+    int ntmpl_paths;
     char session[300];          /* --session's argument, "" none */
     char session_dir[300];      /* --session-dir: where the sessions are stored and looked up, "" the default */
     char name[128];             /* --name, "" none */
