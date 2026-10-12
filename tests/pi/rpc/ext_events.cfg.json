@@ -1,0 +1,154 @@
+{
+ "mode": "json",
+ "args": [
+  "run it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "hooks": {
+   "session_start": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "input": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "agent_start": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "turn_start": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "message_start": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "message_end": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "tool_call": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "tool_execution_start": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "tool_execution_update": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "tool_result": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "tool_execution_end": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "agent_end": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "agent_settled": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "session": null,
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl"
+ ]
+}

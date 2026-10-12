@@ -1,0 +1,33 @@
+{
+ "mode": "json",
+ "args": [
+  "read the file"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "hooks": {
+   "tool_call": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "printf '{\"block\":true,\"reason\":\"no shell today\"}'"
+      }
+     ],
+     "matcher": "bash"
+    }
+   ]
+  }
+ },
+ "session": null,
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": []
+}
