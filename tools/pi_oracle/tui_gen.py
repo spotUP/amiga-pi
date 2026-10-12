@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tui_gen -- the goldens of tests/pi/tui (plan N0): real pi 1.0.4 in tmux at the Amiga window's
+"""tui_gen -- the goldens of tests/pi/tui (plan N0): real pi 1.1.0 in tmux at the Amiga window's
 size, against a local fake Messages API (scripted answers, no key, no cost), each screen captured
 with `tmux capture-pane -e -p` (text and SGR colours).
 
@@ -26,15 +26,16 @@ MODEL = 'fake-model'
 
 
 def find_pi():
-    """The pi the goldens come from: $PI_BIN, else the pinned 1.0.4 install (vendor/pi-1.0.4, npm install --prefix
-    vendor/pi-1.0.4 @earendil-works/pi-coding-agent@1.0.4) in this checkout or the main one, else `pi` on the PATH."""
+    """The pi the goldens come from: $PI_BIN, else the pinned 1.1.0 install (vendor/pi-1.1.0, npm install --prefix
+    vendor/pi-1.1.0 @earendil-works/pi-coding-agent@1.1.0) in this checkout or the main one. Never `pi` on the PATH:
+    the owner's `pi update` moves it (it moved to 1.1.0 mid-phase once)."""
     if os.environ.get('PI_BIN'):
         return os.environ['PI_BIN']
     for root in ('../..', '../../../..'):         # this checkout, then the main one when this is build/wt-<name>
-        c = os.path.normpath(os.path.join(HERE, root, 'vendor', 'pi-1.0.4', 'node_modules', '.bin', 'pi'))
+        c = os.path.normpath(os.path.join(HERE, root, 'vendor', 'pi-1.1.0', 'node_modules', '.bin', 'pi'))
         if os.path.exists(c):
             return c
-    return 'pi'
+    sys.exit('tui_gen: no pinned pi: npm install --prefix vendor/pi-1.1.0 @earendil-works/pi-coding-agent@1.1.0, or set PI_BIN')
 
 
 PI = find_pi()
