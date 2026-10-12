@@ -346,6 +346,13 @@ static int co_level(const unsigned char *a, const unsigned char *b, int sec)
     }
 }
 
+static int ls_cmp(const void *x, const void *y);
+
+int pi_locale_compare(const char *a, const char *b)
+{
+    return ls_cmp(&a, &b);
+}
+
 static int ls_cmp(const void *x, const void *y)
 {
     const unsigned char *a = *(const unsigned char *const *)x, *b = *(const unsigned char *const *)y;

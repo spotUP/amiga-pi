@@ -8,7 +8,8 @@
  * Phase G (s->res, resources.h): a SYSTEM.md replaces the preamble and drops
  * tools, rules and amiga (pi's customPrompt); APPEND_SYSTEM.md is the
  * "addendum" section; the context files the "project_context" section (pi's
- * renderProjectContext), both before cwd. Skills come in phase I.
+ * renderProjectContext), both before cwd. Phase I (skills.h): the "skills" section (pi's formatSkillsForPrompt) follows the
+ * project context, when the session has the read tool or bash.
  * Portable C89. */
 #ifndef PI_PROMPT_H
 #define PI_PROMPT_H

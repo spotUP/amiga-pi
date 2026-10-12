@@ -25,6 +25,7 @@
 
 #include "claude/sys.h"
 #include "claude/json.h"
+#include "skills.h"
 
 #define PI_CTX_FILES 16
 #define PI_RES_MAX (256L * 1024)        /* one file at most */
@@ -44,6 +45,7 @@ typedef struct pi_res {
     char *append;                       /* APPEND_SYSTEM.md's text, 0 none */
     char append_path[300];
     int trusted;                        /* the project's .pi/ resources were loaded */
+    pi_skills skills;                   /* the skills (skills.h), loaded by app.c after pi_res_load; freed by pi_res_free */
     long reads;                         /* files read (the tests' sentinel) */
 } pi_res;
 

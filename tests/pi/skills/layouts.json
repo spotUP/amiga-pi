@@ -1,0 +1,335 @@
+{
+ "basic": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [
+   "/skill:alpha",
+   "/skill:alpha  do the thing  ",
+   "/skill:alpha line one\nline two",
+   "/skill:nope x",
+   "/skill:beta use me",
+   "/skill:alpha\nfoo",
+   "plain text",
+   "/skill:proj-skill  a  b "
+  ],
+  "tools": [
+   [
+    "read",
+    "bash"
+   ],
+   [
+    "bash"
+   ],
+   [
+    "grep"
+   ]
+  ],
+  "files": {
+   "agent/skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha does <things> & \"more\" it's 'x'\n---\nBody of alpha.\n\nSecond paragraph.\n",
+   "agent/skills/beta/SKILL.md": "---\nname: beta\ndescription: Beta is hidden from the model\ndisable-model-invocation: true\n---\nBody of beta.\n\nSecond paragraph.\n",
+   "agent/skills/gamma.md": "---\ndescription: A loose file in the skills directory\n---\nBody of the skill.\n\nSecond paragraph.\n",
+   "agent/skills/notes.md": "# Notes\n\nNo frontmatter here.\n",
+   "agent/agents-skills/ag/SKILL.md": "---\nname: ag\ndescription: From the user's agents directory\n---\nBody of ag.\n\nSecond paragraph.\n",
+   "w/proj/.pi/skills/proj-skill/SKILL.md": "---\nname: proj-skill\ndescription: Project skill\n---\nBody of proj-skill.\n\nSecond paragraph.\n",
+   "w/proj/.pi/skills/nested/deep/SKILL.md": "---\nname: deep\ndescription: Found below a plain directory\n---\nBody of deep.\n\nSecond paragraph.\n",
+   "w/proj/.agents/skills/pa/SKILL.md": "---\nname: pa\ndescription: From the project's .agents/skills\n---\nBody of pa.\n\nSecond paragraph.\n"
+  }
+ },
+ "reach": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [
+   "/skill:alpha review it",
+   "/skill:hid"
+  ],
+  "tools": [
+   [
+    "read",
+    "bash"
+   ]
+  ],
+  "files": {
+   "agent/skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha does the first thing\n---\nBody of alpha.\n\nSecond paragraph.\n",
+   "agent/skills/zeta/SKILL.md": "---\nname: zeta\ndescription: Zeta does the other thing\n---\nBody of zeta.\n\nSecond paragraph.\n",
+   "agent/skills/hid/SKILL.md": "---\nname: hid\ndescription: Only /skill:hid loads this one\ndisable-model-invocation: true\n---\nBody of hid.\n\nSecond paragraph.\n"
+  }
+ },
+ "untrusted": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [
+   "/skill:proj-skill",
+   "/skill:alpha x"
+  ],
+  "tools": [
+   [
+    "read",
+    "bash"
+   ],
+   [
+    "bash"
+   ],
+   [
+    "grep"
+   ]
+  ],
+  "files": {
+   "agent/skills/alpha/SKILL.md": "---\nname: alpha\ndescription: Alpha does <things> & \"more\" it's 'x'\n---\nBody of alpha.\n\nSecond paragraph.\n",
+   "agent/skills/beta/SKILL.md": "---\nname: beta\ndescription: Beta is hidden from the model\ndisable-model-invocation: true\n---\nBody of beta.\n\nSecond paragraph.\n",
+   "agent/skills/gamma.md": "---\ndescription: A loose file in the skills directory\n---\nBody of the skill.\n\nSecond paragraph.\n",
+   "agent/skills/notes.md": "# Notes\n\nNo frontmatter here.\n",
+   "agent/agents-skills/ag/SKILL.md": "---\nname: ag\ndescription: From the user's agents directory\n---\nBody of ag.\n\nSecond paragraph.\n",
+   "w/proj/.pi/skills/proj-skill/SKILL.md": "---\nname: proj-skill\ndescription: Project skill\n---\nBody of proj-skill.\n\nSecond paragraph.\n",
+   "w/proj/.pi/skills/nested/deep/SKILL.md": "---\nname: deep\ndescription: Found below a plain directory\n---\nBody of deep.\n\nSecond paragraph.\n",
+   "w/proj/.agents/skills/pa/SKILL.md": "---\nname: pa\ndescription: From the project's .agents/skills\n---\nBody of pa.\n\nSecond paragraph.\n"
+  }
+ },
+ "validation": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [
+   "/skill:folded",
+   "/skill:crlf x",
+   "/skill:bare"
+  ],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/skills/toolong/SKILL.md": "---\nname: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ndescription: Name too long\n---\nBody of aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.\n\nSecond paragraph.\n",
+   "agent/skills/exact64/SKILL.md": "---\nname: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndescription: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n---\nBody of bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.\n\nSecond paragraph.\n",
+   "agent/skills/upper/SKILL.md": "---\nname: Upper_Case\ndescription: Bad characters\n---\nBody of Upper_Case.\n\nSecond paragraph.\n",
+   "agent/skills/lead/SKILL.md": "---\nname: -lead\ndescription: Leading hyphen\n---\nBody of -lead.\n\nSecond paragraph.\n",
+   "agent/skills/tail/SKILL.md": "---\nname: tail-\ndescription: Trailing hyphen\n---\nBody of tail-.\n\nSecond paragraph.\n",
+   "agent/skills/dbl/SKILL.md": "---\nname: dbl--hy\ndescription: Consecutive hyphens\n---\nBody of dbl--hy.\n\nSecond paragraph.\n",
+   "agent/skills/nodesc/SKILL.md": "---\nname: nodesc\n---\nBody of nodesc.\n\nSecond paragraph.\n",
+   "agent/skills/blankdesc/SKILL.md": "---\nname: blankdesc\ndescription: '   '\n---\nBody of blankdesc.\n\nSecond paragraph.\n",
+   "agent/skills/longdesc/SKILL.md": "---\nname: longdesc\ndescription: ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n---\nBody of longdesc.\n\nSecond paragraph.\n",
+   "agent/skills/dirname-only/SKILL.md": "---\ndescription: Name from the directory\n---\nBody of the skill.\n\nSecond paragraph.\n",
+   "agent/skills/numname/SKILL.md": "---\nname: 123\ndescription: A number is not a string\n---\nBody of 123.\n\nSecond paragraph.\n",
+   "agent/skills/bare/SKILL.md": "No frontmatter at all.\n",
+   "agent/skills/colon/SKILL.md": "---\nname: colon\ndescription: Use when: something happens\n---\nBody\n",
+   "agent/skills/folded/SKILL.md": "---\nname: folded\ndescription: >-\n  First line\n  second line\n\n  after a gap\nlicense: MIT\n---\nBody\n",
+   "agent/skills/literal/SKILL.md": "---\nname: literal\ndescription: |\n  Line one\n  Line two\n---\nBody\n",
+   "agent/skills/quoted/SKILL.md": "---\nname: quoted\ndescription: \"Tab\\there \\u00e9 \\\"q\\\" and \\\\\"\n---\nBody\n",
+   "agent/skills/single/SKILL.md": "---\nname: single\ndescription: 'It''s single'\n---\nBody\n",
+   "agent/skills/crlf/SKILL.md": "﻿---\r\nname: crlf\r\ndescription: Windows line endings\r\n---\r\nBody\r\n",
+   "agent/skills/multiline/SKILL.md": "---\nname: multiline\ndescription: one\n  two\n  three\n---\nBody\n",
+   "agent/skills/bothbad/SKILL.md": "---\nname: Bad Name\n---\nBody of Bad Name.\n\nSecond paragraph.\n",
+   "agent/skills/nomodel-str/SKILL.md": "---\nname: nomodel-str\ndescription: A string true is not true\ndisable-model-invocation: \"true\"\n---\nBody of nomodel-str.\n\nSecond paragraph.\n",
+   "agent/skills/nomodel-caps/SKILL.md": "---\nname: nomodel-caps\ndescription: Hidden by True\ndisable-model-invocation: True\n---\nBody of nomodel-caps.\n\nSecond paragraph.\n",
+   "agent/skills/comment/SKILL.md": "---\nname: comment\ndescription: Before # the comment\nmetadata:\n  author: me\n  version: 1\nallowed-tools: Read Grep\n---\nBody\n",
+   "agent/skills/unicode/SKILL.md": "---\nname: unicode\ndescription: café 😀 emoji counts two\n---\nBody of unicode.\n\nSecond paragraph.\n",
+   "agent/skills/bad-yaml-root.md": "---\ndescription: Use when: this\n---\nA root file with broken YAML is skipped without a word.\n"
+  }
+ },
+ "collision": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [
+   "/skill:dup"
+  ],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/skills/dup/SKILL.md": "---\nname: dup\ndescription: From the agent directory\n---\nBody of dup.\n\nSecond paragraph.\n",
+   "w/proj/.pi/skills/dup/SKILL.md": "---\nname: dup\ndescription: From the project\n---\nBody of dup.\n\nSecond paragraph.\n",
+   "agent/skills/other/SKILL.md": "---\nname: dup\ndescription: Named dup by its frontmatter\n---\nBody of dup.\n\nSecond paragraph.\n",
+   "agent/skills/zed/SKILL.md": "---\nname: zed\ndescription: No clash\n---\nBody of zed.\n\nSecond paragraph.\n"
+  }
+ },
+ "agents_walk": {
+  "cwd": "repo/pkg/sub",
+  "trusted": true,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "repo/.git/HEAD": "ref: refs/heads/main\n",
+   "repo/.agents/skills/a/SKILL.md": "---\nname: a\ndescription: At the repository top\n---\nBody of a.\n\nSecond paragraph.\n",
+   "repo/pkg/.agents/skills/b/SKILL.md": "---\nname: b\ndescription: In the package\n---\nBody of b.\n\nSecond paragraph.\n",
+   "repo/pkg/.agents/skills/loose.md": "---\nname: loose\ndescription: A loose file at the root of .agents/skills is not a skill\n---\nBody of loose.\n\nSecond paragraph.\n",
+   "repo/pkg/.agents/skills/c/extra.md": "---\ndescription: A markdown file below the root is\n---\nBody of the skill.\n\nSecond paragraph.\n",
+   "repo/pkg/sub/.agents/skills/s/SKILL.md": "---\nname: s\ndescription: In the working directory\n---\nBody of s.\n\nSecond paragraph.\n",
+   ".agents/skills/up/SKILL.md": "---\nname: up\ndescription: Above the repository: not searched\n---\nBody of up.\n\nSecond paragraph.\n",
+   "agent/skills/u/SKILL.md": "---\nname: u\ndescription: User skill\n---\nBody of u.\n\nSecond paragraph.\n"
+  }
+ },
+ "agents_nogit": {
+  "cwd": "w/p/q",
+  "trusted": true,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "w/.agents/skills/two/SKILL.md": "---\nname: two\ndescription: Two levels up\n---\nBody of two.\n\nSecond paragraph.\n",
+   "w/p/q/.agents/skills/here/SKILL.md": "---\nname: here\ndescription: Here\n---\nBody of here.\n\nSecond paragraph.\n",
+   ".agents/skills/top/SKILL.md": "---\nname: top\ndescription: At the layout's top\n---\nBody of top.\n\nSecond paragraph.\n"
+  }
+ },
+ "settings": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/settings.json": "{\"skills\":[\"extra\",\"!skip-*\",\"-keep-out\"],\"enableSkillCommands\":false}",
+   "agent/extra/e1/SKILL.md": "---\nname: e1\ndescription: From the settings path\n---\nBody of e1.\n\nSecond paragraph.\n",
+   "agent/extra/e2/SKILL.md": "---\nname: e2\ndescription: Also from it\n---\nBody of e2.\n\nSecond paragraph.\n",
+   "agent/skills/skip-me/SKILL.md": "---\nname: skip-me\ndescription: Switched off by a pattern\n---\nBody of skip-me.\n\nSecond paragraph.\n",
+   "agent/skills/keep-out/SKILL.md": "---\nname: keep-out\ndescription: Switched off by an exact entry\n---\nBody of keep-out.\n\nSecond paragraph.\n",
+   "agent/skills/stay/SKILL.md": "---\nname: stay\ndescription: Stays\n---\nBody of stay.\n\nSecond paragraph.\n",
+   "w/proj/.pi/settings.json": "{\"skills\":[\"../../shared/s1/SKILL.md\",\"+nothing\"]}",
+   "w/shared/s1/SKILL.md": "---\nname: s1\ndescription: A file named in project settings\n---\nBody of s1.\n\nSecond paragraph.\n"
+  }
+ },
+ "settings_untrusted": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/settings.json": "{\"skills\":[\"extra\",\"!skip-*\",\"-keep-out\"],\"enableSkillCommands\":false}",
+   "agent/extra/e1/SKILL.md": "---\nname: e1\ndescription: From the settings path\n---\nBody of e1.\n\nSecond paragraph.\n",
+   "agent/extra/e2/SKILL.md": "---\nname: e2\ndescription: Also from it\n---\nBody of e2.\n\nSecond paragraph.\n",
+   "agent/skills/skip-me/SKILL.md": "---\nname: skip-me\ndescription: Switched off by a pattern\n---\nBody of skip-me.\n\nSecond paragraph.\n",
+   "agent/skills/keep-out/SKILL.md": "---\nname: keep-out\ndescription: Switched off by an exact entry\n---\nBody of keep-out.\n\nSecond paragraph.\n",
+   "agent/skills/stay/SKILL.md": "---\nname: stay\ndescription: Stays\n---\nBody of stay.\n\nSecond paragraph.\n",
+   "w/proj/.pi/settings.json": "{\"skills\":[\"../../shared/s1/SKILL.md\",\"+nothing\"]}",
+   "w/shared/s1/SKILL.md": "---\nname: s1\ndescription: A file named in project settings\n---\nBody of s1.\n\nSecond paragraph.\n"
+  }
+ },
+ "ignore": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/skills/.gitignore": "ignored-dir/\n*.tmp.md\n!keep.tmp.md\n# comment\n\n",
+   "agent/skills/ok/SKILL.md": "---\nname: ok\ndescription: Fine\n---\nBody of ok.\n\nSecond paragraph.\n",
+   "agent/skills/ignored-dir/SKILL.md": "---\nname: ignored-dir\ndescription: Hidden by .gitignore\n---\nBody of ignored-dir.\n\nSecond paragraph.\n",
+   "agent/skills/skip.tmp.md": "---\nname: skip-tmp\ndescription: Hidden by *.tmp.md\n---\nBody of skip-tmp.\n\nSecond paragraph.\n",
+   "agent/skills/keep.tmp.md": "---\nname: keep-tmp\ndescription: Brought back by the ! rule\n---\nBody of keep-tmp.\n\nSecond paragraph.\n",
+   "agent/skills/sub/.ignore": "secret/\n",
+   "agent/skills/sub/secret/SKILL.md": "---\nname: secret\ndescription: Hidden by sub/.ignore\n---\nBody of secret.\n\nSecond paragraph.\n",
+   "agent/skills/sub/fine/SKILL.md": "---\nname: fine\ndescription: Fine, below sub\n---\nBody of fine.\n\nSecond paragraph.\n",
+   "agent/skills/other/.fdignore": "x\n",
+   "agent/skills/other/y/SKILL.md": "---\nname: y\ndescription: The pattern x does not match y\n---\nBody of y.\n\nSecond paragraph.\n"
+  }
+ },
+ "nested": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/skills/top/SKILL.md": "---\nname: top\ndescription: A skill root: not searched further\n---\nBody of top.\n\nSecond paragraph.\n",
+   "agent/skills/top/inner/SKILL.md": "---\nname: inner\ndescription: Never found\n---\nBody of inner.\n\nSecond paragraph.\n",
+   "agent/skills/deep/a/b/c/SKILL.md": "---\nname: c\ndescription: Found four levels down\n---\nBody of c.\n\nSecond paragraph.\n",
+   "agent/skills/.hidden/SKILL.md": "---\nname: hidden-dir\ndescription: A dot directory is skipped\n---\nBody of hidden-dir.\n\nSecond paragraph.\n",
+   "agent/skills/node_modules/x/SKILL.md": "---\nname: nm\ndescription: node_modules is skipped\n---\nBody of nm.\n\nSecond paragraph.\n",
+   "agent/skills/mixed/readme.md": "---\ndescription: A markdown file below the root is not a skill here\n---\nBody of the skill.\n\nSecond paragraph.\n",
+   "agent/skills/mixed/real/SKILL.md": "---\nname: real\ndescription: Next to it\n---\nBody of real.\n\nSecond paragraph.\n",
+   "agent/skills/tools.md": "---\ndescription: A markdown file at the root is\n---\nBody of the skill.\n\nSecond paragraph.\n"
+  }
+ },
+ "cli": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noSkills": false,
+  "skillPaths": [
+   "extra/one.md",
+   "extra/dir",
+   "extra/none.md",
+   "extra/x.txt",
+   "../abs/two.md"
+  ],
+  "expand": [
+   "/skill:one"
+  ],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/skills/base/SKILL.md": "---\nname: base\ndescription: Discovered\n---\nBody of base.\n\nSecond paragraph.\n",
+   "w/proj/extra/one.md": "---\nname: one\ndescription: A file given with --skill\n---\nBody of one.\n\nSecond paragraph.\n",
+   "w/proj/extra/dir/d1/SKILL.md": "---\nname: d1\ndescription: In a directory given with --skill\n---\nBody of d1.\n\nSecond paragraph.\n",
+   "w/proj/extra/x.txt": "not markdown\n",
+   "w/abs/two.md": "---\nname: two\ndescription: Outside the project\n---\nBody of two.\n\nSecond paragraph.\n"
+  }
+ },
+ "noskills": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noSkills": true,
+  "skillPaths": [
+   "extra/one.md"
+  ],
+  "expand": [
+   "/skill:one"
+  ],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/skills/base/SKILL.md": "---\nname: base\ndescription: Discovered\n---\nBody of base.\n\nSecond paragraph.\n",
+   "w/proj/extra/one.md": "---\nname: one\ndescription: A file given with --skill\n---\nBody of one.\n\nSecond paragraph.\n",
+   "w/proj/extra/dir/d1/SKILL.md": "---\nname: d1\ndescription: In a directory given with --skill\n---\nBody of d1.\n\nSecond paragraph.\n",
+   "w/proj/extra/x.txt": "not markdown\n",
+   "w/abs/two.md": "---\nname: two\ndescription: Outside the project\n---\nBody of two.\n\nSecond paragraph.\n"
+  }
+ }
+}

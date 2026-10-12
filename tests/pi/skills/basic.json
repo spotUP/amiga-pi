@@ -1,0 +1,109 @@
+{
+ "skills": [
+  {
+   "name": "deep",
+   "description": "Found below a plain directory",
+   "filePath": "@ROOT@/basic/w/proj/.pi/skills/nested/deep/SKILL.md",
+   "baseDir": "@ROOT@/basic/w/proj/.pi/skills/nested/deep",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] Found below a plain directory"
+  },
+  {
+   "name": "proj-skill",
+   "description": "Project skill",
+   "filePath": "@ROOT@/basic/w/proj/.pi/skills/proj-skill/SKILL.md",
+   "baseDir": "@ROOT@/basic/w/proj/.pi/skills/proj-skill",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] Project skill"
+  },
+  {
+   "name": "pa",
+   "description": "From the project's .agents/skills",
+   "filePath": "@ROOT@/basic/w/proj/.agents/skills/pa/SKILL.md",
+   "baseDir": "@ROOT@/basic/w/proj/.agents/skills/pa",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] From the project's .agents/skills"
+  },
+  {
+   "name": "alpha",
+   "description": "Alpha does <things> & \"more\" it's 'x'",
+   "filePath": "@ROOT@/basic/agent/skills/alpha/SKILL.md",
+   "baseDir": "@ROOT@/basic/agent/skills/alpha",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Alpha does <things> & \"more\" it's 'x'"
+  },
+  {
+   "name": "beta",
+   "description": "Beta is hidden from the model",
+   "filePath": "@ROOT@/basic/agent/skills/beta/SKILL.md",
+   "baseDir": "@ROOT@/basic/agent/skills/beta",
+   "disableModelInvocation": true,
+   "label": "auto (user)",
+   "command": "[u] Beta is hidden from the model"
+  },
+  {
+   "name": "skills",
+   "description": "A loose file in the skills directory",
+   "filePath": "@ROOT@/basic/agent/skills/gamma.md",
+   "baseDir": "@ROOT@/basic/agent/skills",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] A loose file in the skills directory"
+  },
+  {
+   "name": "ag",
+   "description": "From the user's agents directory",
+   "filePath": "@ROOT@/basic/agent/agents-skills/ag/SKILL.md",
+   "baseDir": "@ROOT@/basic/agent/agents-skills/ag",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] From the user's agents directory"
+  }
+ ],
+ "diagnostics": [],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:deep\",\"description\":\"Found below a plain directory\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/w/proj/.pi/skills/nested/deep/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/w/proj/.pi\"}},{\"name\":\"skill:proj-skill\",\"description\":\"Project skill\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/w/proj/.pi/skills/proj-skill/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/w/proj/.pi\"}},{\"name\":\"skill:pa\",\"description\":\"From the project's .agents/skills\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/w/proj/.agents/skills/pa/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/w/proj/.agents\"}},{\"name\":\"skill:alpha\",\"description\":\"Alpha does <things> & \\\"more\\\" it's 'x'\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/agent/skills/alpha/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/agent\"}},{\"name\":\"skill:beta\",\"description\":\"Beta is hidden from the model\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/agent/skills/beta/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/agent\"}},{\"name\":\"skill:skills\",\"description\":\"A loose file in the skills directory\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/agent/skills/gamma.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/agent\"}},{\"name\":\"skill:ag\",\"description\":\"From the user's agents directory\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/agent/agents-skills/ag/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/agent\"}}]",
+ "sections": {
+  "read+bash": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>deep</name>\n    <description>Found below a plain directory</description>\n    <location>@ROOT@/basic/w/proj/.pi/skills/nested/deep/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>proj-skill</name>\n    <description>Project skill</description>\n    <location>@ROOT@/basic/w/proj/.pi/skills/proj-skill/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>pa</name>\n    <description>From the project&apos;s .agents/skills</description>\n    <location>@ROOT@/basic/w/proj/.agents/skills/pa/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>alpha</name>\n    <description>Alpha does &lt;things&gt; &amp; &quot;more&quot; it&apos;s &apos;x&apos;</description>\n    <location>@ROOT@/basic/agent/skills/alpha/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>skills</name>\n    <description>A loose file in the skills directory</description>\n    <location>@ROOT@/basic/agent/skills/gamma.md</location>\n  </skill>\n  <skill>\n    <name>ag</name>\n    <description>From the user&apos;s agents directory</description>\n    <location>@ROOT@/basic/agent/agents-skills/ag/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>",
+  "bash": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse bash to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>deep</name>\n    <description>Found below a plain directory</description>\n    <location>@ROOT@/basic/w/proj/.pi/skills/nested/deep/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>proj-skill</name>\n    <description>Project skill</description>\n    <location>@ROOT@/basic/w/proj/.pi/skills/proj-skill/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>pa</name>\n    <description>From the project&apos;s .agents/skills</description>\n    <location>@ROOT@/basic/w/proj/.agents/skills/pa/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>alpha</name>\n    <description>Alpha does &lt;things&gt; &amp; &quot;more&quot; it&apos;s &apos;x&apos;</description>\n    <location>@ROOT@/basic/agent/skills/alpha/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>skills</name>\n    <description>A loose file in the skills directory</description>\n    <location>@ROOT@/basic/agent/skills/gamma.md</location>\n  </skill>\n  <skill>\n    <name>ag</name>\n    <description>From the user&apos;s agents directory</description>\n    <location>@ROOT@/basic/agent/agents-skills/ag/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>",
+  "grep": null
+ },
+ "expand": [
+  {
+   "input": "/skill:alpha",
+   "output": "<skill name=\"alpha\" location=\"@ROOT@/basic/agent/skills/alpha/SKILL.md\">\nReferences are relative to @ROOT@/basic/agent/skills/alpha.\n\nBody of alpha.\n\nSecond paragraph.\n</skill>"
+  },
+  {
+   "input": "/skill:alpha  do the thing  ",
+   "output": "<skill name=\"alpha\" location=\"@ROOT@/basic/agent/skills/alpha/SKILL.md\">\nReferences are relative to @ROOT@/basic/agent/skills/alpha.\n\nBody of alpha.\n\nSecond paragraph.\n</skill>\n\ndo the thing"
+  },
+  {
+   "input": "/skill:alpha line one\nline two",
+   "output": "<skill name=\"alpha\" location=\"@ROOT@/basic/agent/skills/alpha/SKILL.md\">\nReferences are relative to @ROOT@/basic/agent/skills/alpha.\n\nBody of alpha.\n\nSecond paragraph.\n</skill>\n\nline one\nline two"
+  },
+  {
+   "input": "/skill:nope x",
+   "output": "/skill:nope x"
+  },
+  {
+   "input": "/skill:beta use me",
+   "output": "<skill name=\"beta\" location=\"@ROOT@/basic/agent/skills/beta/SKILL.md\">\nReferences are relative to @ROOT@/basic/agent/skills/beta.\n\nBody of beta.\n\nSecond paragraph.\n</skill>\n\nuse me"
+  },
+  {
+   "input": "/skill:alpha\nfoo",
+   "output": "/skill:alpha\nfoo"
+  },
+  {
+   "input": "plain text",
+   "output": "plain text"
+  },
+  {
+   "input": "/skill:proj-skill  a  b ",
+   "output": "<skill name=\"proj-skill\" location=\"@ROOT@/basic/w/proj/.pi/skills/proj-skill/SKILL.md\">\nReferences are relative to @ROOT@/basic/w/proj/.pi/skills/proj-skill.\n\nBody of proj-skill.\n\nSecond paragraph.\n</skill>\n\na  b"
+  }
+ ]
+}

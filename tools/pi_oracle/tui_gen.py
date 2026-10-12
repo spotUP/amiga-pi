@@ -290,6 +290,36 @@ SCENARIOS = {
 }
 
 
+# I1/I3: skills in the agent directory (pi's ~/.pi/agent/skills): a valid one, a name pi warns about (it still loads), a skill without
+# a description (skipped, warned), and two with one name (the second is a collision)
+def _sk(name, desc, extra=''):
+    return '---\n' + ('name: %s\n' % name if name else '') + ('description: %s\n' % desc if desc else '') + extra + '---\nSay hello warmly.\n'
+
+
+SKILL_FILES = {
+    'skills/greet/SKILL.md': _sk('greet', 'Greets the user by name'),
+    'skills/terse/SKILL.md': _sk('terse', 'Answers in five words'),
+    'skills/Bad_Name/SKILL.md': _sk(None, 'Has a name pi warns about'),
+    'skills/nodesc/SKILL.md': _sk('nodesc', None),
+    'skills/zdup/SKILL.md': _sk('greet', 'A second skill called greet'),
+}
+
+SCENARIOS.update({
+    # the start screen with skills: the [Skills] list (not quiet) and the [Skill conflicts] diagnostics (interactive-mode.ts:1772-1930)
+    'skills_start': dict(steps=[], answers=[], agent_files=SKILL_FILES, rows=40),
+    # quietStartup hides the header and the list, not the diagnostics (showDiagnosticsWhenQuiet, interactive-mode.ts:2044)
+    'skills_quiet': dict(steps=[], answers=[], agent_files=SKILL_FILES, rows=30),
+    # the slash menu offers /skill:name with "[u] description"
+    'skills_menu': dict(steps=[('type', '/skill:'), ('sleep', 0.8)], answers=[], agent_files=SKILL_FILES, rows=30),
+    # a session whose user messages are skill blocks: pi draws SkillInvocationMessageComponent, collapsed and (ctrl+o) expanded
+    'resume_skill': dict(steps=[('sleep', 1.0)], answers=[], session='skill_session.jsonl', rows=30),
+    'resume_skill_expanded': dict(steps=[('sleep', 1.0), ('key', 'C-o'), ('sleep', 1.0)], answers=[], session='skill_session.jsonl', rows=40),
+    # /skill:name args typed live: the block and the arguments are one message; pi shows the block, then the arguments as the user's
+    'skill_cmd': dict(steps=[('type', '/skill:greet please greet Bob'), ('enter',), ('wait', 'nice to meet you'), ('sleep', 1.0)],
+                      answers=[('sse', text_answer('msg_sk', 'Hello Bob, nice to meet you!', 20))], agent_files=SKILL_FILES, rows=30),
+})
+
+
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []
     served = []
@@ -394,6 +424,9 @@ def run(name, sc, cols, rows, keep):
     for rel, text in sc.get('files', {}).items():
         os.makedirs(os.path.dirname(os.path.join(proj, rel)), exist_ok=True)
         open(os.path.join(proj, rel), 'w').write(text)
+    for rel, text in sc.get('agent_files', {}).items():      # the agent directory (skills/, ...)
+        os.makedirs(os.path.dirname(os.path.join(agent, rel)), exist_ok=True)
+        open(os.path.join(agent, rel), 'w').write(text)
     Fake.answers = [a for a in sc['answers']]
     Fake.served = []
     srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Fake)
@@ -405,7 +438,7 @@ def run(name, sc, cols, rows, keep):
               open(os.path.join(agent, 'models.json'), 'w'))
     # quietStartup hides the header: only the scenarios about the header show it (the rest would scroll by its height)
     settings = {'defaultProvider': 'fake', 'defaultModel': MODEL, 'defaultThinkingLevel': 'off',
-                'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start'),
+                'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start', 'skills_start'),
                 'tuiMode': sc.get('tui', 'fullscreen'), 'theme': sc.get('theme', 'system')}
     settings.update(sc.get('settings', {}))
     json.dump(settings, open(os.path.join(agent, 'settings.json'), 'w'))
@@ -496,6 +529,8 @@ def main():
     ap.add_argument('--keep', action='store_true')
     a = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
+    # the skills of the skills_* scenarios, for tests/test_pi_tui.c to put in its own agent directory
+    json.dump(SKILL_FILES, open(os.path.join(OUT, 'skills_files.json'), 'w'), indent=1)
     for n, sc in SCENARIOS.items():
         if a.only and a.only != n:
             continue

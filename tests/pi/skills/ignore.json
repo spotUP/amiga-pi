@@ -1,0 +1,47 @@
+{
+ "skills": [
+  {
+   "name": "keep-tmp",
+   "description": "Brought back by the ! rule",
+   "filePath": "@ROOT@/ignore/agent/skills/keep.tmp.md",
+   "baseDir": "@ROOT@/ignore/agent/skills",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Brought back by the ! rule"
+  },
+  {
+   "name": "ok",
+   "description": "Fine",
+   "filePath": "@ROOT@/ignore/agent/skills/ok/SKILL.md",
+   "baseDir": "@ROOT@/ignore/agent/skills/ok",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Fine"
+  },
+  {
+   "name": "y",
+   "description": "The pattern x does not match y",
+   "filePath": "@ROOT@/ignore/agent/skills/other/y/SKILL.md",
+   "baseDir": "@ROOT@/ignore/agent/skills/other/y",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] The pattern x does not match y"
+  },
+  {
+   "name": "fine",
+   "description": "Fine, below sub",
+   "filePath": "@ROOT@/ignore/agent/skills/sub/fine/SKILL.md",
+   "baseDir": "@ROOT@/ignore/agent/skills/sub/fine",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Fine, below sub"
+  }
+ ],
+ "diagnostics": [],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:keep-tmp\",\"description\":\"Brought back by the ! rule\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/ignore/agent/skills/keep.tmp.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/ignore/agent\"}},{\"name\":\"skill:ok\",\"description\":\"Fine\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/ignore/agent/skills/ok/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/ignore/agent\"}},{\"name\":\"skill:y\",\"description\":\"The pattern x does not match y\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/ignore/agent/skills/other/y/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/ignore/agent\"}},{\"name\":\"skill:fine\",\"description\":\"Fine, below sub\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/ignore/agent/skills/sub/fine/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/ignore/agent\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>keep-tmp</name>\n    <description>Brought back by the ! rule</description>\n    <location>@ROOT@/ignore/agent/skills/keep.tmp.md</location>\n  </skill>\n  <skill>\n    <name>ok</name>\n    <description>Fine</description>\n    <location>@ROOT@/ignore/agent/skills/ok/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>y</name>\n    <description>The pattern x does not match y</description>\n    <location>@ROOT@/ignore/agent/skills/other/y/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>fine</name>\n    <description>Fine, below sub</description>\n    <location>@ROOT@/ignore/agent/skills/sub/fine/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": []
+}

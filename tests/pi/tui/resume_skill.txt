@@ -1,0 +1,30 @@
+
+ [skill] greet (ctrl+o to expand)
+
+
+
+ please greet Bob
+
+
+ Hello Bob, nice to meet you!
+
+
+ [skill] terse (ctrl+o to expand)
+
+
+ Done in five words.
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑20 ↓10 0.0%/200k (auto)                                              fake-model

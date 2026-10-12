@@ -6,6 +6,7 @@
 #include "llm/transform.h"
 #include "llm/handoff.h"
 #include "llm/estimate.h"
+#include "resources.h"        /* s->res->skills: /skill:name */
 #include "claude/util.h"
 #include "claude/repl.h"        /* cl_key_clean */
 
@@ -852,9 +853,22 @@ static int queue_add(char **q, int *n, const char *text)
     return 0;
 }
 
+/* pi's _expandSkillCommand, applied where pi_prompt, pi_steer and pi_follow_up take the text (agent-session.ts:2005-2010): the
+ * text as typed, or the <skill> block in buf (buf is initialised here and freed by the caller) */
+static const char *expand_input(const pi_session *s, const char *text, jw *buf)
+{
+    jw_init(buf);
+    if (s->res && s->res->skills.n && !strncmp(text, "/skill:", 7) && pi_skill_expand(&s->res->skills, text, buf) == 1)
+        return buf->p;
+    return text;
+}
+
 int pi_steer(pi_session *s, const char *text)
 {
-    if (queue_add(s->steer, &s->nsteer, text))
+    jw ex;
+    int rc = queue_add(s->steer, &s->nsteer, expand_input(s, text, &ex));
+    jw_free(&ex);
+    if (rc)
         return -1;
     emit_queue(s);
     return 0;
@@ -862,7 +876,10 @@ int pi_steer(pi_session *s, const char *text)
 
 int pi_follow_up(pi_session *s, const char *text)
 {
-    if (queue_add(s->follow, &s->nfollow, text))
+    jw ex;
+    int rc = queue_add(s->follow, &s->nfollow, expand_input(s, text, &ex));
+    jw_free(&ex);
+    if (rc)
         return -1;
     emit_queue(s);
     return 0;
@@ -1024,9 +1041,11 @@ static int retry_wait(pi_session *s, long ms)
     return s->retry_stop;
 }
 
-int pi_prompt(pi_session *s, const char *text)
+int pi_prompt(pi_session *s, const char *typed)
 {
     int rc;
+    jw ex;
+    const char *text = expand_input(s, typed, &ex);
     pi_agent_prompts++;
     s->err[0] = 0;
     s->active = 1;
@@ -1098,6 +1117,7 @@ int pi_prompt(pi_session *s, const char *text)
         e.aborted = s->aborted;
         pi_emit(&s->em, &e);
     }
+    jw_free(&ex);
     return rc;
 }
 
