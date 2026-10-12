@@ -1279,6 +1279,15 @@ static void test_overflow_recovery(void)
     CHECK_INT(pi_agent_rounds - r0, 4);
 }
 
+/* Q6b: the agent's bash call emits pi's tool_execution_update records (bash.ts onUpdate): an empty one when the command
+ * starts, the output (details {}) when it is done; the stream equals the oracle's golden (pi 1.1.0) */
+static void test_tool_update(void)
+{
+    run_opts ro;
+    memset(&ro, 0, sizeof(ro));
+    CHECK(scenario("prompt_bash", &ro));    /* the stream against the golden: its two tool_execution_update records */
+}
+
 /* Q16: pi writes a diagnostic as one line; amiga-pi's say() wrote "amiga-pi: " and the message in two writes, which json
  * and rpc mode send to the diagnostic stream as two lines. A
  * models.json that is not JSON is the diagnostic. (pi 1.1.0 prints nothing for an unknown --tools name: test_select) */
@@ -1464,5 +1473,6 @@ void suite_pi_modes(void)
     test_retry_cap();
     test_retry_overflow();
     test_gate();
+    test_tool_update();
     test_diag_one_line();
 }

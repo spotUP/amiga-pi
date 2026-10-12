@@ -507,6 +507,7 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     c.thinking = s->thinking;
     llm_acc_init(&acc, s->model.api, s->model.provider);
     llm_acc_model(&acc, s->model.id, s->model.cost);
+    llm_acc_fallbacks(&acc, s->model.compat.fb, s->model.compat.nfb);
     k.u = &acc;
     k.ev = llm_acc_event;
     memset(&q, 0, sizeof(q));
@@ -823,7 +824,8 @@ static int overflow_check(pi_store *st, pi_session *s)
     jv m, v;
     char prov[64], model[128], err[300];
     long window = s->model.context_window, input;
-    int a, deep, recoverable;
+    cp_asst as;
+    int a, deep, recoverable, ov;
     for (a = s->nmsg - 1; a >= 0; a--)
         if (llm_msg_info(s->msg[a], s->msg_n[a], &inf) >= 0 && inf.role == LR_ASSISTANT)
             break;
@@ -848,10 +850,10 @@ static int overflow_check(pi_store *st, pi_session *s)
     if (strcmp(prov, s->model.provider ? s->model.provider : "") || strcmp(model, s->model.id ? s->model.id : ""))
         return OV_NONE;
     input = u.input + u.cache_read;
-    deep = (inf.stop == LS_ERROR && pi_context_overflow(err)) ||
-           (window > 0 && inf.stop == LS_STOP && input > window) ||
-           (window > 0 && inf.stop == LS_LENGTH && u.output == 0 && input * 100 >= window * 99);
-    recoverable = inf.stop == LS_LENGTH && s->model.max_tokens > 0 && u.output < s->model.max_tokens;
+    cp_assistant_state(&st->s3, st->s3.leaf, s->msg[a], s->msg_n[a], &as);
+    ov = cp_overflow(inf.stop, inf.stop == LS_ERROR && pi_context_overflow(err), input, u.output, window, s->model.max_tokens, &as);
+    deep = (ov & CP_OV_DEEP) != 0;
+    recoverable = (ov & CP_OV_LENGTH) != 0;
     if (!deep && !recoverable)
         return OV_NONE;
     if (inf.stop == LS_STOP) {

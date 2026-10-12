@@ -28,6 +28,7 @@ void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_poo
     s->retry_base = 2000;
     s->retry_max_delay = 60000;
     jw_init(&s->structured);
+    jw_init(&s->details);
     pi_emitter_init(&s->em);
     pi_exts_init(&s->ext);
     pi_subscribe(&s->em, pi_exts_event, &s->ext);
@@ -100,6 +101,7 @@ void pi_session_free(pi_session *s)
         free(s->pend[i]);
     s->npend = 0;
     jw_free(&s->structured);
+    jw_free(&s->details);
     free(s->sys);
     free(s->sys_n);
     free(s->sys_at);
@@ -492,6 +494,7 @@ static int answer(pi_session *s, stream *t)
     c.thinking = s->thinking;
     llm_acc_init(&t->acc, s->model.api, s->model.provider);
     llm_acc_model(&t->acc, s->model.id, s->model.cost);
+    llm_acc_fallbacks(&t->acc, s->model.compat.fb, s->model.compat.nfb);
     llm_acc_level(&t->acc, llm_ant_effort(&s->model, s->thinking));
     llm_acc_thinking(&t->acc, llm_think_name(s->thinking));     /* pi-agent-core: the level the loop asked at, "off" too */
     k.u = t;
@@ -574,6 +577,7 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     jw_init(&args);
     jw_init(&content);
     jw_reset(&s->structured);
+    jw_reset(&s->details);
     if (b->a.n)
         jw_raw(&args, b->a.p, b->a.n);
     else
@@ -632,11 +636,14 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     e.is_error = is_error;
     e.structured = s->structured.n ? s->structured.p : 0;
     e.structured_n = s->structured.n;
+    e.details = s->details.n ? s->details.p : 0;
+    e.details_n = s->details.n;
     e.duration_ms = duration;
     pi_emit(&s->em, &e);
     jw_init(&m);
-    llm_m_toolresult(&m, b->id, b->name, content.p, content.n, is_error && !s->structured.n ? "{}" : 0,
-                     is_error && !s->structured.n ? 2 : 0, is_error, duration, now(s));
+    llm_m_toolresult(&m, b->id, b->name, content.p, content.n,
+                     s->details.n ? s->details.p : is_error && !s->structured.n ? "{}" : 0,
+                     s->details.n ? s->details.n : is_error && !s->structured.n ? 2 : 0, is_error, duration, now(s));
     i = keep(s, &m);
     jw_free(&m);
     if (i >= 0) {

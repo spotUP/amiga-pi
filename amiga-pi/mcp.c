@@ -1601,13 +1601,45 @@ int mcp_limit(cl_sys *sys, const char *tmp, const char *id, const char *blocks, 
     return 1;
 }
 
+/* JSON.stringify of a parsed value: no whitespace, strings as js_string writes them */
+static void js_compact(jw *w, jv v)
+{
+    jit it;
+    jv k, x;
+    int t = json_type(v), any = 0;
+    if (t == J_OBJ || t == J_ARR) {
+        jw_rawz(w, t == J_OBJ ? "{" : "[");
+        json_iter(v, &it);
+        while (json_next(&it, t == J_OBJ ? &k : 0, &x)) {
+            if (any)
+                jw_rawz(w, ",");
+            any = 1;
+            if (t == J_OBJ) {
+                js_string(w, k);
+                jw_rawz(w, ":");
+            }
+            js_compact(w, x);
+        }
+        jw_rawz(w, t == J_OBJ ? "}" : "]");
+    } else if (t == J_STR)
+        js_string(w, v);
+    else
+        jw_raw(w, v.p, v.n);
+}
+
 int mcp_result(mcp *m, const char *server, const char *tool, const char *id, const char *res, long n, jw *out,
                int *is_error)
+{
+    return mcp_result_ex(m, server, tool, id, res, n, out, is_error, 0, 0);
+}
+
+int mcp_result_ex(mcp *m, const char *server, const char *tool, const char *id, const char *res, long n, jw *out,
+                  int *is_error, jw *details, jw *structured)
 {
     jv v, content, sc, b, x;
     jit it;
     conv c;
-    int nsaved = 0;
+    int nsaved = 0, cut = 0;
     *is_error = 0;
     if (json_parse(res, n, &v) || json_type(v) != J_OBJ ||
         (json_get(v, "content", &content) && json_type(content) != J_ARR)) {
@@ -1658,8 +1690,42 @@ int mcp_result(mcp *m, const char *server, const char *tool, const char *id, con
         if (c.blocks.n)
             jw_raw(&arr, c.blocks.p, c.blocks.n);
         jw_rawz(&arr, "]");
-        mcp_limit(m->sys, m->tmp, id, arr.p, arr.n, out);
+        cut = mcp_limit(m->sys, m->tmp, id, arr.p, arr.n, out) && out->p && strstr(out->p, "[Full output: ");
         jw_free(&arr);
+    }
+    if (details) {
+        jw_rawz(details, "{\"server\":");
+        jw_strz(details, server);
+        jw_rawz(details, ",\"tool\":");
+        jw_strz(details, tool);
+        if (cut) {
+            char path[300];
+            pi_cut_path(m->tmp, id, path, sizeof(path));
+            jw_rawz(details, ",\"fullOutputPath\":");
+            jw_strz(details, path);
+        }
+        jw_rawz(details, "}");
+    }
+    if (structured) {                   /* { _meta, ...rest }: the result without _meta, the server's key order */
+        jit it;
+        jv k, y;
+        char key[16];
+        int any = 0;
+        jw_rawz(structured, "{");
+        json_iter(v, &it);
+        while (json_next(&it, &k, &y)) {
+            if (json_str(k, key, sizeof(key)) == 5 && !strcmp(key, "_meta"))
+                continue;
+            if (any)
+                jw_rawz(structured, ",");
+            any = 1;
+            js_string(structured, k);
+            jw_rawz(structured, ":");
+            js_compact(structured, y);
+        }
+        if (!json_get(v, "content", &x))        /* pi-mcp's callTool gives a result without content a content [] (last) */
+            jw_rawz(structured, any ? ",\"content\":[]" : "\"content\":[]");
+        jw_rawz(structured, "}");
     }
     jw_free(&c.blocks);
     jw_free(&c.texts);
@@ -1734,7 +1800,8 @@ static int tool_run(void *u, pi_session *s, const char *args, long an, jw *conte
             jw_rawz(content, "]");
             *is_error = 1;
         } else
-            mcp_result(sv->m, sv->name, t->tname, id, res.p ? res.p : "{}", res.p ? res.n : 2, content, is_error);
+            mcp_result_ex(sv->m, sv->name, t->tname, id, res.p ? res.p : "{}", res.p ? res.n : 2, content, is_error,
+                          s ? &s->details : 0, s ? &s->structured : 0);
         jw_free(&res);
     }
     return s && s->h.poll && s->h.poll(s->h.u) ? 1 : 0;

@@ -70,6 +70,27 @@ long cp_context_tokens(pi_s3 *st, int leaf, const pi_ctx *c);
  * compaction until an answer with usage follows it */
 long cp_context_usage(pi_s3 *st, int leaf, const pi_ctx *c);
 int cp_should(long tokens, long window, long reserve);
+
+/* where the last answer stands in the session (the first half of _checkCompaction's overflow cases): projected is
+ * assistantIsProjected (its entry still gives the context an assistant message; an omitted one, an older range, a
+ * compaction's cut do not), after_edit hasPostAssistantContextEdit (any context_edit after it on the branch), retained
+ * assistantRetainedForExplicitRecovery (no compaction after it and its latest edit, if any, does not omit it). An answer
+ * with no entry on the branch (pi: no persisted id) is projected and retained */
+/* pi's combineUsage (usage-totals.ts): b added to a; cacheWrite1h and reasoning appear in the sum when either has them */
+void cp_usage_add(llm_usage *a, const llm_usage *b);
+
+typedef struct cp_asst {
+    int projected, after_edit, retained;
+} cp_asst;
+int cp_assistant_state(pi_s3 *st, int leaf, const char *msg, long n, cp_asst *o);
+
+/* _checkCompaction's cases 1 and 2 for an answer of the current model: bit 1 contextOverflow (an overflow error that the
+ * answer is still retained for, or one by usage -- the error pattern, input over the window on a stop, a length stop with
+ * no output filling it -- while the usage still matches the projection), bit 2 recoverableLength (isRecoverableLength on a
+ * projected answer; max_tokens the model's output limit). 0: neither, the threshold check follows */
+#define CP_OV_DEEP 1
+#define CP_OV_LENGTH 2
+int cp_overflow(int stop, int err_overflow, long input, long output, long window, long max_tokens, const cp_asst *a);
 /* 1 prepared, 0 nothing to compact (leaf is a compaction, or no history), -1 out of memory */
 int cp_prepare(pi_s3 *st, int leaf, long keep_recent, pi_prep *p);
 void cp_prep_free(pi_prep *p);
