@@ -5,8 +5,7 @@
  *
  * A line is compared after the masks of tests/pi/rpc/masks.json (the one list of this test and of vtcon's rig
  * tools/rig/amigapi_rig.py), each with its reason there and a COMPATIBILITY.md row (group pi-modes), never a way to
- * hide one: keys starred (made per run, or compared where they live), fresh ids starred, pi 1.0.4's message fields
- * dropped (PH-S), and the rules: cost `total`, the text of an HTTP errorMessage, message_start usage, baseUrl, the
+ * hide one: keys starred (made per run, or compared where they live), fresh ids starred, and the rules: cost `total`, the text of an HTTP errorMessage, message_start usage, baseUrl, the
  * parse error text, get_available_models for the fixture's provider.
  * A command that arrives while the agent works is held by its `#after <event>` line until pi's run had that event in its
  * output, as the golden was made. */
@@ -104,7 +103,7 @@ typedef struct {
     char k[MASK_MAX][32];
     int n;
 } key_list;
-static key_list star_keys, id_keys, drop_keys;
+static key_list star_keys, id_keys;
 static char fixture_provider[32];
 static int masks_loaded;
 
@@ -138,12 +137,11 @@ static int load_masks(void)
     if (masks_loaded)
         return 1;
     t = slurp_rpc("masks", ".json", &n);
-    if (!t || json_parse(t, n, &v) || !json_get(v, "star", &x) || !json_get(v, "drop", &y)) {
+    if (!t || json_parse(t, n, &v) || !json_get(v, "star", &x)) {
         free(t);
         return 0;
     }
     keys_of(x, &star_keys);
-    keys_of(y, &drop_keys);
     if (!json_get(v, "ids", &x) || !json_get(x, "keys", &y) || !json_get(v, "fixtureProvider", &x)) {
         free(t);
         return 0;
@@ -234,8 +232,8 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
     while (json_next(&it, &k, &val)) {
         jv t;
         json_str(k, key, sizeof(key));
-        if (in_list(key, &drop_keys))
-            continue;
+        if ((flags & F_STARTMSG) && !strcmp(key, "responseId"))
+            continue;           /* set by message_start: in pi's shared partial or not, as its consumer runs */
         if (!first)
             jw_rawz(o, ",");
         first = 0;

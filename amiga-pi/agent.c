@@ -468,6 +468,7 @@ static int answer(pi_session *s, stream *t)
     llm_acc_init(&t->acc, s->model.api, s->model.provider);
     llm_acc_model(&t->acc, s->model.id, s->model.cost);
     llm_acc_level(&t->acc, llm_ant_effort(&s->model, s->thinking));
+    llm_acc_thinking(&t->acc, llm_think_name(s->thinking));     /* pi-agent-core: the level the loop asked at, "off" too */
     k.u = t;
     k.ev = st_ev;
     memset(&q, 0, sizeof(q));
@@ -596,8 +597,8 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     e.structured_n = s->structured.n;
     pi_emit(&s->em, &e);
     jw_init(&m);
-    llm_m_toolresult(&m, b->id, b->name, content.p, content.n, is_error ? "{}" : 0, is_error ? 2 : 0, is_error,
-                     now(s));
+    llm_m_toolresult(&m, b->id, b->name, content.p, content.n, is_error && !s->structured.n ? "{}" : 0,
+                     is_error && !s->structured.n ? 2 : 0, is_error, now(s));
     i = keep(s, &m);
     jw_free(&m);
     if (i >= 0) {

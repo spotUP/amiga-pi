@@ -128,6 +128,12 @@ static int has(const char *hay, const char *needle)
     return hay && strstr(hay, needle) != 0;
 }
 
+/* PH-S: the structuredContent of a result (pi 1.0.4 bash.js / read.js), what tool_execution_end carries; "" none */
+static void structured_is(const char *want)
+{
+    CHECK_STR(ses.structured.p ? ses.structured.p : "", want);
+}
+
 /* ---- D1: read and write through tools.c ---- */
 
 static void test_read_write(void)
@@ -153,6 +159,7 @@ static void test_read_write(void)
     /* read: whole, offset and limit, the rest named (pi's notice) */
     CHECK_INT(call(PT_READ, "{\"path\":\"a.txt\"}", &t), 0);
     CHECK_STR(t, "one\ntwo\nthree\nfour\n");
+    structured_is("\"one\\ntwo\\nthree\\nfour\\n\"");        /* read: the text is the structured content */
     free(t);
     CHECK_INT(call(PT_READ, "{\"path\":\"a.txt\",\"offset\":2,\"limit\":1}", &t), 0);
     CHECK_STR(t, "two\n\n[3 more lines in file. Use offset=3 to continue.]");
@@ -163,6 +170,7 @@ static void test_read_write(void)
     free(t);
     CHECK_INT(call(PT_READ, "{\"path\":\"nope.txt\"}", &t), 1);
     CHECK(has(t, "ENOENT: no such file or directory, access '") && has(t, "nope.txt'"));
+    structured_is("");          /* a thrown error: none */
     free(t);
     /* pi's schema checks the arguments before anything runs */
     CHECK_INT(call(PT_READ, "{\"offset\":1}", &t), 1);
@@ -392,21 +400,27 @@ static void test_bash(void)
     jw cmd;
     CHECK_INT(call(PT_BASH, "{\"command\":\"echo hi\"}", &t), 0);
     CHECK_STR(t, "hi\n");
+    structured_is("{\"output\":\"hi\\n\",\"truncated\":false,\"exit_code\":0,\"wall_time_seconds\":0}");
     free(t);
     CHECK_INT(call(PT_BASH, "{\"command\":\"true\"}", &t), 0);
     CHECK_STR(t, "(no output)");
+    structured_is("{\"output\":\"\",\"truncated\":false,\"exit_code\":0,\"wall_time_seconds\":0}");
     free(t);
     CHECK_INT(call(PT_BASH, "{\"command\":\"echo out; echo err 1>&2; exit 3\"}", &t), 1);
     CHECK(has(t, "out\n") && has(t, "err\n"));
     CHECK(has(t, "\n\nCommand exited with code 3"));
+    CHECK(has(ses.structured.p, "\"exit_code\":3,") && has(ses.structured.p, "{\"output\":\"") &&
+          !has(ses.structured.p, "Command exited"));          /* the output without the status */
     free(t);
     CHECK_INT(call(PT_BASH, "{\"command\":\"exit 4\"}", &t), 1);
     CHECK_STR(t, "(no output)\n\nCommand exited with code 4");
+    structured_is("{\"output\":\"\",\"truncated\":false,\"exit_code\":4,\"wall_time_seconds\":0}");
     free(t);
     /* the time limit: stopped, not moved to the background */
     t0 = time(0);
     CHECK_INT(call(PT_BASH, "{\"command\":\"sleep 20\",\"timeout\":1}", &t), 1);
     CHECK_STR(t, "Command timed out after 1 seconds");      /* pi: no "(no output)" before a time-out */
+    structured_is("");          /* pi throws on a time-out: an error result has no structured content */
     CHECK(time(0) - t0 < 10);
     free(t);
     /* Ctrl+C: the command stopped, the prompt too (run answers 1) */
