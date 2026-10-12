@@ -1,0 +1,1 @@
+{"id":"1","type":"response","command":"get_fork_messages","success":true,"data":{"messages":[{"entryId":"d0000001","text":"root question"},{"entryId":"d0000003","text":"approach A"},{"entryId":"d0000006","text":"approach B"}]}}

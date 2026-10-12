@@ -243,7 +243,7 @@ static void test_compaction_points(void)
               "tool_execution_start read\ntool_execution_end read\nmessage_start toolResult\nmessage_end toolResult\n"
               "tool_execution_start ls\ntool_execution_end ls\nmessage_start toolResult\nmessage_end toolResult\n"
               "turn_end\ncheck turn\nturn_start\nmessage_start assistant\nmessage_end assistant\nturn_end\n"
-              "agent_end\ncheck end\n");
+              "agent_end\ncheck end\nagent_settled\n");
     down();
 }
 

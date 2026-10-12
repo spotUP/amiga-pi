@@ -1,0 +1,3 @@
+{"id":"1","type":"set_session_name","name":"  my session  "}
+{"id":"2","type":"get_state"}
+{"id":"3","type":"set_session_name","name":"   "}

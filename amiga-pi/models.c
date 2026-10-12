@@ -135,6 +135,13 @@ int pi_thinking_set(pi_models *m, pi_session *s, int level)
         if (m->store && pi_store_thinking(m->store, llm_think_name(eff)) < 0)
             return -1;          /* the level in effect is unchanged */
         s->thinking = eff;
+        {
+            pi_event e;
+            pi_event_init(&e, PE_THINKING_LEVEL);
+            e.msg = llm_think_name(eff);
+            e.msg_n = (long)strlen(e.msg);
+            pi_emit(&s->em, &e);
+        }
     }
     return s->thinking;
 }
@@ -179,6 +186,11 @@ int pi_model_switch_level(pi_models *m, pi_session *s, const llm_model *to, int 
 int pi_model_switch(pi_models *m, pi_session *s, const llm_model *to, char *err, long cap)
 {
     return pi_model_switch_level(m, s, to, -1, err, cap);
+}
+
+int pi_model_usable(pi_models *m, const llm_model *mo)
+{
+    return usable(m, mo);
 }
 
 void pi_models_list(pi_models *m, const pi_session *s, jw *out)

@@ -1,5 +1,5 @@
 /* args -- amiga-pi's command line (plan C7): pi's flags that exist so far.
- *   amiga-pi [-p|--print] [--model provider/id] [--base-url URL]
+ *   amiga-pi [-p|--print] [--mode text|json|rpc] [--model provider/id] [--base-url URL]
  *            [--provider name] [--thinking level] [--api-key key] [--list-models [search]]
  *            [--tools|-t list] [--no-tools|-nt] [--gate|--no-gate] [--no-mcp]
  *            [--continue|-c] [--session path-or-id] [--resume|-r] [--no-session]
@@ -27,8 +27,15 @@
 
 #include "llm/backend.h"
 
+#define PI_ARG_MSGS 16
+
+enum { PI_MODE_TEXT, PI_MODE_JSON, PI_MODE_RPC };
+
 typedef struct pi_args {
     int print;
+    int mode;                   /* --mode: PI_MODE_* (pi's text, json, rpc) */
+    const char *msg[PI_ARG_MSGS];   /* the messages, one prompt each (pi: [messages...]); pointers into argv */
+    int nmsg;
     char tools[256];            /* --tools as given, "-" for --no-tools, "" the defaults */
     int gate;                   /* --gate 1, --no-gate 0, -1 settings.json decides */
     int cont, resume, no_session;

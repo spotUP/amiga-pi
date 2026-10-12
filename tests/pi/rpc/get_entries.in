@@ -1,0 +1,3 @@
+{"id":"1","type":"get_entries"}
+{"id":"2","type":"get_entries","since":"d0000005"}
+{"id":"3","type":"get_entries","since":"nothere"}

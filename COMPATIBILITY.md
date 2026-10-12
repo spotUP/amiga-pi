@@ -256,3 +256,26 @@ Phase K (2026-10-11). Expected outputs from pi's own code: `tools/pi_oracle/mcp_
 | clientInfo | `amiga-pi` 0.1 (pi sends `pi` and its version) | done; difference | K2 |
 
 Phase F (2026-10-11). Models and the switch: `/model` is a numbered list (providers with a credential, or a plain-http endpoint) and `/model <number|provider/pattern>` instead of pi's full-screen selector; `/thinking [level]`; `--provider`, `--thinking`, `--api-key`, `--list-models [search]`; `provider/id:level` patterns as pi's resolveCliModel (ids sorted with strcmp, not ICU localeCompare). The switch appends model_change and, only when the clamped level changed, thinking_level_change (pi's setModel); a new session records the real starting level (pi default "medium", "off" for a model without reasoning); resume restores it from the branch (E7's thinking half). Context window and cost come from the registry for every model; the status line shows model, level and context left; `/session` shows cost. A provider the registry does not know with `--base-url` is kept as the old form (not in pi). Not built: Ctrl+P cycling, scoped models, per-model thinking defaults in settings, /login.
+
+## pi-modes (Phase H, 2026-10-12)
+
+Goldens: tests/pi/rpc, made by tools/pi_oracle/rpc_gen.py from pi 1.0.4 (`--mode json`, `--mode rpc`) against a scripted Messages API; compared by tests/test_pi_modes.c after the masks of tests/pi/rpc/masks.json (also read by vtcon's rig step 14). Each row below is a mask or a gap, with its reason.
+
+| pi concept | Amiga implementation | status | phase item |
+|---|---|---|---|
+| JSON mode, RPC mode: events and the 33 commands | mode_json.c is the one serializer (events.h events to pi's records), mode_rpc.c the 33 `case` labels of rpc-mode.js; extension UI (select, confirm, input, notify) through pi_rpc_ui(); `-p` unchanged | done; 33 of 33 and 5 JSON goldens equal | H1-H5 |
+| Message shape | amiga-pi's messages are those of pi f10993bc (llm/): pi 1.0.4 adds usage.cacheWrite1h, responseId, rawStopReason, thinkingLevel (ours: providerThinkingLevel only for managed-effort requests) and tool_execution_end `structuredContent`; the goldens are compared without them | difference (upstream drift, owner decision whether to follow) | H1 |
+| errorMessage of a failed answer | an HTTP error: pi has the status and the raw body (`529 {"type":"error",...}`, the SDK's APIError text), ours `HTTP 529: Overloaded`; both match pi's retry patterns; only that text is masked, the key's place (last, after timestamp) and every other error text are compared (a stopped request: `Request aborted`, as pi-ai) | difference | H1, H10 |
+| Cost numbers | pi computes in binary floating point (`0.0006000000000000001`, `0.0036149999999999997`); ours in decimal micro-dollars (`0.0006`, `0.003615`); every cost number is compared to the micro-dollar; message_update carries the cost so far, as pi-ai's calculateCost keeps it | difference | H1, H10 |
+| tool_execution_update, edit `details`, bash structuredContent | amiga-pi's tools return their result at the end: no update records, no edit diff in `details`, no `exit_code`/`wall_time_seconds` | gap (not in a golden: read only) | H1 |
+| Assistant message_start usage | pi serializes the shared partial message when its consumer runs, so the provider's first counts are in or not from run to run; masked | difference in pi itself | H1 |
+| Automatic retry (auto_retry_start/end, set_auto_retry, abort_retry) | agent.c pi_prompt: pi's retry patterns and backoff (settings.json retry), the failed answer kept out of the context by a context_edit entry (entry_appended); the request-level retry of llm_request is off in sessions (retries -1) | done | H1 |
+| get_state / get_session_stats numbers | percent is decimal with up to 10 digits (pi: a binary float); sessionFile and ids are masked (file naming differs, see sessions) | difference | H3 |
+| compact: estimatedTokensAfter | counts the system message of the compacted context; its text is amiga-pi's prompt, so the number differs; tokensBefore is compared | difference | H3 |
+| get_available_models | lists the catalog's providers on plain-http endpoints (no key needed, as /model); the golden compares the fixture provider's entries | difference | H3 |
+| get_commands | no extension host, no skills or prompt templates yet: `[]` (pi lists its built-in `mcp` and `llama` extension commands; the golden is made with --no-extensions) | gap until Phase L | H3 |
+| prompt/steer/follow_up `images` | the field is ignored | gap | H3 |
+| Parse failure text | `Failed to parse command: Invalid JSON` (pi: V8's message) | difference | H2 |
+| bash command | runs to the end, then one bash_execution_update with the whole output (pi: a record per chunk); abort_bash stops a command in flight only through the poll hook | difference | H3 |
+| Commands read while a run goes on | read from the platform's poll hook (cl_io.read with a timeout, the host main supplies it); on the Amiga with a redirected file the lines are read one after the run, in order | difference | H3, H8 |
+| C SDK | piapi.h / piapi.c: pi_api_new, prompt, steer, follow_up, abort, subscribe, text, free; one session per process; tests/pi/sdk_example.c | done | H6 |

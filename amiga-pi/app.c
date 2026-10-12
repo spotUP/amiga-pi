@@ -13,6 +13,8 @@
 #include "models.h"
 #include "mcp.h"
 #include "resources.h"
+#include "mode_json.h"
+#include "mode_rpc.h"
 #include "claude/util.h"
 #include "claude/path.h"
 #include "claude/repl.h"       /* cl_key_clean */
@@ -417,29 +419,77 @@ done:
     return 0;
 }
 
-int pi_app(int argc, char **argv, const pi_platform *pl)
+/* the runtime: one per process (the pieces are large and the Amiga's stack is not) */
+static pi_args a;
+static pi_session s;
+static pi_models models;
+static pi_tools tools;
+static pi_gate gate;
+static pi_store store;
+static mcp mc;
+static pi_res res;
+
+/* json and rpc mode: stdout is the protocol's, so the program's own messages go to the platform's diagnostic channel */
+static void diag_write(void *u, const char *text, long n)
 {
-    static pi_args a;
-    static pi_session s;
-    static pi_models models;
-    static pi_tools tools;
-    static pi_gate gate;
-    static pi_store store;
-    static mcp mc;
-    static pi_res res;
+    pi_rt *rt = (pi_rt *)u;
+    char line[400];
+    long i, k = 0;
+    if (!rt->pl.diag)
+        return;
+    for (i = 0; i < n && k < (long)sizeof(line) - 1; i++)
+        if (text[i] != '\n')
+            line[k++] = text[i];
+    line[k] = 0;
+    if (k)
+        rt->pl.diag(line);
+}
+
+/* settings.json's "retry" object: enabled, maxRetries, baseDelayMs (pi's settings.md) */
+static void retry_settings(const pi_platform *pl, pi_session *ses)
+{
+    char *b, path[300];
+    long n;
+    jv o, r, v;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return;
+    if (!json_parse(b, n, &o) && json_get(o, "retry", &r) && json_type(r) == J_OBJ) {
+        if (json_get(r, "enabled", &v) && (json_type(v) == J_TRUE || json_type(v) == J_FALSE))
+            ses->retry_on = json_type(v) == J_TRUE;
+        if (json_get(r, "maxRetries", &v) && json_type(v) == J_NUM)
+            ses->retry_max = (int)json_long(v, 3);
+        if (json_get(r, "baseDelayMs", &v) && json_type(v) == J_NUM)
+            ses->retry_base = json_long(v, 2000);
+    }
+    CL_FREE(b);
+}
+
+int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
+{
+    const pi_platform *pl;
     llm_model m;
     char err[160], picked[320];
     char dflt[16];
-    int rc, mode, level0 = 0, trusted = 0;
+    int mode, level0 = 0, trusted = 0;
+    memset(rt, 0, sizeof(*rt));
+    rt->pl = *plat;
+    rt->io = plat->io;
+    pl = &rt->pl;
     if (pi_args_parse(&a, argc, argv))
         return usage(pl, &a);
+    rt->mode = a.mode;
+    if (a.mode != PI_MODE_TEXT) {
+        rt->diag.u = rt;
+        rt->diag.write = diag_write;
+        rt->pl.io = &rt->diag;
+    }
     if (a.list_models) {
         pi_models_init(&models, pl->sys, pl->agent_dir, pl->getenv);
         if (models.warn[0])
             say(pl->io, "[WARN] ", models.warn);
         list_models(pl, &models, a.list_search);
         pi_models_free(&models);
-        return 0;
+        return -1;
     }
     /* the session first: the model it names is the default (pi restores it on resume) */
     mode = a.no_session || !pl->sys || !pl->data_dir || !pl->data_dir[0] ? PS_MODE_NONE : PS_MODE_NEW;
@@ -489,6 +539,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     pi_session_init(&s, &m, 0, pl->pool, &pl->h);
     s.steer_all = queue_mode_all(pl, "steeringMode");
     s.follow_all = queue_mode_all(pl, "followUpMode");
+    retry_settings(pl, &s);
     s.thinking = level0;
     if (a.api_key[0]) {
         cl_copy(models.cfg.runtime_key, a.api_key, sizeof(models.cfg.runtime_key));
@@ -526,7 +577,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     if (pl->sys) {
         trust_setting(pl, dflt, sizeof(dflt));
         trusted = pi_trust_decide(pl->sys, pl->agent_dir, pl->cwd, a.approve, dflt,
-                                  a.print || (!pl->io->read_line && !(pl->io->read && pl->io->raw)) ? 0 : trust_ask, (void *)pl);
+                                  a.print || rt->mode != PI_MODE_TEXT || (!pl->io->read_line && !(pl->io->read && pl->io->raw)) ? 0 : trust_ask, (void *)pl);
         if (trusted < 0) {
             /* pi stops with the trust store's error (readTrustFile / setMany throw) */
             char terr[400];
@@ -577,6 +628,26 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     }
     if (a.name[0])
         s3_session_info(&store.s3, a.name);
+    rt->a = &a;
+    rt->s = &s;
+    rt->models = &models;
+    rt->tools = &tools;
+    rt->gate = &gate;
+    rt->store = &store;
+    rt->mc = &mc;
+    rt->res = &res;
+    rt->trusted = trusted;
+    return 0;
+}
+
+int pi_rt_run(pi_rt *rt)
+{
+    const pi_platform *pl = &rt->pl;
+    int rc;
+    if (rt->mode == PI_MODE_JSON)
+        return pi_mode_json(&s, &store, rt->io, (const char *const *)a.msg, a.nmsg);
+    if (rt->mode == PI_MODE_RPC)
+        return pi_mode_rpc(rt);
     if (a.print)
         rc = pi_ui_print(&s, pl->io, a.prompt);
     else {
@@ -591,15 +662,30 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         pi_ui_set_keybindings(kb, kn);
         rc = pi_ui_run(&s, pl->io, a.prompt[0] ? a.prompt : 0);
     }
+    return rc;
+}
+
+void pi_rt_close(pi_rt *rt)
+{
     pi_store_free(&store);
     pi_session_free(&s);
     mcp_free(&mc);
     pi_res_free(&res);
-    if (pl->sys) {
+    if (rt->pl.sys) {
         pi_gate_free(&gate);
         pi_tools_free(&tools);
     }
     memset(models.cfg.runtime_key, 0, sizeof(models.cfg.runtime_key));
     pi_models_free(&models);
+}
+
+int pi_app(int argc, char **argv, const pi_platform *pl)
+{
+    static pi_rt rt;
+    int rc = pi_rt_open(&rt, pl, argc, argv);
+    if (rc)
+        return rc < 0 ? 0 : rc;
+    rc = pi_rt_run(&rt);
+    pi_rt_close(&rt);
     return rc;
 }

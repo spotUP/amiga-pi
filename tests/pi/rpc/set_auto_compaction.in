@@ -1,0 +1,2 @@
+{"id":"1","type":"set_auto_compaction","enabled":false}
+{"id":"2","type":"get_state"}

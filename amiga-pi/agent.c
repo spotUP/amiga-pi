@@ -22,6 +22,10 @@ void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_poo
         s->h = *h;
     s->user_agent = "UP-Term-amiga-pi/0.1 (AmigaOS)";
     s->thinking = LT_OFF;
+    s->retry_on = 1;            /* pi's retry settings: enabled, 3 retries, the first wait 2 s */
+    s->retry_max = 3;
+    s->retry_base = 2000;
+    jw_init(&s->structured);
     pi_emitter_init(&s->em);
     pi_exts_init(&s->ext);
     pi_subscribe(&s->em, pi_exts_event, &s->ext);
@@ -36,6 +40,7 @@ void pi_session_clear(pi_session *s)
     for (i = 0; i < s->nsys; i++)
         free(s->sys[i]);
     s->nsys = 0;
+    s->sys_seen = 0;
 }
 
 int pi_session_push_system(pi_session *s, const char *json, long n)
@@ -89,6 +94,10 @@ void pi_session_free(pi_session *s)
     for (i = 0; i < s->nfollow; i++)
         free(s->follow[i]);
     s->nsteer = s->nfollow = 0;
+    for (i = 0; i < s->npend; i++)
+        free(s->pend[i]);
+    s->npend = 0;
+    jw_free(&s->structured);
     free(s->sys);
     free(s->sys_n);
     free(s->sys_at);
@@ -199,6 +208,116 @@ static void emit_simple(pi_session *s, int type)
     pi_emit(&s->em, &e);
 }
 
+/* the transcript's system messages made since the last time as message events (pi's declareToolChanges emits them
+ * through the agent: after turn_start, before the pending messages) */
+static void announce_system(pi_session *s)
+{
+    if (s->sys_seen > s->nsys)
+        s->sys_seen = s->nsys;
+    while (s->sys_seen < s->nsys) {
+        int j = s->sys_seen++, t;
+        for (t = PE_MESSAGE_START; t <= PE_MESSAGE_END; t += PE_MESSAGE_END - PE_MESSAGE_START) {
+            pi_event e;
+            pi_event_init(&e, t);
+            e.role = LR_SYSTEM;
+            e.msg = s->sys[j];
+            e.msg_n = s->sys_n[j];
+            pi_emit(&s->em, &e);
+        }
+    }
+}
+
+static void emit_queue(pi_session *s)
+{
+    pi_event e;
+    pi_event_init(&e, PE_QUEUE_UPDATE);
+    pi_emit(&s->em, &e);
+}
+
+int pi_queue_len(const pi_session *s, int follow)
+{
+    return (follow ? s->nfollow : s->nsteer) + (s->npend && s->pend_follow == follow ? s->npend : 0);
+}
+
+void pi_queue_json(const pi_session *s, int follow, jw *w)
+{
+    int i, k = 0;
+    jw_rawz(w, "[");
+    if (s->npend && s->pend_follow == follow)
+        for (i = 0; i < s->npend; i++) {
+            if (k++)
+                jw_rawz(w, ",");
+            jw_strz(w, s->pend[i]);
+        }
+    {
+        char *const *q = follow ? s->follow : s->steer;
+        int n = follow ? s->nfollow : s->nsteer;
+        for (i = 0; i < n; i++) {
+            if (k++)
+                jw_rawz(w, ",");
+            jw_strz(w, q[i]);
+        }
+    }
+    jw_rawz(w, "]");
+}
+
+/* the messages from message index m0 and system message index sys0 on (the transcript's system messages in their places) as
+ * a JSON array: agent_end's `messages` for the run, RPC's get_messages for the whole conversation */
+void pi_messages_json(const pi_session *s, int m0, int sys0, jw *w)
+{
+    int k, j = sys0 < s->nsys ? sys0 : s->nsys, first = 1;
+    if (m0 > s->nmsg)
+        m0 = s->nmsg;
+    jw_rawz(w, "[");
+    for (k = m0; k <= s->nmsg; k++) {
+        while (j < s->nsys && s->sys_at[j] <= k) {
+            if (!first)
+                jw_rawz(w, ",");
+            first = 0;
+            jw_raw(w, s->sys[j], s->sys_n[j]);
+            j++;
+        }
+        if (k < s->nmsg) {
+            if (!first)
+                jw_rawz(w, ",");
+            first = 0;
+            jw_raw(w, s->msg[k], s->msg_n[k]);
+        }
+    }
+    jw_rawz(w, "]");
+}
+
+/* turn_end: the assistant message i and the tool results after it */
+static void emit_turn_end(pi_session *s, int i)
+{
+    pi_event e;
+    jw w;
+    int k, first = 1;
+    jw_init(&w);
+    jw_rawz(&w, "[");
+    for (k = i + 1; k < s->nmsg; k++) {
+        llm_info inf;
+        if (llm_msg_info(s->msg[k], s->msg_n[k], &inf) < 0 || inf.role != LR_TOOLRESULT)
+            continue;
+        if (!first)
+            jw_rawz(&w, ",");
+        first = 0;
+        jw_raw(&w, s->msg[k], s->msg_n[k]);
+    }
+    jw_rawz(&w, "]");
+    pi_event_init(&e, PE_TURN_END);
+    e.stop = s->stop;
+    if (i >= 0 && i < s->nmsg) {
+        e.msg = s->msg[i];
+        e.msg_n = s->msg_n[i];
+        e.role = LR_ASSISTANT;
+    }
+    e.result = w.p;
+    e.result_n = w.n;
+    pi_emit(&s->em, &e);
+    jw_free(&w);
+}
+
 /* ---- one answer ---- */
 
 typedef struct stream {
@@ -216,12 +335,14 @@ static void st_ev(void *u, const llm_event *e)
         t->started = 1;
         pi_event_init(&pe, PE_MESSAGE_START);
         pe.role = LR_ASSISTANT;
+        pe.acc = &t->acc;
         pi_emit(&t->s->em, &pe);
     } else if (t->started && (e->type == LE_BLOCK_START || e->type == LE_DELTA || e->type == LE_SIG_DELTA ||
                               e->type == LE_BLOCK_END)) {
         pi_event_init(&pe, PE_MESSAGE_UPDATE);
         pe.role = LR_ASSISTANT;
         pe.ae = e;
+        pe.acc = &t->acc;
         pi_emit(&t->s->em, &pe);
     }
 }
@@ -292,6 +413,7 @@ static int answer(pi_session *s, stream *t)
         int k, j = 0;
         if (s->declare)
             s->declare(s->declare_u, s);
+        announce_system(s);
         /* the transcript's system messages in place (the backend reads the first as the initial one) */
         tm = (const char **)malloc((size_t)(s->nmsg + s->nsys + 1) * sizeof(*tm));
         tn = (long *)malloc((size_t)(s->nmsg + s->nsys + 1) * sizeof(*tn));
@@ -348,6 +470,7 @@ static int answer(pi_session *s, stream *t)
     k.ev = st_ev;
     memset(&q, 0, sizeof(q));
     q.pool = s->pool;
+    q.retries = -1;             /* pi retries a failed answer itself (agent-session.js), with its events */
     q.model = &s->model;
     q.be = llm_backend_of(s->model.api);
     q.ctx = &c;
@@ -414,6 +537,7 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     pi_tool *t;
     jw_init(&args);
     jw_init(&content);
+    jw_reset(&s->structured);
     if (b->a.n)
         jw_raw(&args, b->a.p, b->a.n);
     else
@@ -466,6 +590,8 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     e.result = content.p;
     e.result_n = content.n;
     e.is_error = is_error;
+    e.structured = s->structured.n ? s->structured.p : 0;
+    e.structured_n = s->structured.n;
     pi_emit(&s->em, &e);
     jw_init(&m);
     llm_m_toolresult(&m, b->id, b->name, content.p, content.n, is_error ? "{}" : 0, is_error ? 2 : 0, is_error,
@@ -483,11 +609,104 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
 
 /* ---- the loop ---- */
 
+/* ---- pi's isRetryableAssistantError (pi-ai utils/retry.js): the error message against two lists of patterns, case
+ * insensitive substrings; "." is any character and "x?" makes x optional, as in the regular expressions there ---- */
+
+static const char *const retry_pat[] = {
+    "overloaded", "server_busy", "servers are currently busy", "currently experiencing high demand",
+    "model is at capacity", "rate.?limit", "too many requests", "429", "500", "502", "503", "504", "520", "524",
+    "service.?unavailable", "server.?error", "internal.?error", "provider.?returned.?error",
+    "exceeded request buffer limit while retrying upstream", "network.?error", "connection.?error",
+    "connection.?refused", "connection.?lost", "other side closed", "fetch failed", "getaddrinfo", "ENOTFOUND",
+    "EAI_AGAIN", "upstream.?connect", "reset before headers", "socket hang up", "socket connection was closed",
+    "timed? out", "timeout", "terminated", "websocket.?closed", "websocket.?error", "ended without",
+    "stream ended before message_stop", "stream ended before a terminal response event",
+    "http2 request did not get a response", "pending stream has been canceled", "retry delay",
+    "you can retry your request", "try your request again", "please retry your request", "ResourceExhausted",
+    "subscription_sharing_usage_unavailable", "subscription_sharing_user_unavailable", 0
+};
+
+static const char *const norm_pat[] = {
+    "GoUsageLimitError", "FreeUsageLimitError", "Monthly usage limit reached", "available balance",
+    "insufficient_quota", "out of budget", "quota exceeded", "billing", "subscription_sharing_usage_limit_exceeded", 0
+};
+
+static int lower(int c)
+{
+    return c >= 'A' && c <= 'Z' ? c + 32 : c;
+}
+
+/* pattern p at the start of t */
+static int pat_at(const char *t, const char *p)
+{
+    if (!*p)
+        return 1;
+    if (p[1] == '?') {
+        if (pat_at(t, p + 2))
+            return 1;
+        return *t && (p[0] == '.' || lower(*t) == lower(p[0])) && pat_at(t + 1, p + 2);
+    }
+    return *t && (p[0] == '.' || lower(*t) == lower(p[0])) && pat_at(t + 1, p + 1);
+}
+
+static int pat_any(const char *t, const char *const *list)
+{
+    int i;
+    for (i = 0; list[i]; i++) {
+        const char *x;
+        for (x = t; ; x++) {
+            if (pat_at(x, list[i]))
+                return 1;
+            if (!*x)
+                break;
+        }
+    }
+    return 0;
+}
+
+int pi_retryable(const char *em)
+{
+    if (!em || !*em)
+        return 0;
+    return !pat_any(em, norm_pat) && pat_any(em, retry_pat);
+}
+
+/* the run just ended on a failure pi retries (agent-session.js _willRetryAfterAgentEnd) */
+static int retry_will(const pi_session *s)
+{
+    return s->retry_on && s->attempt < s->retry_max && s->stop == LS_ERROR && !s->retry_stop && pi_retryable(s->err);
+}
+
+static void emit_retry_end(pi_session *s, int success, const char *final_error)
+{
+    pi_event e;
+    pi_event_init(&e, PE_RETRY_END);
+    e.retry = success;
+    e.n1 = s->attempt;
+    e.msg = final_error;
+    e.msg_n = final_error ? (long)strlen(final_error) : 0;
+    pi_emit(&s->em, &e);
+    s->attempt = 0;
+}
+
 /* agent_end, then pi's check after the run when it gave an answer */
 static int run_end(pi_session *s, int answered)
 {
-    emit_simple(s, PE_AGENT_END);
-    if (answered && s->compact)
+    pi_event e;
+    jw w;
+    int will = answered && retry_will(s);
+    jw_init(&w);
+    pi_messages_json(s, s->run_msg0, s->run_sys0, &w);
+    pi_event_init(&e, PE_AGENT_END);
+    e.stop = s->stop;
+    e.result = w.p;
+    e.result_n = w.n;
+    e.retry = will;
+    pi_emit(&s->em, &e);
+    jw_free(&w);
+    if (!will && s->attempt && s->stop == LS_ERROR)
+        emit_retry_end(s, 0, s->err[0] ? s->err : "Unknown error");
+    if (!will && answered && s->compact)
         s->compact(s->compact_u, s, PI_CP_END);
     return s->stop;
 }
@@ -528,70 +747,89 @@ static int queue_add(char **q, int *n, const char *text)
 
 int pi_steer(pi_session *s, const char *text)
 {
-    return queue_add(s->steer, &s->nsteer, text);
+    if (queue_add(s->steer, &s->nsteer, text))
+        return -1;
+    emit_queue(s);
+    return 0;
 }
 
 int pi_follow_up(pi_session *s, const char *text)
 {
-    return queue_add(s->follow, &s->nfollow, text);
+    if (queue_add(s->follow, &s->nfollow, text))
+        return -1;
+    emit_queue(s);
+    return 0;
 }
 
 int pi_queue_take(pi_session *s, char **out, int max)
 {
-    int n = 0, i;
+    int n = 0, i, had = s->nsteer + s->nfollow;
     for (i = 0; i < s->nsteer && n < max; i++)
         out[n++] = s->steer[i];
     s->nsteer = 0;
     for (i = 0; i < s->nfollow && n < max; i++)
         out[n++] = s->follow[i];
     s->nfollow = 0;
+    if (had)
+        emit_queue(s);
     return n;
 }
 
 /* agent-loop.js getSteeringMessages / getFollowUpMessages: the next queued message (all of them in "all" mode)
- * taken off the queue into pend (polled: pi delivers them at the next turn); how many */
-static int poll_queue(char **q, int *n, int all, char **pend)
+ * taken off the queue (polled: pi delivers them at the next turn); how many. They stay in s->pend, and in the queue the
+ * session shows, until their user message is made. */
+static int poll_queue(pi_session *s, int follow)
 {
-    int take = all ? *n : (*n ? 1 : 0), i;
+    char **q = follow ? s->follow : s->steer;
+    int *n = follow ? &s->nfollow : &s->nsteer;
+    int take = (follow ? s->follow_all : s->steer_all) ? *n : (*n ? 1 : 0), i;
     for (i = 0; i < take; i++)
-        pend[i] = q[i];
+        s->pend[i] = q[i];
     memmove(q, q + take, sizeof(q[0]) * (size_t)(*n - take));
     *n -= take;
+    s->npend = take;
+    s->pend_follow = follow;
     return take;
 }
 
 /* runLoop's pending messages before the next request: the tool changes declared first (declareToolChanges puts
  * its system message before the first pending one), then each as a user message */
-static void deliver(pi_session *s, char **pend, int np)
+static void deliver(pi_session *s)
 {
-    int i;
-    if (np && s->declare)
+    int n = s->npend;
+    if (n && s->declare)
         s->declare(s->declare_u, s);
-    for (i = 0; i < np; i++) {
-        add_user(s, pend[i]);
-        free(pend[i]);
+    announce_system(s);
+    while (s->npend) {
+        char *m = s->pend[0];
+        memmove(s->pend, s->pend + 1, sizeof(s->pend[0]) * (size_t)(s->npend - 1));
+        s->npend--;
+        emit_queue(s);
+        add_user(s, m);
+        free(m);
     }
 }
 
-int pi_prompt(pi_session *s, const char *text)
+/* the run: text the user's message, 0 to go on with the conversation as it is (a retry) */
+static int run(pi_session *s, const char *text)
 {
-    int i, round, np;
-    char *pend[PI_QUEUE], **from = s->steer;
-    int *from_n = &s->nsteer;
-    s->err[0] = 0;
-    /* the context against the window before the user message is kept */
-    if (s->compact)
-        s->compact(s->compact_u, s, PI_CP_PROMPT);
+    int i, round;
+    s->run_msg0 = s->nmsg;
+    s->run_sys0 = s->nsys;
+    s->sys_seen = s->nsys;
     emit_simple(s, PE_AGENT_START);
     emit_simple(s, PE_TURN_START);
-    i = add_user(s, text);
-    if (i < 0) {
-        s->stop = LS_ERROR;
-        cl_copy(s->err, "out of memory", sizeof(s->err));
-        emit_simple(s, PE_AGENT_END);
-        return s->stop;
+    announce_system(s);
+    if (text) {
+        i = add_user(s, text);
+        if (i < 0) {
+            s->stop = LS_ERROR;
+            cl_copy(s->err, "out of memory", sizeof(s->err));
+            emit_simple(s, PE_AGENT_END);
+            return s->stop;
+        }
     }
-    np = poll_queue(s->steer, &s->nsteer, s->steer_all, pend);   /* typed before the first request (pi polls at the start) */
+    poll_queue(s, 0);           /* typed before the first request (pi polls at the start) */
     for (round = 0; round < PI_ROUNDS; round++) {
         stream t;
         llm_info inf;
@@ -601,15 +839,11 @@ int pi_prompt(pi_session *s, const char *text)
              * polled only when the turn's poll found nothing (one-at-a-time mode delivers one a turn) */
             if (s->compact)
                 s->compact(s->compact_u, s, PI_CP_TURN);
-            if (!np) {
-                from = s->steer;
-                from_n = &s->nsteer;
-                np = poll_queue(s->steer, &s->nsteer, s->steer_all, pend);
-            }
+            if (!s->npend)
+                poll_queue(s, 0);
             emit_simple(s, PE_TURN_START);
         }
-        deliver(s, pend, np);
-        np = 0;
+        deliver(s);
         pi_agent_rounds++;
         s->rounds++;
         memset(&t, 0, sizeof(t));
@@ -628,9 +862,11 @@ int pi_prompt(pi_session *s, const char *text)
         llm_msg_info(s->msg[i], s->msg_n[i], &inf);
         s->stop = inf.stop;
         cl_copy(s->err, t.acc.failed ? t.acc.err : "", sizeof(s->err));
+        if (s->attempt && inf.stop != LS_ERROR)
+            emit_retry_end(s, 1, 0);        /* pi resets the retry count on the first answer that is not a failure */
         if (inf.stop == LS_ERROR || inf.stop == LS_ABORTED) {
             llm_acc_free(&t.acc);
-            emit_simple(s, PE_TURN_END);
+            emit_turn_end(s, i);
             return run_end(s, 1);
         }
         n = llm_acc_tools(&t.acc);
@@ -641,33 +877,86 @@ int pi_prompt(pi_session *s, const char *text)
             s->stop = LS_ABORTED;
             cl_copy(s->err, "Operation aborted", sizeof(s->err));
         }
-        emit_simple(s, PE_TURN_END);
+        emit_turn_end(s, i);
         if (stopped)
             return run_end(s, 0);               /* pi does not check a run the user stopped */
         /* steering is polled after the turn's tool calls and goes in at the next turn; the run goes on for it even
          * when the answer called no tool. When the run would stop, a follow-up does the same. */
-        from = s->steer;
-        from_n = &s->nsteer;
-        np = poll_queue(s->steer, &s->nsteer, s->steer_all, pend);
-        if (np || n)
+        if (poll_queue(s, 0) || n)
             continue;
-        from = s->follow;
-        from_n = &s->nfollow;
-        np = poll_queue(s->follow, &s->nfollow, s->follow_all, pend);
-        if (np)
+        if (poll_queue(s, 1))
             continue;
         return run_end(s, 1);
     }
     /* the round limit with messages polled and not delivered: back to the front of their queue (no key was read
      * since the poll, so the room they left is still there) */
-    if (np) {
-        memmove(from + np, from, sizeof(from[0]) * (size_t)*from_n);
-        for (i = 0; i < np; i++)
-            from[i] = pend[i];
-        *from_n += np;
+    if (s->npend) {
+        char **from = s->pend_follow ? s->follow : s->steer;
+        int *from_n = s->pend_follow ? &s->nfollow : &s->nsteer;
+        memmove(from + s->npend, from, sizeof(from[0]) * (size_t)*from_n);
+        for (i = 0; i < s->npend; i++)
+            from[i] = s->pend[i];
+        *from_n += s->npend;
+        s->npend = 0;
     }
     cl_copy(s->err, "stopped after 64 rounds", sizeof(s->err));
     return run_end(s, 1);
+}
+
+/* the wait before a retry, in pieces so a stop (Ctrl+C, abort_retry) cuts it: 1 when it was cut */
+static int retry_wait(pi_session *s, long ms)
+{
+    while (ms > 0) {
+        long t = ms > 50 ? 50 : ms;
+        if (s->retry_stop || (s->h.poll && s->h.poll(s->h.u)))
+            return 1;
+        if (s->h.sleep ? s->h.sleep(s->h.u, t) : 0)
+            return 1;
+        ms -= t;
+    }
+    return s->retry_stop;
+}
+
+int pi_prompt(pi_session *s, const char *text)
+{
+    int rc;
+    s->err[0] = 0;
+    s->active = 1;
+    s->attempt = 0;
+    s->retry_stop = 0;
+    /* the context against the window before the user message is kept */
+    if (s->compact)
+        s->compact(s->compact_u, s, PI_CP_PROMPT);
+    rc = run(s, text);
+    while (retry_will(s)) {
+        pi_event e;
+        long delay = s->retry_base;
+        int k, last = s->nmsg - 1;
+        s->attempt++;
+        for (k = 1; k < s->attempt && delay < 60000L; k++)
+            delay *= 2;
+        if (delay > 60000L)
+            delay = 60000L;
+        pi_event_init(&e, PE_RETRY_START);
+        e.n1 = s->attempt;
+        e.n2 = s->retry_max;
+        e.n3 = delay;
+        e.msg = s->err[0] ? s->err : "Unknown error";
+        e.msg_n = (long)strlen(e.msg);
+        pi_emit(&s->em, &e);
+        /* the failed answer stays in the history but out of the context (pi's context_edit entry) */
+        if (s->omit && last >= 0)
+            s->omit(s->omit_u, s, last);
+        if (retry_wait(s, delay)) {
+            emit_retry_end(s, 0, "Retry cancelled");
+            break;
+        }
+        rc = run(s, 0);
+    }
+    s->retry_stop = 0;
+    s->active = 0;
+    emit_simple(s, PE_AGENT_SETTLED);
+    return rc;
 }
 
 long pi_last_text(const pi_session *s, jw *out)

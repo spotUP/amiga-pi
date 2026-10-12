@@ -1,0 +1,4 @@
+{"type":"thinking_level_changed","level":"minimal"}
+{"id":"1","type":"response","command":"cycle_thinking_level","success":true,"data":{"level":"minimal"}}
+{"type":"thinking_level_changed","level":"low"}
+{"id":"2","type":"response","command":"cycle_thinking_level","success":true,"data":{"level":"low"}}

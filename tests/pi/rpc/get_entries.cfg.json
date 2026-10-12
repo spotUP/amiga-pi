@@ -1,0 +1,12 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "doc_branch",
+ "files": {},
+ "answers": [],
+ "tools": "read,bash,edit,write"
+}

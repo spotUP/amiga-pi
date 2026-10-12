@@ -15,7 +15,7 @@ HOSTCFLAGS = $(call vtvar,HOSTCFLAGS) -I$(VTCON_DIR) -I$(VTCON_DIR)/tests
 # system prompt, the command line, the prompt on C:Claude's screen code
 PI_CORE := amiga-pi/events.c amiga-pi/ext.c amiga-pi/agent.c amiga-pi/prompt.c amiga-pi/args.c amiga-pi/app.c \
            amiga-pi/ui_pi.c amiga-pi/truncate.c amiga-pi/tools_pi.c amiga-pi/ext_gate.c amiga-pi/image.c amiga-pi/session3.c amiga-pi/context.c amiga-pi/store.c amiga-pi/compact.c amiga-pi/cp_prompts.c amiga-pi/cmds.c amiga-pi/models.c \
-           amiga-pi/resources.c amiga-pi/sha256.c amiga-pi/mcp.c amiga-pi/mcp_http.c amiga-pi/mcp_stdio.c amiga-pi/show_pi.c amiga-pi/tree_pi.c amiga-pi/export.c amiga-pi/okcolor.c
+           amiga-pi/resources.c amiga-pi/sha256.c amiga-pi/mcp.c amiga-pi/mcp_http.c amiga-pi/mcp_stdio.c amiga-pi/show_pi.c amiga-pi/tree_pi.c amiga-pi/export.c amiga-pi/okcolor.c amiga-pi/mode_json.c amiga-pi/mode_rpc.c amiga-pi/piapi.c
 # stb_image / stb_image_write (vendor/stb) for read's images: built on their own, warnings off
 STB := amiga-pi/stb_impl.c vendor/stb/stb_image.h vendor/stb/stb_image_write.h
 PI_HDR := $(wildcard amiga-pi/*.h)
@@ -24,10 +24,10 @@ PI_HDR := $(wildcard amiga-pi/*.h)
 # engine (C:Claude's screen tests run on it) and the test helpers
 VT_HOST := $(VIEW_CORE) $(call cl_src,tty/bmsg.c handler/clipfmt.c)
 VT_TEST := $(call cl_src,engine/vtengine.c tests/harness.c tests/claude_load.c tests/claude_screen.c tests/pi_stub.c)
-PI_TESTS := tests/main.c tests/test_pi_agent.c tests/test_pi_tools.c tests/test_pi_session.c tests/test_pi_store.c tests/test_pi_model.c tests/test_pi_model_reach.c tests/test_pi_mcp.c tests/test_pi_resources.c tests/test_pi_tui.c
+PI_TESTS := tests/main.c tests/test_pi_agent.c tests/test_pi_tools.c tests/test_pi_session.c tests/test_pi_store.c tests/test_pi_model.c tests/test_pi_model_reach.c tests/test_pi_mcp.c tests/test_pi_resources.c tests/test_pi_tui.c tests/test_pi_modes.c tests/pi/sdk_example.c
 
 .PHONY: test layers lua-probe lua-probe-host amiga
-# ONLY=pi_agent the agent suite alone, ONLY=pi_tools the tools and the gate, ONLY=pi_session the session file, ONLY=pi_store the store through pi_app, ONLY=pi_model the registry, models.json, handoff and the model switch, ONLY=pi_mcp MCP (python3 for tools/fake_mcp.py), ONLY=pi_resources context files, SYSTEM.md, trust, ONLY=pi_tui the screen against pi's captures (PI_TUI_ONLY=<scenario>, PI_TUI_DUMP=1 shows both screens); ONLY=layers the layering check alone
+# ONLY=pi_agent the agent suite alone, ONLY=pi_tools the tools and the gate, ONLY=pi_session the session file, ONLY=pi_store the store through pi_app, ONLY=pi_model the registry, models.json, handoff and the model switch, ONLY=pi_mcp MCP (python3 for tools/fake_mcp.py), ONLY=pi_resources context files, SYSTEM.md, trust, ONLY=pi_tui the screen against pi's captures (PI_TUI_ONLY=<scenario>, PI_TUI_DUMP=1 shows both screens), ONLY=pi_modes the JSON and RPC modes against pi's records (tests/pi/rpc, PI_MODES_ONLY=<scenario>); ONLY=layers the layering check alone
 test: build/pi_test
 	@if [ "$(ONLY)" != layers ]; then cd $(VTCON_DIR) && $(CURDIR)/build/pi_test $(ONLY); fi
 	@if [ -z "$(ONLY)" ] || [ "$(ONLY)" = layers ]; then $(MAKE) -s layers; fi

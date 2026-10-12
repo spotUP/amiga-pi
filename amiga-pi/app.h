@@ -8,6 +8,13 @@
 #include "claude/ui.h"
 #include "agent.h"
 #include "claude/sys.h"
+#include "args.h"
+#include "tools_pi.h"
+#include "ext_gate.h"
+#include "store.h"
+#include "models.h"
+#include "mcp.h"
+#include "resources.h"
 
 typedef struct pi_platform {
     cl_io *io;
@@ -29,7 +36,35 @@ typedef struct pi_platform {
     llm_pool *mcp_pool;
     /* the session once made, before the prompt (the tests add their tools here), 0 none */
     void (*ready)(pi_session *s);
+    /* json and rpc mode keep stdout for their records: the program's own lines (warnings, MCP news) go here, one line
+     * without its line feed; 0 drops them */
+    void (*diag)(const char *line);
 } pi_platform;
+
+/* the runtime of one run: what pi_app builds from the command line. One per process (the pieces it points to are
+ * static): the modes and the SDK (piapi.h) work on it. */
+typedef struct pi_rt {
+    pi_platform pl;             /* the platform as given, except pl.io: in json and rpc mode the diagnostics' */
+    cl_io *io;                  /* the console the mode talks on */
+    cl_io diag;                 /* json and rpc mode: pl.io, writes to pl.diag */
+    int mode;                   /* PI_MODE_* */
+    int trusted;
+    pi_args *a;
+    pi_session *s;
+    pi_models *models;
+    pi_tools *tools;
+    pi_gate *gate;
+    pi_store *store;
+    mcp *mc;
+    pi_res *res;
+} pi_rt;
+
+/* the runtime from the command line: 0, -1 when there is nothing to run (--list-models: done), else an exit code
+ * (the message is on the console) */
+int pi_rt_open(pi_rt *rt, const pi_platform *pl, int argc, char **argv);
+/* the mode the arguments chose, to the end: the exit code */
+int pi_rt_run(pi_rt *rt);
+void pi_rt_close(pi_rt *rt);
 
 /* the program: its exit code (0, 1 the answer failed, 2 bad arguments) */
 int pi_app(int argc, char **argv, const pi_platform *pl);

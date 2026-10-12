@@ -1,0 +1,5 @@
+HTTP/1.1 400 X
+content-type: application/json
+content-length: 110
+
+{"type": "error", "error": {"type": "invalid_request_error", "message": "model: fake-model is not available"}}

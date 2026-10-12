@@ -1,0 +1,4 @@
+{"id":"1","type":"bash","command":"echo hi"}
+{"id":"2","type":"bash","command":"echo quiet","excludeFromContext":true}
+{"id":"3","type":"prompt","message":"hello"}
+#after agent_settled

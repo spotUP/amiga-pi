@@ -12,10 +12,17 @@
 
 #include "llm/event.h"           /* vtcon (VTCON_DIR on the include path) */
 
+struct llm_acc;
+
 enum {
     PE_AGENT_START, PE_TURN_START, PE_MESSAGE_START, PE_MESSAGE_UPDATE, PE_MESSAGE_END,
     PE_TOOL_START, PE_TOOL_UPDATE, PE_TOOL_END, PE_TURN_END, PE_AGENT_END,
-    PE_COMPACTION_START, PE_COMPACTION_END, PE_N
+    PE_COMPACTION_START, PE_COMPACTION_END,
+    /* pi's session events (agent-session.ts) beyond pi-agent-core's: the run and its automatic work are over, a queue
+     * changed, the thinking level or the session's name changed, the failed answer of a retry was dropped from the
+     * context (an entry appended), an automatic retry begins and ends */
+    PE_AGENT_SETTLED, PE_QUEUE_UPDATE, PE_THINKING_LEVEL, PE_SESSION_INFO, PE_ENTRY_APPENDED,
+    PE_RETRY_START, PE_RETRY_END, PE_N
 };
 
 #define PI_SUBS 8
@@ -39,6 +46,23 @@ typedef struct pi_event {
     long result_n;
     int is_error;
     int stop;                   /* turn_end, agent_end: the last answer's stop reason (LS_*) */
+    /* JSON the mode that prints events (mode_json.c) needs and the loop has at hand:
+     *   message_update: acc is the answer's accumulator (the block's text, the call's arguments, the usage so far)
+     *   turn_end: result is the turn's toolResult messages, a JSON array
+     *   agent_end: result is the messages the run made (the transcript's system messages among them), a JSON array,
+     *     and retry says a retry follows
+     *   tool_execution_end: structured is pi's structuredContent of the result (a JSON value), 0 none
+     *   compaction_end: result is the CompactionResult object, is_error with the failure in msg, retry willRetry,
+     *     aborted
+     *   thinking_level_changed: msg is the level; session_info_changed: msg is the name, 0 cleared
+     *   entry_appended: msg is the entry's line
+     *   auto_retry_start: n1 attempt, n2 maxAttempts, n3 delayMs, msg errorMessage;
+     *     auto_retry_end: retry is success, n1 attempt, msg finalError (failure only) */
+    const struct llm_acc *acc;
+    const char *structured;
+    long structured_n;
+    int retry, aborted;
+    long n1, n2, n3;
 } pi_event;
 
 typedef void (*pi_listener)(void *u, const pi_event *e);
@@ -53,6 +77,8 @@ typedef struct pi_emitter {
 void pi_emitter_init(pi_emitter *em);
 /* 0, -1 full */
 int pi_subscribe(pi_emitter *em, pi_listener fn, void *u);
+/* the subscriber fn/u taken out again (1 it was there, 0 not) */
+int pi_unsubscribe(pi_emitter *em, pi_listener fn, void *u);
 /* every subscriber, in the order they subscribed */
 void pi_emit(pi_emitter *em, const pi_event *e);
 /* an event of type t with every field empty */
