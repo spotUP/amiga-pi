@@ -763,12 +763,12 @@ static void test_bad_models_json(void)
 }
 
 /* PHS7: compat.allowedFallbackModels through pi_app. The request names the fallbacks (the beta header, "fallbacks" last);
- * the server answers with claude-fb (tests/claude/fallback.sse): the answer's cost is claude-fb's price (output 20 per
+ * the server answers with claude-fb (tests/claude/fallback_model.sse): the answer's cost is claude-fb's price (output 20 per
  * million, the model's own is 15), its `model` stays the configured id and responseModel names the server's */
 static void test_fallback_pricing(void)
 {
     char *a[] = { "amiga-pi", "--model", "fb/claude-x", "--mode", "json", "hi", 0 };
-    static const char *const sse[] = { "fallback.sse" };
+    static const char *const sse[] = { "fallback_model.sse" };
     write_file(agent, "models.json",
                "{\"providers\":{\"fb\":{\"baseUrl\":\"https://fb.example\",\"api\":\"anthropic-messages\",\"apiKey\":\"k\","
                "\"compat\":{\"allowedFallbackModels\":[{\"provider\":\"fb\",\"model\":\"claude-fb\","
