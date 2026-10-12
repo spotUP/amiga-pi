@@ -890,6 +890,8 @@ static void test_select(void)
     pi_args a;
     char *argv[] = { "amiga-pi", "--tools", "read,grep", "--no-gate", "x", 0 };
     char *argv2[] = { "amiga-pi", "--no-tools", "--gate", "x", 0 };
+    char *argv3[] = { "amiga-pi", "-t", "read,-write", "x", 0 };
+    char *argv4[] = { "amiga-pi", "--tools", "-write,+ls", "x", 0 };
     memset(&ses, 0, sizeof(ses));
     CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
     names_of(got);
@@ -903,20 +905,74 @@ static void test_select(void)
     names_of(got);
     CHECK_STR(got, "read,bash,edit,write,ls");
     memset(&ses, 0, sizeof(ses));
-    CHECK_INT(pi_tools_add(&pt, &ses, "-", err, sizeof(err)), 0);
+    pi_tools_defaults(&pt, 0, 1);                    /* --no-tools */
+    CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
     CHECK_INT(ses.ntools, 0);
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "+ls,+read", err, sizeof(err)), 0);       /* modifiers on the empty defaults */
+    names_of(got);
+    CHECK_STR(got, "read,ls");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "grep", err, sizeof(err)), 0);            /* an allowlist beats --no-tools */
+    names_of(got);
+    CHECK_STR(got, "grep");
+    pi_tools_defaults(&pt, 0, 0);
     memset(&ses, 0, sizeof(ses));
     CHECK_INT(pi_tools_add(&pt, &ses, "*", err, sizeof(err)), 0);
     CHECK_INT(ses.ntools, PT_COUNT);
     memset(&ses, 0, sizeof(ses));
     CHECK_INT(pi_tools_add(&pt, &ses, "read,rm", err, sizeof(err)), -1);
     CHECK_STR(err, "unknown tool in --tools: rm");
+    /* pi 1.1.0 (P11-I7): only +name/-name entries change the default selection; "-write" is read, bash, edit */
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "-write", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,bash,edit");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "-bash,+grep,-nothere", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,edit,write,grep");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, " +ls , -read ,", err, sizeof(err)), 0);        /* entries trimmed, empty ones dropped */
+    names_of(got);
+    CHECK_STR(got, "bash,edit,write,ls");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "read,+ls", err, sizeof(err)), -1);
+    CHECK_STR(err, "tool names cannot be mixed with +name or -name entries");
+    CHECK_INT(pi_tools_add(&pt, &ses, "+l*", err, sizeof(err)), -1);
+    CHECK_STR(err, "+name and -name entries take exact tool names, not patterns: +l*");
+    /* defaultTools (settings.json): the same modifiers on the defaults; plain names replace them; [] is none; --tools
+     * modifiers apply on top of the setting */
+    pi_tools_defaults(&pt, "-write,+ls", 0);
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,bash,edit,ls");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "-ls,+grep", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,bash,edit,grep");
+    pi_tools_defaults(&pt, "read,grep", 0);
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,grep");
+    pi_tools_defaults(&pt, "", 0);
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
+    CHECK_INT(ses.ntools, 0);
+    pi_tools_defaults(&pt, 0, 0);
     CHECK_INT(pi_args_parse(&a, 5, argv), 0);
     CHECK_STR(a.tools, "read,grep");
     CHECK_INT(a.gate, 0);
     CHECK_INT(pi_args_parse(&a, 4, argv2), 0);
-    CHECK_STR(a.tools, "-");
+    CHECK_INT(a.no_tools, 1);
+    CHECK_STR(a.tools, "");
     CHECK_INT(a.gate, 1);
+    CHECK_INT(pi_args_parse(&a, 4, argv3), -1);
+    CHECK_STR(a.err, "-t: tool names cannot be mixed with +name or -name entries");
+    CHECK_INT(pi_args_parse(&a, 4, argv4), 0);
+    CHECK_STR(a.tools, "-write,+ls");
     memset(&ses, 0, sizeof(ses));
     ses.call_id = "call_t1";
 }

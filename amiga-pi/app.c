@@ -91,6 +91,33 @@ static int quiet_setting(const pi_platform *pl)
     return quiet;
 }
 
+/* settings.json's defaultTools (an array of strings): joined by commas into out, 1 when the setting is there (an empty
+ * array too), 0 when absent. pi 1.1.0 settings-manager.ts getDefaultTools; only the global file is read */
+static int default_tools_setting(const pi_platform *pl, char *out, long cap)
+{
+    char *b, path[300], e[64];
+    long n;
+    jv o, a, x;
+    jit it;
+    int present = 0;
+    out[0] = 0;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return 0;
+    if (!json_parse(b, n, &o) && json_get(o, "defaultTools", &a) && json_type(a) == J_ARR) {
+        present = 1;
+        json_iter(a, &it);
+        while (json_next(&it, 0, &x))
+            if (json_type(x) == J_STR) {
+                json_str(x, e, sizeof(e));
+                if (out[0])
+                    cl_cat(out, ",", cap);
+                cl_cat(out, e, cap);
+            }
+    }
+    CL_FREE(b);
+    return present;
+}
+
 /* settings.json's outputPad (pi 1.1.0 getOutputPad): 0 gives 0, anything else 1 */
 static int output_pad_setting(const pi_platform *pl)
 {
@@ -624,10 +651,16 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     note_io = pl->io;
     s.h.notice = note;
     if (pl->sys) {
+        int tools_ok;
         /* pi's tools on C:Claude's, and the gate (off unless asked for) */
         cl_copy(err, "out of memory", sizeof(err));
-        if (pi_tools_init(&tools, pl->sys, pl->cwd, pl->tmp, pl->shell) ||
-            pi_tools_add(&tools, &s, a.tools, err, sizeof(err))) {
+        tools_ok = pi_tools_init(&tools, pl->sys, pl->cwd, pl->tmp, pl->shell) == 0;
+        if (tools_ok) {
+            /* the default selection (defaultTools, --no-tools) and --tools through the one applyToolModifiers */
+            char dt[256];
+            pi_tools_defaults(&tools, default_tools_setting(pl, dt, sizeof(dt)) ? dt : 0, a.no_tools);
+        }
+        if (!tools_ok || pi_tools_add(&tools, &s, a.tools, err, sizeof(err))) {
             say(pl->io, "amiga-pi: ", err);
             pi_tools_free(&tools);
             pi_session_free(&s);

@@ -943,42 +943,163 @@ void pi_tools_free(pi_tools *p)
     tools_free(&p->t);
 }
 
+/* ---- the tool selection (pi 1.1.0 core/settings-manager.ts:214-270, core/sdk.ts:280-290) ---- */
+
+/* the next entry of a comma-separated list, trimmed of blanks, empty entries skipped (cli/args.ts:152-155): 1 and the
+ * entry in e, 0 at the end */
+static int next_entry(const char **q, char *e, int cap)
+{
+    int k = 0;
+    const char *t;
+    for (;;) {
+        while (**q == ',')
+            (*q)++;
+        if (!**q)
+            return 0;
+        k = 0;
+        while (**q && **q != ',') {
+            if (k < cap - 1)
+                e[k++] = **q;
+            (*q)++;
+        }
+        e[k] = 0;
+        while (k > 0 && (e[k - 1] == ' ' || e[k - 1] == '\t'))
+            e[--k] = 0;
+        for (t = e; *t == ' ' || *t == '\t'; t++)
+            ;
+        if (t != e)
+            memmove(e, t, strlen(t) + 1);
+        if (e[0])
+            return 1;
+    }
+}
+
+static int is_modifier(const char *e)
+{
+    return e[0] == '+' || e[0] == '-';
+}
+
+const char *pi_tool_list_error(const char *list, char *buf, long cap)
+{
+    const char *q = list ? list : "";
+    char e[64], pat[64];
+    int n = 0, mods = 0;
+    pat[0] = 0;
+    while (next_entry(&q, e, sizeof(e))) {
+        n++;
+        if (is_modifier(e)) {
+            mods++;
+            if (strchr(e, '*') && !pat[0])
+                cl_copy(pat, e, sizeof(pat));
+        }
+    }
+    if (!mods)
+        return 0;
+    if (mods < n)
+        return "tool names cannot be mixed with +name or -name entries";
+    if (pat[0]) {
+        cl_copy(buf, "+name and -name entries take exact tool names, not patterns: ", cap);
+        cl_cat(buf, pat, cap);
+        return buf;
+    }
+    return 0;
+}
+
+/* applyToolModifiers: the +name and -name entries of list, in order, on the mask. A name this build has no tool of
+ * (pi's codemode, ...): -name removes nothing, +name is an error (-1, name in bad) */
+static int apply_modifiers(unsigned *on, const char *list, char *bad, int cap)
+{
+    const char *q = list ? list : "";
+    char e[64];
+    while (next_entry(&q, e, sizeof(e))) {
+        int k;
+        if (!is_modifier(e))
+            continue;
+        k = pi_tools_kind(e + 1);
+        if (k < 0) {
+            if (e[0] == '+' && e[1]) {
+                cl_copy(bad, e + 1, cap);
+                return -1;
+            }
+            continue;
+        }
+        if (e[0] == '+')
+            *on |= 1u << k;
+        else
+            *on &= ~(1u << k);
+    }
+    return 0;
+}
+
+#define PI_DEFAULT_TOOLS ((1u << PT_READ) | (1u << PT_BASH) | (1u << PT_EDIT) | (1u << PT_WRITE))
+
+void pi_tools_defaults(pi_tools *p, const char *entries, int no_tools)
+{
+    p->defaults_set = entries != 0;
+    cl_copy(p->defaults, entries ? entries : "", sizeof(p->defaults));
+    p->no_tools = no_tools;
+}
+
+/* resolveDefaultTools (settings-manager.ts:267): plain names replace the defaults, then the modifiers; an empty list
+ * is no tools */
+static unsigned resolve_defaults(const pi_tools *p)
+{
+    const char *q = p->defaults;
+    char e[64], bad[64];
+    unsigned plain = 0, on;
+    int n = 0, np = 0;
+    if (!p->defaults_set)
+        return PI_DEFAULT_TOOLS;
+    while (next_entry(&q, e, sizeof(e))) {
+        n++;
+        if (!is_modifier(e)) {
+            np++;
+            if (pi_tools_kind(e) >= 0)
+                plain |= 1u << pi_tools_kind(e);
+        }
+    }
+    on = np > 0 || n == 0 ? plain : PI_DEFAULT_TOOLS;
+    apply_modifiers(&on, p->defaults, bad, sizeof(bad));
+    return on;
+}
+
 int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long cap)
 {
-    unsigned on = (1u << PT_READ) | (1u << PT_BASH) | (1u << PT_EDIT) | (1u << PT_WRITE);
+    unsigned on = p->no_tools ? 0 : resolve_defaults(p);
     int i;
-    if (list && !strcmp(list, "-"))
-        on = 0;
-    else if (list && *list) {
+    if (list && *list) {
+        const char *bad = pi_tool_list_error(list, err, cap);
+        char name[64], nm[64];
         const char *q = list;
-        if (*q != '+')
-            on = 0;
-        while (*q) {
-            char name[32];
-            int k = 0, add = 1;
-            while (*q == ',' || *q == ' ')
-                q++;
-            if (*q == '+')
-                q++;
-            else if (*q == '-') {
-                q++;
-                add = 0;
-            }
-            while (*q && *q != ',' && *q != ' ' && k < (int)sizeof(name) - 1)
-                name[k++] = *q++;
-            name[k] = 0;
-            if (!k)
-                continue;
-            if (!strcmp(name, "*"))
-                on = add ? (1u << PT_COUNT) - 1 : 0;
-            else if (pi_tools_kind(name) < 0) {
+        int mods = 0;
+        if (bad) {
+            if (bad != err)
+                cl_copy(err, bad, cap);
+            return -1;
+        }
+        while (next_entry(&q, name, sizeof(name)))
+            mods |= is_modifier(name);
+        if (mods) {
+            /* only +name/-name entries: they change the default selection (sdk.ts:284-286) */
+            if (apply_modifiers(&on, list, nm, sizeof(nm))) {
                 cl_copy(err, "unknown tool in --tools: ", cap);
-                cl_cat(err, name, cap);
+                cl_cat(err, nm, cap);
                 return -1;
-            } else if (add)
-                on |= 1u << pi_tools_kind(name);
-            else
-                on &= ~(1u << pi_tools_kind(name));
+            }
+        } else {
+            /* an allowlist of plain names, "*" for every tool */
+            on = 0;
+            q = list;
+            while (next_entry(&q, name, sizeof(name))) {
+                if (!strcmp(name, "*"))
+                    on = (1u << PT_COUNT) - 1;
+                else if (pi_tools_kind(name) < 0) {
+                    cl_copy(err, "unknown tool in --tools: ", cap);
+                    cl_cat(err, name, cap);
+                    return -1;
+                } else
+                    on |= 1u << pi_tools_kind(name);
+            }
         }
     }
     /* pi's order: read, bash, edit, write, grep, find, ls */

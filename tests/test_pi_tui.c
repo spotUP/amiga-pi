@@ -1301,6 +1301,23 @@ static void test_bang(void)
     CHECK(found_secret);
 }
 
+/* P11-I7 reachability: settings.json's defaultTools reaches the request's tool list through pi_app (the unit cases are in
+ * test_pi_tools.c) */
+static void test_default_tools_setting(void)
+{
+    static const char *keys[] = { "hello\r", "\004", 0 };
+    static const char *const sse[] = { "markdown.1.sse" };
+    app_write("settings.json", "{\"quietStartup\":true,\"defaultTools\":[\"-write\",\"+ls\"]}\n");
+    CHECK_INT(app_run(80, 40, keys, sse, 1, take_shot), 0);
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq >= 1) {
+        CHECK(strstr(ps.body[0], "\"name\":\"ls\"") != 0);
+        CHECK(strstr(ps.body[0], "\"name\":\"read\"") != 0);
+        CHECK(strstr(ps.body[0], "\"name\":\"write\"") == 0);
+    }
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+}
+
 /* P11-I8 reachability: settings.json's outputPad reaches the screen through pi_app (the golden scenarios set it by hand) */
 static int row_starts(const char *text)
 {
@@ -1740,6 +1757,7 @@ void suite_pi_tui(void)
     test_export();
     test_bang();
     test_output_pad_setting();
+    test_default_tools_setting();
     test_context_figure();
     test_ctrl_d();
     test_themes();
