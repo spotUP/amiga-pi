@@ -59,4 +59,23 @@ const l2 = await run(anth, opus, [user("hello"), l1.final, user("again")], "high
 writeFileSync(join(here, "levels_second.json"), l2.body);
 const l3 = await run(anth, opus, [user("hello"), l1.final, user("again"), l2.final, user("third")], "medium", anthSse);
 writeFileSync(join(here, "levels_third.json"), l3.body);
+// opus-5-5 with a tool that adds another during the run (the tests' "adder"): the second request declares the new tool
+// as pi's agent loop does, a system message with toolsAdded after the tool result
+const adderTool = { name: "adder", description: "Adds the tool late", parameters: { type: "object", properties: {}, required: [] } };
+const lateTool = { name: "late", description: "A tool added during the run", parameters: { type: "object", properties: { x: { type: "string" } }, required: ["x"] } };
+const adderSse = readFileSync(join(vt, "tests", "pi", "anthropic", "adder.sse"), "utf8");
+const inputs0 = inputs.tools;
+inputs.tools = [...inputs0, adderTool];
+const d1 = await run(anth, opus, [user("hello")], "medium", adderSse);
+const call = d1.final.content.find((b) => b.type === "toolCall");
+const result = { role: "toolResult", toolCallId: call.id, toolName: "adder", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 1760100000000 };
+const declare = { role: "system", content: "", toolsAdded: [lateTool], timestamp: 1760100000000 };
+// the second request: the context's tools are the executable ones; the initial system message is the first request's
+inputs.tools = [...inputs0, adderTool];
+const ctx2 = normalizeContext({ systemPrompt: inputs.systemPrompt, messages: [user("hello"), d1.final, result, declare], tools: inputs.tools });
+let body2;
+const fetch2 = async (url, init) => { body2 = init.body; return new Response(anthSse, { status: 200, headers: { "content-type": "text/event-stream" } }); };
+const st = anth.streamSimple(opus, ctx2, { apiKey: "sk-test-not-real", fetch: fetch2, reasoning: "medium", sessionId: inputs.sessionId });
+for await (const ev of st) if (ev.type === "done" || ev.type === "error") break;
+writeFileSync(join(here, "declare_second.json"), body2);
 console.log("[OK] switch goldens written; off clamps to " + lv + " on opus-5-5");

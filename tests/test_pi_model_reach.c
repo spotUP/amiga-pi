@@ -81,6 +81,8 @@ static int l_brk(void *u)
 #define ARGC(a) ((int)(sizeof(a) / sizeof((a)[0]) - 1))
 
 
+static void (*ready_hook)(pi_session *s);
+
 static int run(int argc, char **argv, const char *const *sse, int nsse)
 {
     cl_io io;
@@ -104,6 +106,7 @@ static int run(int argc, char **argv, const char *const *sse, int nsse)
     pl.h.resolve = ps_resolve;
     pl.now = adv_now;
     pl.getenv = env;
+    pl.ready = ready_hook;
     pl.cwd = "/work/proj";
     pl.sys = &sys;
     pl.tmp = root;
@@ -337,6 +340,66 @@ static void test_levels(void)
     CHECK(ps.nreq && strstr(ps.body[0], "{\"role\":\"system\",\"content\":[],\"output_config\":{\"effort\":\"medium\"}}") != 0);
 }
 
+/* FB1: a tool added while the run is going (tool_search's way) is declared to the transcript before the next request
+ * of a model that takes tool changes there: a system message with toolsAdded after the tool result, which the request
+ * carries as a tool_addition block -- pi's agent loop (declareToolChanges), the request tests/pi/model/declare_second.json */
+static pi_tool late_tool, adder_tool;
+
+static int adder_run(void *u, pi_session *s, const char *args, long an, jw *content, int *is_error)
+{
+    (void)u;
+    (void)args;
+    (void)an;
+    *is_error = 0;
+    jw_rawz(content, "[{\"type\":\"text\",\"text\":\"ok\"}]");
+    return pi_tool_add(s, &late_tool);
+}
+
+static void ready_adder(pi_session *s)
+{
+    adder_tool.name = "adder";
+    adder_tool.description = "Adds the tool late";
+    adder_tool.parameters = "{\"type\":\"object\",\"properties\":{},\"required\":[]}";
+    adder_tool.run = adder_run;
+    late_tool.name = "late";
+    late_tool.description = "A tool added during the run";
+    late_tool.parameters = "{\"type\":\"object\",\"properties\":{\"x\":{\"type\":\"string\"}},\"required\":[\"x\"]}";
+    pi_tool_add(s, &adder_tool);
+}
+
+static void test_declare(void)
+{
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0 };
+    static const char *const sse[] = { "../pi/anthropic/adder.sse", "../pi/switch_anthropic.sse" };
+    char path[600], sh[600];
+    pi_s3 st;
+    int i, with_add = 0;
+    ready_hook = ready_adder;
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 2), 0);
+    ready_hook = 0;
+    CHECK_INT(ps.nreq, 2);
+    if (ps.nreq < 2)
+        return;
+    pi_golden("pi/model/declare_second.json", ps.body[1]);
+    CHECK(strstr(ps.body[0], "\"name\":\"late\"") == 0);                  /* the first request does not know the tool */
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 7);
+    CHECK_INT(s3_open(&st, path), 0);
+    shape(&st, sh, sizeof(sh));
+    CHECK_STR(sh, "model_change thinking_level_change message/system message/user message/assistant "
+                  "message/toolResult message/system message/assistant");
+    for (i = 0; i < st.n; i++) {
+        long n;
+        const char *t = s3_text(&st, i, &n);
+        if (t && strstr(t, "\"role\":\"system\"") && strstr(t, "\"toolsAdded\":[{\"name\":\"late\""))
+            with_add++;
+    }
+    CHECK_INT(with_add, 1);
+    s3_free(&st);
+}
+
 /* resume: pi restores the thinking level (and the model) from the session path (sdk.ts :253); E7 restored only the model */
 static void test_resume(void)
 {
@@ -527,6 +590,7 @@ void suite_pi_model_reach(void)
     test_switch();
     test_switch_back();
     test_levels();
+    test_declare();
     test_resume();
     test_commands();
     test_command_once();
