@@ -11,6 +11,7 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
     memset(a, 0, sizeof(*a));
     a->gate = -1;
     a->thinking = -1;
+    a->approve = -1;
     for (i = 1; i < argc; i++) {
         const char *s = argv[i];
         if (!strcmp(s, "-p") || !strcmp(s, "--print"))
@@ -21,6 +22,8 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             a->resume = 1;
         else if (!strcmp(s, "--no-session"))
             a->no_session = 1;
+        else if (!strcmp(s, "--approve") || !strcmp(s, "-a") || !strcmp(s, "--no-approve") || !strcmp(s, "-na"))
+            a->approve = !strcmp(s, "--approve") || !strcmp(s, "-a");
         else if (!strcmp(s, "--no-mcp"))
             a->no_mcp = 1;
         else if (!strcmp(s, "--session") || !strcmp(s, "--name") || !strcmp(s, "-n")) {

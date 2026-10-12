@@ -1,6 +1,7 @@
 /* see prompt.h */
 #include <string.h>
 #include "prompt.h"
+#include "resources.h"
 #include "claude/amiga_text.h"
 #include "claude/util.h"
 
@@ -44,15 +45,11 @@ static void section(pi_psec *o, const char *name, long at)
     }
 }
 
-int pi_prompt_sections(const pi_session *s, const char *cwd, pi_psec *out)
+/* the default prompt's tools, rules and amiga sections */
+static void prefix(const pi_session *s, pi_psec *out)
 {
     int i, k = 0;
     long at;
-    memset(out, 0, sizeof(*out));
-    jw_init(&out->text);
-    at = out->text.n;
-    jw_rawz(&out->text, preamble);
-    section(out, "preamble", at);
     /* tools: "- name: snippet" for the tools that have one */
     at = out->text.n;
     open_tag(&out->text, "tools");
@@ -106,9 +103,50 @@ int pi_prompt_sections(const pi_session *s, const char *cwd, pi_psec *out)
     }
     close_tag(&out->text, "amiga");
     section(out, "amiga", at);
+}
+
+int pi_prompt_sections(const pi_session *s, const char *cwd, pi_psec *out)
+{
+    int i;
+    long at;
+    const pi_res *r = s->res;
+    const char *c;
+    int custom;
+    memset(out, 0, sizeof(*out));
+    jw_init(&out->text);
+    at = out->text.n;
+    /* pi's customPrompt: SYSTEM.md is the preamble; no tools, rules or docs (amiga) */
+    custom = r && r->system && r->system[0];
+    jw_rawz(&out->text, custom ? r->system : preamble);
+    section(out, "preamble", at);
+    if (!custom)
+        prefix(s, out);
+    if (r && r->append && r->append[0]) {
+        at = out->text.n;
+        open_tag(&out->text, "addendum");
+        jw_rawz(&out->text, r->append);
+        close_tag(&out->text, "addendum");
+        section(out, "addendum", at);
+    }
+    if (r && r->nf) {
+        /* pi's renderProjectContext */
+        at = out->text.n;
+        open_tag(&out->text, "project_context");
+        jw_rawz(&out->text, "Project-specific instructions and guidelines:");
+        for (i = 0; i < r->nf; i++) {
+            jw_rawz(&out->text, "\n\n<project_instructions path=\"");
+            jw_rawz(&out->text, r->f[i].path);
+            jw_rawz(&out->text, "\">\n");
+            jw_raw(&out->text, r->f[i].text, r->f[i].n);
+            jw_rawz(&out->text, "\n</project_instructions>");
+        }
+        close_tag(&out->text, "project_context");
+        section(out, "project_context", at);
+    }
     at = out->text.n;
     open_tag(&out->text, "cwd");
-    jw_rawz(&out->text, cwd ? cwd : "");
+    for (c = cwd ? cwd : ""; *c; c++)
+        jw_raw(&out->text, *c == '\\' ? "/" : c, 1);     /* pi: cwd.replace(/\\/g, "/") */
     close_tag(&out->text, "cwd");
     section(out, "cwd", at);
     if (s->mcp_section) {

@@ -1,0 +1,13 @@
+get /w/proj/a/x true
+get /w/b/c false
+get /q null
+option Trust true
+option Trust parent folder (@ROOT@/l3/w) true
+option Trust (this session only) true
+option Do not trust false
+option Do not trust (this session only) false
+needed l1/w/proj false
+needed l3/w/proj true
+needed n1/p true
+needed n2/p false
+needed n3/p true

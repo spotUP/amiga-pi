@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "store.h"
+#include "resources.h"
 #include "compact.h"
 #include "models.h"
 #include "claude/util.h"
@@ -658,6 +659,18 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
         }
         jw_rawz(reply, "[INFO] Thinking level: ");
         jw_rawz(reply, llm_think_name(lv));
+        return 1;
+    }
+    if ((a = word(line, "/trust")) != 0) {
+        /* pi: "Save project trust decision for future sessions"; /trust lists the answers, /trust N keeps one */
+        int pick = 0;
+        if (!st->agent_dir[0]) {
+            jw_rawz(reply, "[ERROR] no directory to keep trust.json in");
+            return 1;
+        }
+        while (*a >= '0' && *a <= '9' && pick < 100)
+            pick = pick * 10 + (*a++ - '0');
+        pi_trust_command(st->sys, st->agent_dir, st->cwd, pick, reply);
         return 1;
     }
     if (word(line, "/session")) {

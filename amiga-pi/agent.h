@@ -82,6 +82,7 @@ typedef struct pi_session {
     int stop;                   /* the last answer's stop reason (LS_*) */
     const char *call_id;        /* the tool call running now (a tool names its kept output after it) */
     const char *shell_note;     /* the system prompt's sentence on the bash tool's shell, 0 none */
+    const struct pi_res *res;   /* context files, SYSTEM.md, APPEND_SYSTEM.md for the prompt (resources.h), 0 none */
     const char *mcp_section;    /* pi's mcp_servers section (mcp.c), 0 none */
     /* the gate's question (ext_gate.h), set by the prompt's UI: ASK_* of
      * claude/tools.h; 0 nobody can answer (print mode) */

@@ -3,7 +3,9 @@
  *            [--provider name] [--thinking level] [--api-key key] [--list-models [search]]
  *            [--tools|-t list] [--no-tools|-nt] [--gate|--no-gate] [--no-mcp]
  *            [--continue|-c] [--session path-or-id] [--resume|-r] [--no-session]
- *            [--name|-n name] [prompt ...]
+ *            [--name|-n name] [--approve|-a|--no-approve|-na] [prompt ...]
+ * Project trust (resources.h): -a trusts this run's project .pi/ resources, -na does not, over every saved
+ * decision and settings.json's defaultProjectTrust.
  * Sessions (store.h): -c continues the newest session of the working directory,
  * --session opens a file or the session whose id starts with the argument,
  * -r lists the sessions to pick one, --no-session keeps the conversation in RAM,
@@ -30,6 +32,7 @@ typedef struct pi_args {
     char tools[256];            /* --tools as given, "-" for --no-tools, "" the defaults */
     int gate;                   /* --gate 1, --no-gate 0, -1 settings.json decides */
     int cont, resume, no_session;
+    int approve;                /* -a / --approve 1 trusts the project's .pi/ resources, -na / --no-approve 0, -1 ask */
     int no_mcp;                 /* --no-mcp: no MCP servers this run (pi's flag) */
     char session[300];          /* --session's argument, "" none */
     char name[128];             /* --name, "" none */

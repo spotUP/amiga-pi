@@ -9,7 +9,9 @@
 #include "store.h"
 #include "models.h"
 #include "mcp.h"
+#include "resources.h"
 #include "claude/util.h"
+#include "claude/path.h"
 #include "claude/repl.h"       /* cl_key_clean */
 
 static void say(cl_io *io, const char *a, const char *b)
@@ -39,19 +41,65 @@ static int has_tool(const pi_session *s, const char *name)
     return 0;
 }
 
+/* <agent dir>/settings.json read: 0, -1 none (b is CL_FREEd by the caller) */
+static int settings_text(const pi_platform *pl, char **b, long *n, char *path, long cap)
+{
+    *b = 0;
+    *n = 0;
+    if (!pl->sys || !pl->agent_dir || !pl->agent_dir[0])
+        return -1;
+    cl_copy(path, pl->agent_dir, cap);
+    if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+        cl_cat(path, "/", cap);
+    cl_cat(path, "settings.json", cap);
+    if (pl->sys->kind(pl->sys->u, path) != 1 || pl->sys->read(pl->sys->u, path, 256L * 1024, b, n))
+        return -1;
+    return 0;
+}
+
+/* settings.json's defaultProjectTrust ("ask" | "always" | "never"): into out, "ask" when absent */
+static void trust_setting(const pi_platform *pl, char *out, long cap)
+{
+    char *b, path[300];
+    long n;
+    jv o, v;
+    cl_copy(out, "ask", cap);
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return;
+    if (!json_parse(b, n, &o) && json_get(o, "defaultProjectTrust", &v) && json_type(v) == J_STR)
+        json_str(v, out, cap);
+    CL_FREE(b);
+}
+
+/* pi's trust question on the console: the title, the answers numbered, a number typed (0 or none: no answer) */
+static int trust_ask(void *u, const char *title, const char *const *labels, int n)
+{
+    const pi_platform *pl = (const pi_platform *)u;
+    char line[160], num[8], buf[16];
+    int i;
+    say(pl->io, title, 0);
+    for (i = 0; i < n; i++) {
+        num[0] = (char)('1' + i);
+        num[1] = 0;
+        cl_copy(line, "  ", sizeof(line));
+        cl_cat(line, num, sizeof(line));
+        cl_cat(line, "  ", sizeof(line));
+        cl_cat(line, labels[i], sizeof(line));
+        say(pl->io, line, 0);
+    }
+    say(pl->io, "Number of your answer (anything else: do not trust this time):", 0);
+    if (!pl->io->read_line || pl->io->read_line(pl->io->u, buf, sizeof(buf)) != 1 || buf[0] < '1' || buf[0] >= '1' + n)
+        return -1;
+    return buf[0] - '1';
+}
+
 /* <agent dir>/settings.json: the gate's rules taken; 1 when it switches the gate on */
 static int gate_setting(const pi_platform *pl, pi_gate *g)
 {
-    char path[300], *b = 0;
-    long n = 0;
+    char *b, path[300];
+    long n;
     int on = -1;
-    if (!pl->agent_dir || !pl->agent_dir[0])
-        return 0;
-    cl_copy(path, pl->agent_dir, sizeof(path));
-    if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
-        cl_cat(path, "/", sizeof(path));
-    cl_cat(path, "settings.json", sizeof(path));
-    if (pl->sys->kind(pl->sys->u, path) != 1 || pl->sys->read(pl->sys->u, path, 256L * 1024, &b, &n))
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
         return 0;
     if (pi_gate_settings(g, b, n, path, &on))
         say(pl->io, "[WARN] not a JSON object, skipped: ", path);
@@ -109,22 +157,16 @@ static int usage(const pi_platform *pl, const pi_args *a)
 {
     say(pl->io, "amiga-pi: ", a->err);
     say(pl->io, "usage: amiga-pi [-p] [--model provider/id] [--base-url URL] [--tools list] [--no-tools] "
-                "[--gate|--no-gate] [--no-mcp] [-c] [--session path-or-id] [-r] [--no-session] [-n name] [prompt]", 0);
+                "[--gate|--no-gate] [--approve|--no-approve] [--no-mcp] [-c] [--session path-or-id] [-r] [--no-session] [-n name] [prompt]", 0);
     return 2;
 }
 
 /* <agent dir>/settings.json: the compaction settings taken by the store */
 static void store_settings(const pi_platform *pl, pi_store *st)
 {
-    char path[300], *b = 0;
-    long n = 0;
-    if (!pl->sys || !pl->agent_dir || !pl->agent_dir[0])
-        return;
-    cl_copy(path, pl->agent_dir, sizeof(path));
-    if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
-        cl_cat(path, "/", sizeof(path));
-    cl_cat(path, "settings.json", sizeof(path));
-    if (pl->sys->kind(pl->sys->u, path) != 1 || pl->sys->read(pl->sys->u, path, 256L * 1024, &b, &n))
+    char *b, path[300];
+    long n;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
         return;
     pi_store_settings(st, b, n);
     CL_FREE(b);
@@ -138,13 +180,7 @@ static void default_model_settings(const pi_platform *pl, char *prov, long pc, c
     jv root, v;
     prov[0] = id[0] = 0;
     *level = -1;
-    if (!pl->sys || !pl->agent_dir || !pl->agent_dir[0])
-        return;
-    cl_copy(path, pl->agent_dir, sizeof(path));
-    if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
-        cl_cat(path, "/", sizeof(path));
-    cl_cat(path, "settings.json", sizeof(path));
-    if (pl->sys->kind(pl->sys->u, path) != 1 || pl->sys->read(pl->sys->u, path, 256L * 1024, &b, &n))
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
         return;
     if (!json_parse(b, n, &root) && json_type(root) == J_OBJ) {
         if (json_get(root, "defaultProvider", &v))
@@ -247,9 +283,11 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     static pi_gate gate;
     static pi_store store;
     static mcp mc;
+    static pi_res res;
     llm_model m;
     char err[160], picked[320];
-    int rc, mode, level0 = 0;
+    char dflt[16];
+    int rc, mode, level0 = 0, trusted = 0;
     if (pi_args_parse(&a, argc, argv))
         return usage(pl, &a);
     if (a.list_models) {
@@ -276,6 +314,8 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         pi_store_free(&store);
         return 2;
     }
+    if (pl->agent_dir)
+        cl_copy(store.agent_dir, pl->agent_dir, sizeof(store.agent_dir));
     {
         char dprov[64], did[128], warn[200];
         int dlevel, plevel, want;
@@ -330,17 +370,38 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
             gate.on = a.gate;
         pi_ext_add(&s.ext, &gate.ext);
     }
-    /* MCP servers from <agent dir>/mcp.json (pi: ~/.pi/agent/mcp.json); the project's .pi/mcp.json is read
-     * only for a trusted project, and amiga-pi has no trust yet (phase G3) */
+    /* project trust (resources.h): -a / -na, a saved decision, defaultProjectTrust, else the question (not in print
+     * mode); then the context files, SYSTEM.md and APPEND_SYSTEM.md for the prompt */
+    memset(&res, 0, sizeof(res));
+    if (pl->sys) {
+        trust_setting(pl, dflt, sizeof(dflt));
+        trusted = pi_trust_decide(pl->sys, pl->agent_dir, pl->cwd, a.approve, dflt,
+                                  a.print || !pl->io->read_line ? 0 : trust_ask, (void *)pl);
+        if (trusted < 0) {
+            /* pi stops with the trust store's error (readTrustFile / setMany throw) */
+            char terr[400];
+            pi_trust_why(pl->sys, pl->agent_dir, terr, sizeof(terr));
+            say(pl->io, "amiga-pi: ", terr);
+            pi_models_free(&models);
+            pi_store_free(&store);
+            pi_session_free(&s);
+            pi_gate_free(&gate);
+            pi_tools_free(&tools);
+            return 2;
+        }
+        pi_res_load(&res, pl->sys, pl->agent_dir, pl->cwd, trusted);
+        s.res = &res;
+    }
+    /* MCP servers from <agent dir>/mcp.json (pi: ~/.pi/agent/mcp.json), then the project's <cwd>/.pi/mcp.json for a
+     * trusted project (pi: guarded by trust) */
     mcp_init(&mc, pl->sys, pl->mcp_pool ? pl->mcp_pool : pl->pool, &s.h, pl->getenv, pl->cwd, pl->tmp);
-    if (pl->sys && !a.no_mcp && pl->agent_dir && pl->agent_dir[0]) {
+    if (pl->sys && !a.no_mcp) {
         char path[300];
         long i, st = 0;
-        cl_copy(path, pl->agent_dir, sizeof(path));
-        if (path[0] && path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
-            cl_cat(path, "/", sizeof(path));
-        cl_cat(path, "mcp.json", sizeof(path));
-        mcp_load(&mc, path, 0);
+        if (pl->agent_dir && pl->agent_dir[0] && path_join(pl->agent_dir, "mcp.json", path, sizeof(path)) == 0)
+            mcp_load(&mc, path, 0);
+        if (trusted && path_join(pl->cwd, ".pi/mcp.json", path, sizeof(path)) == 0)
+            mcp_load(&mc, path, 1);
         if (mc.n)
             mcp_connect(&mc);
         for (i = 0; i < mc.errors.n; i++)
@@ -361,6 +422,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         pi_session_free(&s);
         pi_models_free(&models);
         mcp_free(&mc);
+        pi_res_free(&res);
         return 1;
     }
     if (a.name[0])
@@ -372,6 +434,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     pi_store_free(&store);
     pi_session_free(&s);
     mcp_free(&mc);
+    pi_res_free(&res);
     if (pl->sys) {
         pi_gate_free(&gate);
         pi_tools_free(&tools);

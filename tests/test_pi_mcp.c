@@ -1245,6 +1245,9 @@ static const char sse_final[] =
     "\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
     "data: [DONE]\n\n";
 
+static const char *app_cwd = "/work/proj";     /* the working directory of the next run */
+static const char *app_flag;                     /* a flag before the model's, 0 none (-a, -na) */
+
 static int app_run(int no_mcp)
 {
     cl_io io;
@@ -1271,7 +1274,7 @@ static int app_run(int no_mcp)
     pl.h.resolve = ps_resolve;
     pl.now = adv_now;
     pl.getenv = no_env;
-    pl.cwd = "/work/proj";
+    pl.cwd = app_cwd;
     pl.sys = &sys;
     pl.tmp = tmpd;
     pl.utc = 1;
@@ -1281,6 +1284,8 @@ static int app_run(int no_mcp)
     argv[a++] = "--no-session";
     if (no_mcp)
         argv[a++] = "--no-mcp";
+    if (app_flag)
+        argv[a++] = (char *)app_flag;
     argv[a++] = "--model";
     argv[a++] = "fixture/qwen2.5-coder:7b";
     argv[a++] = "--base-url";
@@ -1320,6 +1325,50 @@ static void test_reach(void)
     app_run(1);
     CHECK_INT(mcp_call_count - calls, 0);
     CHECK(ps.nreq >= 1 && strstr(ps.body[0], "mcp__fake__echo") == 0);
+    remove(path);
+    llm_pool_close(&rpool);
+    sys.spawn2_close(sys.u, h, 3000);
+    jw_free(&cfg);
+    jw_free(&out);
+}
+
+/* G3: the project's .pi/mcp.json is read only for a trusted project (pi: guarded by trust). The same server in
+ * <cwd>/.pi/mcp.json: not trusted (print mode, nothing decided) or -na, no tool call; -a, one */
+static void test_project_trust(void)
+{
+    void *h = 0;
+    int port;
+    long calls;
+    jw cfg;
+    char proj[500], path[520];
+    reset_log();
+    port = start_http(0, &h);
+    CHECK(port > 0);
+    jw_init(&cfg);
+    http_config(&cfg, "127.0.0.1", port, 0);
+    cl_copy(proj, root, sizeof(proj));
+    cl_cat(proj, "/proj", sizeof(proj));
+    mkdir(proj, 0777);
+    cl_copy(path, proj, sizeof(path));
+    cl_cat(path, "/.pi", sizeof(path));
+    mkdir(path, 0777);
+    cl_cat(path, "/mcp.json", sizeof(path));
+    CHECK_INT(sys.write(sys.u, path, cfg.p, cfg.n), 0);
+    app_cwd = proj;
+    calls = mcp_call_count;
+    CHECK_INT(app_run(0), 0);
+    CHECK_INT(mcp_call_count - calls, 0);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "mcp__fake__echo") == 0);
+    app_flag = "-na";
+    CHECK_INT(app_run(0), 0);
+    CHECK_INT(mcp_call_count - calls, 0);
+    app_flag = "-a";
+    CHECK_INT(app_run(0), 0);
+    CHECK_INT(mcp_call_count - calls, 1);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "\"name\":\"mcp__fake__echo\"") != 0);
+    CHECK(out.p && strstr(out.p, "The server said it back.") != 0);
+    app_flag = 0;
+    app_cwd = "/work/proj";
     remove(path);
     llm_pool_close(&rpool);
     sys.spawn2_close(sys.u, h, 3000);
@@ -1367,4 +1416,5 @@ void suite_pi_mcp(void)
     test_values();
     test_http();
     test_reach();
+    test_project_trust();
 }
