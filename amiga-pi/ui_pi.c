@@ -174,9 +174,8 @@ static const char *pst_name(void *u)
 /* pi's renderInitialMessages (interactive-mode.ts:4208-4222): the context's AgentMessages drawn (a stored session: the
  * custom, compaction-summary and branch-summary messages as their own components; ses->msg holds only what the model
  * is sent), then "Session compacted N time(s)" when the file holds any compaction entry */
-/* redraw_chat's modes: renderInitialMessages (with its "Session compacted" note), compaction_end's, and a redraw that
- * only flips the expansion of the components (ctrl+o: no note) */
-enum { REDRAW_INITIAL, REDRAW_COMPACTED, REDRAW_EXPAND };
+/* redraw_chat's modes: renderInitialMessages (with its "Session compacted" note) and compaction_end's */
+enum { REDRAW_INITIAL, REDRAW_COMPACTED };
 static void redraw_chat(pi_ui *p, int mode);
 
 static void redraw_session(pi_ui *p)
@@ -189,8 +188,7 @@ static void redraw_session(pi_ui *p)
  * and no "Session compacted" note (that is renderInitialMessages' alone) */
 static void redraw_compacted(pi_ui *p, long tokens_before, const char *summary, long summary_n)
 {
-    tui_clear(p->ui.tui);
-    p->ps.any = 0;
+    pshow_clear(&p->ps);
     redraw_chat(p, REDRAW_COMPACTED);
     pshow_compaction_summary(&p->ps, tokens_before, summary, summary_n);
 }
@@ -548,19 +546,12 @@ static void cb_cycle(void *u, int what, int dir)
 }
 
 /* app.tools.expand (Ctrl+O): pi's toggleToolOutputExpansion (interactive-mode.ts:4557-4574) flips toolOutputExpanded, sets it
- * on every expandable component and shows "Tool output: expanded|collapsed". The screen is lines already written, so the
- * chat is drawn again from the context with the new setting (while a turn runs only the setting changes: the turn's own
- * lines are not in the store yet). Only the compaction and branch summaries have an expanded form here. */
+ * on every expandable child of the chat and shows "Tool output: expanded|collapsed". The chat's items (show_pi.h) are drawn again
+ * with the new setting, so what is not in the session store (an error, a command's output) stays and a tool that runs stays live. */
 static void cb_expand(void *u)
 {
     pi_ui *p = (pi_ui *)u;
-    p->ps.expanded = !p->ps.expanded;
-    if (p->s->em.count[PE_AGENT_START] <= p->s->em.count[PE_AGENT_END]) {
-        tui_clear(p->ui.tui);
-        p->ps.any = 0;
-        redraw_chat(p, REDRAW_EXPAND);
-    }
-    pshow_note(&p->ps, PR_DIM, p->ps.expanded ? "Tool output: expanded" : "Tool output: collapsed");
+    pshow_expand(&p->ps, !p->ps.expanded, p->ps.expanded ? "Tool output: collapsed" : "Tool output: expanded");
     status(p);
 }
 
@@ -1008,8 +999,7 @@ static void tree_command(pi_ui *p, cl_tui *t)
         if (reply.p && strstr(reply.p, "[ERROR]"))
             pshow_error(&p->ps, reply.p + 8);
         else {
-            tui_clear(t);
-            p->ps.any = 0;
+            pshow_clear(&p->ps);
             redraw_session(p);
             if (editor.n && !t->ed.n)
                 tui_set_text(t, editor.p);

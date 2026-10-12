@@ -173,6 +173,69 @@ void pshow_init(pi_show *s, cl_tui *t, const cl_pitheme *th)
     pshow_theme(s, th);
 }
 
+/* ---- the chat's items ---- */
+
+static void item_free(ps_item *it)
+{
+    jw_free(&it->x);
+    jw_free(&it->y);
+    if (it->kind == PK_TOOL) {
+        jw_free(&it->tool.args);
+        jw_free(&it->tool.partial);
+        jw_free(&it->tool.result);
+    }
+    free(it);
+}
+
+/* a new item at the end of the chat; 0 when memory is out (the item is drawn, not kept) */
+static ps_item *item_new(pi_show *s, int kind)
+{
+    ps_item *it;
+    if (s->nitem == s->capitem) {
+        long cap = s->capitem ? s->capitem * 2 : 64;
+        ps_item **n = (ps_item **)realloc(s->item, (size_t)cap * sizeof(*n));
+        if (!n)
+            return 0;
+        s->item = n;
+        s->capitem = cap;
+    }
+    it = (ps_item *)calloc(1, sizeof(*it));
+    if (!it)
+        return 0;
+    it->kind = kind;
+    jw_init(&it->x);
+    jw_init(&it->y);
+    jw_init(&it->tool.args);
+    jw_init(&it->tool.partial);
+    jw_init(&it->tool.result);
+    s->item[s->nitem++] = it;
+    return it;
+}
+
+/* an item holding two texts (z: zero-terminated; the length of x is xn, y is a string) */
+static ps_item *item_text(pi_show *s, int kind, long a, const char *x, long xn, const char *y)
+{
+    ps_item *it = item_new(s, kind);
+    if (!it)
+        return 0;
+    it->a = a;
+    if (x)
+        jw_raw(&it->x, x, xn);
+    jw_rawz(&it->x, "");
+    if (y)
+        jw_rawz(&it->y, y);
+    return it;
+}
+
+static void items_drop(pi_show *s)
+{
+    long i;
+    for (i = 0; i < s->nitem; i++)
+        item_free(s->item[i]);
+    s->nitem = 0;
+    s->cur = 0;
+}
+
 void pshow_free(pi_show *s)
 {
     if (s->md)
@@ -181,7 +244,31 @@ void pshow_free(pi_show *s)
     jw_free(&s->line);
     jw_free(&s->batch);
     box_forget(s);
+    items_drop(s);
+    free(s->item);
+    s->item = 0;
+    s->capitem = 0;
     jw_free(&s->shadow);
+}
+
+/* the answer being written dropped (the screen is about to be written again) */
+static void md_abandon(pi_show *s)
+{
+    if (s->md)
+        md_close(s->md);
+    s->md = 0;
+    vo_flush(&s->vo);
+    jw_reset(&s->line);
+    jw_reset(&s->batch);
+}
+
+void pshow_clear(pi_show *s)
+{
+    md_abandon(s);
+    box_forget(s);
+    items_drop(s);
+    tui_clear(s->t);
+    s->any = 0;
 }
 
 /* ---- the answer ---- */
@@ -214,11 +301,10 @@ static void md_sink(void *u, const char *p, long n)
     jw_raw(&s->line, p + a, n - a);
 }
 
-static void md_start(pi_show *s)
+/* the Markdown block of an answer opened */
+static void md_begin(pi_show *s)
 {
     md_opts mo;
-    if (s->md)
-        return;
     vo_init(&s->vo, md_sink, s, VW_UTF8, s->th->depth >= 256 ? s->th->depth : 16, &s->hlt);
     mo.width = pwid(s);
     mo.urls = 1;
@@ -228,14 +314,36 @@ static void md_start(pi_show *s)
     jw_reset(&s->line);
 }
 
+/* an answer begins: its item, and the block */
+static void md_start(pi_show *s)
+{
+    if (s->md)
+        return;
+    md_begin(s);
+    s->cur = item_new(s, PK_ANSWER);
+}
+
 static void r_text(void *u, const char *p, long n)
 {
     pi_show *s = (pi_show *)u;
     s->n_text++;
     md_start(s);
+    if (s->cur)
+        jw_raw(&s->cur->x, p, n);       /* kept whole: Ctrl+O draws the answer again */
     if (s->md)
         md_feed(s->md, p, n);
     vo_flush(&s->vo);
+    out(s);
+}
+
+/* the block closed: what md holds back is written */
+static void md_finish(pi_show *s)
+{
+    md_close(s->md);
+    s->md = 0;
+    vo_flush(&s->vo);
+    if (s->line.n)
+        md_sink(s, "\n", 1);
     out(s);
 }
 
@@ -244,12 +352,20 @@ static void r_end(void *u)
     pi_show *s = (pi_show *)u;
     if (!s->md)
         return;
-    md_close(s->md);
-    s->md = 0;
+    md_finish(s);
+    s->cur = 0;
+}
+
+/* an answer item drawn again; the one still being written stays open for what follows */
+static void answer_draw(pi_show *s, ps_item *it)
+{
+    md_begin(s);
+    if (it->x.n)
+        md_feed(s->md, it->x.p, it->x.n);
     vo_flush(&s->vo);
-    if (s->line.n)
-        md_sink(s, "\n", 1);
     out(s);
+    if (it != s->cur)
+        md_finish(s);
 }
 
 void pshow_render(pi_show *s, cl_render *r)
@@ -261,7 +377,7 @@ void pshow_render(pi_show *s, cl_render *r)
 
 /* ---- the program's own lines ---- */
 
-void pshow_header(pi_show *s, const char *name, const char *version)
+static void d_header(pi_show *s, const char *name, const char *version)
 {
     char c174[48], c67[48], b67[48], c179[48], dim[48], l[400];
     cl_pitheme logo = *s->th;
@@ -444,7 +560,7 @@ static void skill_box(pi_show *s, const char *name, long nn, const char *content
     box_end(s, from);
 }
 
-void pshow_user(pi_show *s, const char *text)
+static void d_user(pi_show *s, const char *text)
 {
     const char *name, *content, *user;
     long nn, cn, un;
@@ -467,14 +583,14 @@ void pshow_user(pi_show *s, const char *text)
     user_box(s, text);
 }
 
-void pshow_note(pi_show *s, int role, const char *text)
+static void d_note(pi_show *s, int role, const char *text)
 {
     spacer(s);
     say_pad(s, 1, role, "", text);     /* pi's status lines are Text(.., 1, 0), not outputPad */
     out(s);
 }
 
-void pshow_error(pi_show *s, const char *text)
+static void d_error(pi_show *s, const char *text)
 {
     spacer(s);
     say(s, PR_ERROR, "", text);
@@ -649,33 +765,17 @@ static unsigned long clock_ms(const pi_show *s)
 /* the tool boxes no longer tracked (the screen was cleared, a session drawn again, the end) */
 static void box_forget(pi_show *s)
 {
-    int i;
-    for (i = 0; i < s->nbox; i++) {
-        jw_free(&s->box[i].args);
-        jw_free(&s->box[i].partial);
-    }
     s->nbox = 0;
     jw_reset(&s->shadow);
 }
 
 static void box_drop(pi_show *s, int i)
 {
-    jw_free(&s->box[i].args);
-    jw_free(&s->box[i].partial);
     for (; i + 1 < s->nbox; i++)
         s->box[i] = s->box[i + 1];
     s->nbox--;
     if (!s->nbox)
         jw_reset(&s->shadow);
-}
-
-static ps_box *box_find(pi_show *s, const char *id)
-{
-    int i;
-    for (i = 0; i < s->nbox; i++)
-        if (!strcmp(s->box[i].id, id))
-            return &s->box[i];
-    return 0;
 }
 
 static long count_lines(const char *p, long n)
@@ -686,42 +786,41 @@ static long count_lines(const char *p, long n)
     return k;
 }
 
-/* what the end of a tool puts in its box */
-typedef struct box_result {
-    const char *json;
-    long n;
-    int is_error;
-    long duration_ms;
-} box_result;
-
 static void bash_result(pi_show *s, const char *text, unsigned long ms, long recorded, int live);
 static void result_lines(pi_show *s, const char *text, int role, int max);
+static void read_lines(pi_show *s, const char *text);
 
 /* the rows of a tool's box into the batch: pi's ToolExecutionComponent, a Box(outputPad, 1) holding the call's header
- * and the result renderer's rows, over toolPendingBg until the result is final, then toolSuccessBg / toolErrorBg */
-static void box_build(pi_show *s, const ps_box *b, const box_result *r)
+ * and the result renderer's rows, over toolPendingBg until the result is final, then toolSuccessBg / toolErrorBg. With
+ * toolOutputExpanded (s->expanded) the result renderers show everything they have (renderers/{read,bash,ls,find,grep}.ts) */
+static void box_build(pi_show *s, const ps_box *b)
 {
     jw text;
     jv a;
     long from = s->batch.n;
+    int replay = s->replay;
+    s->replay = b->replay;
     if (json_parse(b->args.p, b->args.n, &a))
         a.p = 0, a.n = 0;
     blank(s);
     header_line(s, b->name, a);
     jw_init(&text);
-    if (!r) {
+    if (!b->done) {
         /* running: bash shows its output so far and "Elapsed" (bash.ts:61-111); pi's renderResult runs only once a
          * partial result exists, and the bash tool sends an empty one when it starts (core/tools/bash.ts:318) */
         if (b->elapsed)
             bash_result(s, b->partial.p ? b->partial.p : "", clock_ms(s) - b->t0, -1, 1);
     } else {
-        pshow_result_text(r->json, r->n, &text);
+        pshow_result_text(b->result.p ? b->result.p : "", b->result.n, &text);
         jw_rawz(&text, "");
         if (!strcmp(b->name, "bash"))
-            bash_result(s, text.p ? text.p : "", clock_ms(s) - b->t0, r->duration_ms, 0);
-        else if (r->is_error && text.n) {
+            bash_result(s, text.p ? text.p : "", 0, b->duration_ms, 0);
+        else if (b->is_error && text.n) {
             blank(s);
             say(s, PR_ERROR, "", text.p);
+        } else if (!strcmp(b->name, "read")) {
+            if (s->expanded)        /* renderers/read.ts:80-83: collapsed, the result shows nothing */
+                read_lines(s, text.p ? text.p : "");
         } else if (!strcmp(b->name, "ls") || !strcmp(b->name, "find"))
             result_lines(s, text.p ? text.p : "", PR_TOOL_OUTPUT, 20);
         else if (!strcmp(b->name, "grep"))
@@ -729,13 +828,14 @@ static void box_build(pi_show *s, const ps_box *b, const box_result *r)
     }
     blank(s);                       /* the box's bottom padding */
     jw_free(&text);
-    panel(s, from, !r ? PR_TOOL_PENDING_BG : r->is_error ? PR_TOOL_ERROR_BG : PR_TOOL_SUCCESS_BG);
+    s->replay = replay;
+    panel(s, from, !b->done ? PR_TOOL_PENDING_BG : b->is_error ? PR_TOOL_ERROR_BG : PR_TOOL_SUCCESS_BG);
 }
 
 /* box b drawn again where it is: its text in the copy replaced, the transcript from its first line on replaced by the
  * copy from there (the boxes and lines written after it stay as they were). 0, -1 when the transcript is not what the
  * copy says (cleared, other lines written meanwhile): nothing is tracked then */
-static int box_redraw(pi_show *s, ps_box *b, const box_result *r)
+static int box_redraw(pi_show *s, ps_box *b)
 {
     long delta, at;
     int i;
@@ -744,7 +844,7 @@ static int box_redraw(pi_show *s, ps_box *b, const box_result *r)
         jw_reset(&s->batch);
         return -1;
     }
-    box_build(s, b, r);
+    box_build(s, b);
     delta = s->batch.n - b->len;
     {
         jw copy;
@@ -756,8 +856,8 @@ static int box_redraw(pi_show *s, ps_box *b, const box_result *r)
         s->shadow = copy;
     }
     for (i = 0; i < s->nbox; i++)
-        if (s->box[i].off > b->off)
-            s->box[i].off += delta;
+        if (s->box[i]->off > b->off)
+            s->box[i]->off += delta;
     b->len = s->batch.n;
     jw_reset(&s->batch);
     at = s->base + count_lines(s->shadow.p, b->off);
@@ -765,49 +865,78 @@ static int box_redraw(pi_show *s, ps_box *b, const box_result *r)
     return 0;
 }
 
-void pshow_tool_start(pi_show *s, const char *id, const char *name, const char *args, long an)
+/* a tool item drawn: the blank row of its Spacer, then the box. A box that waits for its result is tracked, to be drawn
+ * again where it is (box_redraw) */
+static void tool_draw(pi_show *s, ps_box *b)
 {
-    ps_box nb, *b = 0;
-    s->n_tools++;
-    /* the block is a blank line below what is above it, with one of its own inside; pi's ToolExecutionComponent opens with
-     * its Spacer(1) (tool-execution.ts:85) even at the top of a redrawn chat, where an assistant message with only tool
-     * calls (no Spacer of its own, assistant-message.ts:103) is all that is above it */
     blank(s);
     s->any = 1;
     out(s);
-    memset(&nb, 0, sizeof(nb));
-    cl_copy(nb.id, id ? id : "", sizeof(nb.id));
-    cl_copy(nb.name, name, sizeof(nb.name));
-    jw_init(&nb.args);
-    jw_raw(&nb.args, args, an);
-    jw_rawz(&nb.args, "");
-    jw_init(&nb.partial);
-    nb.t0 = clock_ms(s);
-    nb.elapsed = !s->replay && !strcmp(name, "bash");
-    box_build(s, &nb, 0);           /* pi's box while the tool runs; the end draws it again in its final colour */
-    if (s->nbox < PS_BOXES) {
+    box_build(s, b);
+    if (!b->done && s->nbox < PS_BOXES) {
         if (!s->nbox) {
             jw_reset(&s->shadow);
             s->base = s->t->n_lines;
         }
-        s->box[s->nbox] = nb;
-        b = &s->box[s->nbox++];
+        s->box[s->nbox++] = b;
         b->off = s->shadow.n;
         b->len = s->batch.n;
-    } else
-        jw_free(&nb.args), jw_free(&nb.partial);
+    }
     out(s);
+}
+
+/* the box of the newest tool call with this id that waits for its result, tracked or not */
+static ps_box *item_box(pi_show *s, const char *id)
+{
+    long i;
+    for (i = s->nitem - 1; i >= 0; i--)
+        if (s->item[i]->kind == PK_TOOL && !s->item[i]->tool.done && !strcmp(s->item[i]->tool.id, id))
+            return &s->item[i]->tool;
+    return 0;
+}
+
+static int box_tracked(const pi_show *s, const ps_box *b)
+{
+    int i;
+    for (i = 0; i < s->nbox; i++)
+        if (s->box[i] == b)
+            return i + 1;
+    return 0;
+}
+
+void pshow_tool_start(pi_show *s, const char *id, const char *name, const char *args, long an)
+{
+    ps_item *it;
+    ps_box *b;
+    s->n_tools++;
+    /* the block is a blank line below what is above it, with one of its own inside; pi's ToolExecutionComponent opens with
+     * its Spacer(1) (tool-execution.ts:85) even at the top of a redrawn chat, where an assistant message with only tool
+     * calls (no Spacer of its own, assistant-message.ts:103) is all that is above it */
+    it = item_new(s, PK_TOOL);
+    if (!it)
+        return;
+    b = &it->tool;
+    cl_copy(b->id, id ? id : "", sizeof(b->id));
+    cl_copy(b->name, name, sizeof(b->name));
+    jw_raw(&b->args, args, an);
+    jw_rawz(&b->args, "");
+    b->t0 = clock_ms(s);
+    b->elapsed = !s->replay && !strcmp(name, "bash");
+    b->replay = s->replay;
+    b->duration_ms = -1;
+    tool_draw(s, b);        /* pi's box while the tool runs; the end draws it again in its final colour */
 }
 
 void pshow_tool_update(pi_show *s, const char *id, const char *result, long rn)
 {
-    ps_box *b = box_find(s, id ? id : "");
+    ps_box *b = item_box(s, id ? id : "");
     if (!b || !b->elapsed)
         return;
     jw_reset(&b->partial);
     pshow_result_text(result, rn, &b->partial);
     jw_rawz(&b->partial, "");
-    box_redraw(s, b, 0);
+    if (box_tracked(s, b))
+        box_redraw(s, b);
 }
 
 void pshow_tick(pi_show *s)
@@ -818,11 +947,11 @@ void pshow_tick(pi_show *s)
         return;
     now = clock_ms(s);
     for (i = 0; i < s->nbox; i++) {
-        ps_box *b = &s->box[i];
+        ps_box *b = s->box[i];
         long secs = (long)((now - b->t0) / 1000);
         if (b->elapsed && secs > b->ticks) {
             b->ticks = secs;
-            if (box_redraw(s, b, 0))
+            if (box_redraw(s, b))
                 return;
         }
     }
@@ -858,8 +987,25 @@ static void duration(unsigned long ms, char *out)
     }
 }
 
+/* the key hint of pi's keyHint (keybinding-hints.ts:42-44): the key in the dim colour, the rest in the muted one, between
+ * muted `before` and `after`; one row, outputPad in */
+static void hint_row(pi_show *s, const char *before, const char *after)
+{
+    char d[48], m[48];
+    sg(s, PR_MUTED, m);
+    sg(s, PR_DIM, d);
+    raw(s, pd(s));
+    raw(s, m);
+    raw(s, before);
+    raw(s, d);
+    raw(s, "ctrl+o");
+    raw(s, m);
+    raw(s, after);
+    raw(s, SGR0 "\n");
+}
+
 /* the lines of text (split at newlines, trailing blank lines cut), each one space in, at most max shown from the
- * start; the rest as "... (N more lines, ctrl+o to expand)" */
+ * start (max < 0: all, toolOutputExpanded); the rest as "... (N more lines, ctrl+o to expand)" */
 static void result_lines(pi_show *s, const char *text, int role, int max)
 {
     long n = (long)strlen(text), a = 0, shown = 0, total = 0, i;
@@ -869,33 +1015,59 @@ static void result_lines(pi_show *s, const char *text, int role, int max)
     for (i = 0; i <= n; i++)
         if (i == n || text[i] == '\n')
             total++;
+    if (s->expanded)
+        max = -1;
     blank(s);
-    for (i = 0; i <= n && shown < max; i++) {
+    for (i = 0; i <= n && (max < 0 || shown < max); i++) {
         if (i == n || text[i] == '\n') {
             show_wrap(&s->batch, pd(s), pd(s), sg(s, role, b), text + a, i - a, pwid(s));
             a = i + 1;
             shown++;
         }
     }
-    if (total > max) {
+    if (max >= 0 && total > max) {
         cl_copy(m, "... (", sizeof(m));
         cl_ltoa(total - max, num);
         cl_cat(m, num, sizeof(m));
-        cl_cat(m, " more lines, ctrl+o to expand)", sizeof(m));
-        show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_MUTED, b), m, (long)strlen(m), pwid(s));
+        cl_cat(m, " more lines, ", sizeof(m));
+        hint_row(s, m, " to expand)");
     }
 }
 
-/* bash: the last five lines of the output, "... (N earlier lines, ctrl+o to expand)" above when more, then how long it
- * took (live: how long it has run so far) */
+/* renderers/read.ts:73-90, expanded: every line of the file as the tool returned it, trailing empty lines cut, tabs three
+ * spaces, in the output colour (a file with a known language is highlighted by pi; not here) */
+static void read_lines(pi_show *s, const char *text)
+{
+    long n = (long)strlen(text), a = 0, i;
+    char b[48];
+    jw t;
+    jw_init(&t);
+    for (i = 0; i < n; i++) {
+        if (text[i] == '\t')
+            jw_rawz(&t, "   ");
+        else
+            jw_raw(&t, text + i, 1);
+    }
+    jw_rawz(&t, "");
+    n = t.n;
+    /* the lines are text.split("\n"): a final newline leaves an empty last line, cut with the others */
+    while (n > 0 && t.p[n - 1] == '\n')
+        n--;
+    blank(s);
+    for (i = 0; i <= n && n > 0; i++)
+        if (i == n || t.p[i] == '\n') {
+            show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_TOOL_OUTPUT, b), t.p + a, i - a, pwid(s));
+            a = i + 1;
+        }
+    jw_free(&t);
+}
+
+/* bash: the last five lines of the output, "... (N earlier lines, ctrl+o to expand)" above when more (expanded: all of
+ * it, renderers/bash.ts:60-77), then how long it took (live: how long it has run so far) */
 static void bash_result(pi_show *s, const char *text, unsigned long ms, long recorded, int live)
 {
     char b[48], dur[24], m[96], num[16];
-    jw all;
-    long n = (long)strlen(text), a = 0, i, rows = 0;
-    long first_row[256];
-    int nrows = 0, skip;
-    jw_init(&all);
+    long n = (long)strlen(text), a = 0, i, nrows = 0, skip = 0, row = 0, start = 0;
     while (n > 0 && (text[n - 1] == '\n' || text[n - 1] == ' ' || text[n - 1] == '\t' || text[n - 1] == '\r'))
         n--;
     while (a < n && (text[a] == '\n' || text[a] == ' ' || text[a] == '\t'))
@@ -903,36 +1075,33 @@ static void bash_result(pi_show *s, const char *text, unsigned long ms, long rec
     if (a < n) {
         /* the output wrapped to the screen's width: its rows ("visual lines"), the last five kept */
         jw wrapped;
-        long p = 0;
         jw_init(&wrapped);
         show_wrap(&wrapped, "", "", "", text + a, n - a, pwid(s));
-        for (i = 0; i < wrapped.n && nrows < 255; i++)
-            if (i == 0 || wrapped.p[i - 1] == '\n') {
-                first_row[nrows++] = i;
-                (void)p;
-            }
-        first_row[nrows] = wrapped.n;
-        skip = nrows > 5 ? nrows - 5 : 0;
+        for (i = 0; i < wrapped.n; i++)
+            nrows += wrapped.p[i] == '\n';
+        skip = nrows > 5 && !s->expanded ? nrows - 5 : 0;
         blank(s);
         if (skip) {
             cl_copy(m, "... (", sizeof(m));
             cl_ltoa(skip, num);
             cl_cat(m, num, sizeof(m));
-            cl_cat(m, " earlier lines, ctrl+o to expand)", sizeof(m));
-            show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_MUTED, b), m, (long)strlen(m), pwid(s));
+            cl_cat(m, " earlier lines, ", sizeof(m));
+            hint_row(s, m, " to expand)");
         }
-        for (i = skip; i < nrows; i++) {
+        for (i = 0; i < wrapped.n; i++) {
+            if (wrapped.p[i] != '\n')
+                continue;
             /* each row of wrapped holds its text and SGR0 \n: re-set in the output colour */
-            long e = first_row[i + 1] - 1;
-            jw_rawz(&s->batch, pd(s));
-            jw_rawz(&s->batch, sg(s, PR_TOOL_OUTPUT, b));
-            jw_raw(&s->batch, wrapped.p + first_row[i], e - first_row[i]);
-            jw_rawz(&s->batch, "\n");
-            rows++;
+            if (row++ >= skip) {
+                jw_rawz(&s->batch, pd(s));
+                jw_rawz(&s->batch, sg(s, PR_TOOL_OUTPUT, b));
+                jw_raw(&s->batch, wrapped.p + start, i - start);
+                jw_rawz(&s->batch, "\n");
+            }
+            start = i + 1;
         }
         jw_free(&wrapped);
     }
-    jw_free(&all);
     /* pi 1.1.0 renderers/bash.ts:104-111: a final result's recorded durationMs wins (it survives a reload); the clock of
      * the call is the fallback while the tool runs and for results recorded without one, and a replayed result with
      * none shows no Took */
@@ -945,25 +1114,29 @@ static void bash_result(pi_show *s, const char *text, unsigned long ms, long rec
     cl_copy(m, live ? "Elapsed " : "Took ", sizeof(m));
     cl_cat(m, dur, sizeof(m));
     show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_MUTED, b), m, (long)strlen(m), pwid(s));
-    (void)rows;
 }
 
 void pshow_tool_end(pi_show *s, const char *id, const char *result, long rn, int is_error, long duration_ms)
 {
     ps_box *b;
-    box_result r;
+    int k;
     out(s);
-    b = box_find(s, id ? id : "");
+    b = item_box(s, id ? id : "");
     if (!b)
         return;                     /* not one of ours (the screen was cleared meanwhile) */
-    r.json = result;
-    r.n = rn;
-    r.is_error = is_error;
-    r.duration_ms = duration_ms;
-    box_redraw(s, b, &r);
-    b = box_find(s, id ? id : "");  /* box_redraw may have forgotten them all */
-    if (b)
-        box_drop(s, (int)(b - s->box));
+    jw_reset(&b->result);
+    jw_raw(&b->result, result, rn);
+    jw_rawz(&b->result, "");
+    b->is_error = is_error;
+    /* the recorded duration, else the call's own clock (kept: a later redraw shows the same "Took") */
+    b->duration_ms = duration_ms < 0 && !b->replay ? (long)(clock_ms(s) - b->t0) : duration_ms;
+    b->done = 1;
+    if (!box_tracked(s, b))
+        return;                     /* not on the screen as a box that can be drawn again: the next redraw shows it */
+    box_redraw(s, b);
+    k = box_tracked(s, b);          /* box_redraw may have forgotten them all */
+    if (k)
+        box_drop(s, k - 1);
 }
 
 /* ---- custom, compaction-summary and branch-summary messages ---- */
@@ -1047,7 +1220,7 @@ static void box_expanded(pi_show *s, const char *header, const char *summary, lo
 }
 
 /* `summary` is the message's summary text; shown only when pi's toolOutputExpanded is on (ctrl+o, s->expanded) */
-void pshow_compaction_summary(pi_show *s, long tokens_before, const char *summary, long n)
+static void d_compaction(pi_show *s, long tokens_before, const char *summary, long n)
 {
     char num[32], t[80];
     long from;
@@ -1068,7 +1241,7 @@ void pshow_compaction_summary(pi_show *s, long tokens_before, const char *summar
     box_end(s, from);
 }
 
-void pshow_branch_summary(pi_show *s, const char *summary, long n)
+static void d_branch(pi_show *s, const char *summary, long n)
 {
     long from = box_begin(s, "branch");
     if (s->expanded)
@@ -1136,7 +1309,7 @@ static void mdbox_text(pi_show *s, const char *text, long n)
 /* pi's loaded-resources block (interactive-mode.ts showLoadedResources): ThemedText and ExpandableText with padding 0, each
  * followed by a Spacer(1). The title is "[name]" in a role's colour. The blank row of the block's end is the chat's first Spacer,
  * so s->any is cleared. */
-void pshow_resource_title(pi_show *s, int role, const char *title)
+static void d_rtitle(pi_show *s, int role, const char *title)
 {
     char b[48], l[200];
     cl_copy(l, sg(s, role, b), sizeof(l));
@@ -1147,7 +1320,7 @@ void pshow_resource_title(pi_show *s, int role, const char *title)
     raw(s, "\n");
 }
 
-void pshow_resource_line(pi_show *s, int kind, const char *text)
+static void d_rline(pi_show *s, int kind, const char *text)
 {
     char b[48], c[48];
     if (kind == SKL_COLL_WIN || kind == SKL_COLL_LOSE) {
@@ -1169,14 +1342,14 @@ void pshow_resource_line(pi_show *s, int kind, const char *text)
     say_pad(s, 0, kind == SKL_ERROR ? PR_ERROR : kind == SKL_LISTING ? PR_DIM : PR_WARNING, "", text);
 }
 
-void pshow_resource_end(pi_show *s)
+static void d_rend(pi_show *s)
 {
     blank(s);                       /* Spacer(1) */
     s->any = 0;
     out(s);
 }
 
-void pshow_blank(pi_show *s)
+static void d_blank(pi_show *s)
 {
     blank(s);
     out(s);
@@ -1184,7 +1357,7 @@ void pshow_blank(pi_show *s)
 
 /* a custom message (a session's custom_message entry) with display true: its customType as the label, its text as
  * Markdown. Extension message renderers (custom-message.ts:80-98) are not run. */
-void pshow_custom(pi_show *s, const char *type, const char *text, long n)
+static void d_custom(pi_show *s, const char *type, const char *text, long n)
 {
     long from = box_begin(s, type);
     mdbox_text(s, text, n);
@@ -1223,6 +1396,7 @@ void pshow_replay_msgs(pi_show *s, char *const *msg, const long *msg_n, int nmsg
     box_forget(s);
     s->replay = 1;
     s->any = 0;
+    item_new(s, PK_RESET);          /* a redraw of the items begins the conversation the same way */
     pshow_render(s, &r);
     for (i = 0; i < nmsg; i++) {
         jv m, v, c, b, t, x;
@@ -1361,13 +1535,11 @@ void pshow_replay_msgs(pi_show *s, char *const *msg, const long *msg_n, int nmsg
     s->replay = 0;
 }
 
-void pshow_bash(pi_show *s, const char *command, const char *output, int exit_code, int cancelled, int excluded)
+static void d_bash(pi_show *s, const char *command, const char *output, int exit_code, int cancelled, int excluded)
 {
     char b[48], rule[48], line[700], num[16];
-    int role = excluded ? PR_DIM : PR_BASH_MODE, i, w = s->t->cols, hidden = 0, nrows = 0;
-    long n = (long)strlen(output), a = 0, k;
-    long rowstart[64];
-    jw body;
+    int role = excluded ? PR_DIM : PR_BASH_MODE, i, w = s->t->cols;
+    long n = (long)strlen(output), k, nl = 0, first, hidden = 0;
     blank(s);                       /* pi's component starts with its own spacer, even first in the chat */
     s->any = 1;
     sg(s, role, rule);
@@ -1384,39 +1556,40 @@ void pshow_bash(pi_show *s, const char *command, const char *output, int exit_co
     raw(s, "\n");
     if (n > 0) {
         /* the output split into lines (a final newline leaves an empty last line, as pi's split does), the last
-         * twenty logical lines wrapped to the width, the last twenty rows of those kept */
-        long lines_start[2048], nl = 0;
-        long first;
+         * twenty logical lines wrapped to the width (bash-execution.ts:19,100-101); expanded, all of them (:130-133) */
+        jw body;
+        long a = 0;
         jw_init(&body);
-        lines_start[nl++] = 0;
-        for (k = 0; k < n && nl < 2047; k++)
-            if (output[k] == '\n')
-                lines_start[nl++] = k + 1;
-        lines_start[nl] = n + 1;
+        for (k = 0; k <= n; k++)
+            nl += k == n || output[k] == '\n';
         first = nl > 20 ? nl - 20 : 0;
-        hidden = (int)first;
-        for (k = first; k < nl; k++) {
-            long e = lines_start[k + 1] - 1;
-            show_wrap(&body, pd(s), pd(s), sg(s, PR_MUTED, b), output + lines_start[k], e - lines_start[k], pwid(s));
-        }
-        (void)a;
-        (void)rowstart;
-        (void)nrows;
+        hidden = first;
+        if (s->expanded)
+            first = 0;
+        nl = 0;
+        for (k = 0; k <= n; k++)
+            if (k == n || output[k] == '\n') {
+                if (nl++ >= first)
+                    show_wrap(&body, pd(s), pd(s), sg(s, PR_MUTED, b), output + a, k - a, pwid(s));
+                a = k + 1;
+            }
         blank(s);
         jw_raw(&s->batch, body.p ? body.p : "", body.n);
         jw_free(&body);
     }
     if (hidden > 0 || cancelled || exit_code != 0) {
         char st[200];
-        int any = 0;
         blank(s);
         if (hidden > 0) {
-            cl_copy(st, "... ", sizeof(st));
-            cl_ltoa(hidden, num);
-            cl_cat(st, num, sizeof(st));
-            cl_cat(st, " more lines (ctrl+o to expand)", sizeof(st));
-            show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_MUTED, b), st, (long)strlen(st), pwid(s));
-            any = 1;
+            if (s->expanded) {
+                hint_row(s, "(", " to collapse)");
+            } else {
+                cl_copy(st, "... ", sizeof(st));
+                cl_ltoa(hidden, num);
+                cl_cat(st, num, sizeof(st));
+                cl_cat(st, " more lines (", sizeof(st));
+                hint_row(s, st, " to expand)");
+            }
         }
         if (cancelled)
             show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_WARNING, b), "(cancelled)", 11, pwid(s));
@@ -1427,13 +1600,169 @@ void pshow_bash(pi_show *s, const char *command, const char *output, int exit_co
             cl_cat(st, ")", sizeof(st));
             show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_ERROR, b), st, (long)strlen(st), pwid(s));
         }
-        (void)any;
     }
     raw(s, rule);
     for (i = 0; i < w; i++)
         raw(s, "\342\224\200");
     raw(s, SGR0 "\n");
     out(s);
+}
+
+/* ---- the chat as a list: what is written is kept, so it can be written again ---- */
+
+/* one item drawn (the same code as when it is first written) */
+static void item_draw(pi_show *s, ps_item *it)
+{
+    const char *x = it->x.p ? it->x.p : "", *y = it->y.p ? it->y.p : "";
+    switch (it->kind) {
+    case PK_HEADER:
+        d_header(s, x, y);
+        break;
+    case PK_USER:
+        d_user(s, x);
+        break;
+    case PK_ANSWER:
+        answer_draw(s, it);
+        break;
+    case PK_NOTE:
+    case PK_STATUS:
+        d_note(s, (int)it->a, x);
+        break;
+    case PK_ERROR:
+        d_error(s, x);
+        break;
+    case PK_TOOL:
+        tool_draw(s, &it->tool);
+        break;
+    case PK_BASH:
+        d_bash(s, x, y, (int)it->a, (int)it->b, (int)it->c);
+        break;
+    case PK_COMPACT:
+        d_compaction(s, it->a, x, it->x.n);
+        break;
+    case PK_BRANCH:
+        d_branch(s, x, it->x.n);
+        break;
+    case PK_CUSTOM:
+        d_custom(s, x, y, it->y.n);
+        break;
+    case PK_RTITLE:
+        d_rtitle(s, (int)it->a, x);
+        break;
+    case PK_RLINE:
+        d_rline(s, (int)it->a, x);
+        break;
+    case PK_REND:
+        d_rend(s);
+        break;
+    case PK_BLANK:
+        d_blank(s);
+        break;
+    case PK_RESET:
+        s->any = 0;
+        break;
+    }
+}
+
+void pshow_expand(pi_show *s, int expanded, const char *status)
+{
+    long i, n_text = s->n_text, n_blocks = s->n_blocks, n_tools = s->n_tools;
+    ps_item *last = s->nitem ? s->item[s->nitem - 1] : 0;
+    s->expanded = expanded;
+    if (last && last->kind == PK_STATUS) {              /* showStatus (interactive-mode.ts:3824-3834) */
+        jw_reset(&last->x);
+        jw_rawz(&last->x, status);
+    } else
+        item_text(s, PK_STATUS, PR_DIM, status, (long)strlen(status), 0);
+    md_abandon(s);
+    box_forget(s);
+    tui_clear(s->t);
+    s->any = 0;
+    s->replay = 0;
+    for (i = 0; i < s->nitem; i++)
+        item_draw(s, s->item[i]);
+    s->n_text = n_text;
+    s->n_blocks = n_blocks;
+    s->n_tools = n_tools;
+}
+
+void pshow_header(pi_show *s, const char *name, const char *version)
+{
+    item_text(s, PK_HEADER, 0, name, (long)strlen(name), version);
+    d_header(s, name, version);
+}
+
+void pshow_user(pi_show *s, const char *text)
+{
+    item_text(s, PK_USER, 0, text, (long)strlen(text), 0);
+    d_user(s, text);
+}
+
+/* a dim note is pi's showStatus: Ctrl+O replaces one that is the last item */
+void pshow_note(pi_show *s, int role, const char *text)
+{
+    item_text(s, role == PR_DIM ? PK_STATUS : PK_NOTE, role, text, (long)strlen(text), 0);
+    d_note(s, role, text);
+}
+
+void pshow_error(pi_show *s, const char *text)
+{
+    item_text(s, PK_ERROR, 0, text, (long)strlen(text), 0);
+    d_error(s, text);
+}
+
+void pshow_compaction_summary(pi_show *s, long tokens_before, const char *summary, long n)
+{
+    item_text(s, PK_COMPACT, tokens_before, summary ? summary : "", summary ? n : 0, 0);
+    d_compaction(s, tokens_before, summary, n);
+}
+
+void pshow_branch_summary(pi_show *s, const char *summary, long n)
+{
+    item_text(s, PK_BRANCH, 0, summary ? summary : "", summary ? n : 0, 0);
+    d_branch(s, summary, n);
+}
+
+void pshow_custom(pi_show *s, const char *type, const char *text, long n)
+{
+    ps_item *it = item_text(s, PK_CUSTOM, 0, type, (long)strlen(type), 0);
+    if (it)
+        jw_raw(&it->y, text, n);
+    d_custom(s, type, text, n);
+}
+
+void pshow_resource_title(pi_show *s, int role, const char *title)
+{
+    item_text(s, PK_RTITLE, role, title, (long)strlen(title), 0);
+    d_rtitle(s, role, title);
+}
+
+void pshow_resource_line(pi_show *s, int kind, const char *text)
+{
+    item_text(s, PK_RLINE, kind, text, (long)strlen(text), 0);
+    d_rline(s, kind, text);
+}
+
+void pshow_resource_end(pi_show *s)
+{
+    item_text(s, PK_REND, 0, 0, 0, 0);
+    d_rend(s);
+}
+
+void pshow_blank(pi_show *s)
+{
+    item_text(s, PK_BLANK, 0, 0, 0, 0);
+    d_blank(s);
+}
+
+void pshow_bash(pi_show *s, const char *command, const char *output, int exit_code, int cancelled, int excluded)
+{
+    ps_item *it = item_text(s, PK_BASH, exit_code, command, (long)strlen(command), output);
+    if (it) {
+        it->b = cancelled;
+        it->c = excluded;
+    }
+    d_bash(s, command, output, exit_code, cancelled, excluded);
 }
 
 void pshow_set_pad(pi_show *s, int pad)

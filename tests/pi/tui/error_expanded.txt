@@ -1,0 +1,25 @@
+
+ hello
+
+
+ Error: 400
+ {"type":"error","error":{"type":"invalid_request_error","message":"model:
+ fake-model is not available"}}
+ If this looks like a pi bug, /bug sends a report to the developers.
+
+ Tool output: expanded
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.7%/200k (auto)                                                      fake-model

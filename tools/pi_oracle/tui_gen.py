@@ -320,6 +320,42 @@ SCENARIOS.update({
 })
 
 
+# R5: Ctrl+O (app.tools.expand) over tool boxes: the read box shows its file when expanded (renderers/read.ts:73-90), bash all of
+# its output (renderers/bash.ts:60-77), ls all its rows (renderers/ls.ts:35-39); a line that is not in the session store (the
+# request's error) stays; a running bash call stays live (tool-execution.ts setExpanded, interactive-mode.ts:4557-4574)
+LS_FILES = {'files/f%02d.txt' % i: 'x\n' for i in range(1, 26)}
+READ_ANS = [('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),
+            ('sse', text_answer('msg_t2', 'Done reading notes.txt: three lines.', 20))]
+SEQ_ANS = [('sse', tool_answer('msg_s1', 'toolu_5', 'bash', {'command': 'seq 1 12'})),
+           ('sse', text_answer('msg_s2', 'Counted.', 20))]
+LS_ANS = [('sse', tool_answer('msg_l1', 'toolu_6', 'ls', {'path': 'files'})),
+          ('sse', text_answer('msg_l2', 'Listed.', 20))]
+SCENARIOS.update({
+    'tool_expanded': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading'), ('key', 'C-o'), ('sleep', 1.0)],
+                          answers=READ_ANS),
+    'dark_tool_expanded': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading'), ('key', 'C-o'), ('sleep', 1.0)],
+                               answers=READ_ANS, theme='dark'),
+    'dark_bash_long': dict(steps=[('type', 'count'), ('enter',), ('wait', 'Counted')], answers=SEQ_ANS, theme='dark', rows=30),
+    'dark_bash_long_expanded': dict(steps=[('type', 'count'), ('enter',), ('wait', 'Counted'), ('key', 'C-o'), ('sleep', 1.0)],
+                                    answers=SEQ_ANS, theme='dark', rows=30),
+    'dark_ls_long': dict(steps=[('type', 'list'), ('enter',), ('wait', 'Listed')], answers=LS_ANS, theme='dark', rows=40,
+                         files=LS_FILES, settings={'defaultTools': ['+ls']}),
+    'dark_ls_long_expanded': dict(steps=[('type', 'list'), ('enter',), ('wait', 'Listed'), ('key', 'C-o'), ('sleep', 1.0)],
+                                  answers=LS_ANS, theme='dark', rows=40, files=LS_FILES,
+                                  settings={'defaultTools': ['+ls']}),
+    # the request's error is a line of the chat only; Ctrl+O keeps it
+    'error_expanded': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'not available'), ('key', 'C-o'), ('sleep', 1.0)],
+                           answers=[('http', 400, ERR_BODY)]),
+    # a `!` command's output is a line of the chat that the conversation drawn again from the store does not hold (pi keeps the component)
+    'bang_expanded': dict(steps=[('type', '!echo hi'), ('enter',), ('sleep', 1.5), ('key', 'C-o'), ('sleep', 1.0)], answers=[]),
+    # Ctrl+O while bash runs: the box stays live (expanded shows the output so far above the Elapsed row)
+    'dark_toolrun_out_expanded': dict(steps=[('type', 'run it'), ('enter',), ('wait', 'sleep 4'), ('sleep', 1.0), ('key', 'C-o'),
+                                             ('sleep', 0.1), ('capture_now',)],
+                                      answers=[('sse', tool_answer('msg_r1', 'toolu_3', 'bash', {'command': 'seq 1 12; sleep 4'})),
+                                               ('sse', text_answer('msg_r2', 'Slept.', 20))], theme='dark', rows=32),
+})
+
+
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []
     served = []
