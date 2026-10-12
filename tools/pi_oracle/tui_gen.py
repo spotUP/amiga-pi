@@ -61,6 +61,11 @@ MARKDOWN = (
     "> a quoted line\n\n"
     "```c\nint main(void)\n{\n    return 0;\n}\n```\n")
 
+MARKDOWN2 = (
+    "## Second\n\nA paragraph straight above a list:\n- alpha\n- beta\n    - nested one\n    - nested two\n- gamma\n\n"
+    "### Third level\nText right under a heading with ~~struck~~ words and https://example.org/x bare.\n\n"
+    "1. first\n2. second\n3. third\n\n---\n\nClosing line.\n")
+
 TABLE = "1. one\n2. two\n\n| name | size |\n|------|------|\n| a | 1 |\n| b | 22 |\n"
 
 ERR_BODY = json.dumps({'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'model: fake-model is not available'}})
@@ -80,6 +85,8 @@ SCENARIOS = {
                   answers=[('sse', text_answer('msg_tb', TABLE, 60))]),
     # the project trust question: the one approval prompt pi has at start (a tool call is never asked)
     'approval': dict(steps=[('wait', 'rust')], answers=[], files={'.pi/SYSTEM.md': 'Be brief.\n'}),
+    'markdown2': dict(steps=[('type', 'more markdown'), ('enter',), ('wait', 'Closing line')],
+                      answers=[('sse', text_answer('msg_md2', MARKDOWN2, 150))], rows=40),
     # the spinner row while the answer is awaited (the captured frame is a moment of it)
     'working': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'Working'), ('capture_now',)],
                     answers=[('slow', 6, text_answer('msg_w', 'late answer', 20))]),
@@ -168,6 +175,7 @@ def settle(sess, secs=1.2):
 
 
 def run(name, sc, cols, rows, keep):
+    rows = sc.get('rows', rows)
     work = '/private/tmp/pitui'      # fixed: the trust prompt and the footer show the path
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
