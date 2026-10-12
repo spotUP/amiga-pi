@@ -1104,7 +1104,7 @@ static void test_tree_nav(void)
     strcpy(path, aroot);
     strcat(path, "/tree_session.jsonl");
     app_session = path;
-    CHECK_INT(app_run(80, 25, keys, 0, 0, take_shot), 0);
+    CHECK_INT(app_run(80, 40, keys, 0, 0, take_shot), 0);
     app_session = 0;
     CHECK(shot_has("root answer"));
     CHECK(!shot_has("B answer"));
@@ -1299,6 +1299,28 @@ static void test_bang(void)
     s3_free(&st);
     CHECK(found_hi);
     CHECK(found_secret);
+}
+
+/* P11-I8 reachability: settings.json's outputPad reaches the screen through pi_app (the golden scenarios set it by hand) */
+static int row_starts(const char *text)
+{
+    int r;
+    for (r = 0; r < nshot; r++)
+        if (!strncmp(shot[r], text, strlen(text)))
+            return 1;
+    return 0;
+}
+
+static void test_output_pad_setting(void)
+{
+    static const char *keys[] = { "!!echo hi\r", "\004", 0 };
+    app_write("settings.json", "{\"quietStartup\":true,\"outputPad\":0}\n");
+    CHECK_INT(app_run(80, 40, keys, 0, 0, take_shot), 0);
+    CHECK(row_starts("$ echo hi"));
+    app_write("settings.json", "{\"quietStartup\":true,\"outputPad\":1}\n");
+    CHECK_INT(app_run(80, 40, keys, 0, 0, take_shot), 0);
+    CHECK(row_starts(" $ echo hi"));
+    app_write("settings.json", "{\"quietStartup\":true}\n");
 }
 
 
@@ -1717,6 +1739,7 @@ void suite_pi_tui(void)
     test_resume_took();
     test_export();
     test_bang();
+    test_output_pad_setting();
     test_context_figure();
     test_ctrl_d();
     test_themes();
