@@ -602,8 +602,8 @@ static void test_app(void)
     CHECK(ps.nreq == 1 && strstr(ps.head[0], "Authorization") == 0);
     CHECK(ps.nreq == 1 && strstr(ps.body[0], "<cwd>\\nRAM:\\n</cwd>") != 0);
     line_io(&io);
-    CHECK_INT(pi_app(5, bad, &pl), 2);
-    CHECK(out.p && strstr(out.p, "provider nobaseurl needs --base-url") != 0);
+    CHECK_INT(pi_app(5, bad, &pl), 1);
+    CHECK(out.p && strstr(out.p, "Error: provider nobaseurl needs --base-url") != 0);
 }
 
 void suite_pi_agent(void)

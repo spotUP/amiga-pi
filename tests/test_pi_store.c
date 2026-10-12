@@ -398,7 +398,7 @@ static void test_find(void)
     CHECK_INT(run(ARGC(b3), b3, "../pi/openai_text.sse"), 0);
     CHECK_INT(count_files(), 2);
     CHECK(ps.nreq == 1 && strstr(ps.body[0], "ephemeral") != 0 && strstr(ps.body[0], "second session") == 0);
-    CHECK_INT(run(ARGC(b5), b5, 0), 2);
+    CHECK_INT(run(ARGC(b5), b5, 0), 1);
     CHECK(out.p && strstr(out.p, "--no-session cannot be combined") != 0);
     (void)path;
 }

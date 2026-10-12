@@ -1305,6 +1305,26 @@ static void test_diag_one_line(void)
     free(ro.out);
 }
 
+/* pi prints an argument error as "Error: Unknown option: --bogus" on stderr in every mode and exits 1
+ * (oracle run, pi 1.1.0; main.ts process.exit(1) on an args error): the diagnostic stream, never the JSONL or RPC stdout */
+static void test_arg_error_on_diag(void)
+{
+    static const char *const mode[] = { "json_text", "prompt_tool" };
+    int i;
+    for (i = 0; i < 2; i++) {
+        run_opts ro;
+        memset(&ro, 0, sizeof(ro));
+        ro.nocmp = 1;
+        ro.diag = 1;
+        ro.more_args = "--bogus";
+        scenario(mode[i], &ro);
+        CHECK(!strcmp(diag_log, "Error: Unknown option: --bogus"));
+        CHECK(!ro.out || ro.out[0] == 0);
+        CHECK_INT(ro.rc, 1);
+        free(ro.out);
+    }
+}
+
 /* the permission gate over RPC: its question is a select; No blocks the call, Yes runs it */
 static void test_gate(void)
 {
@@ -1475,4 +1495,5 @@ void suite_pi_modes(void)
     test_gate();
     test_tool_update();
     test_diag_one_line();
+    test_arg_error_on_diag();
 }

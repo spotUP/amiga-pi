@@ -437,12 +437,18 @@ static int pick_session(const pi_platform *pl, const char *data_dir, const char 
     return 0;
 }
 
+/* an argument error: pi prints "Error: <message>" on stderr in every mode (cli/args.ts diagnostics, main.ts);
+ * before the json/rpc redirect pl->io is stdout, so the platform's diagnostic channel takes it when there is one */
 static int usage(const pi_platform *pl, const pi_args *a)
 {
-    say(pl->io, "amiga-pi: ", a->err);
-    say(pl->io, "usage: amiga-pi [-p] [--model provider/id] [--base-url URL] [--tools list] [--no-tools] "
-                "[--gate|--no-gate] [--approve|--no-approve] [--no-mcp] [-c] [--session path-or-id] [--session-dir dir] [-r] [--no-session] [-n name] [prompt]", 0);
-    return 2;
+    char line[256];
+    cl_copy(line, "Error: ", sizeof(line));
+    cl_cat(line, a->err, sizeof(line));
+    if (pl->diag)
+        pl->diag(line);
+    else
+        say(pl->io, line, 0);
+    return 1;
 }
 
 /* <agent dir>/settings.json: the compaction settings taken by the store */
