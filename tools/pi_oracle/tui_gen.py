@@ -83,6 +83,10 @@ SCENARIOS = {
     # the spinner row while the answer is awaited (the captured frame is a moment of it)
     'working': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'Working'), ('capture_now',)],
                     answers=[('slow', 6, text_answer('msg_w', 'late answer', 20))]),
+    # a message typed while the agent works (Enter steers) and one queued for after (Alt+Enter follows up)
+    'queued': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'Working'), ('type', 'steer me'), ('enter',),
+                          ('type', 'and then this'), ('key', 'M-Enter'), ('sleep', 0.5), ('capture_now',)],
+                   answers=[('slow', 6, text_answer('msg_q', 'late answer', 20))]),
     # a tool call block (read of a file in the cwd) and the answer after it
     'tool': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading')],
                  answers=[('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),
@@ -207,6 +211,8 @@ def run(name, sc, cols, rows, keep):
                 tmux('send-keys', '-t', sess, 'Enter')
             elif st[0] == 'key':
                 tmux('send-keys', '-t', sess, st[1])
+            elif st[0] == 'sleep':
+                time.sleep(st[1])
             elif st[0] == 'capture_now':
                 pane = capture(sess, True)
                 shots['now'] = pane
