@@ -321,6 +321,23 @@ static char *cb_dequeue(void *u, int *count, int quiet)
     return r;
 }
 
+/* Ctrl+P / Shift+Ctrl+P and Shift+Tab: the session cycles, the line pi would show goes in the transcript */
+static void cb_cycle(void *u, int what, int dir)
+{
+    pi_ui *p = (pi_ui *)u;
+    char msg[240];
+    int rc;
+    if (!p->s->cycle)
+        return;
+    msg[0] = 0;
+    rc = p->s->cycle(p->s->cycle_u, p->s, what, dir, msg, sizeof(msg));
+    if (rc < 0)
+        pshow_error(&p->ps, msg);
+    else
+        pshow_note(&p->ps, PR_DIM, msg);
+    status(p);
+}
+
 static void attach(pi_ui *p, pi_session *s, cl_io *io, int print)
 {
     memset(p, 0, sizeof(*p));
@@ -553,6 +570,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     p->ui.show = sh;
     t->on_queue = cb_queue;
     t->on_dequeue = cb_dequeue;
+    t->on_cycle = cb_cycle;
     t->qu = p;
     km_free(&t->km);
     km_init_pi(&t->km);

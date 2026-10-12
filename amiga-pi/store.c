@@ -3,6 +3,7 @@
 #include <string.h>
 #include "store.h"
 #include "compact.h"
+#include "models.h"
 #include "cp_prompts.h"
 #include "claude/util.h"
 
@@ -737,6 +738,17 @@ static int command(void *u, pi_session *s, const char *line, jw *reply, jw *edit
     return pi_cmd(st, line, reply, editor);
 }
 
+static int cycle(void *u, pi_session *s, int what, int dir, char *msg, long cap)
+{
+    pi_store *st = (pi_store *)u;
+    (void)s;
+    if (!st->models) {
+        cl_copy(msg, "models cannot be switched here", cap);
+        return -1;
+    }
+    return what ? pi_thinking_cycle(st->models, st->s, msg, cap) : pi_model_cycle(st->models, st->s, dir, msg, cap);
+}
+
 int pi_store_attach(pi_store *st, pi_session *s)
 {
     st->s = s;
@@ -763,5 +775,7 @@ int pi_store_attach(pi_store *st, pi_session *s)
     s->declare_u = st;
     s->command = command;
     s->command_u = st;
+    s->cycle = cycle;
+    s->cycle_u = st;
     return pi_subscribe(&s->em, on_event, st);
 }

@@ -13,6 +13,11 @@
 #include "llm/transform.h"
 #include "../amiga-pi/agent.h"
 #include "../amiga-pi/ui_pi.h"
+#include "../amiga-pi/app.h"
+#include "../amiga-pi/session3.h"
+#include "claude/sys_posix.h"
+#include <unistd.h>
+#include <sys/stat.h>
 
 /* a mask: rows r0..r1 (1-based, golden), columns c0..c1 (0-based, inclusive), the COMPATIBILITY.md row */
 typedef struct mask {
@@ -458,6 +463,226 @@ static void test_steer_ui(void)
     pi_session_free(&ses);
 }
 
+
+/* ---- pi_app on the screen: a sandbox (agent dir, data dir), the keys typed, a look at the screen at rest ---- */
+
+static char aroot[400], adata[420], aagent[420], asdir[520];
+static sys_posix asp;
+static cl_sys asys;
+static long aclock;
+static void (*at_rest)(void);   /* called once with the screen at rest (the next chunk is the last one) */
+static int rested;
+
+static llm_ts adv_now(void *u)
+{
+    llm_ts t;
+    (void)u;
+    t.sec = 1760100000L + aclock++;
+    t.ms = 7;
+    return t;
+}
+
+static long app_env(const char *name, char *o, long cap)
+{
+    const char *v = 0;
+    if (!strcmp(name, "OPENAI_API_KEY"))
+        v = "sk-test-openai";
+    else if (!strcmp(name, "ANTHROPIC_API_KEY"))
+        v = "sk-ant-test-not-real";
+    if (!v || (long)strlen(v) >= cap)
+        return -1;
+    strcpy(o, v);
+    return (long)strlen(v);
+}
+
+static void app_write(const char *name, const char *text)
+{
+    char p[520];
+    FILE *f;
+    strcpy(p, aagent);
+    strcat(p, "/");
+    strcat(p, name);
+    f = fopen(p, "wb");
+    if (f) {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
+static void rest_hook(void)
+{
+    if (rested || !strstr(cs_row(cs.rows - 1), "claude-") || cs.read_ms <= 0 || !cs.script[cs.next] ||
+        strcmp(cs.script[cs.next], "\004"))
+        return;
+    rested = 1;
+    if (at_rest)
+        at_rest();
+}
+
+/* pi_app with the keys typed on a screen of cols x rows; the answers streamed in order. The exit code. */
+static int app_run(int cols, int rows, const char **keys, const char *const *sse, int nsse, void (*rest)(void))
+{
+    cl_io io;
+    pi_platform pl;
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0 };
+    int i, rc;
+    ps_reset();
+    ps_pool_up(LLM_POOL);
+    for (i = 0; i < nsse; i++) {
+        long n;
+        char *b = slurp(sse[i], &n);
+        if (b)
+            ps_sse_text(b, n, 0);
+        free(b);
+    }
+    cs_open(cols, rows, keys);
+    cs.before_read = rest_hook;
+    cs_io(&io);
+    at_rest = rest;
+    rested = 0;
+    memset(&pl, 0, sizeof(pl));
+    pl.io = &io;
+    pl.pool = &ps_pool;
+    pl.h.poll = ps_poll;
+    pl.h.sleep = ps_sleep;
+    pl.h.ms = ps_ms;
+    pl.h.resolve = ps_resolve;
+    pl.now = adv_now;
+    pl.getenv = app_env;
+    pl.cwd = "/work/proj";
+    pl.sys = &asys;
+    pl.tmp = aroot;
+    pl.utc = 1;
+    pl.data_dir = adata;
+    pl.agent_dir = aagent;
+    rc = pi_app(3, a, &pl);
+    cs_close();
+    return rc;
+}
+
+static int app_newest(char *path, long cap)
+{
+    return s3_recent(&asys, asdir, path, cap);
+}
+
+/* the entries' types of the newest session file, e.g. "model_change thinking_level_change": into out */
+static void app_shape(char *o, long cap)
+{
+    pi_s3 st;
+    char path[600], type[40];
+    int i;
+    o[0] = 0;
+    if (app_newest(path, sizeof(path)))
+        return;
+    s3_init(&st, &asys, adv_now, 0, 1, 7);
+    if (s3_open(&st, path)) {
+        s3_free(&st);
+        return;
+    }
+    for (i = 0; i < st.n; i++) {
+        long n;
+        const char *t = s3_text(&st, i, &n);
+        jv ob, v;
+        type[0] = 0;
+        if (t && !json_parse(t, n, &ob) && json_get(ob, "type", &v))
+            json_str(v, type, sizeof(type));
+        if (i)
+            cl_cat(o, " ", cap);
+        cl_cat(o, type, cap);
+        if (!strcmp(type, "model_change") || !strcmp(type, "thinking_level_change")) {
+            jv w;
+            cl_cat(o, ":", cap);
+            if (json_get(ob, "modelId", &w) || json_get(ob, "thinkingLevel", &w)) {
+                char x[80];
+                json_str(w, x, sizeof(x));
+                cl_cat(o, x, cap);
+            }
+        }
+    }
+    s3_free(&st);
+}
+
+static char shot[40][200];
+static int nshot;
+static void take_shot(void)
+{
+    int r;
+    nshot = cs.rows < 40 ? cs.rows : 40;
+    for (r = 0; r < nshot; r++) {
+        strncpy(shot[r], cs_row(r), sizeof(shot[r]) - 1);
+        shot[r][sizeof(shot[r]) - 1] = 0;
+    }
+}
+
+static int shot_has(const char *text)
+{
+    int r;
+    for (r = 0; r < nshot; r++)
+        if (strstr(shot[r], text))
+            return 1;
+    return 0;
+}
+
+static void app_sandbox(void)
+{
+    const char *base = getenv("TMPDIR");
+    strcpy(aroot, base && *base ? base : "/tmp");
+    if (aroot[strlen(aroot) - 1] == '/')
+        aroot[strlen(aroot) - 1] = 0;
+    strcat(aroot, "/pi_tui_XXXXXX");
+    if (!mkdtemp(aroot)) {
+        CHECK(0);
+        return;
+    }
+    strcpy(adata, aroot);
+    strcat(adata, "/data");
+    strcpy(aagent, aroot);
+    strcat(aagent, "/agent");
+    mkdir(adata, 0777);
+    mkdir(aagent, 0777);
+    sys_posix_init(&asp, &asys);
+    s3_dir(adata, "/work/proj", asdir, sizeof(asdir));
+}
+
+static void app_cleanup(void)
+{
+    char cmd[600];
+    if (!aroot[0] || strlen(aroot) < 10)
+        return;
+    strcpy(cmd, "rm -rf '");
+    strcat(cmd, aroot);
+    strcat(cmd, "'");
+    if (system(cmd))
+        CHECK(0);
+}
+
+/* ---- N2: Ctrl+P cycles the models of enabledModels, Shift+Tab the thinking level, entries written ---- */
+
+static void test_cycle(void)
+{
+    static const char *keys[] = { "hello\r", "\020", "\020", "\033[Z", "\004", 0 };
+    static const char *const sse[] = { "markdown.1.sse" };
+    char sh[800];
+    app_write("settings.json", "{\"enabledModels\":[\"anthropic/claude-opus-5-5:high\",\"openai/gpt-4.1\"],"
+                               "\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 25, keys, sse, 1, take_shot), 0);
+    app_shape(sh, sizeof(sh));
+    /* a new session records its model and level; Ctrl+P: gpt-4.1 (off: it has no reasoning); Ctrl+P: opus-5-5 at
+     * the scope's high; Shift+Tab: the next level */
+    CHECK(strstr(sh, "model_change:claude-opus-5-5 thinking_level_change:medium message") == sh);
+    CHECK(strstr(sh, " message message model_change:gpt-4.1 thinking_level_change:off model_change:claude-opus-5-5 "
+                     "thinking_level_change:high thinking_level_change:") != 0);
+    CHECK(shot_has("Switched to GPT-4.1"));
+    CHECK(shot_has("Switched to Claude Opus 5.5 (thinking: high)") || shot_has("(thinking: high)"));
+    CHECK(shot_has("Thinking level: "));
+    if (getenv("PI_TUI_DUMP")) {
+        int r;
+        printf("  entries: %s\n", sh);
+        for (r = 0; r < nshot; r++)
+            printf("    %2d|%s\n", r + 1, shot[r]);
+    }
+}
+
 /* the start header: the program's own name for pi's version, no startup-help panel and no pi tips */
 #define HDR_VER { 2, 2, 5, 79, "start header" }
 #define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
@@ -483,6 +708,9 @@ void suite_pi_tui(void)
     unsigned i;
     test_queue_agent();
     test_steer_ui();
+    app_sandbox();
+    test_cycle();
+    app_cleanup();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))
             continue;

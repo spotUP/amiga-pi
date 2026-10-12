@@ -103,6 +103,29 @@ static int queue_mode_all(const pi_platform *pl, const char *key)
     return all;
 }
 
+/* settings.json's enabledModels (an array of patterns): joined by newlines into out, "" when absent */
+static void enabled_models(const pi_platform *pl, char *out, long cap)
+{
+    char *b, path[300], pat[200];
+    long n;
+    jv o, a, e;
+    jit it;
+    out[0] = 0;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return;
+    if (!json_parse(b, n, &o) && json_get(o, "enabledModels", &a) && json_type(a) == J_ARR) {
+        json_iter(a, &it);
+        while (json_next(&it, 0, &e))
+            if (json_type(e) == J_STR) {
+                json_str(e, pat, sizeof(pat));
+                if (out[0])
+                    cl_cat(out, "\n", cap);
+                cl_cat(out, pat, cap);
+            }
+    }
+    CL_FREE(b);
+}
+
 /* pi's trust question on the console: the title, the answers numbered, a number typed (0 or none: no answer) */
 static int trust_ask(void *u, const char *title, const char *const *labels, int n)
 {
@@ -357,6 +380,11 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
             say(pl->io, "[WARN] ", models.warn);
         default_model_settings(pl, dprov, sizeof(dprov), did, sizeof(did), &dlevel);
         models.default_level = dlevel;
+        {
+            char scope[2048];
+            enabled_models(pl, scope, sizeof(scope));
+            pi_models_set_scope(&models, scope);
+        }
         if (pick_model(&a, &models, &store, dprov, did, &m, &plevel, warn)) {
             pi_models_free(&models);
             pi_store_free(&store);
