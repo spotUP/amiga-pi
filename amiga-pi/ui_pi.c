@@ -49,6 +49,25 @@ void pi_ui_set_commands(const cl_cmd *cmds, int n)
 static char ui_cwd[300];
 static char ui_version[40] = "";
 static int ui_quiet;
+static cl_pitheme ui_theme;
+static int ui_have_theme;
+static const char *ui_kb;
+static long ui_kb_n;
+
+void pi_ui_set_theme(const cl_pitheme *th)
+{
+    if (th) {
+        ui_theme = *th;
+        ui_have_theme = 1;
+    } else
+        ui_have_theme = 0;
+}
+
+void pi_ui_set_keybindings(const char *json, long n)
+{
+    ui_kb = json;
+    ui_kb_n = n;
+}
 
 void pi_ui_set_quiet(int quiet)
 {
@@ -594,7 +613,10 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     }
     t->model = p->s->model.id;
     t->effort = p->s->model.reasoning ? llm_think_name(p->s->thinking) : 0;
-    pitheme_system(&p->theme);
+    if (ui_have_theme)
+        p->theme = ui_theme;
+    else
+        pitheme_system(&p->theme);
     t->look = TUI_LOOK_PI;
     t->pith = &p->theme;
     t->cmds = ui_cmds;
@@ -616,7 +638,10 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     t->on_cycle = cb_cycle;
     t->qu = p;
     km_free(&t->km);
-    km_init_pi(&t->km);
+    if (ui_kb)
+        km_load_pi(&t->km, ui_kb, ui_kb_n);
+    else
+        km_init_pi(&t->km);
     pshow_init(&p->ps, t, &p->theme);
     pshow_render(&p->ps, &p->render);
     footer(p);
@@ -805,6 +830,19 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         return 0;
     attach(&p, s, io, 0);
     t = screen(&p, io);
+    if (p.look && p.ui.tui->km.nwarn) {
+        /* the problems of keybindings.json, a line each, as pi tells them at the start */
+        char *w = p.ui.tui->km.warn.p ? p.ui.tui->km.warn.p : (char *)"", *nl;
+        while (*w) {
+            nl = strchr(w, '\n');
+            if (nl)
+                *nl = 0;
+            pshow_note(&p.ps, PR_WARNING, w);
+            if (!nl)
+                break;
+            w = nl + 1;
+        }
+    }
     if (p.look && !ui_quiet)
         pshow_header(&p.ps, "amiga-pi", ui_version[0] ? ui_version : "(pi 1.0.4)");
     else if (!p.look) {

@@ -13,9 +13,13 @@
 #include "llm/transform.h"
 #include "../amiga-pi/agent.h"
 #include "../amiga-pi/ui_pi.h"
+#include "../amiga-pi/okcolor.h"
+#include "../amiga-pi/themes_builtin.h"
 #include "../amiga-pi/app.h"
 #include "../amiga-pi/session3.h"
 #include "claude/sys_posix.h"
+#include "claude/theme.h"
+#include "view/hl_style.h"
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -255,6 +259,8 @@ static void run(const scen *sc)
     const char *script[10];
     int nk = 0;
     cur = sc;
+    pi_ui_set_theme(0);                 /* the system theme and pi's keys, whatever an earlier test left */
+    pi_ui_set_keybindings(0, 0);
     taken = 0;
     diffs = 0;
     memset(rowdiff, 0, sizeof(rowdiff));
@@ -458,6 +464,8 @@ static void test_steer_ui(void)
     cs_open(80, 25, script);
     cs_io(&io);
     pi_ui_set_quiet(1);
+    pi_ui_set_theme(0);
+    pi_ui_set_keybindings(0, 0);
     pi_ui_set_cwd("~/project");
     pi_ui_set_commands(0, 0);
     cs.before_read = 0;
@@ -914,6 +922,184 @@ static void test_bang(void)
     CHECK(found_secret);
 }
 
+
+/* ---- N6: pi's themes and keybindings ---- */
+
+static int hexv(int c)
+{
+    return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+}
+
+/* "#rrggbb" to channels, 0 when it is not one */
+static int hex_rgb(const char *h, int *r, int *g, int *b)
+{
+    if (h[0] != '#' || strlen(h) < 7)
+        return 0;
+    *r = hexv(h[1]) * 16 + hexv(h[2]);
+    *g = hexv(h[3]) * 16 + hexv(h[4]);
+    *b = hexv(h[5]) * 16 + hexv(h[6]);
+    return 1;
+}
+
+static int near1(int a, int b)
+{
+    return a - b <= 1 && b - a <= 1;
+}
+
+static void test_themes(void)
+{
+    cl_pitheme th;
+    char err[3000], *txt, *line;
+    long n;
+    int i, r, g, b;
+    /* pi's own `system` theme, as pi generates it with no terminal colours: slot and faint per role */
+    txt = slurp("system_theme.txt", &n);
+    CHECK(txt != 0);
+    pitheme_system(&th);
+    for (line = txt; txt && *line;) {
+        char name[60], slot[8], dim[8], *nl = strchr(line, '\n');
+        int role;
+        if (nl)
+            *nl = 0;
+        if (sscanf(line, "%59s %7s %7s", name, slot, dim) == 3) {
+            role = pitheme_role(name);
+            CHECK(role >= 0);
+            if (role >= 0) {
+                CHECK(th.dim[role] == (strcmp(dim, "dim") == 0));
+                CHECK(th.color[role] == (slot[0] == '-' ? HL_DEFAULT : (long)atoi(slot)));
+            }
+        }
+        if (!nl)
+            break;
+        line = nl + 1;
+    }
+    free(txt);
+    /* dark.json and light.json through the loader and okcolor against what pi's parseColor makes of them */
+    for (i = 0; i < 2; i++) {
+        const char *nm = i ? "light" : "dark", *bt = i ? pi_theme_light : pi_theme_dark;
+        char fn[40];
+        cl_copy(fn, "theme_", sizeof(fn));
+        cl_cat(fn, nm, sizeof(fn));
+        cl_cat(fn, ".txt", sizeof(fn));
+        CHECK_INT(pitheme_load(&th, bt, (long)strlen(bt), pi_okcolor, err, sizeof(err)), 0);
+        txt = slurp(fn, &n);
+        CHECK(txt != 0);
+        for (line = txt; txt && *line;) {
+            char name[60], val[20], *nl = strchr(line, '\n');
+            int role;
+            if (nl)
+                *nl = 0;
+            if (sscanf(line, "%59s %19s", name, val) == 2 && (role = pitheme_role(name)) >= 0) {
+                if (val[0] == '-')
+                    CHECK(th.color[role] == HL_DEFAULT);
+                else if (hex_rgb(val, &r, &g, &b)) {
+                    long c = th.color[role];
+                    CHECK(HL_IS_RGB(c));
+                    CHECK(near1((int)((c >> 16) & 255), r) && near1((int)((c >> 8) & 255), g) && near1((int)(c & 255), b));
+                }
+            }
+            if (!nl)
+                break;
+            line = nl + 1;
+        }
+        free(txt);
+    }
+    /* the colour spellings */
+    txt = slurp("colors.txt", &n);
+    CHECK(txt != 0);
+    for (line = txt; txt && *line;) {
+        char *tab = strchr(line, '\t'), *nl = strchr(line, '\n'), hexs[16];
+        int er, eg, eb, gr, gg, gb, rc;
+        if (nl)
+            *nl = 0;
+        if (tab) {
+            *tab = 0;
+            cl_copy(hexs, tab + 1, sizeof(hexs));
+            hex_rgb(hexs, &er, &eg, &eb);
+            rc = pi_okcolor(line, &gr, &gg, &gb);
+            if (rc == 1)
+                CHECK(near1(gr, er) && near1(gg, eg) && near1(gb, eb));
+            else
+                CHECK(rc == 0 && line[0] == '#');       /* hex is theme.c's own */
+        }
+        if (!nl)
+            break;
+        line = nl + 1;
+    }
+    free(txt);
+    CHECK_INT(pi_okcolor("okhsl(10 120% 50%)", &r, &g, &b), -1);
+    CHECK_INT(pi_okcolor("red", &r, &g, &b), 0);
+    /* a theme that is wrong says what pi says */
+    {
+        static const char missing[] = "{\"name\":\"x\",\"colors\":{\"accent\":\"#fff\"}}";
+        static const char badvar[] = "{\"name\":\"x\",\"vars\":{\"a\":\"b\",\"b\":\"a\"},\"colors\":{\"accent\":\"a\"}}";
+        static const char nov[] = "{\"name\":\"x\",\"colors\":{\"accent\":\"nothere\"}}";
+        CHECK_INT(pitheme_load(&th, missing, (long)strlen(missing), pi_okcolor, err, sizeof(err)), -1);
+        CHECK(strstr(err, "Invalid theme \"x\":\n\nMissing required color tokens:\n  - bashMode\n  - border\n") == err);
+        CHECK(strstr(err, "Please add these colors to your theme's \"colors\" object.") != 0);
+        CHECK_INT(pitheme_load(&th, badvar, (long)strlen(badvar), pi_okcolor, err, sizeof(err)), -1);
+        CHECK(strstr(err, "Circular variable reference detected: ") != 0);
+        CHECK_INT(pitheme_load(&th, nov, (long)strlen(nov), pi_okcolor, err, sizeof(err)), -1);
+        CHECK(strstr(err, "Variable reference not found: nothere") != 0);
+    }
+}
+
+static int rule_fg;
+static void themed_shot(void)
+{
+    vt_color fg, bg;
+    const vt_cell *c = h_cell(cs.vt, 0, cs.rows - 5);
+    vt_resolve_colors(cs.vt, c, &fg, &bg);
+    rule_fg = (int)fg;
+    take_shot();
+}
+
+static void test_theme_keys_app(void)
+{
+    static const char *keys1[] = { "\020", "\004", 0 };
+    static const char *keys2[] = { "\024", "\033[Z", "\004", 0 };
+    int system_fg;
+    char path[600];
+    /* the theme a file names colours the screen: the rules of the editor (thinkingOff) in dark.json's grey */
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 25, keys1, 0, 0, themed_shot), 0);
+    system_fg = rule_fg;
+    app_write("settings.json", "{\"quietStartup\":true,\"theme\":\"dark\"}\n");
+    CHECK_INT(app_run(80, 25, keys1, 0, 0, themed_shot), 0);
+    CHECK(rule_fg != system_fg);
+    /* a theme file of the user's in the data directory */
+    strcpy(path, adata);
+    strcat(path, "/themes");
+    mkdir(path, 0777);
+    {
+        char *txt;
+        long n;
+        FILE *f;
+        strcat(path, "/mine.json");
+        txt = slurp("dark.json", &n);
+        CHECK(txt != 0);
+        f = fopen(path, "wb");
+        if (f && txt) {
+            fputs(txt, f);
+            fclose(f);
+        }
+        free(txt);
+    }
+    app_write("settings.json", "{\"quietStartup\":true,\"theme\":\"mine\"}\n");
+    CHECK_INT(app_run(80, 25, keys1, 0, 0, themed_shot), 0);
+    CHECK(!shot_has("Theme not found"));
+    app_write("settings.json", "{\"quietStartup\":true,\"theme\":\"nosuch\"}\n");
+    CHECK_INT(app_run(80, 25, keys1, 0, 0, themed_shot), 0);
+    /* keybindings.json in pi's shape: Ctrl+T cycles the thinking level, Shift+Tab no longer does */
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    app_write("keybindings.json", "{\"app.thinking.cycle\":\"ctrl+t\",\"nonsense.action\":\"ctrl+y\"}\n");
+    CHECK_INT(app_run(80, 25, keys2, 0, 0, take_shot), 0);
+    CHECK(shot_has("claude-opus-5-5 \342\200\242 high"));
+    CHECK(shot_has("unknown action"));
+    app_write("keybindings.json", "{}\n");
+    unlink(path);
+}
+
 /* the start header: the program's own name for pi's version, no startup-help panel and no pi tips */
 #define HDR_VER { 2, 2, 5, 79, "start header" }
 #define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
@@ -946,6 +1132,8 @@ void suite_pi_tui(void)
     test_tree_nav();
     test_export();
     test_bang();
+    test_themes();
+    test_theme_keys_app();
     app_cleanup();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))

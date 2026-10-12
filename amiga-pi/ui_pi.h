@@ -11,12 +11,17 @@
 
 #include "claude/ui.h"
 #include "claude/tui.h"
+#include "claude/theme.h"
 #include "agent.h"
 
 /* the directory the footer shows (the working directory as the program has it) */
 void pi_ui_set_cwd(const char *cwd);
 /* settings.json's quietStartup: the screen starts without the header */
 void pi_ui_set_quiet(int quiet);
+/* the colours (claude/theme.h) and the keybindings.json text (pi's shape, 0: pi's defaults) the screen starts with;
+ * the theme is copied, the text only read while the screen starts */
+void pi_ui_set_theme(const cl_pitheme *th);
+void pi_ui_set_keybindings(const char *json, long n);
 /* the slash commands the menu offers (claude/tui.h cl_cmd: "/name", the description); 0: amiga-pi's own */
 void pi_ui_set_commands(const cl_cmd *cmds, int n);
 /* -p: 0 when the answer completed (stop), 1 otherwise (the error on io) */

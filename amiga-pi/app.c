@@ -1,4 +1,6 @@
 /* see app.h */
+#include "okcolor.h"
+#include "themes_builtin.h"
 #include <string.h>
 #include "app.h"
 #include "args.h"
@@ -124,6 +126,72 @@ static void enabled_models(const pi_platform *pl, char *out, long cap)
             }
     }
     CL_FREE(b);
+}
+
+/* the theme settings.json names ("theme"; "system" when absent): a file <data dir>/themes/<name>.json or
+ * <agent dir>/themes/<name>.json, else pi's built-in dark or light; a theme that is invalid or missing is told and
+ * the system theme used (pi: the same fallback) */
+static void load_theme(const pi_platform *pl, cl_pitheme *th)
+{
+    char *b, path[300], name[80], err[800], *txt = 0;
+    long n, tn = 0;
+    jv o, v;
+    int i, own = 0;
+    pitheme_system(th);
+    name[0] = 0;
+    if (!settings_text(pl, &b, &n, path, sizeof(path))) {
+        if (!json_parse(b, n, &o) && json_get(o, "theme", &v) && json_type(v) == J_STR)
+            json_str(v, name, sizeof(name));
+        CL_FREE(b);
+    }
+    if (!name[0] || !strcmp(name, "system"))
+        return;
+    for (i = 0; i < 2 && !txt; i++) {
+        const char *dir = i ? pl->agent_dir : pl->data_dir;
+        if (!dir || !dir[0] || strchr(name, '/') || !pl->sys)
+            continue;
+        cl_copy(path, dir, sizeof(path));
+        if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+            cl_cat(path, "/", sizeof(path));
+        cl_cat(path, "themes/", sizeof(path));
+        cl_cat(path, name, sizeof(path));
+        cl_cat(path, ".json", sizeof(path));
+        if (pl->sys->kind(pl->sys->u, path) == 1 && !pl->sys->read(pl->sys->u, path, 256L * 1024, &txt, &tn))
+            own = 1;
+        else
+            txt = 0;
+    }
+    if (!txt) {
+        const char *bt = !strcmp(name, "dark") ? pi_theme_dark : !strcmp(name, "light") ? pi_theme_light : 0;
+        if (!bt) {
+            say(pl->io, "[WARN] Theme not found: ", name);
+            return;
+        }
+        if (pitheme_load(th, bt, (long)strlen(bt), pi_okcolor, err, sizeof(err)))
+            pitheme_system(th);
+        return;
+    }
+    if (pitheme_load(th, txt, tn, pi_okcolor, err, sizeof(err))) {
+        say(pl->io, "[WARN] ", err);
+        pitheme_system(th);
+    }
+    if (own)
+        CL_FREE(txt);
+}
+
+/* <agent dir>/keybindings.json read (pi's shape): the text, CL_FREEd by the caller; 0 none */
+static char *keybindings_text(const pi_platform *pl, long *n)
+{
+    char *b = 0, path[300];
+    if (!pl->sys || !pl->agent_dir || !pl->agent_dir[0])
+        return 0;
+    cl_copy(path, pl->agent_dir, sizeof(path));
+    if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+        cl_cat(path, "/", sizeof(path));
+    cl_cat(path, "keybindings.json", sizeof(path));
+    if (pl->sys->kind(pl->sys->u, path) != 1 || pl->sys->read(pl->sys->u, path, 256L * 1024, &b, n))
+        return 0;
+    return b;
 }
 
 /* pi's trust question on the console: the title, the answers numbered, a number typed (0 or none: no answer) */
@@ -494,6 +562,15 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     else
         pi_ui_set_cwd(pl->cwd);
         pi_ui_set_quiet(quiet_setting(pl));
+        {
+            static cl_pitheme th;
+            static char *kb;
+            long kn = 0;
+            load_theme(pl, &th);
+            pi_ui_set_theme(&th);
+            kb = keybindings_text(pl, &kn);
+            pi_ui_set_keybindings(kb, kn);
+        }
         rc = pi_ui_run(&s, pl->io, a.prompt[0] ? a.prompt : 0);
     pi_store_free(&store);
     pi_session_free(&s);
