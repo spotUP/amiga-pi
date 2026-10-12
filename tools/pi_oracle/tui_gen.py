@@ -80,6 +80,9 @@ SCENARIOS = {
                   answers=[('sse', text_answer('msg_tb', TABLE, 60))]),
     # the project trust question: the one approval prompt pi has at start (a tool call is never asked)
     'approval': dict(steps=[('wait', 'rust')], answers=[], files={'.pi/SYSTEM.md': 'Be brief.\n'}),
+    # the spinner row while the answer is awaited (the captured frame is a moment of it)
+    'working': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'Working'), ('capture_now',)],
+                    answers=[('slow', 6, text_answer('msg_w', 'late answer', 20))]),
     # a tool call block (read of a file in the cwd) and the answer after it
     'tool': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading')],
                  answers=[('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),
@@ -108,6 +111,9 @@ class Fake(http.server.BaseHTTPRequestHandler):
         with Fake.lock:
             Fake.served.append(body)
             a = Fake.answers.pop(0) if Fake.answers else ('http', 500, '{"type":"error","error":{"type":"api_error","message":"fixture out of answers"}}')
+        if a[0] == 'slow':          # the answer after a pause (the spinner shows meanwhile)
+            time.sleep(a[1])
+            a = ('sse', a[2])
         if a[0] == 'http':
             self.send_response(a[1])
             self.send_header('content-type', 'application/json')
@@ -201,19 +207,22 @@ def run(name, sc, cols, rows, keep):
                 tmux('send-keys', '-t', sess, 'Enter')
             elif st[0] == 'key':
                 tmux('send-keys', '-t', sess, st[1])
+            elif st[0] == 'capture_now':
+                pane = capture(sess, True)
+                shots['now'] = pane
             elif st[0] == 'wait':
                 if not wait_text(sess, st[1]):
                     print('[ERROR] %s: never saw %r' % (name, st[1]), file=sys.stderr)
             time.sleep(0.3)
-        pane = settle(sess, 1.5)
+        pane = shots.get('now') or settle(sess, 1.5)
         with open(os.path.join(OUT, name + '.golden'), 'w') as f:
             f.write(pane)
         with open(os.path.join(OUT, name + '.txt'), 'w') as f:
             f.write(capture(sess, False))
         for i, a in enumerate(sc['answers']):
-            if a[0] == 'sse':
+            if a[0] in ('sse', 'slow'):
                 with open(os.path.join(OUT, '%s.%d.sse' % (name, i + 1)), 'w') as f:
-                    f.write(a[1])
+                    f.write(a[-1])
             else:       # a whole HTTP answer, as the stub plays it
                 with open(os.path.join(OUT, '%s.%d.http' % (name, i + 1)), 'w') as f:
                     f.write('HTTP/1.1 %d X\r\ncontent-type: application/json\r\ncontent-length: %d\r\n\r\n%s' % (a[1], len(a[2]), a[2]))
