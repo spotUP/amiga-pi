@@ -806,6 +806,58 @@ static void bash_update(pi_session *s, const char *id, const char *args, long an
     jw_free(&c);
 }
 
+/* bash's output as it arrives (bash.ts handleData / scheduleOutputUpdate / emitOutputUpdate): every chunk is appended and
+ * marks the update dirty; an update goes out when 100 ms (BASH_UPDATE_THROTTLE_MS, renderers/bash.ts:19) have passed since
+ * the last one (the first at once: lastUpdateAt 0), else it waits for the next look (tools_chunk's n 0, bash.ts's timer)
+ * or the end (finishOutput) */
+int pi_update_due(int has_last, unsigned long last, unsigned long now)
+{
+    return !has_last || now - last >= PI_BASH_UPDATE_MS;
+}
+
+typedef struct bash_stream {
+    pi_tools *p;
+    pi_session *s;
+    const char *id, *args;
+    long an;
+    jw acc;                     /* the output so far (its tail beyond PI_CAPTURE) */
+    int dirty, has_last, got;
+    unsigned long last;
+} bash_stream;
+
+static unsigned long ms_of(const pi_session *s)
+{
+    return s && s->h.ms ? s->h.ms(s->h.u) : 0;
+}
+
+static void bash_emit(bash_stream *b)
+{
+    jw cut;
+    jw_init(&cut);
+    pi_cut(b->p->t.sys, b->p->tmp, b->id, b->acc.p ? b->acc.p : "", b->acc.n, 1, &cut);
+    bash_update(b->s, b->id, b->args, b->an, cut.p ? cut.p : "", cut.n);
+    jw_free(&cut);
+    b->dirty = 0;
+    b->has_last = 1;
+    b->last = ms_of(b->s);
+}
+
+static void bash_chunk(void *u, const char *data, long n)
+{
+    bash_stream *b = (bash_stream *)u;
+    if (n > 0) {
+        b->got = 1;
+        jw_raw(&b->acc, data, n);
+        if (b->acc.n > PI_CAPTURE && b->acc.p) {
+            memmove(b->acc.p, b->acc.p + (b->acc.n - PI_CAPTURE), (size_t)PI_CAPTURE);
+            b->acc.n = PI_CAPTURE;
+        }
+        b->dirty = 1;
+    }
+    if (b->dirty && pi_update_due(b->has_last, b->last, ms_of(b->s)))
+        bash_emit(b);
+}
+
 static int run(void *u, pi_session *s, const char *args, long an, jw *content, int *is_error)
 {
     pi_tslot *sl = (pi_tslot *)u;
@@ -818,6 +870,8 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
     llm_ts t0 = { 0, 0 }, t1 = { 0, 0 };
     long sn0 = 0;
     int ran = 0;
+    bash_stream bs;
+    bs.p = 0;
     jw_init(&text);
     jw_init(&res);
     jw_init(&imgs);
@@ -854,8 +908,21 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
         else {
             if (kind == PT_EDIT)
                 tools_edit_orig(&p->t, id, args, an, &res);
-            else if (pi_tools_claude(kind, args, an, &tool, &in) == 0)
+            else if (pi_tools_claude(kind, args, an, &tool, &in) == 0) {
+                if (kind == PT_BASH && s && s->call_id) {
+                    memset(&bs, 0, sizeof(bs));
+                    bs.p = p;
+                    bs.s = s;
+                    bs.id = id;
+                    bs.args = args;
+                    bs.an = an;
+                    jw_init(&bs.acc);
+                    p->t.chunk = bash_chunk;
+                    p->t.chunk_u = &bs;
+                }
                 tools_run(&p->t, id, tools_name(tool), 1, in.p, in.n, &res);
+                p->t.chunk = 0;
+            }
             *is_error = from_result(res.p ? res.p : "", res.n, &text, &imgs, &nimg);
         }
         t1 = clock_of(s);
@@ -884,8 +951,15 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
         pi_cut(p->t.sys, p->tmp, id, text.p ? text.p : "", text.n - sn, 1, &cut);
         if (sn)
             jw_raw(&cut, text.p + text.n - sn, sn);
-        if (ran && text.n - sn > 0)    /* output arrived: the update of its end (pi's finishOutput) */
-            bash_update(s, id, args, an, cut.p ? cut.p : "", cut.n);
+        if (bs.p) {
+            /* pi's finishOutput: the update held back goes out; a host without streamed output (no job
+             * table) gives the whole output as one chunk */
+            if (!bs.got && text.n - sn > 0)
+                bash_chunk(&bs, text.p, text.n - sn);
+            if (bs.dirty)
+                bash_emit(&bs);
+            jw_free(&bs.acc);
+        }
         llm_b_text(content, cut.p ? cut.p : "", cut.n, 0);
         jw_free(&cut);
     } else

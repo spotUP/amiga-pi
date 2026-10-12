@@ -103,6 +103,9 @@ sc('prompt_tool', steps=[('prompt', 'read the file')],
 # the agent's own bash call: pi's tool_execution_update records (an empty one at the start, the output after)
 sc('prompt_bash', steps=[('prompt', 'run it')],
    answers=[TOOL('bash', {'command': 'echo one; echo two'}, 'I will run it.'), A('Ran it.')])
+# R1: a command that writes in two pieces 0.6 s apart: an update per chunk (bash.ts handleData, throttled to 100 ms)
+sc('prompt_bash_chunks', steps=[('prompt', 'run it')],
+   answers=[TOOL('bash', {'command': 'echo a; sleep 0.6; echo b'}, 'I will run it.'), A('Ran it.')])
 # a command typed during a run: the first turn (a read) is over, the next answer is a long time coming
 R1 = lambda: TOOL('read', {'path': 'notes.txt'}, 'I will read it.')
 sc('prompt_busy', steps=[('send', P('read it')), ('gate', 'turn_end'), ('cmd', P('again')),
