@@ -1030,11 +1030,11 @@ int pi_store_name(pi_store *st, const char *name)
 
 int pi_bash_exec(pi_session *s, const char *cmd, jw *text, int *code, int *stopped)
 {
-    pi_tool *tool = 0;
+    pi_tool *tool = s->user_bash;
     int i, is_error = 0;
     jw args, content;
     char *tail;
-    for (i = 0; i < s->ntools; i++)
+    for (i = 0; !tool && i < s->ntools; i++)
         if (!strcmp(s->tools[i]->name, "bash"))
             tool = s->tools[i];
     if (!tool)

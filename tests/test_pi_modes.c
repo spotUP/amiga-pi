@@ -673,6 +673,8 @@ typedef struct run_opts {
     int host;                       /* run through the host binary's console (host_posix.c: its stdin reader, stdout, stderr), not
                                      * this test's: in a child process, the commands on a pipe as its stdin */
     long prompts;                   /* out with host: pi_prompt calls the run made */
+    int bad_models;                 /* models.json is not JSON: the warning of the start, a diagnostic */
+    int diag;                       /* capture the diagnostic stream (pl.diag) in diag_log: one entry per call, '|' between */
     int nocmp;                      /* do not compare with the golden: the caller reads the output */
     char *out;                      /* out with nocmp: the records, malloc'ed */
 } run_opts;
@@ -782,6 +784,18 @@ static int host_run(int argc, char **argv, const pi_platform *over, const char *
     return 0;
 }
 
+/* the diagnostic stream of a run with ro->diag: the lines pl.diag was given, '|' between them */
+static char diag_log[1024];
+
+static void diag_capture(const char *line)
+{
+    if (strlen(diag_log) + strlen(line) + 2 < sizeof(diag_log)) {
+        if (diag_log[0])
+            strcat(diag_log, "|");
+        strcat(diag_log, line);
+    }
+}
+
 /* the scenario `name` run and compared with its golden; ro->inline_in replaces the golden's commands */
 static int scenario(const char *name, run_opts *ro)
 {
@@ -821,6 +835,12 @@ static int scenario(const char *name, run_opts *ro)
         free(want_t);
         sandbox_clear();
         return 0;
+    }
+    if (ro && ro->bad_models) {
+        char mpath[600];
+        strcpy(mpath, agent);
+        strcat(mpath, "/models.json");
+        put_file(mpath, "{not json", 9);
     }
     strcpy(mode, "rpc");
     if (json_get(cfg, "mode", &v))
@@ -924,6 +944,10 @@ static int scenario(const char *name, run_opts *ro)
     pl.agent_dir = agent;
     pl.data_dir = data;
     pl.ready = ro ? ro->ready : 0;
+    if (ro && ro->diag) {
+        diag_log[0] = 0;
+        pl.diag = diag_capture;
+    }
     if (ro && ro->host) {
         char input[4096];
         long k, rounds = 0, prompts = 0;
@@ -1027,7 +1051,7 @@ static void test_modes(void)
 static void test_misc(void)
 {
     static const char *const names[] = { "bash", "abort_bash", "get_session_stats", "export_html", "get_last_assistant_text",
-                                         "get_commands", 0 };
+                                         "get_commands", "bash_no_tools", 0 };
     group(names);
 }
 
@@ -1255,6 +1279,23 @@ static void test_overflow_recovery(void)
     CHECK_INT(pi_agent_rounds - r0, 4);
 }
 
+/* Q16: pi writes a diagnostic as one line; amiga-pi's say() wrote "amiga-pi: " and the message in two writes, which json
+ * and rpc mode send to the diagnostic stream as two lines. A
+ * models.json that is not JSON is the diagnostic. (pi 1.1.0 prints nothing for an unknown --tools name: test_select) */
+static void test_diag_one_line(void)
+{
+    run_opts ro;
+    memset(&ro, 0, sizeof(ro));
+    ro.nocmp = 1;
+    ro.diag = 1;
+    ro.bad_models = 1;
+    scenario("json_text", &ro);
+    CHECK(strstr(diag_log, "[WARN] ") == diag_log);
+    CHECK(strstr(diag_log, "(models.json is ignored)") != 0);
+    CHECK(strstr(diag_log, "[WARN] |") == 0);       /* not "[WARN] " and the message as two lines */
+    free(ro.out);
+}
+
 /* the permission gate over RPC: its question is a select; No blocks the call, Yes runs it */
 static void test_gate(void)
 {
@@ -1423,4 +1464,5 @@ void suite_pi_modes(void)
     test_retry_cap();
     test_retry_overflow();
     test_gate();
+    test_diag_one_line();
 }
