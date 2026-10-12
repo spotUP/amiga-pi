@@ -1,0 +1,31 @@
+{
+ "mode": "json",
+ "args": [
+  "run it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "hooks": {
+   "input": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "printf '{\"action\":\"transform\",\"text\":\"run it, please\"}'"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "session": null,
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": []
+}

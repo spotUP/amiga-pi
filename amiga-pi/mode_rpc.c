@@ -712,7 +712,8 @@ static int busy(const cmd *c)
 
 static void prompt_started(void *u)
 {
-    ok((const cmd *)u, "{\"disposition\":\"started\"}");
+    const cmd *c = (const cmd *)u;
+    ok(c, c->r->s->disposition ? "{\"disposition\":\"handled\"}" : "{\"disposition\":\"started\"}");
 }
 
 static void cmd_prompt(const cmd *c)
@@ -750,7 +751,9 @@ static void cmd_prompt(const cmd *c)
     free(sb);
     s->started = prompt_started;        /* the response follows the check before the prompt, as pi's preflightResult */
     s->started_u = (void *)c;
+    s->ext.source = "rpc";              /* the input event's InputSource (rpc-mode.ts: source: "rpc") */
     pi_prompt(s, msg);
+    s->ext.source = 0;
     free(msg);
     r->abort_req = 0;
     if (r->abort_wait) {
@@ -1503,6 +1506,8 @@ int pi_mode_rpc(pi_rt *rt)
     pi_subscribe(&s->em, pi_jout_event, &r.jout);
     pi_subscribe(&s->em, track, &r);
     s->h.poll = rpc_poll;
+    s->ext.replace_binds = 2;           /* rpc-mode.ts: a replaced session is bound twice (finishSessionReplacement, then the command), so
+                                         * the extensions' session_start comes twice -- pi 1.1.0's behaviour */
     s->ask = rpc_ask;
     s->ask_u = &r;
     g_rpc = &r;
@@ -1517,6 +1522,7 @@ int pi_mode_rpc(pi_rt *rt)
     jw_free(&line);
     g_rpc = 0;
     s->h.poll = poll0;
+    s->ext.replace_binds = 0;
     s->ask = ask0;
     s->ask_u = ask0_u;
     pi_unsubscribe(&s->em, pi_jout_event, &r.jout);

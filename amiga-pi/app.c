@@ -9,6 +9,7 @@
 #include "claude/tui.h"
 #include "tools_pi.h"
 #include "ext_gate.h"
+#include "ext_hooks.h"
 #include "store.h"
 #include "models.h"
 #include "mcp.h"
@@ -596,6 +597,7 @@ static pi_session s;
 static pi_models models;
 static pi_tools tools;
 static pi_gate gate;
+static pi_hooks hooks;
 static pi_store store;
 static mcp mc;
 static pi_res res;
@@ -757,6 +759,18 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
             pi_gate_project(&gate, pl->data_dir, pl->cwd);
         if (a.gate >= 0)
             gate.on = a.gate;
+        /* the hook commands (ext_hooks.h) before the gate: a hook that rewrites a call's arguments is seen by the
+         * gate's decision, as Claude Code's PreToolUse hooks come before its permission check; one list (L8) */
+        pi_hooks_init(&hooks, &s, pl->sys, pl->tmp, pl->cwd);
+        {
+            char *hb, hpath[300];
+            long hn;
+            if (settings_text(pl, &hb, &hn, hpath, sizeof(hpath)) == 0) {
+                pi_hooks_settings(&hooks, hb, hn, hpath);
+                CL_FREE(hb);
+            }
+        }
+        pi_hooks_add(&hooks);
         pi_ext_add(&s.ext, &gate.ext);
     }
     /* project trust (resources.h): -a / -na, a saved decision, defaultProjectTrust, else the question (not in print
@@ -775,6 +789,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
             pi_store_free(&store);
             pi_session_free(&s);
             pi_gate_free(&gate);
+            pi_hooks_free(&hooks);
             pi_tools_free(&tools);
             return 2;
         }
@@ -835,6 +850,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     }
     if (a.name[0])
         s3_session_info(&store.s3, a.name);
+    pi_exts_session_start(&s.ext, "startup", 0);       /* agent-session.ts bindExtensions: the extensions' session_start */
     rt->a = &a;
     rt->s = &s;
     rt->models = &models;
@@ -902,6 +918,7 @@ void pi_rt_close(pi_rt *rt)
     pi_tmpl_free(&tmpls);
     if (rt->pl.sys) {
         pi_gate_free(&gate);
+        pi_hooks_free(&hooks);
         pi_tools_free(&tools);
     }
     memset(models.cfg.runtime_key, 0, sizeof(models.cfg.runtime_key));

@@ -21,6 +21,7 @@
 #include "pi_stub.h"
 #include "../amiga-pi/agent.h"
 #include "../amiga-pi/app.h"
+#include "../amiga-pi/ext_hooks.h"
 #include "../amiga-pi/host_posix.h"
 #include "../amiga-pi/mode_json.h"
 #include "../amiga-pi/mode_rpc.h"
@@ -1039,6 +1040,44 @@ static int scenario(const char *name, run_opts *ro)
         ro->rounds = ro->host ? host_rounds : pi_agent_rounds - r0;
     jw_free(&wmask);
     jw_free(&gmask);
+    /* the files the scenario's extension wrote in the project directory (pi) and its hook commands wrote (amiga-pi): the
+     * same masks on both, line by line (L2) */
+    if (json_get(cfg, "collect", &v) && json_type(v) == J_ARR) {
+        json_iter(v, &it);
+        while (json_next(&it, 0, &a)) {
+            char file[80], gp[600], suffix[100];
+            char *want_f, *got_f;
+            long wfn, gfn;
+            json_str(a, file, sizeof(file));
+            strcpy(suffix, ".");
+            strcat(suffix, file);
+            want_f = slurp_rpc(name, suffix, &wfn);
+            strcpy(gp, proj);
+            strcat(gp, "/");
+            strcat(gp, file);
+            got_f = slurp(gp, &gfn);
+            if (!want_f || !got_f) {
+                printf("  %s: %s missing (%s)\n", name, file, want_f ? "run" : "golden");
+                CHECK(0);
+            } else {
+                jw wm, gm;
+                jw_init(&wm);
+                jw_init(&gm);
+                masked_text(want_f, mcwd, &wm);
+                masked_text(got_f, mcwd, &gm);
+                if (!wm.p || !gm.p || strcmp(wm.p, gm.p)) {
+                    CHECK(0);
+                    run_diff(name, wm.p ? wm.p : "", gm.p ? gm.p : "");
+                    ok = 0;
+                } else
+                    CHECK(1);
+                jw_free(&wm);
+                jw_free(&gm);
+            }
+            free(want_f);
+            free(got_f);
+        }
+    }
     jw_free(&fd.out);
     free(in_t);
     free(cfg_t);
@@ -1181,7 +1220,7 @@ static int ext_tool_call(void *u, const char *id, const char *name, jw *args, ch
     return 0;
 }
 
-static pi_ext ui_ext = { "ui-test", 0, 0, ext_tool_call, 0 };
+static pi_ext ui_ext = { "ui-test", 0, 0, ext_tool_call, 0, 0, 0 };
 static long ui_ready_calls;
 
 static void ui_ready(pi_session *s)
@@ -1601,6 +1640,29 @@ static void test_overflow(void)
     CHECK(!pi_context_overflow(0));
 }
 
+/* L1, L2: hook commands on pi's extension events (ext_hooks.h). Each scenario is a TypeScript extension run by pi 1.1.0 next
+ * to the same behaviour as hook commands in amiga-pi's settings (tools/pi_oracle/rpc_gen.py, ext_*): the JSON records pi
+ * prints are compared, and for ext_events / ext_rpc_prompt / ext_rpc_new also the payload of every event pi handed its
+ * handler, against the event files the hook commands received (dump.jsonl, the masks of both sides the same) */
+static void test_hooks_pi(void)
+{
+    static const char *const names[] = { "ext_events", "ext_block_plain", "ext_mutate", "ext_matcher", "ext_result",
+                                         "ext_input_transform", "ext_input_handled", "ext_rpc_prompt", "ext_rpc_handled",
+                                         "ext_rpc_new", 0 };
+    group(names);
+}
+
+/* L1 reachability: pi_app -> the agent loop -> the hook dispatcher -> a hook command that blocks bash: the command ran
+ * once (the sentinel) and the toolResult is pi's error result with the hook's reason (the golden has pi's own text) */
+static void test_hooks_reach(void)
+{
+    long r0 = pi_hook_runs;
+    if (getenv("PI_MODES_ONLY") && strcmp(getenv("PI_MODES_ONLY"), "ext_block"))
+        return;
+    CHECK(scenario("ext_block", 0));
+    CHECK_INT(pi_hook_runs - r0, 1);
+}
+
 void suite_pi_modes(void)
 {
     CHECK(load_masks());
@@ -1629,4 +1691,6 @@ void suite_pi_modes(void)
     test_arg_error_on_diag();
     test_version_flag();
     test_thinking_warning();
+    test_hooks_pi();
+    test_hooks_reach();
 }

@@ -4,7 +4,7 @@ Sources: pi 1.0.4 (tag v1.0.4, commit 7c10bd4337495ee613f2224843ecdf349b80d1df, 
 
 Decision D3: the pi `bash` tool is named `bash` and runs `vsh -c` (AmigaDOS Shell fallback). `shell` in older plan text is superseded.
 
-Rows per group (221 total, counted from the tables: the lines starting with `|` minus each table's header and `|---` separator): pi-ai 32; pi-agent-core 6; pi-coding-agent 15; pi-tui 33; sessions 27; tools 7; extensions 20; skills 12; prompt templates 6; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 28; pi-modes 18.
+Rows per group (262 total, counted from the tables by script: the lines starting with `|` minus each table's header and `|---` separator; Phase L1 added the extension events table): pi-ai 32; pi-agent-core 6; pi-coding-agent 15; pi-tui 33; sessions 27; tools 7; extensions 20; extension events 41; skills 12; prompt templates 6; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 28; pi-modes 18.
 
 
 ## pi-ai
@@ -164,10 +164,10 @@ Phase E (2026-10-11). Every row below was compared with pi's own code: `tools/pi
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
 | Loading (TS via jiti in pi) | Lua 5.4 script loaded by the embedded interpreter (decision D4) | planned (different language) | L |
-| Event group: session_* | ext.h table | planned | L |
-| Event group: agent/turn/message | ext.h table | planned | L |
-| Event group: tool_call (block, mutate), tool_result (replace) | amiga-pi/ext.c for built-in C extensions (C3); hooks and Lua in L; carries the gate | partial (C) | L, D6 |
-| Event group: input, user_bash | ext.h table | planned | L |
+| Event group: session_* | ext.h table; session_start by hook commands (L1) | partial: session_start done | L7 |
+| Event group: agent/turn/message | ext.h table; hook commands (L1) | partial: see the extension events table | L7 |
+| Event group: tool_call (block, mutate), tool_result (replace) | amiga-pi/ext.c for built-in C extensions (C3), hook commands (ext_hooks.c); Lua in L3; carries the gate | partial (C, L1): hooks done, Lua later | L3, D6 |
+| Event group: input, user_bash | ext.h table; input by hook commands (L1) | partial: input done, user_bash later | L7 |
 | Event group: context, before_agent_start | ext.h table | planned | L |
 | Event group: model_select, thinking_level_select, provider_stream_event | ext.h table | planned | L |
 | Event group: project_trust, resources_discover, mcp_servers_change | ext.h table | planned | L |
@@ -180,9 +180,57 @@ Phase E (2026-10-11). Every row below was compared with pi's own code: `tools/pi
 | pi.events bus | small in-process bus | planned | L |
 | Actions sendMessage / sendUserMessage / appendEntry / setLabel / exec / get-set model | function table entries | planned | L |
 | ctx.ui calls (notify, confirm, select, input, status, widgets) | text-mode implementations over the TUI | partial: text prompts only | L |
-| Hook commands (claude/hooks.c mechanism) | first extension mechanism | planned | L |
+| Hook commands (claude/hooks.c mechanism) | amiga-pi/ext_hooks.c over vtcon claude/hooks.c's runner (hooks_run_raw: `<cmd> < <event file>`, JSON decision on the output); settings.json `hooks` keyed by pi's event names; user settings only (a project's hooks wait for the trust-gated discovery, L3); pi 1.1.0 has no hook commands, only TypeScript extensions, so the configuration and the answer format ("block", "input", "content", "action") are amiga-pi's, the events and the handler results pi's; one ordered list with the gate (hooks first) | done (L1, L2) | L1, L2 |
 | Packages (npm, git) | - | not planned: npm packages need a JS runtime | - |
 | codemode (QuickJS tool scripts) | - | not planned: needs a JS runtime | - |
+
+## extension events
+
+Every member of pi 1.1.0's `ExtensionEvent` union (core/extensions/types.ts:1377-1411); the first column is the event's `type`. Hook commands (ext_hooks.h) carry the ones marked done; the payloads are compared with pi 1.1.0's own (tests/pi/rpc/ext_*, tools/pi_oracle/rpc_gen.py).
+
+| pi event | pi type | status | phase item |
+|---|---|---|---|
+| project_trust | ProjectTrustEvent | later: with the trust-gated extension discovery | L3, L7 |
+| resources_discover | ResourcesDiscoverEvent | later: needs extension-provided resources | L7 |
+| mcp_servers_change | McpServersChangeEvent | later: amiga-pi has its own MCP client (mcp.c), the event needs the extension host | L7 |
+| session_start | SessionStartEvent {reason, previousSessionFile?} | done (L1, L2): ext_hooks.c, reasons startup (pi_rt_open), new (pi_store_new_session) and resume (pi_store_switch); RPC mode emits a replaced session's event twice as pi 1.1.0 does (rpc-mode.ts binds it in finishSessionReplacement and again in the command); golden ext_events, ext_rpc_new; fork and reload not yet (L7) | L1, L2 |
+| session_info_changed | SessionInfoChangedEvent | later: the emitter has it (PE_SESSION_INFO); no payload builder yet | L7 |
+| session_before_switch | SessionBeforeSwitchEvent | later: a cancelling event; needs the decision plumbing in the store | L7 |
+| session_before_fork | SessionBeforeForkEvent | later | L7 |
+| session_before_compact | SessionBeforeCompactEvent | later: compaction input and a replacement summary | L7 |
+| session_compact | SessionCompactEvent | later | L7 |
+| session_compact_failed | SessionCompactFailedEvent | later | L7 |
+| session_shutdown | SessionShutdownEvent | later | L7 |
+| session_before_tree | SessionBeforeTreeEvent | later | L7 |
+| session_tree | SessionTreeEvent | later | L7 |
+| context | ContextEvent | later: rewrites the messages before a request | L7 |
+| context_with_system | ContextWithSystemEvent | later | L7 |
+| cache_warming_decision | CacheWarmingDecisionEvent (core/cache-warmer.ts) | not planned: pi's cache warmer keeps a prompt cache warm with timed requests; amiga-pi has no warmer to decide for | - |
+| before_provider_request | BeforeProviderRequestEvent | later: the request body as llm/ builds it | L7 |
+| before_provider_headers | BeforeProviderHeadersEvent | later | L7 |
+| after_provider_response | AfterProviderResponseEvent | later | L7 |
+| provider_stream_event | ProviderStreamEvent | later | L7 |
+| before_agent_start | BeforeAgentStartEvent | later: system prompt options and an injected message | L7 |
+| agent_start | AgentStartEvent | done (L1, L2): ext_hooks.c on PE_AGENT_START; golden ext_events | L1, L2 |
+| agent_end | AgentEndEvent {messages} | done (L1, L2): ext_hooks.c on PE_AGENT_END (the JSON mode record without willRetry); golden ext_events | L1, L2 |
+| agent_before_settle | AgentBeforeSettleEvent | later: BoundaryState (entries, continue, context preview) | L7 |
+| agent_settled | AgentSettledEvent {aborted} | done (L1, L2): ext_hooks.c on PE_AGENT_SETTLED; golden ext_events | L1, L2 |
+| ui_prompt_start | UIPromptStartEvent | later: with ctx.ui | L5, L7 |
+| ui_prompt_end | UIPromptEndEvent | later: with ctx.ui | L5, L7 |
+| turn_start | TurnStartEvent {turnIndex, timestamp} | done (L1, L2): ext_hooks.c on PE_TURN_START (turnIndex 0 at agent_start, +1 per turn_end); golden ext_events | L1, L2 |
+| turn_end | TurnEndEvent (BoundaryState, message, toolResults, messageEntryId, toolResultEntryIds) | later: entries, continue, context preview (contextEntries, contextMessages, llmMessages) need the session projection of pi's boundary dispatch | L7 |
+| message_start | MessageStartEvent | done (L1, L2): ext_hooks.c on PE_MESSAGE_START; golden ext_events | L1, L2 |
+| message_update | MessageUpdateEvent {message, assistantMessageEvent} | later: the cumulative partial message (blocks carry index and partialJson while streaming) and `partial` come from pi-ai's streaming parser; JSON mode strips both, so amiga-pi has neither; a process per delta is also no use | L7 |
+| message_end | MessageEndEvent | done (L1, L2): ext_hooks.c on PE_MESSAGE_END (a handler's replacement message, emitMessageEnd, is not read); golden ext_events | L1, L2 |
+| tool_execution_start | ToolExecutionStartEvent | done (L1, L2): ext_hooks.c on PE_TOOL_START; golden ext_events | L1, L2 |
+| tool_execution_update | ToolExecutionUpdateEvent | done (L1, L2): ext_hooks.c on PE_TOOL_UPDATE; args are what the model sent, not what a tool_call hook rewrote; golden ext_events, ext_mutate | L1, L2 |
+| tool_execution_end | ToolExecutionEndEvent | done (L1, L2): ext_hooks.c on PE_TOOL_END; golden ext_events, ext_result | L1, L2 |
+| model_select | ModelSelectEvent | later | L7 |
+| thinking_level_select | ThinkingLevelSelectEvent | later: the emitter has PE_THINKING_LEVEL | L7 |
+| user_bash | UserBashEvent | later: replaces the user bash backend | L7 |
+| input | InputEvent {text, images?, source, streamingBehavior?}; result continue / transform / handled | done (L1, L2): ext_hooks.c via pi_prompt (before the templates expand, as agent-session.ts prompt()); source "rpc" through RPC prompt, "interactive" otherwise; "handled" answers the RPC prompt with disposition "handled"; streamingBehavior "steer" / "followUp" for queued messages (pi_steer / pi_follow_up, as _queueUserInput); images are not in the payload; goldens ext_input_transform, ext_input_handled, ext_rpc_prompt, ext_rpc_handled | L1, L2 |
+| tool_call | ToolCallEvent {toolName, toolCallId, input}; result {block, reason} | done (L1, L2): ext_hooks.c; {"block":true,"reason"} blocks (the first blocker wins), {"input":{...}} replaces the arguments (pi mutates in place); a hook that fails blocks with its failure as the text (pi: a throwing handler); `terminate` and parentToolCallId are not read; goldens ext_block, ext_block_plain, ext_mutate, ext_matcher | L1, L2 |
+| tool_result | ToolResultEvent {toolName, toolCallId, input, content, details?, structuredContent?, isError}; result {content, details, structuredContent, isError} | done (L1, L2): ext_hooks.c; content replaced without structuredContent drops the structured content as emitToolResult does; `usage` is not read; golden ext_result, ext_events | L1, L2 |
 
 ## skills
 

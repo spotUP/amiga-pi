@@ -85,6 +85,8 @@ typedef struct pi_session {
     long rounds;                /* rounds run since the start (the tests' sentinel) */
     int stop;                   /* the last answer's stop reason (LS_*) */
     const char *call_id;        /* the tool call running now (a tool names its kept output after it) */
+    const char *call_args;      /* its arguments as the model sent them (the tool_execution_update events carry these), 0 outside a call */
+    long call_args_n;
     const char *shell_note;     /* the system prompt's sentence on the bash tool's shell, 0 none */
     const struct pi_res *res;   /* context files, SYSTEM.md, APPEND_SYSTEM.md for the prompt (resources.h), 0 none */
     const struct pi_tmpls *templates;   /* prompt templates: pi_prompt expands "/name args" (templates.h), 0 none */
@@ -103,6 +105,7 @@ typedef struct pi_session {
      * events come first, as in pi's prompt()), then cleared; RPC mode answers the prompt command there */
     void (*started)(void *u);
     void *started_u;
+    const char *disposition;    /* what started reports: 0 "started", "handled" (an input extension consumed the prompt) */
     /* before a request to a model that takes tool changes in the transcript: the store declares the executable
      * tools' difference to the transcript as a system message (pi's agent-loop declareToolChanges) */
     void (*declare)(void *u, struct pi_session *s);

@@ -265,6 +265,79 @@ sc('ui_cancel', steps=[('send', P('run it')), ('gate', 'extension_ui_request'), 
    answers=[TOOL('read', {'path': 'notes.txt'}), A('It was blocked.')], ext=EXT_UI)
 
 
+# ---- L: extension events and decisions (amiga-pi's hook commands are the same events: ext_hooks.c) ----
+# The events amiga-pi hooks (not message_update: the cumulative partial message and `partial` of pi-ai's streaming parser;
+# not turn_end: BoundaryState, entries and the context preview; COMPATIBILITY.md). The dump extension writes each event pi
+# emits to dump.jsonl in the project directory, one JSON line (JSON.stringify of the event, as pi's runner hands it over);
+# the hook command of the amiga-pi side appends the event's file to the same name ($CLAUDE_PROJECT_DIR is the project).
+L_EVENTS = ['session_start', 'input', 'agent_start', 'turn_start', 'message_start', 'message_end', 'tool_call',
+            'tool_execution_start', 'tool_execution_update', 'tool_result', 'tool_execution_end', 'agent_end', 'agent_settled']
+EXT_DUMP = r'''
+import { appendFileSync } from "node:fs";
+export default function (pi) {
+  for (const name of %s) {
+    pi.on(name, async (event) => { appendFileSync("dump.jsonl", JSON.stringify(event) + "\n"); });
+  }
+}
+''' % json.dumps(L_EVENTS)
+
+
+def hook(cmd, matcher=None):
+    h = {'hooks': [{'type': 'command', 'command': cmd}]}
+    if matcher:
+        h['matcher'] = matcher
+    return [h]
+
+
+L_DUMP_HOOKS = {e: hook('cat >> $CLAUDE_PROJECT_DIR/dump.jsonl') for e in L_EVENTS}
+L_BASH = lambda: TOOL('bash', {'command': 'echo one; echo two'}, 'I will run it.')
+sc('ext_events', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')], ext=EXT_DUMP,
+   settings={'hooks': L_DUMP_HOOKS}, collect=['dump.jsonl'])
+
+
+def ext_one(event, body):
+    return 'export default function (pi) { pi.on("%s", async (event) => { %s }); }\n' % (event, body)
+
+
+def say(obj):
+    return "printf '%s'" % json.dumps(obj, separators=(',', ':'))
+
+
+# tool_call: block with a reason, block without one (pi: "Tool execution was blocked"), mutate event.input
+sc('ext_block', mode='json', args=['run it'], answers=[L_BASH(), A('It was blocked.')],
+   ext=ext_one('tool_call', 'return { block: true, reason: "no shell today" };'),
+   settings={'hooks': {'tool_call': hook(say({'block': True, 'reason': 'no shell today'}))}})
+sc('ext_block_plain', mode='json', args=['run it'], answers=[L_BASH(), A('It was blocked.')],
+   ext=ext_one('tool_call', 'return { block: true };'),
+   settings={'hooks': {'tool_call': hook(say({'block': True}))}})
+sc('ext_mutate', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')],
+   ext=ext_one('tool_call', 'event.input.command = "echo mutated";'),
+   settings={'hooks': {'tool_call': hook(say({'input': {'command': 'echo mutated'}}))}})
+# a matcher: the hook names the tool, a read is not its business
+sc('ext_matcher', mode='json', args=['read the file'], answers=[TOOL('read', {'path': 'notes.txt'}), A('Read it.')],
+   ext=ext_one('tool_call', 'if (event.toolName === "bash") return { block: true, reason: "no shell today" };'),
+   settings={'hooks': {'tool_call': hook(say({'block': True, 'reason': 'no shell today'}), 'bash')}})
+# tool_result: the content and the error flag replaced
+sc('ext_result', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')],
+   ext=ext_one('tool_result', 'return { content: [{ type: "text", text: "redacted" }], isError: true };'),
+   settings={'hooks': {'tool_result': hook(say({'content': [{'type': 'text', 'text': 'redacted'}], 'isError': True}))}})
+# input: transform (the prompt the model sees is the new text) and handled (no run at all)
+sc('ext_input_transform', mode='json', args=['run it'], answers=[A('Ran it.')],
+   ext=ext_one('input', 'return { action: "transform", text: "run it, please" };'),
+   settings={'hooks': {'input': hook(say({'action': 'transform', 'text': 'run it, please'}))}})
+sc('ext_input_handled', mode='json', args=['run it'], answers=[],
+   ext=ext_one('input', 'return { action: "handled" };'),
+   settings={'hooks': {'input': hook(say({'action': 'handled'}))}})
+# RPC: the input event's source is "rpc", a consumed prompt answers disposition "handled", new_session is a session_start "new"
+sc('ext_rpc_prompt', steps=[('prompt', 'hello')], answers=[A('Hi.')], ext=EXT_DUMP, settings={'hooks': L_DUMP_HOOKS},
+   collect=['dump.jsonl'])
+sc('ext_rpc_handled', steps=[('send', P('run it')), ('sleep', 1.0)], answers=[],
+   ext=ext_one('input', 'return { action: "handled" };'),
+   settings={'hooks': {'input': hook(say({'action': 'handled'}))}})
+sc('ext_rpc_new', steps=[('cmd', {'type': 'new_session'})], answers=[], ext=EXT_DUMP, settings={'hooks': L_DUMP_HOOKS},
+   collect=['dump.jsonl'], session=True)
+
+
 class Trickle(T.Fake):
     """T.Fake with the SSE events sent one at a time, a pause between them: pi puts the usage of the stream so far into
     every message_update, and in a stream that arrives in one piece it serializes them after the stream is done (the
@@ -464,6 +537,9 @@ def run(name, s, keep):
         except subprocess.TimeoutExpired:
             pi.p.kill()
         time.sleep(0.2)
+        for f in s.get('collect', []):                  # files the scenario's extension wrote in the project directory
+            if os.path.exists(os.path.join(proj, f)):
+                shutil.copy(os.path.join(proj, f), os.path.join(OUT, name + '.' + f))
         out = pi.snapshot()
         with open(os.path.join(OUT, name + '.out'), 'w') as f:
             f.write(''.join(l + '\n' for l in out))
@@ -474,7 +550,7 @@ def run(name, s, keep):
         cfg = {'mode': mode, 'args': s.get('args', []), 'model': s.get('model', 'fake-model'), 'thinking': s.get('thinking', 'off'),
                'retry': bool(s.get('retry')), 'settings': s.get('settings', {}),
                'session': ('new' if sess is True else sess) if sess else None, 'files': s.get('files', {}), 'text_files': s.get('text_files', {}),
-               'answers': [a[0] for a in s['answers']], 'tools': 'read,bash,edit,write'}
+               'answers': [a[0] for a in s['answers']], 'tools': 'read,bash,edit,write', 'collect': s.get('collect', [])}
         with open(os.path.join(OUT, name + '.cfg.json'), 'w') as f:
             json.dump(cfg, f, indent=1)
             f.write('\n')

@@ -957,9 +957,10 @@ int pi_store_bash(pi_store *st, const char *command, const char *output, int exi
 int pi_store_new_session(pi_store *st, const char *parent)
 {
     pi_s3 *s = &st->s3;
-    char dir[256], cwd[256];
+    char dir[256], cwd[256], prev[320];
     cl_copy(dir, s->dir, sizeof(dir));
     cl_copy(cwd, s->cwd, sizeof(cwd));
+    cl_copy(prev, s->file, sizeof(prev));
     if (s3_new(s, dir, cwd, parent ? parent : "", 0, s->persist)) {
         cl_copy(st->err, s->err[0] ? s->err : "the new session could not be made", sizeof(st->err));
         return -1;
@@ -974,6 +975,7 @@ int pi_store_new_session(pi_store *st, const char *parent)
         }
         ag->session_id = s->id[0] ? s->id : 0;
         ag->ctx_tokens = 0;
+        pi_exts_session_start(&ag->ext, "new", prev[0] ? prev : 0);     /* agent-session-runtime.ts newSession */
     }
     return 0;
 }
@@ -982,7 +984,8 @@ int pi_store_switch(pi_store *st, const char *path)
 {
     pi_s3 n;
     pi_session *ag = st->s;
-    char prov[64], id[128], lv[32];
+    char prov[64], id[128], lv[32], prev[320];
+    cl_copy(prev, st->s3.file, sizeof(prev));
     s3_init(&n, st->sys, st->s3.now, st->s3.u, st->s3.utc, st->s3.seed);
     cl_copy(n.cwd, st->cwd, sizeof(n.cwd));
     if (s3_open(&n, path)) {
@@ -1013,6 +1016,7 @@ int pi_store_switch(pi_store *st, const char *path)
     }
     ag->session_id = st->s3.id[0] ? st->s3.id : 0;
     ag->ctx_tokens = 0;
+    pi_exts_session_start(&ag->ext, "resume", prev[0] ? prev : 0);      /* agent-session-runtime.ts switchSession */
     return 0;
 }
 

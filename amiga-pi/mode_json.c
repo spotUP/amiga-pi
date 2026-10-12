@@ -196,7 +196,7 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
         }
         if (e->details && e->is_error)
             jw_rawz(w, ",\"isError\":true");
-        if (e->is_error && !e->structured && !e->details)   /* a thrown error has details {}; bash's non-zero exit is a result */
+        if (e->thrown && !e->structured && !e->details)     /* a thrown error has details {}; bash's non-zero exit is a result */
             jw_rawz(w, ",\"details\":{}");
         jw_rawz(w, "}");
         put_key(w, "isError");

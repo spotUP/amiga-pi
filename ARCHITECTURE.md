@@ -105,6 +105,46 @@ Measured on the Mac (2026-10-07), Lua 5.4.9 vendored in `vendor/lua-5.4/`, vbcc 
 
 What the numbers mean for the design: the speed was measured on a plain 68020 at real A1200 speed (rig 2's configuration then), the slowest machine the kit supports; a 68060 is several times faster. Extensions should therefore do event handling and small transforms in Lua and leave heavy work (search, file walking, JSON of large payloads) to the C tools they call. The link needs `-lmieee` BEFORE `-lvc`. Next Lua step (owner, 2026-10-07): evaluate AmigaDaLua (https://github.com/alpine9000/AmigaDaLua) against the vendored stock 5.4.9 and reuse it if it builds with vbcc and its licence and additions fit (phase L). Hook commands (`claude/hooks.c`) still come first (phase L).
 
+## Hook commands on pi's events (Phase L1, L2)
+
+pi 1.1.0 has no hook commands (extensions are TypeScript modules), so the commands are amiga-pi's way to pi's extension events;
+the parity target is the events' payloads (core/extensions/types.ts) and the handlers' results (core/extensions/runner.ts), not a
+configuration format. Configuration: `hooks` in `ENVARC:amiga-pi/settings.json`, C:Claude's hook format (claude/config.c) with pi's
+event names as keys; user settings only (a project's hooks wait for the trust-gated discovery, L3). Runner: vtcon `claude/hooks.c`
+`hooks_run_raw` (spawn `<cmd> < <event file>` through sys->run, temp file, timeout, output back); `ext_hooks.c` adds the payloads and
+the pi decision semantics, nothing else. Dispatch: one ordered list, `pi_exts` (ext.c) -- the hook commands come first, the permission
+gate (ext_gate.c) after them, so the gate decides on the arguments a hook produced; L8 makes the gate a member of the same list.
+
+| pi event | payload (types.ts) | decision (runner.ts / agent-session.ts) | amiga-pi call site |
+|---|---|---|---|
+| `session_start` | `{reason, previousSessionFile?}` (agent-session.ts:3279, agent-session-runtime.ts) | none | app.c:841 (startup), store.c:978 (new), store.c:1019 (resume) via `pi_exts_session_start` |
+| `input` | `{text, source, images?, streamingBehavior?}` (agent-session.ts:1927) | `{action:"continue"}`, `{action:"transform", text}`, `{action:"handled"}` (runner.ts:1520 emitInput; first handled wins, transforms chain) | agent.c:1125 `pi_prompt` -> `pi_exts_input`, before templates expand |
+| `agent_start`, `agent_end`, `agent_settled` | `{}`, `{messages}`, `{aborted}` | none | agent.c:938, agent.c:817, agent.c:1108 (emitter) |
+| `turn_start` | `{turnIndex, timestamp}` | none | agent.c:939, 962 (emitter) |
+| `message_start`, `message_end` | `{message}` | none (pi: `message_end` may replace the message, not read) | agent.c:219 `emit_msg` (emitter) |
+| `tool_execution_start`, `_update`, `_end` | `{toolCallId, toolName, args}`, `+ partialResult`, `{toolCallId, toolName, result, isError, durationMs?}` | none | agent.c:586, tools_pi.c:796, agent.c:638 (emitter) |
+| `tool_call` | `{toolName, toolCallId, input}` (agent-session.ts:668) | `{block:true, reason?}`: the first blocker wins, the reason or "Tool execution was blocked" is the error result's text (runner.ts:1242, agent-loop.ts:746); a throwing handler blocks with its message (agent-session.ts:679); mutation of `event.input` is `{"input":{...}}` here | agent.c:610 `pi_exts_tool_call` |
+| `tool_result` | `{toolName, toolCallId, input, content, details?, structuredContent?, isError}` (agent-session.ts:690) | each of `content`, `details`, `structuredContent`, `isError` replaces when given; content without structuredContent drops the structured content; later handlers see earlier changes (runner.ts:1183) | agent.c:635 `pi_exts_tool_result` |
+
+The emitter events go to `hk_event` (ext_hooks.c) through the listener every session has (`pi_exts_event`); the payloads of the
+agent events are mode_json.c's records (the same shapes, compared with pi in H) except `turn_start` (adds turnIndex and timestamp)
+and `agent_end` (no willRetry). The decision events have their own call sites in the loop (the table), not the emitter, because they
+return a result. Goldens: `tools/pi_oracle/rpc_gen.py` runs pi 1.1.0 with a TypeScript extension that writes each event it is handed
+to `dump.jsonl` (scenarios `ext_events`, `ext_rpc_prompt`, `ext_rpc_new`) and with extensions that return the decisions
+(`ext_block*`, `ext_mutate`, `ext_matcher`, `ext_result`, `ext_input_*`, `ext_rpc_handled`); `tests/test_pi_modes.c` (group
+`hooks_pi`) runs amiga-pi on the same answers with hook commands that do the same, and compares pi's records and the event
+files with the masks both sides share (tests/pi/rpc/masks.json: timestamps, durations, ids, the cwd).
+
+Differences from pi 1.1.0, on purpose or not yet closed (COMPATIBILITY.md, "extension events"):
+- the hook configuration and the answer format are amiga-pi's; `tool_call` mutation is a whole-object replacement;
+- not hooked: `message_update` (the cumulative partial message and `partial` need pi-ai's streaming parser), `turn_end`
+  (BoundaryState and the context preview), the other session events, the model events, `context`, `before_agent_start`, the
+  provider events -- later items (L7);
+- `input` carries no `images`;
+- in RPC mode a replaced session emits `session_start` twice, as pi 1.1.0 does (rpc-mode.ts binds it in the runtime's
+  finishSessionReplacement and again in the command);
+- `usage` and `parentToolCallId` of the tool events, `terminate` of a blocked call, and `message_end`'s replacement message are not read.
+
 ## What is not in phase A
 
 No product code existed at the end of phase A: no `llm/` (now in vtcon, phase B), no `amiga-pi/` sources, no program builds. Phase A delivers this document, COMPATIBILITY.md, the addendum, the layering check, the Lua probe and the ledger (`progress.md`).

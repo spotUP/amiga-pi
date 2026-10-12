@@ -47,3 +47,21 @@ void pi_exts_tool_result(pi_exts *x, const char *id, const char *name, const cha
         if (x->e[i]->tool_result)
             x->e[i]->tool_result(x->e[i]->u, id, name, args, an, content, is_error);
 }
+
+int pi_exts_input(pi_exts *x, jw *text)
+{
+    int i;
+    for (i = 0; i < x->n; i++)
+        if (x->e[i]->input && x->e[i]->input(x->e[i]->u, x->source ? x->source : "interactive", x->streaming, text))
+            return 1;
+    return 0;
+}
+
+void pi_exts_session_start(pi_exts *x, const char *reason, const char *prev)
+{
+    int i, times = strcmp(reason, "startup") && x->replace_binds > 1 ? x->replace_binds : 1;
+    for (; times > 0; times--)
+        for (i = 0; i < x->n; i++)
+            if (x->e[i]->session_start)
+                x->e[i]->session_start(x->e[i]->u, reason, prev);
+}
