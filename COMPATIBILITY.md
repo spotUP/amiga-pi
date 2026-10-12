@@ -12,7 +12,7 @@ Rows per group (211 total, counted from the tables: the lines starting with `|` 
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
 | API: anthropic-messages | llm/be_anthropic.c from claude/http.c, stream.c | partial (exists in C:Claude) | B5 |
-| API: openai-completions | llm/be_openai_chat.c with compat flags | planned | B6 |
+| API: openai-completions | llm/be_openai_chat.c with compat flags; usage as parseChunkUsage (openai-completions.ts:1531-1546): cache read from prompt_tokens_details.cached_tokens, else prompt_cache_hit_tokens (DeepSeek), else cached_tokens (Kimi); cache write from prompt_tokens_details.cache_write_tokens; the usage of choices[0] when the chunk has none (Moonshot, :575-579) | planned | B6 |
 | API: openai-responses | llm/be_openai_responses.c, pi-ai's api/openai-responses.js ported; body, SSE, handoff, session id (prompt_cache_key, session_id headers) byte-tested against pi (vtcon tests/pi/responses, switch goldens); gpt-5.5 and gpt-4.1 use it, reachable through pi_app (llm_feeds_responses) | done (FA4) | FA4 |
 | API: azure-openai-responses | Responses adapter with Azure's URL and api-version | planned | M |
 | Model switch and settings (FA6) | A switch uses settings.json defaultThinkingLevel before the session's level (pi's _getThinkingLevelForModelSwitch) and leaves the session's model and level unchanged when the session file cannot take the entries. pi's `/model <term>` calls setModel with persist:false (interactive-mode.js:4301), so amiga-pi's /model never writes defaultProvider/defaultModel either; pi persists them only from the selector's set-default action and after /login (:4429, :5063), which amiga-pi has neither of | done | FA6 |
