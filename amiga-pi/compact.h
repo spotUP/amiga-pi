@@ -66,6 +66,9 @@ long cp_usage_total(const char *msg, long n);
 long cp_estimate_context(char *const *msg, const long *msg_n, int n, int *last_usage);
 /* the context's tokens as pi estimates them for a branch ending at leaf */
 long cp_context_tokens(pi_s3 *st, int leaf, const pi_ctx *c);
+/* AgentSession.getContextUsage's tokens (the footer's figure): cp_context_tokens, or -1 (pi's "?") after the latest
+ * compaction until an answer with usage follows it */
+long cp_context_usage(pi_s3 *st, int leaf, const pi_ctx *c);
 int cp_should(long tokens, long window, long reserve);
 /* 1 prepared, 0 nothing to compact (leaf is a compaction, or no history), -1 out of memory */
 int cp_prepare(pi_s3 *st, int leaf, long keep_recent, pi_prep *p);

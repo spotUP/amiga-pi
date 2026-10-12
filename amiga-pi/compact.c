@@ -215,6 +215,24 @@ long cp_context_tokens(pi_s3 *st, int leaf, const pi_ctx *c)
     return tokens;
 }
 
+long cp_context_usage(pi_s3 *st, int leaf, const pi_ctx *c)
+{
+    int *path = 0, np = s3_path(st, leaf, &path), k, comp = -1, e, j, seen = 0;
+    for (k = 0; k < np; k++)
+        if (st->e[path[k]].type == S3_COMPACTION)
+            comp = k;
+    /* the branch entries after the compaction: does one project an answer with usable usage */
+    for (k = comp + 1; comp >= 0 && k < np && !seen; k++)
+        for (e = 0; e < c->ne && !seen; e++)
+            if (c->esrc[e] == path[k])
+                for (j = c->efirst[e]; j < c->efirst[e] + c->ecnt[e] && !seen; j++)
+                    seen = usage_tokens(c->msg[j], c->msg_n[j]) > 0;
+    free(path);
+    if (comp >= 0 && !seen)
+        return -1;
+    return cp_context_tokens(st, leaf, c);
+}
+
 int cp_should(long tokens, long window, long reserve)
 {
     return tokens > window - reserve;

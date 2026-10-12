@@ -129,6 +129,7 @@ static void on_event(void *u, const pi_event *e)
             sync_queue(p);
             pshow_user(&p->ps, txt.p ? txt.p : "");
             jw_free(&txt);
+            status(p);          /* pi draws the footer each frame: the context figure counts the message now */
         }
         if (e->role == LR_ASSISTANT && p->text_index >= 0) {
             p->render.end(p->render.u);
@@ -497,25 +498,43 @@ static void footer(pi_ui *p)
         cl_cat(l, n, sizeof(t->pi_left));
     }
     t->pi_ctx_role = 0;
-    if (s->model.context_window > 0) {
-        /* pi's getContextUsage: the last answer's usage plus an estimate of what came after it */
-        int last;
-        long ctx = s->nmsg ? cp_estimate_context(s->msg, s->msg_n, s->nmsg, &last) : 0;
-        tenths = (ctx * 1000 + s->model.context_window / 2) / s->model.context_window;
-        cl_ltoa(tenths / 10, t->pi_ctx);
-        cl_cat(t->pi_ctx, ".", sizeof(t->pi_ctx));
-        cl_ltoa(tenths % 10, n);
-        cl_cat(t->pi_ctx, n, sizeof(t->pi_ctx));
-        cl_cat(t->pi_ctx, "%/", sizeof(t->pi_ctx));
-        fmt_tokens(s->model.context_window, n);
+    {
+        /* pi's getContextUsage over the session (the projected estimate: the last answer's usage and what followed,
+         * else the current system message, its tools and the messages), "?" after a compaction until an answer;
+         * a session without a store (the screen tests' bare agent) estimates its messages. No window: pi's 0.0%/0 */
+        pi_store *st = (pi_store *)s->command_u;
+        long ctx = 0;
+        tenths = 0;
+        if (s->model.context_window > 0) {
+            if (st && s->command) {
+                pi_ctx c;
+                ctx_init(&c);
+                ctx = ctx_build(&st->s3, st->s3.leaf, &c) ? 0 : cp_context_usage(&st->s3, st->s3.leaf, &c);
+                ctx_free(&c);
+            } else if (s->nmsg) {
+                int last;
+                ctx = cp_estimate_context(s->msg, s->msg_n, s->nmsg, &last);
+            }
+            if (ctx >= 0)
+                tenths = (ctx * 1000 + s->model.context_window / 2) / s->model.context_window;
+        }
+        if (ctx < 0)
+            cl_copy(t->pi_ctx, "?", sizeof(t->pi_ctx));
+        else {
+            cl_ltoa(tenths / 10, t->pi_ctx);
+            cl_cat(t->pi_ctx, ".", sizeof(t->pi_ctx));
+            cl_ltoa(tenths % 10, n);
+            cl_cat(t->pi_ctx, n, sizeof(t->pi_ctx));
+            cl_cat(t->pi_ctx, "%", sizeof(t->pi_ctx));
+        }
+        cl_cat(t->pi_ctx, "/", sizeof(t->pi_ctx));
+        fmt_tokens(s->model.context_window > 0 ? s->model.context_window : 0, n);
         cl_cat(t->pi_ctx, n, sizeof(t->pi_ctx));
         cl_cat(t->pi_ctx, " (auto)", sizeof(t->pi_ctx));
         if (tenths > 900)
             t->pi_ctx_role = PR_ERROR + 1;
         else if (tenths > 700)
             t->pi_ctx_role = PR_WARNING + 1;
-    } else {
-        cl_copy(t->pi_ctx, "?/0 (auto)", sizeof(t->pi_ctx));
     }
     cl_copy(t->pi_right, s->model.id, sizeof(t->pi_right));
     if (s->model.reasoning) {

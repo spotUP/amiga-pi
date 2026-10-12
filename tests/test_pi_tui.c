@@ -17,6 +17,8 @@
 #include "../amiga-pi/themes_builtin.h"
 #include "../amiga-pi/app.h"
 #include "../amiga-pi/session3.h"
+#include "../amiga-pi/context.h"
+#include "../amiga-pi/compact.h"
 #include "claude/sys_posix.h"
 #include "claude/theme.h"
 #include "view/hl_style.h"
@@ -627,7 +629,9 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     for (i = 0; i < nsse; i++) {
         long n;
         char *b = slurp(sse[i], &n);
-        if (b)
+        if (b && strstr(sse[i], ".http"))
+            ps_http_text(b, n);
+        else if (b)
             ps_sse_text(b, n, 0);
         free(b);
     }
@@ -944,6 +948,79 @@ static void test_export(void)
         free(j);
         fclose(f);
     }
+}
+
+
+/* ---- the footer's context figure is pi's getContextUsage: with no answer's usage (here a failed request) it
+ * counts the system message and its tools besides the messages (pi's error capture: 0.7%; the messages alone, as
+ * before: 0.0%) ---- */
+
+static void test_context_figure(void)
+{
+    static const char *keys[] = { "hello\r", "\004", 0 };
+    static const char *const ans[] = { "error.1.http" };
+    char path[600], want[24], num[16];
+    const char *row = 0;
+    pi_s3 st;
+    pi_ctx c;
+    long tok = -2, win = 0, tenths;
+    int r;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 25, keys, ans, 1, take_shot), 0);
+    for (r = 0; r < nshot; r++)
+        if (strstr(shot[r], "(auto)"))
+            row = shot[r];
+    CHECK(row != 0);
+    CHECK_INT(app_newest(path, sizeof(path)), 0);
+    s3_init(&st, &asys, adv_now, 0, 1, 7);
+    if (!s3_open(&st, path)) {
+        ctx_init(&c);
+        if (!ctx_build(&st, st.leaf, &c))
+            tok = cp_context_usage(&st, st.leaf, &c);
+        ctx_free(&c);
+    }
+    s3_free(&st);
+    CHECK(tok > 500);           /* the system prompt and the tools' declarations */
+    /* the window as the footer names it after the slash ("1.0M", "200k") */
+    if (row && strstr(row, "%/")) {
+        const char *w = strstr(row, "%/") + 2;
+        win = strtol(w, (char **)&w, 10);
+        if (*w == '.') {
+            long frac = strtol(w + 1, (char **)&w, 10);
+            win = win * 10 + frac;
+            win = *w == 'M' ? win * 100000 : win * 100;
+        } else
+            win = *w == 'M' ? win * 1000000 : *w == 'k' ? win * 1000 : win;
+    }
+    CHECK(win > 0);
+    if (win > 0 && tok > 0) {
+        tenths = (tok * 1000 + win / 2) / win;
+        cl_ltoa(tenths / 10, want);
+        cl_cat(want, ".", sizeof(want));
+        cl_ltoa(tenths % 10, num);
+        cl_cat(want, num, sizeof(want));
+        cl_cat(want, "%/", sizeof(want));
+        CHECK(tenths > 0);
+        CHECK(row && strstr(row, want) != 0);
+        if (row && !strstr(row, want))
+            printf("  context figure: want %s in [%s]\n", want, row);
+    }
+}
+
+
+/* ---- Ctrl+D on an empty editor ends pi at once (custom-editor.js app.exit, interactive-mode.js handleCtrlD:
+ * shutdown), also while the agent works ---- */
+
+static void test_ctrl_d(void)
+{
+    static const char *idle[] = { "\004", "hello\r", 0 };
+    static const char *busy[] = { "read the file\r", "!\004", "second\r", 0 };
+    static const char *const one[] = { "markdown.1.sse" };
+    static const char *const tool[] = { "tool.1.sse", "tool.2.sse", "markdown.1.sse" };
+    CHECK_INT(app_run(80, 25, idle, one, 1, 0), 0);
+    CHECK_INT(ps.nreq, 0);                  /* gone at the first Ctrl+D: "hello" was never sent */
+    CHECK_INT(app_run(80, 25, busy, tool, 3, 0), 0);
+    CHECK_INT(ps.nreq, 1);                  /* the run stopped in the tool turn and the program ended */
 }
 
 
@@ -1319,6 +1396,8 @@ void suite_pi_tui(void)
     test_tree_nav();
     test_export();
     test_bang();
+    test_context_figure();
+    test_ctrl_d();
     test_themes();
     test_theme_keys_app();
     test_approval();
