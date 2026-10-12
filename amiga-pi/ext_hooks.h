@@ -40,7 +40,6 @@ typedef struct pi_hooks {
     pi_session *s;
     cl_settings cfg;
     cl_hooks h;
-    int turn;                   /* turn_start's turnIndex: 0 at agent_start, +1 at each turn_end */
     long errors;                /* hooks that failed (told, not blocking) */
 } pi_hooks;
 

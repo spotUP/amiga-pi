@@ -51,6 +51,7 @@ typedef struct pi_exts {
     /* the running tool's structured content and details, for a tool_result extension that replaces the content
      * (pi: structuredContent is dropped unless the handler returns it too); set by the loop, 0 outside it */
     jw *structured, *details;
+    int turn;                   /* turn_start's turnIndex: 0 at agent_start, +1 after each turn_end (kept by pi_exts_event) */
     int thrown;                 /* the tool itself failed: its result's details are {} when it has none */
 } pi_exts;
 
