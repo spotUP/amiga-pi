@@ -238,6 +238,76 @@ int cp_should(long tokens, long window, long reserve)
     return tokens > window - reserve;
 }
 
+int cp_assistant_state(pi_s3 *st, int leaf, const char *msg, long n, cp_asst *o)
+{
+    int *path = 0, np, k, ai = -1, rc = 0;
+    o->projected = o->retained = 1;
+    o->after_edit = 0;
+    if (leaf < 0)
+        return 0;
+    np = s3_path(st, leaf, &path);
+    if (np < 0)
+        return -1;
+    for (k = np - 1; k >= 0 && ai < 0; k--) {           /* the latest entry holding this answer (pi: reverse search) */
+        const char *t;
+        long tn, j;
+        if (st->e[path[k]].type != S3_MESSAGE || st->e[path[k]].role != S3R_ASSISTANT)
+            continue;
+        t = s3_text(st, path[k], &tn);
+        if (!t)
+            continue;
+        for (j = 0; j + n <= tn; j++)
+            if (!memcmp(t + j, msg, (size_t)n)) {
+                ai = k;
+                break;
+            }
+    }
+    if (ai >= 0) {
+        pi_ctx c;
+        int compacted = 0, latest = -1;
+        ctx_init(&c);
+        if (ctx_build(st, leaf, &c)) {
+            rc = -1;
+        } else {
+            o->projected = 0;
+            for (k = 0; k < c.ne; k++)
+                if (c.esrc[k] == path[ai] && c.ecnt[k] > 0)
+                    o->projected = 1;
+        }
+        ctx_free(&c);
+        for (k = ai + 1; k < np; k++) {
+            if (st->e[path[k]].type == S3_COMPACTION)
+                compacted = 1;
+            if (st->e[path[k]].type == S3_CONTEXT_EDIT) {
+                o->after_edit = 1;
+                if (st->e[path[k]].target == path[ai])
+                    latest = path[k];
+            }
+        }
+        o->retained = !compacted;
+        if (latest >= 0) {                              /* its latest edit: a null replacement omits it */
+            const char *t;
+            long tn;
+            jv e, r;
+            t = s3_text(st, latest, &tn);
+            if (t && !json_parse(t, tn, &e) && (!json_get(e, "replacement", &r) || json_type(r) == J_NULL))
+                o->retained = 0;
+        }
+    }
+    free(path);
+    return rc;
+}
+
+int cp_overflow(int stop, int err_overflow, long input, long output, long window, long max_tokens, const cp_asst *a)
+{
+    int by_usage, deep, rec;
+    by_usage = err_overflow || (window > 0 && stop == LS_STOP && input > window) ||
+               (window > 0 && stop == LS_LENGTH && output == 0 && input * 100 >= window * 99);
+    deep = (err_overflow && a->retained) || (a->projected && !a->after_edit && by_usage);
+    rec = stop == LS_LENGTH && a->projected && max_tokens > 0 && output < max_tokens;
+    return (deep ? CP_OV_DEEP : 0) | (rec ? CP_OV_LENGTH : 0);
+}
+
 /* ---- cut points ---- */
 
 static int msg_role_is(const pi_ctx *c, int i, const char *const *roles)
