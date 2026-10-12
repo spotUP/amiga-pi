@@ -186,6 +186,19 @@ sc('overflow_length', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('pro
    answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), BIG('Cut short', 1200, 'max_tokens', 5), SUMMARY,
             A('Recovered after compaction.', 20)],
    session=True, settings={'compaction': {'keepRecentTokens': 10}})
+# agent_settled.aborted (agent-session.ts abort(): _agentRunAbortRequested is set by abort() while a run is active and by
+# nothing else): the abort command during the retry wait and during an auto-compaction says true, abort_retry during the
+# wait only cuts the wait (false)
+RETRY_WAIT = {'retry': {'enabled': True, 'maxRetries': 2, 'baseDelayMs': 4000}}
+OVERLOADED = ('http', 529, json.dumps({'type': 'error', 'error': {'type': 'overloaded_error', 'message': 'Overloaded'}}))
+sc('abort_in_retry', steps=[('send', P('hello')), ('gate', 'auto_retry_start'), ('cmd', {'type': 'abort'}), ('settle',)],
+   retry=True, settings=RETRY_WAIT, answers=[OVERLOADED, A('Never seen.')])
+sc('abort_retry_wait', steps=[('send', P('hello')), ('gate', 'auto_retry_start'), ('cmd', {'type': 'abort_retry'}), ('settle',)],
+   retry=True, settings=RETRY_WAIT, answers=[OVERLOADED, A('Never seen.')])
+sc('abort_in_compaction', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('send', P('and a third')), ('gate', 'compaction_start'),
+                                 ('cmd', {'type': 'abort'}), ('settle',)],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), OVERFLOW, SLOW(3, SUMMARY), A('Never seen.')],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}})
 sc('set_auto_compaction', steps=[('cmd', {'type': 'set_auto_compaction', 'enabled': False}), ('cmd', {'type': 'get_state'})], answers=[])
 sc('set_auto_retry', steps=[('cmd', {'type': 'set_auto_retry', 'enabled': False})], answers=[])
 sc('abort_retry', steps=[('cmd', {'type': 'abort_retry'})], answers=[])

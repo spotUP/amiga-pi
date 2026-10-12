@@ -141,6 +141,10 @@ typedef struct pi_session {
     int (*omit)(void *u, struct pi_session *s, int i);
     void *omit_u;
     int active;                 /* a prompt is running (pi's isStreaming) */
+    int retry_waiting;          /* the run waits out a retry delay (abort_retry cuts only this) */
+    int aborted;                /* pi's _agentRunAbortRequested (agent-session.ts abort(), 1.1.0): set by the abort of a run in
+                                 * progress (the RPC abort, Ctrl+C), by nothing else (not abort_retry, not abort_bash); cleared
+                                 * at the start of the next run; agent_settled reports it */
     int run_msg0, run_sys0;     /* the conversation's size when the run began: agent_end's messages are what came after */
     int sys_seen;               /* the transcript's system messages announced as message events so far */
     jw structured;              /* the tool call running now: pi's structuredContent of its result (JSON), empty none */

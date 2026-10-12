@@ -51,6 +51,7 @@ void pi_event_init(pi_event *e, int t)
     memset(e, 0, sizeof(*e));
     e->type = t;
     e->role = -1;
+    e->duration_ms = -1;
 }
 
 const char *pi_event_name(int type)
