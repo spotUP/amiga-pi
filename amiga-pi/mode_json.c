@@ -33,23 +33,13 @@ static void partial_message(const pi_session *s, const llm_acc *a, jw *w)
 {
     llm_meta m;
     llm_ts ts;
-    jw t;
-    char *at;
     llm_acc_meta(a, &m);
     ts.sec = 0;
     ts.ms = 0;
     if (s->now)
         ts = s->now(s->h.u);
-    jw_init(&t);
-    llm_m_assistant(&t, "[]", 2, &m, ts);
-    at = t.p ? strstr(t.p, "\"stopReason\":\"stop\"") : 0;
-    if (at) {
-        jw_raw(w, t.p, (long)(at - t.p) + 13);
-        jw_rawz(w, "\"pending\"");
-        jw_raw(w, at + 19, t.n - (long)(at - t.p) - 19);
-    } else
-        jw_raw(w, t.p, t.n);
-    jw_free(&t);
+    m.stop = LS_PENDING;
+    llm_m_assistant(w, "[]", 2, &m, ts);
 }
 
 /* message_update: pi's assistantMessageEvent for the stream event, without the cumulative message or `partial` */

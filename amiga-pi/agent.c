@@ -9,6 +9,7 @@
 #include "claude/repl.h"        /* cl_key_clean */
 
 long pi_agent_rounds;
+long pi_agent_prompts;
 
 static const char no_args[] = "{}";
 
@@ -25,6 +26,7 @@ void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_poo
     s->retry_on = 1;            /* pi's retry settings: enabled, 3 retries, the first wait 2 s */
     s->retry_max = 3;
     s->retry_base = 2000;
+    s->retry_max_delay = 60000;
     jw_init(&s->structured);
     pi_emitter_init(&s->em);
     pi_exts_init(&s->ext);
@@ -609,8 +611,9 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
 
 /* ---- the loop ---- */
 
-/* ---- pi's isRetryableAssistantError (pi-ai utils/retry.js): the error message against two lists of patterns, case
- * insensitive substrings; "." is any character and "x?" makes x optional, as in the regular expressions there ---- */
+/* ---- pi's isRetryableAssistantError (pi-ai utils/retry.js) and isContextOverflow (utils/overflow.js): the error message
+ * against lists of patterns, case insensitive substrings; "." is any character, "x?" makes x optional, "*" any run of
+ * characters, "~" any white space and "#" a number ([\d,]+), as in the regular expressions there ---- */
 
 static const char *const retry_pat[] = {
     "overloaded", "server_busy", "servers are currently busy", "currently experiencing high demand",
@@ -639,8 +642,31 @@ static int lower(int c)
 /* pattern p at the start of t */
 static int pat_at(const char *t, const char *p)
 {
+    int k;
     if (!*p)
         return 1;
+    if (p[0] == '*') {
+        for (k = 0;; k++) {
+            if (pat_at(t + k, p + 1))
+                return 1;
+            if (!t[k])
+                return 0;
+        }
+    }
+    if (p[0] == '~') {
+        for (k = 0;; k++) {
+            if (pat_at(t + k, p + 1))
+                return 1;
+            if (t[k] != ' ' && t[k] != '\t' && t[k] != '\n' && t[k] != '\r')
+                return 0;
+        }
+    }
+    if (p[0] == '#') {
+        for (k = 1; (t[k - 1] >= '0' && t[k - 1] <= '9') || t[k - 1] == ','; k++)
+            if (pat_at(t + k, p + 1))
+                return 1;
+        return 0;
+    }
     if (p[1] == '?') {
         if (pat_at(t, p + 2))
             return 1;
@@ -664,6 +690,37 @@ static int pat_any(const char *t, const char *const *list)
     return 0;
 }
 
+/* pi-ai's OVERFLOW_PATTERNS, each (?:x )? written out as its two spellings */
+static const char *const overflow_pat[] = {
+    "prompt too long", "prompt is too long", "prompt exceeds max length", "request_too_large",
+    "input is too long for requested model", "exceeds the context window",
+    "exceeds maximum context length of # token", "exceeds the maximum context length of # token",
+    "exceeds model'?s maximum context length of # token", "exceeds the model'?s maximum context length of # token",
+    "exceeds maximum context length~(#)", "exceeds the maximum context length~(#)",
+    "exceeds model'?s maximum context length~(#)", "exceeds the model'?s maximum context length~(#)",
+    "input token count*exceeds the maximum", "maximum prompt length is #", "reduce the length of the messages",
+    "maximum context length is # tokens", "exceeds maximum allowed input length of # token",
+    "exceeds the maximum allowed input length of # token", "input (# tokens) is longer than the model'?s context length (# tokens)",
+    "exceeds the limit of #", "exceeds the available context size", "greater than the context length",
+    "context window exceeds limit", "exceeded model token limit", "too large for model with # maximum context length",
+    "prompt has # tokens?, but the configured context size is # tokens?", "model_context_window_exceeded",
+    "prompt too long; exceeded context length", "prompt too long; exceeded max context length",
+    "range of input length should be", "context_length_exceeded", "context_length exceeded", "context length_exceeded",
+    "context length exceeded", "too many tokens", "token limit exceeded", 0
+};
+
+/* NON_OVERFLOW_PATTERNS: throttling and rate limits that read like an overflow ("Too many tokens, please wait") */
+static const char *const not_overflow_pat[] = { "rate limit", "too many requests", 0 };
+
+int pi_context_overflow(const char *em)
+{
+    if (!em || !*em)
+        return 0;
+    if (pat_at(em, "Throttling error:") || pat_at(em, "Service unavailable:") || pat_any(em, not_overflow_pat))
+        return 0;
+    return pat_any(em, overflow_pat);
+}
+
 int pi_retryable(const char *em)
 {
     if (!em || !*em)
@@ -671,10 +728,12 @@ int pi_retryable(const char *em)
     return !pat_any(em, norm_pat) && pat_any(em, retry_pat);
 }
 
-/* the run just ended on a failure pi retries (agent-session.js _willRetryAfterAgentEnd) */
+/* the run just ended on a failure pi retries (agent-session.js _willRetryAfterAgentEnd, _isRetryableError: a context overflow
+ * is not retried, the compaction check after the run takes it) */
 static int retry_will(const pi_session *s)
 {
-    return s->retry_on && s->attempt < s->retry_max && s->stop == LS_ERROR && !s->retry_stop && pi_retryable(s->err);
+    return s->retry_on && s->attempt < s->retry_max && s->stop == LS_ERROR && !s->retry_stop && !pi_context_overflow(s->err) &&
+           pi_retryable(s->err);
 }
 
 static void emit_retry_end(pi_session *s, int success, const char *final_error)
@@ -920,6 +979,7 @@ static int retry_wait(pi_session *s, long ms)
 int pi_prompt(pi_session *s, const char *text)
 {
     int rc;
+    pi_agent_prompts++;
     s->err[0] = 0;
     s->active = 1;
     s->attempt = 0;
@@ -930,13 +990,13 @@ int pi_prompt(pi_session *s, const char *text)
     rc = run(s, text);
     while (retry_will(s)) {
         pi_event e;
-        long delay = s->retry_base;
+        long delay = s->retry_base, cap = s->retry_max_delay;
         int k, last = s->nmsg - 1;
         s->attempt++;
-        for (k = 1; k < s->attempt && delay < 60000L; k++)
+        for (k = 1; k < s->attempt && delay < cap; k++)
             delay *= 2;
-        if (delay > 60000L)
-            delay = 60000L;
+        if (delay > cap)
+            delay = cap;
         pi_event_init(&e, PE_RETRY_START);
         e.n1 = s->attempt;
         e.n2 = s->retry_max;

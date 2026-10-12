@@ -451,6 +451,39 @@ static void totals(pi_ui *p, long *in, long *out, long *cr, long *cw, long *cost
     }
 }
 
+/* the window title as pi's updateTerminalTitle sets it: "pi - <session name> - <directory name>", or
+ * "pi - <directory name>" with no name (APP_TITLE is the letter pi). Set at the start and with every status. */
+void pi_dir_name(const char *path, char *out, int n)
+{
+    int end = (int)strlen(path), start;
+    while (end > 1 && path[end - 1] == '/')
+        end--;
+    if (end > 1 && path[end - 1] == ':')
+        end--;
+    for (start = end; start > 0 && path[start - 1] != '/' && path[start - 1] != ':'; start--)
+        ;
+    if (n <= 0)
+        return;
+    if (end - start > n - 1)
+        end = start + n - 1;
+    memcpy(out, path + start, (size_t)(end - start));
+    out[end - start] = 0;
+}
+
+static void window_title(pi_ui *p, cl_tui *t)
+{
+    pi_store *st = (pi_store *)p->s->command_u;
+    char nm[128], base[128];
+    pi_dir_name(ui_cwd, base, sizeof(base));
+    cl_copy(t->pi_title, "\317\200 - ", sizeof(t->pi_title));
+    if (st && p->s->command && s3_name(&st->s3, nm, sizeof(nm))) {
+        cl_cat(t->pi_title, nm, sizeof(t->pi_title));
+        cl_cat(t->pi_title, " - ", sizeof(t->pi_title));
+    }
+    cl_cat(t->pi_title, base, sizeof(t->pi_title));
+    tui_title(t, t->pi_title);
+}
+
 static void footer(pi_ui *p)
 {
     cl_tui *t = p->ui.tui;
@@ -460,6 +493,7 @@ static void footer(pi_ui *p)
     int level = s->model.reasoning ? s->thinking : 0;
     totals(p, &t_in, &t_out, &t_cr, &t_cw, &t_cost);
     cl_copy(t->pi_cwd, ui_cwd, sizeof(t->pi_cwd));
+    window_title(p, t);
     l[0] = 0;
     if (t_in) {
         cl_cat(l, "\342\206\221", sizeof(t->pi_left));
@@ -642,6 +676,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     t->ncmds = ui_ncmds;
     p->look = 1;
     show_init(sh, t);
+    window_title(p, t);         /* before the start, which writes it */
     if (tui_start(t)) {
         show_free(sh);
         tui_free(t);

@@ -14,12 +14,15 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include "pi_test.h"
 #include "claude/util.h"
 #include "pi_stub.h"
 #include "../amiga-pi/agent.h"
 #include "../amiga-pi/app.h"
+#include "../amiga-pi/host_posix.h"
 #include "../amiga-pi/mode_json.h"
 #include "../amiga-pi/mode_rpc.h"
 #include "../amiga-pi/session3.h"
@@ -520,7 +523,7 @@ static void sandbox_clear(void)
 }
 
 /* the scenario's files: models.json, settings.json from its cfg, the session and the extra files */
-static const char *extra_settings;
+static const char *extra_settings, *extra_retry;
 
 static int setup_files(jv cfg, char *session_arg, long cap)
 {
@@ -553,7 +556,10 @@ static int setup_files(jv cfg, char *session_arg, long cap)
     jw_strz(&st, think);
     jw_rawz(&st, ",\"retry\":{\"enabled\":");
     jw_rawz(&st, retry ? "true" : "false");
-    jw_rawz(&st, ",\"maxRetries\":2,\"baseDelayMs\":100},\"quietStartup\":true");
+    jw_rawz(&st, ",\"maxRetries\":2,\"baseDelayMs\":100");
+    if (extra_retry)
+        jw_rawz(&st, extra_retry);
+    jw_rawz(&st, "},\"quietStartup\":true");
     if (json_get(cfg, "settings", &s) && json_type(s) == J_OBJ) {
         json_iter(s, &it);
         while (json_next(&it, &v, &e)) {
@@ -647,6 +653,11 @@ typedef struct run_opts {
     int rc;
     const char *force_mode;         /* run the scenario's answers in this mode (rpc) whatever its cfg says */
     const char *extra_settings;     /* members added to settings.json ("\"permissionGate\":true") */
+    const char *extra_retry;        /* members added to its "retry" object (",\"maxAgentDelayMs\":40") */
+    const char *first_http;         /* the whole HTTP answer given instead of the scenario's first, when that one is http */
+    int host;                       /* run through the host binary's console (host_posix.c: its stdin reader, stdout, stderr), not
+                                     * this test's: in a child process, the commands on a pipe as its stdin */
+    long prompts;                   /* out with host: pi_prompt calls the run made */
     int nocmp;                      /* do not compare with the golden: the caller reads the output */
     char *out;                      /* out with nocmp: the records, malloc'ed */
 } run_opts;
@@ -703,6 +714,59 @@ static char *dup_text(const char *t)
     return c;
 }
 
+/* a run through pi_host_run(), the host binary's own program: the commands are its stdin (a pipe), the records its stdout
+ * (a pipe), in a child process that has the stub transport; what the child counted (the exit code of pi_app, the loop's
+ * rounds, the pi_prompt calls) comes back on a third pipe. 0 when the child ran. */
+static int host_run(int argc, char **argv, const pi_platform *over, const char *input, jw *out, int *rc, long *rounds, long *prompts)
+{
+    int in_p[2], out_p[2], st_p[2], status;
+    pid_t pid;
+    char buf[4096], rep[128];
+    long n, got = 0;
+    if (pipe(in_p) || pipe(out_p) || pipe(st_p))
+        return -1;
+    fflush(stdout);
+    pid = fork();
+    if (pid < 0)
+        return -1;
+    if (pid == 0) {
+        int r;
+        long r0 = pi_agent_rounds, p0 = pi_agent_prompts;     /* the parent's, copied */
+        dup2(in_p[0], 0);
+        dup2(out_p[1], 1);
+        close(in_p[0]);
+        close(in_p[1]);
+        close(out_p[0]);
+        close(out_p[1]);
+        close(st_p[0]);
+        alarm(30);                      /* a reader that never delivers must fail the test, not hang it */
+        if (chdir(proj) || setenv("PI_CODING_AGENT_DIR", agent, 1) || setenv("TMPDIR", root, 1))
+            _exit(2);
+        r = pi_host_run(argc, argv, over);
+        snprintf(rep, sizeof(rep), "%d %ld %ld\n", r, pi_agent_rounds - r0, pi_agent_prompts - p0);
+        if (write(st_p[1], rep, strlen(rep)) < 0)
+            _exit(3);
+        _exit(0);
+    }
+    close(in_p[0]);
+    close(out_p[1]);
+    close(st_p[1]);
+    if (write(in_p[1], input, strlen(input)) < 0)
+        CHECK(0);
+    close(in_p[1]);                     /* the end of the input: the run goes on to its end */
+    while ((n = (long)read(out_p[0], buf, sizeof(buf))) > 0)
+        jw_raw(out, buf, n);
+    close(out_p[0]);
+    while ((n = (long)read(st_p[0], rep + got, sizeof(rep) - 1 - (size_t)got)) > 0)
+        got += n;
+    close(st_p[0]);
+    rep[got] = 0;
+    waitpid(pid, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) || sscanf(rep, "%d %ld %ld", rc, rounds, prompts) != 3)
+        return -1;
+    return 0;
+}
+
 /* the scenario `name` run and compared with its golden; ro->inline_in replaces the golden's commands */
 static int scenario(const char *name, run_opts *ro)
 {
@@ -716,7 +780,9 @@ static int scenario(const char *name, run_opts *ro)
     cl_io io;
     jw wmask, gmask;
     long r0 = pi_agent_rounds;
-    char arg_store[8][300];
+    char arg_store[8][300], real_cwd[PATH_MAX];
+    const char *mcwd = proj;
+    long host_rounds = 0;
     int nstore = 0;
     jit it;
     jv a;
@@ -732,6 +798,7 @@ static int scenario(const char *name, run_opts *ro)
     }
     sandbox();
     extra_settings = ro ? ro->extra_settings : 0;
+    extra_retry = ro ? ro->extra_retry : 0;
     if (setup_files(cfg, session_arg, sizeof(session_arg))) {
         printf("  %s: sandbox failed\n", name);
         CHECK(0);
@@ -811,7 +878,9 @@ static int scenario(const char *name, run_opts *ro)
                 CHECK(0);
                 continue;
             }
-            if (!strcmp(kind, "http"))
+            if (!strcmp(kind, "http") && ro && ro->first_http && nans == 1)
+                ps_http_text(ro->first_http, (long)strlen(ro->first_http));
+            else if (!strcmp(kind, "http"))
                 ps_http_text(b, bn);
             else
                 ps_sse_text(b, bn, 0);
@@ -840,15 +909,35 @@ static int scenario(const char *name, run_opts *ro)
     pl.agent_dir = agent;
     pl.data_dir = data;
     pl.ready = ro ? ro->ready : 0;
-    i = pi_app(argc, argv, &pl);
+    if (ro && ro->host) {
+        char input[4096];
+        long k, rounds = 0, prompts = 0;
+        input[0] = 0;
+        for (k = 0; k < fd.nline; k++)
+            if (strncmp(fd.line[k], "#after ", 7) && strlen(input) + strlen(fd.line[k]) + 2 < sizeof(input)) {
+                strcat(input, fd.line[k]);
+                strcat(input, "\n");
+            }
+        i = -1;
+        if (host_run(argc, argv, &pl, input, &fd.out, &i, &rounds, &prompts)) {
+            printf("  %s: the host run failed\n", name);
+            CHECK(0);
+        }
+        ro->prompts = prompts;
+        host_rounds = rounds;
+        if (!realpath(proj, real_cwd))      /* the child's getcwd() is the real path */
+            strcpy(real_cwd, proj);
+        mcwd = real_cwd;
+    } else
+        i = pi_app(argc, argv, &pl);
     if (ro)
         ro->rc = i;
     (void)p;
 
     jw_init(&wmask);
     jw_init(&gmask);
-    masked_text(want_t, proj, &wmask);
-    masked_text(fd.out.p ? fd.out.p : "", proj, &gmask);
+    masked_text(want_t, mcwd, &wmask);
+    masked_text(fd.out.p ? fd.out.p : "", mcwd, &gmask);
     ok = wmask.p && gmask.p && !strcmp(wmask.p, gmask.p);
     if (ro && ro->nocmp) {
         ro->out = dup_text(fd.out.p ? fd.out.p : "");
@@ -858,7 +947,7 @@ static int scenario(const char *name, run_opts *ro)
     if (!ok)
         run_diff(name, wmask.p ? wmask.p : "", gmask.p ? gmask.p : "");
     if (ro)
-        ro->rounds = pi_agent_rounds - r0;
+        ro->rounds = ro->host ? host_rounds : pi_agent_rounds - r0;
     jw_free(&wmask);
     jw_free(&gmask);
     jw_free(&fd.out);
@@ -1048,6 +1137,55 @@ static void test_retry_cancel(void)
     free(ro.out);
 }
 
+/* HF2: settings retry.maxAgentDelayMs caps the wait before a retry (pi-ai retryDelayMs: min(base * 2^(attempt - 1), the cap)) */
+static void test_retry_cap(void)
+{
+    run_opts ro;
+    memset(&ro, 0, sizeof(ro));
+    ro.force_mode = "rpc";
+    ro.nocmp = 1;
+    ro.extra_retry = ",\"maxAgentDelayMs\":40";
+    ro.inline_in = "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello\"}\n#after agent_settled\n";
+    scenario("json_retry", &ro);
+    CHECK(has(ro.out, "\"type\":\"auto_retry_start\",\"attempt\":1,\"maxAttempts\":2,\"delayMs\":40,"));
+    CHECK(has(ro.out, "Recovered."));
+    free(ro.out);
+    /* not set: the base delay of the settings stands (the golden json_retry) */
+    memset(&ro, 0, sizeof(ro));
+    ro.force_mode = "rpc";
+    ro.nocmp = 1;
+    ro.inline_in = "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello\"}\n#after agent_settled\n";
+    scenario("json_retry", &ro);
+    CHECK(has(ro.out, "\"type\":\"auto_retry_start\",\"attempt\":1,\"maxAttempts\":2,\"delayMs\":100,"));
+    free(ro.out);
+}
+
+/* HF2: an answer that failed because the request outgrew the window (HTTP 500 from llama.cpp's server, whose text 500
+ * would have it retried) is not retried: one request, no auto_retry events, the run settles (the compaction check takes it
+ * as pi does); the same status with another text is retried */
+static void test_retry_overflow(void)
+{
+    static const char body[] = "{\"error\":{\"message\":\"the request exceeds the available context size, try increasing it\"}}";
+    char http[400], len[16];
+    run_opts ro;
+    memset(&ro, 0, sizeof(ro));
+    cl_ltoa((long)strlen(body), len);
+    strcpy(http, "HTTP/1.1 500 X\r\ncontent-type: application/json\r\ncontent-length: ");
+    strcat(http, len);
+    strcat(http, "\r\n\r\n");
+    strcat(http, body);
+    ro.force_mode = "rpc";
+    ro.nocmp = 1;
+    ro.first_http = http;
+    ro.inline_in = "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello\"}\n#after agent_settled\n";
+    scenario("json_retry", &ro);
+    CHECK(has(ro.out, "exceeds the available context size"));
+    CHECK(!has(ro.out, "auto_retry_start"));
+    CHECK(has(ro.out, "\"type\":\"agent_settled\""));
+    CHECK_INT(ps.nreq, 1);
+    free(ro.out);
+}
+
 /* the permission gate over RPC: its question is a select; No blocks the call, Yes runs it */
 static void test_gate(void)
 {
@@ -1074,17 +1212,18 @@ static void test_gate(void)
     }
 }
 
-/* H7: the reachability test. An RPC `prompt` line on the input of pi_app() drives pi_prompt() -- two rounds of the loop
- * (the read call, then the answer) are the sentinel -- and the stream written equals the golden's */
+/* H7: the reachability test, through the host binary's real stdin path (HF3): an RPC `prompt` line on the stdin of
+ * pi_host_run() -- main_posix.c's program, its reader, its stdout -- drives pi_prompt() (called once, the sentinel
+ * pi_agent_prompts; two rounds of the loop: the read call, then the answer), and the stream written equals the golden's */
 static void test_reach(void)
 {
     run_opts ro;
-    long before = pi_agent_rounds;
     memset(&ro, 0, sizeof(ro));
+    ro.host = 1;
     CHECK(scenario("prompt_tool", &ro));
     CHECK_INT(ro.rc, 0);
+    CHECK_INT(ro.prompts, 1);
     CHECK_INT(ro.rounds, 2);
-    CHECK_INT(pi_agent_rounds - before, 2);
 }
 
 /* H6: the C SDK. tests/pi/sdk_example.c is a program on piapi.h; here it runs over the stub: two prompts, a subscriber, a
@@ -1170,10 +1309,34 @@ static void test_retryable(void)
     CHECK(!pi_retryable(0));
 }
 
+/* HF2: pi-ai's isContextOverflow on error texts; a throttling text that mentions tokens is not one */
+static void test_overflow(void)
+{
+    CHECK(pi_context_overflow("prompt is too long: 213462 tokens > 200000 maximum"));
+    CHECK(pi_context_overflow("413 {\"error\":{\"type\":\"request_too_large\"}}"));
+    CHECK(pi_context_overflow("Your input exceeds the context window of this model"));
+    CHECK(pi_context_overflow("Requested token count exceeds the model's maximum context length of 131072 tokens"));
+    CHECK(pi_context_overflow("Input length (265330) exceeds model's maximum context length (262144)."));
+    CHECK(pi_context_overflow("The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)"));
+    CHECK(pi_context_overflow("This model's maximum prompt length is 131072 but the request contains 537812 tokens"));
+    CHECK(pi_context_overflow("This endpoint's maximum context length is 8192 tokens. However, you requested about 9000 tokens"));
+    CHECK(pi_context_overflow("The input (9,000 tokens) is longer than the model's context length (8192 tokens)."));
+    CHECK(pi_context_overflow("the request exceeds the available context size, try increasing it"));
+    CHECK(pi_context_overflow("Prompt has 9000 tokens, but the configured context size is 8192 tokens"));
+    CHECK(pi_context_overflow("400 context_length_exceeded"));
+    CHECK(!pi_context_overflow("Throttling error: Too many tokens, please wait before trying again."));
+    CHECK(!pi_context_overflow("429 rate limit: too many tokens per minute"));
+    CHECK(!pi_context_overflow("529 overloaded_error"));
+    CHECK(!pi_context_overflow("Connection error."));
+    CHECK(!pi_context_overflow(""));
+    CHECK(!pi_context_overflow(0));
+}
+
 void suite_pi_modes(void)
 {
     CHECK(load_masks());
     test_retryable();
+    test_overflow();
     test_command_set();
     test_json();
     test_framing();
@@ -1186,5 +1349,7 @@ void suite_pi_modes(void)
     test_reach();
     test_sdk();
     test_retry_cancel();
+    test_retry_cap();
+    test_retry_overflow();
     test_gate();
 }
