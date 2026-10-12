@@ -957,6 +957,32 @@ static void test_skills_data_dir(void)
     pi_skills_free(&k);
 }
 
+/* a directory of more than 200 skills: every one is found (a fixed-size entry list used to drop the rest without a word) */
+static void test_skills_many(void)
+{
+    pi_skills k;
+    pi_skill_opts o;
+    char agent[400], cwd[400], rel[80], num[16];
+    int i;
+    for (i = 0; i < 300; i++) {
+        sprintf(num, "%03d", i);
+        strcpy(rel, "many/agent/skills/s");
+        strcat(rel, num);
+        strcat(rel, "/SKILL.md");
+        put(rel, "---\ndescription: One of many\n---\nB\n");
+    }
+    at(agent, sizeof(agent), "many/agent");
+    at(cwd, sizeof(cwd), "many/w");
+    mkdirs(cwd);
+    memset(&o, 0, sizeof(o));
+    o.agent_dir = agent;
+    o.cwd = cwd;
+    CHECK_INT(pi_skills_load(&k, &sys, &o), 0);
+    CHECK_INT(k.n, 300);
+    CHECK_INT(k.nd, 0);
+    pi_skills_free(&k);
+}
+
 /* --skill and --no-skills on the command line (pi cli/args.ts:193-195, 210-211) */
 static void test_skills_args(void)
 {
@@ -1088,6 +1114,7 @@ void suite_pi_resources(void)
     test_skills_goldens();
     test_skills_args();
     test_skills_data_dir();
+    test_skills_many();
     test_reach_skills();
     jw_free(&out);
     ps_reset();

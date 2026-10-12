@@ -731,15 +731,25 @@ static const char *base_name(const char *path)
 /* ---- directory scans (pi: collectSkillEntries, loadSkillsFromDirInternal) with the ignore files of skills.ts ---- */
 
 typedef struct scan_ent {
-    cl_dirent e[200];
-    int n;
+    cl_dirent *e;
+    int n, cap;
+    int oom;
 } scan_ent;
 
 static int scan_cb(void *c, const cl_dirent *e)
 {
     scan_ent *s = (scan_ent *)c;
-    if (s->n < 200)
-        s->e[s->n++] = *e;
+    if (s->n == s->cap) {
+        int nc = s->cap ? s->cap * 2 : 64;
+        cl_dirent *q = (cl_dirent *)realloc(s->e, sizeof(cl_dirent) * (size_t)nc);
+        if (!q) {
+            s->oom = 1;
+            return 1;
+        }
+        s->e = q;
+        s->cap = nc;
+    }
+    s->e[s->n++] = *e;
     return 0;
 }
 
@@ -835,13 +845,14 @@ static int scan_dir(sk_ctx *c, const char *dir, const char *rel, int agents, ig_
         return 0;
     if (add_ignore_rules(c, ig, dir, rel))
         return -1;
-    se = (scan_ent *)malloc(sizeof(scan_ent));
+    se = (scan_ent *)calloc(1, sizeof(scan_ent));
     if (!se)
         return -1;
-    se->n = 0;
-    if (c->sys->list(c->sys->u, dir, scan_cb, se)) {
+    if (c->sys->list(c->sys->u, dir, scan_cb, se) || se->oom) {
+        int oom = se->oom;
+        free(se->e);
         free(se);
-        return 0;
+        return oom ? -1 : 0;
     }
     qsort(se->e, (size_t)se->n, sizeof(cl_dirent), ent_cmp);
     for (i = 0; i < se->n; i++) {
@@ -859,6 +870,7 @@ static int scan_dir(sk_ctx *c, const char *dir, const char *rel, int agents, ig_
         if (ig_match(ig, relp, 0) == 1)
             continue;
         rc = fl_add_base(out, full, c->cur_source, c->cur_scope, 0, c->cur_base ? c->cur_base : "");
+        free(se->e);
         free(se);
         return rc;
     }
@@ -885,6 +897,7 @@ static int scan_dir(sk_ctx *c, const char *dir, const char *rel, int agents, ig_
             continue;
         rc = scan_dir(c, full, relp, agents, ig, out, depth + 1);
     }
+    free(se->e);
     free(se);
     return rc;
 }
