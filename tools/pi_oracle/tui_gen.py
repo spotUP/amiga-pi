@@ -207,6 +207,13 @@ SCENARIOS = {
                            answers=[('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),
                                     ('sse', text_answer('msg_t2', 'Done reading notes.txt: three lines.', 20))],
                            theme='dark', settings={'outputPad': 0}),
+    # P11 (pi 1.1.0 terminal.ts:296-298): the bytes pi writes to its terminal at start, taken from the pty with tmux pipe-pane
+    # (PI_TUI_WRITE_LOG sees only the renderer's writes, not the startup queries): kitty flags + query, the OSC 7501 program
+    # status query, then device attributes. tmux answers none of OSC 7501, so no status is ever reported.
+    'start_bytes': dict(steps=[('sleep', 1.0)], answers=[], pipe=True),
+    # PI_PROGRAM_STATUS=1 reports without asking: `working` while the turn runs, `done` after (program-status-reporter.ts)
+    'status_bytes': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'late answer'), ('sleep', 1.5)],
+                         answers=[('sse', text_answer('msg_n', 'late answer', 20))], pipe=True, env='PI_PROGRAM_STATUS=1'),
     # P11: a resumed session shows `Took` from the recorded durationMs of the toolResult (2300 ms: "Took 2.3s"); the
     # second call has none recorded and shows no Took (tool-execution.ts:137, renderers/bash.ts:104)
     'resume_took': dict(steps=[('sleep', 1.0)], answers=[], session='took_session.jsonl'),
@@ -343,9 +350,14 @@ def run(name, sc, cols, rows, keep):
     rawlog = os.path.join(work, 'raw.log')
     if sc.get('raw'):
         env = env.replace('env -i ', 'env -i PI_TUI_WRITE_LOG=%s ' % rawlog)
+    if sc.get('env'):
+        env = env.replace('env -i ', 'env -i %s ' % sc['env'])
+    pipelog = os.path.join(work, 'pty.bytes')
     tmux('new-session', '-d', '-s', sess, '-x', str(cols), '-y', str(rows), '-c', proj,
          env + (PI + (' --session session.jsonl' if sc.get('session') else '' if sc.get('persist') else ' --no-session')))
     tmux('set-option', '-t', sess, 'remain-on-exit', 'on')
+    if sc.get('pipe'):
+        tmux('pipe-pane', '-t', sess, 'cat > %s' % pipelog)
     try:
         wait_text(sess, MODEL, 30)       # the footer names the model once pi is up
         time.sleep(4.0 if sc.get('session') else 1.0)     # a session is loaded after that
@@ -388,6 +400,8 @@ def run(name, sc, cols, rows, keep):
             f.write(keep(capture(sess, False)) if HIST else capture(sess, False))
         with open(os.path.join(OUT, name + '.mode'), 'w') as f:      # what tmux saw before pi left
             f.write('pi=%s tuiMode=%s theme=%s alternate_screen=%s\n' % (PI_VERSION, sc.get('tui', 'fullscreen'), sc.get('theme', 'system'), shots['alt']))
+        if sc.get('pipe'):
+            shutil.copyfile(pipelog, os.path.join(OUT, name + '.bytes'))
         if sc.get('raw'):
             shutil.copyfile(rawlog, os.path.join(OUT, name + '.raw'))
         for i, a in enumerate(sc['answers']):

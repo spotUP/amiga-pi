@@ -764,6 +764,13 @@ int pi_rt_run(pi_rt *rt)
         pi_ui_set_quiet(quiet_setting(pl));
         pi_ui_set_output_pad(output_pad_setting(pl));
         {
+            char ps[8];
+            ps[0] = 0;
+            if (pl->getenv)
+                pl->getenv("PI_PROGRAM_STATUS", ps, sizeof(ps));
+            pi_ui_set_program_status(!strcmp(ps, "1"));       /* pi: "1" always report, "0" never, else ask the terminal */
+        }
+        {
             int reg, hint, bar;
             tui_settings(pl, a.tui_mode, &reg, &hint, &bar);
             pi_ui_set_tui(reg, hint, bar);
