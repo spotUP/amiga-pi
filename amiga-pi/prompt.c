@@ -143,6 +143,19 @@ int pi_prompt_sections(const pi_session *s, const char *cwd, pi_psec *out)
         close_tag(&out->text, "project_context");
         section(out, "project_context", at);
     }
+    if (r && r->skills.n) {
+        /* pi's skills section: the reader named is the first of read and bash that the session has */
+        jw sk;
+        jw_init(&sk);
+        if ((has(s, "read") || has(s, "bash")) && pi_skills_format(&r->skills, has(s, "read") ? "read" : "bash", &sk) == 0 && sk.n) {
+            at = out->text.n;
+            open_tag(&out->text, "skills");
+            jw_raw(&out->text, sk.p, sk.n);
+            close_tag(&out->text, "skills");
+            section(out, "skills", at);
+        }
+        jw_free(&sk);
+    }
     at = out->text.n;
     open_tag(&out->text, "cwd");
     for (c = cwd ? cwd : ""; *c; c++)

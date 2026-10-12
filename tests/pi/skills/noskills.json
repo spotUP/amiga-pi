@@ -1,0 +1,25 @@
+{
+ "skills": [
+  {
+   "name": "one",
+   "description": "A file given with --skill",
+   "filePath": "@ROOT@/noskills/w/proj/extra/one.md",
+   "baseDir": "@ROOT@/noskills/w/proj/extra",
+   "disableModelInvocation": false,
+   "label": "path (temp)",
+   "command": "[t] A file given with --skill"
+  }
+ ],
+ "diagnostics": [],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:one\",\"description\":\"A file given with --skill\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/noskills/w/proj/extra/one.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/noskills/w/proj/extra\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>one</name>\n    <description>A file given with --skill</description>\n    <location>@ROOT@/noskills/w/proj/extra/one.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": [
+  {
+   "input": "/skill:one",
+   "output": "<skill name=\"one\" location=\"@ROOT@/noskills/w/proj/extra/one.md\">\nReferences are relative to @ROOT@/noskills/w/proj/extra.\n\nBody of one.\n\nSecond paragraph.\n</skill>"
+  }
+ ]
+}

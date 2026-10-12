@@ -1,0 +1,58 @@
+{
+ "skills": [
+  {
+   "name": "alpha",
+   "description": "Alpha does <things> & \"more\" it's 'x'",
+   "filePath": "@ROOT@/untrusted/agent/skills/alpha/SKILL.md",
+   "baseDir": "@ROOT@/untrusted/agent/skills/alpha",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Alpha does <things> & \"more\" it's 'x'"
+  },
+  {
+   "name": "beta",
+   "description": "Beta is hidden from the model",
+   "filePath": "@ROOT@/untrusted/agent/skills/beta/SKILL.md",
+   "baseDir": "@ROOT@/untrusted/agent/skills/beta",
+   "disableModelInvocation": true,
+   "label": "auto (user)",
+   "command": "[u] Beta is hidden from the model"
+  },
+  {
+   "name": "skills",
+   "description": "A loose file in the skills directory",
+   "filePath": "@ROOT@/untrusted/agent/skills/gamma.md",
+   "baseDir": "@ROOT@/untrusted/agent/skills",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] A loose file in the skills directory"
+  },
+  {
+   "name": "ag",
+   "description": "From the user's agents directory",
+   "filePath": "@ROOT@/untrusted/agent/agents-skills/ag/SKILL.md",
+   "baseDir": "@ROOT@/untrusted/agent/agents-skills/ag",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] From the user's agents directory"
+  }
+ ],
+ "diagnostics": [],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:alpha\",\"description\":\"Alpha does <things> & \\\"more\\\" it's 'x'\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/untrusted/agent/skills/alpha/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/untrusted/agent\"}},{\"name\":\"skill:beta\",\"description\":\"Beta is hidden from the model\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/untrusted/agent/skills/beta/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/untrusted/agent\"}},{\"name\":\"skill:skills\",\"description\":\"A loose file in the skills directory\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/untrusted/agent/skills/gamma.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/untrusted/agent\"}},{\"name\":\"skill:ag\",\"description\":\"From the user's agents directory\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/untrusted/agent/agents-skills/ag/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/untrusted/agent\"}}]",
+ "sections": {
+  "read+bash": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>alpha</name>\n    <description>Alpha does &lt;things&gt; &amp; &quot;more&quot; it&apos;s &apos;x&apos;</description>\n    <location>@ROOT@/untrusted/agent/skills/alpha/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>skills</name>\n    <description>A loose file in the skills directory</description>\n    <location>@ROOT@/untrusted/agent/skills/gamma.md</location>\n  </skill>\n  <skill>\n    <name>ag</name>\n    <description>From the user&apos;s agents directory</description>\n    <location>@ROOT@/untrusted/agent/agents-skills/ag/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>",
+  "bash": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse bash to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>alpha</name>\n    <description>Alpha does &lt;things&gt; &amp; &quot;more&quot; it&apos;s &apos;x&apos;</description>\n    <location>@ROOT@/untrusted/agent/skills/alpha/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>skills</name>\n    <description>A loose file in the skills directory</description>\n    <location>@ROOT@/untrusted/agent/skills/gamma.md</location>\n  </skill>\n  <skill>\n    <name>ag</name>\n    <description>From the user&apos;s agents directory</description>\n    <location>@ROOT@/untrusted/agent/agents-skills/ag/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>",
+  "grep": null
+ },
+ "expand": [
+  {
+   "input": "/skill:proj-skill",
+   "output": "/skill:proj-skill"
+  },
+  {
+   "input": "/skill:alpha x",
+   "output": "<skill name=\"alpha\" location=\"@ROOT@/untrusted/agent/skills/alpha/SKILL.md\">\nReferences are relative to @ROOT@/untrusted/agent/skills/alpha.\n\nBody of alpha.\n\nSecond paragraph.\n</skill>\n\nx"
+  }
+ ]
+}

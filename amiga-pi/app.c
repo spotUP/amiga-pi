@@ -794,6 +794,18 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
             return 2;
         }
         pi_res_load(&res, pl->sys, pl->agent_dir, pl->cwd, trusted);
+        {
+            /* the skills (skills.h): default directories, settings.json, --skill; --no-skills leaves out all but --skill */
+            pi_skill_opts so;
+            so.agent_dir = pl->agent_dir;
+            so.data_dir = pl->data_dir;
+            so.cwd = pl->cwd;
+            so.trusted = trusted;
+            so.none = a.no_skills;
+            so.paths = a.skills;
+            so.npaths = a.nskills;
+            pi_skills_load(&res.skills, pl->sys, &so);
+        }
         s.res = &res;
     }
     /* prompt templates (templates.h): --prompt-template paths, then the project's (when trusted) and the agent directory's */

@@ -1,0 +1,256 @@
+{
+ "skills": [
+  {
+   "name": "comment",
+   "description": "Before",
+   "filePath": "@ROOT@/validation/agent/skills/comment/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/comment",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Before"
+  },
+  {
+   "name": "crlf",
+   "description": "Windows line endings",
+   "filePath": "@ROOT@/validation/agent/skills/crlf/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/crlf",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Windows line endings"
+  },
+  {
+   "name": "dbl--hy",
+   "description": "Consecutive hyphens",
+   "filePath": "@ROOT@/validation/agent/skills/dbl/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/dbl",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Consecutive hyphens"
+  },
+  {
+   "name": "dirname-only",
+   "description": "Name from the directory",
+   "filePath": "@ROOT@/validation/agent/skills/dirname-only/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/dirname-only",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Name from the directory"
+  },
+  {
+   "name": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "description": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "filePath": "@ROOT@/validation/agent/skills/exact64/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/exact64",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  {
+   "name": "folded",
+   "description": "First line second line\nafter a gap",
+   "filePath": "@ROOT@/validation/agent/skills/folded/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/folded",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] First line second line\nafter a gap"
+  },
+  {
+   "name": "-lead",
+   "description": "Leading hyphen",
+   "filePath": "@ROOT@/validation/agent/skills/lead/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/lead",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Leading hyphen"
+  },
+  {
+   "name": "literal",
+   "description": "Line one\nLine two\n",
+   "filePath": "@ROOT@/validation/agent/skills/literal/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/literal",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Line one\nLine two\n"
+  },
+  {
+   "name": "longdesc",
+   "description": "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+   "filePath": "@ROOT@/validation/agent/skills/longdesc/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/longdesc",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  {
+   "name": "multiline",
+   "description": "one two three",
+   "filePath": "@ROOT@/validation/agent/skills/multiline/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/multiline",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] one two three"
+  },
+  {
+   "name": "nomodel-caps",
+   "description": "Hidden by True",
+   "filePath": "@ROOT@/validation/agent/skills/nomodel-caps/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/nomodel-caps",
+   "disableModelInvocation": true,
+   "label": "auto (user)",
+   "command": "[u] Hidden by True"
+  },
+  {
+   "name": "nomodel-str",
+   "description": "A string true is not true",
+   "filePath": "@ROOT@/validation/agent/skills/nomodel-str/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/nomodel-str",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] A string true is not true"
+  },
+  {
+   "name": "numname",
+   "description": "A number is not a string",
+   "filePath": "@ROOT@/validation/agent/skills/numname/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/numname",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] A number is not a string"
+  },
+  {
+   "name": "quoted",
+   "description": "Tab\there é \"q\" and \\",
+   "filePath": "@ROOT@/validation/agent/skills/quoted/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/quoted",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Tab\there é \"q\" and \\"
+  },
+  {
+   "name": "single",
+   "description": "It's single",
+   "filePath": "@ROOT@/validation/agent/skills/single/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/single",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] It's single"
+  },
+  {
+   "name": "tail-",
+   "description": "Trailing hyphen",
+   "filePath": "@ROOT@/validation/agent/skills/tail/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/tail",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Trailing hyphen"
+  },
+  {
+   "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "description": "Name too long",
+   "filePath": "@ROOT@/validation/agent/skills/toolong/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/toolong",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Name too long"
+  },
+  {
+   "name": "unicode",
+   "description": "café 😀 emoji counts two",
+   "filePath": "@ROOT@/validation/agent/skills/unicode/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/unicode",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] café 😀 emoji counts two"
+  },
+  {
+   "name": "Upper_Case",
+   "description": "Bad characters",
+   "filePath": "@ROOT@/validation/agent/skills/upper/SKILL.md",
+   "baseDir": "@ROOT@/validation/agent/skills/upper",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Bad characters"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "warning",
+   "message": "description is required",
+   "path": "@ROOT@/validation/agent/skills/bare/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "description is required",
+   "path": "@ROOT@/validation/agent/skills/blankdesc/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "description is required",
+   "path": "@ROOT@/validation/agent/skills/bothbad/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)",
+   "path": "@ROOT@/validation/agent/skills/bothbad/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Nested mappings are not allowed in compact mappings at line 2, column 14:\n\ndescription: Use when: something happens\n             ^\n",
+   "path": "@ROOT@/validation/agent/skills/colon/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "name must not contain consecutive hyphens",
+   "path": "@ROOT@/validation/agent/skills/dbl/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "name must not start or end with a hyphen",
+   "path": "@ROOT@/validation/agent/skills/lead/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "description exceeds 1024 characters (1025)",
+   "path": "@ROOT@/validation/agent/skills/longdesc/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "description is required",
+   "path": "@ROOT@/validation/agent/skills/nodesc/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "name must not start or end with a hyphen",
+   "path": "@ROOT@/validation/agent/skills/tail/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "name exceeds 64 characters (65)",
+   "path": "@ROOT@/validation/agent/skills/toolong/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)",
+   "path": "@ROOT@/validation/agent/skills/upper/SKILL.md"
+  }
+ ],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:comment\",\"description\":\"Before\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/comment/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:crlf\",\"description\":\"Windows line endings\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/crlf/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:dbl--hy\",\"description\":\"Consecutive hyphens\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/dbl/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:dirname-only\",\"description\":\"Name from the directory\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/dirname-only/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"description\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/exact64/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:folded\",\"description\":\"First line second line\\nafter a gap\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/folded/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:-lead\",\"description\":\"Leading hyphen\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/lead/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:literal\",\"description\":\"Line one\\nLine two\\n\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/literal/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:longdesc\",\"description\":\"ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/longdesc/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:multiline\",\"description\":\"one two three\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/multiline/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:nomodel-caps\",\"description\":\"Hidden by True\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/nomodel-caps/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:nomodel-str\",\"description\":\"A string true is not true\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/nomodel-str/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:numname\",\"description\":\"A number is not a string\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/numname/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:quoted\",\"description\":\"Tab\\there é \\\"q\\\" and \\\\\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/quoted/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:single\",\"description\":\"It's single\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/single/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:tail-\",\"description\":\"Trailing hyphen\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/tail/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"description\":\"Name too long\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/toolong/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:unicode\",\"description\":\"café 😀 emoji counts two\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/unicode/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}},{\"name\":\"skill:Upper_Case\",\"description\":\"Bad characters\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/validation/agent/skills/upper/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/validation/agent\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>comment</name>\n    <description>Before</description>\n    <location>@ROOT@/validation/agent/skills/comment/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>crlf</name>\n    <description>Windows line endings</description>\n    <location>@ROOT@/validation/agent/skills/crlf/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>dbl--hy</name>\n    <description>Consecutive hyphens</description>\n    <location>@ROOT@/validation/agent/skills/dbl/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>dirname-only</name>\n    <description>Name from the directory</description>\n    <location>@ROOT@/validation/agent/skills/dirname-only/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</name>\n    <description>dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd</description>\n    <location>@ROOT@/validation/agent/skills/exact64/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>folded</name>\n    <description>First line second line\nafter a gap</description>\n    <location>@ROOT@/validation/agent/skills/folded/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>-lead</name>\n    <description>Leading hyphen</description>\n    <location>@ROOT@/validation/agent/skills/lead/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>literal</name>\n    <description>Line one\nLine two\n</description>\n    <location>@ROOT@/validation/agent/skills/literal/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>longdesc</name>\n    <description>ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd</description>\n    <location>@ROOT@/validation/agent/skills/longdesc/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>multiline</name>\n    <description>one two three</description>\n    <location>@ROOT@/validation/agent/skills/multiline/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>nomodel-str</name>\n    <description>A string true is not true</description>\n    <location>@ROOT@/validation/agent/skills/nomodel-str/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>numname</name>\n    <description>A number is not a string</description>\n    <location>@ROOT@/validation/agent/skills/numname/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>quoted</name>\n    <description>Tab\there é &quot;q&quot; and \\</description>\n    <location>@ROOT@/validation/agent/skills/quoted/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>single</name>\n    <description>It&apos;s single</description>\n    <location>@ROOT@/validation/agent/skills/single/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>tail-</name>\n    <description>Trailing hyphen</description>\n    <location>@ROOT@/validation/agent/skills/tail/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</name>\n    <description>Name too long</description>\n    <location>@ROOT@/validation/agent/skills/toolong/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>unicode</name>\n    <description>café 😀 emoji counts two</description>\n    <location>@ROOT@/validation/agent/skills/unicode/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>Upper_Case</name>\n    <description>Bad characters</description>\n    <location>@ROOT@/validation/agent/skills/upper/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": [
+  {
+   "input": "/skill:folded",
+   "output": "<skill name=\"folded\" location=\"@ROOT@/validation/agent/skills/folded/SKILL.md\">\nReferences are relative to @ROOT@/validation/agent/skills/folded.\n\nBody\n</skill>"
+  },
+  {
+   "input": "/skill:crlf x",
+   "output": "<skill name=\"crlf\" location=\"@ROOT@/validation/agent/skills/crlf/SKILL.md\">\nReferences are relative to @ROOT@/validation/agent/skills/crlf.\n\nBody\n</skill>\n\nx"
+  },
+  {
+   "input": "/skill:bare",
+   "output": "/skill:bare"
+  }
+ ]
+}

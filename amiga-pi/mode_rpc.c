@@ -813,7 +813,7 @@ static void cmd_clear_queue(const cmd *c)
     jw_free(&d);
 }
 
-/* rpc-mode.ts get_commands: the prompt templates (the extension commands and skills come with their phases) */
+/* rpc-mode.ts:680-710 get_commands: the extension commands (Phase L), the prompt templates, then the skills, in that order */
 static void cmd_get_commands(const cmd *c)
 {
     const pi_tmpls *ts = c->r->rt ? c->r->rt->tmpls : 0;
@@ -844,6 +844,11 @@ static void cmd_get_commands(const cmd *c)
             jw_strz(&d, base);
         }
         jw_rawz(&d, "}}");
+    }
+    if (c->r->s->res && c->r->s->res->skills.n) {
+        if (ts && ts->n)
+            jw_raw(&d, ",", 1);
+        pi_skills_commands(&c->r->s->res->skills, &d);
     }
     jw_rawz(&d, "]}");
     okw(c, &d);

@@ -105,6 +105,7 @@ void pi_res_free(pi_res *r)
         free(r->f[i].text);
     free(r->system);
     free(r->append);
+    pi_skills_free(&r->skills);
     memset(r, 0, sizeof(*r));
 }
 

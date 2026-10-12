@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "show_pi.h"
+#include "skills.h"
 #include "ansi.h"
 #include "claude/util.h"
 #include "claude/json.h"
@@ -350,16 +351,120 @@ void pshow_header(pi_show *s, const char *name, const char *version)
     out(s);
 }
 
-void pshow_user(pi_show *s, const char *text)
+static void box_end(pi_show *s, long from);
+static void mdbox_text(pi_show *s, const char *text, long n);
+
+/* a user message's box: padding rows above and below the text */
+static void user_box(pi_show *s, const char *text)
 {
-    long from;
-    spacer(s);
-    from = s->batch.n;
+    long from = s->batch.n;
     blank(s);                       /* the message's padding row, above and below */
     say(s, PR_USER_MESSAGE_TEXT, "", text);
     blank(s);
     panel(s, from, PR_USER_MESSAGE_BG);
     out(s);
+}
+
+/* pi's parseSkillBlock (core/agent-session.ts:177-188): /^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n<\/skill>
+ * (?:\n\n([\s\S]+))?$/ over the text; the user message is trimmed, "" when none. 1 matched, with the pieces as slices of t */
+static int skill_block(const char *t, const char **name, long *nn, const char **content, long *cn, const char **user, long *un)
+{
+    static const char end[] = "\n</skill>";
+    long len = (long)strlen(t), i, q, r;
+    const char *p;
+    if (strncmp(t, "<skill name=\"", 13))
+        return 0;
+    *name = t + 13;
+    for (i = 13; i < len && t[i] != '"'; i++)
+        ;
+    *nn = i - 13;
+    if (!*nn || strncmp(t + i, "\" location=\"", 12))
+        return 0;
+    q = i + 12;
+    for (r = q; r < len && t[r] != '"'; r++)
+        ;
+    if (r == q || strncmp(t + r, "\">\n", 3))
+        return 0;
+    *content = t + r + 3;
+    /* the lazy match: the first "\n</skill>" after which the text ends or "\n\n" and something follows */
+    for (p = strstr(*content, end); p; p = strstr(p + 1, end)) {
+        long rest = (long)(p - t) + 9;
+        if (rest == len || (rest + 2 < len && t[rest] == '\n' && t[rest + 1] == '\n')) {
+            *cn = (long)(p - *content);
+            *user = rest == len ? "" : t + rest + 2;
+            *un = rest == len ? 0 : len - rest - 2;
+            while (*un && (**user == ' ' || **user == '\n' || **user == '\t' || **user == '\r')) {
+                (*user)++;
+                (*un)--;
+            }
+            while (*un && ((*user)[*un - 1] == ' ' || (*user)[*un - 1] == '\n' || (*user)[*un - 1] == '\t' || (*user)[*un - 1] == '\r'))
+                (*un)--;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* pi 1.1.0 SkillInvocationMessageComponent (components/skill-invocation-message.ts): a Box(outputPad, 1) over customMessageBg;
+ * collapsed one row "[skill] name (ctrl+o to expand)", expanded the label and the skill's text as Markdown under its bold name */
+static void skill_box(pi_show *s, const char *name, long nn, const char *content, long cn)
+{
+    char b[48], l[400], nm[200];
+    long from;
+    cl_copy(nm, name, nn < (long)sizeof(nm) ? nn + 1 : (long)sizeof(nm));
+    from = s->batch.n;
+    blank(s);                       /* the box's top padding row */
+    cl_copy(l, pd(s), sizeof(l));
+    cl_cat(l, BOLD, sizeof(l));
+    cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_LABEL, b), sizeof(l));
+    cl_cat(l, "[skill]", sizeof(l));
+    if (s->expanded) {
+        jw t;
+        cl_cat(l, SGR0, sizeof(l));
+        raw(s, l);
+        raw(s, "\n");
+        jw_init(&t);
+        jw_rawz(&t, "**");
+        jw_raw(&t, name, nn);
+        jw_rawz(&t, "**\n\n");
+        jw_raw(&t, content, cn);
+        mdbox_text(s, t.p ? t.p : "", t.n);
+        jw_free(&t);
+    } else {
+        cl_cat(l, SGR0, sizeof(l));
+        cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_LABEL, b), sizeof(l));
+        cl_cat(l, " \033[39m", sizeof(l));
+        cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_TEXT, b), sizeof(l));
+        cl_cat(l, nm, sizeof(l));
+        cl_cat(l, sg(s, PR_DIM, b), sizeof(l));
+        cl_cat(l, " (ctrl+o to expand)" SGR0, sizeof(l));
+        raw(s, l);
+        raw(s, "\n");
+    }
+    box_end(s, from);
+}
+
+void pshow_user(pi_show *s, const char *text)
+{
+    const char *name, *content, *user;
+    long nn, cn, un;
+    spacer(s);
+    if (skill_block(text, &name, &nn, &content, &cn, &user, &un)) {
+        /* a /skill:name message: the skill's box, then the arguments as the user's own message */
+        skill_box(s, name, nn, content, cn);
+        if (un) {
+            char *u = (char *)malloc((size_t)un + 1);
+            if (u) {
+                memcpy(u, user, (size_t)un);
+                u[un] = 0;
+                blank(s);
+                user_box(s, u);
+                free(u);
+            }
+        }
+        return;
+    }
+    user_box(s, text);
 }
 
 void pshow_note(pi_show *s, int role, const char *text)
@@ -1026,6 +1131,55 @@ static void mdbox_text(pi_show *s, const char *text, long n)
         a = i + 1;
     }
     jw_free(&md);
+}
+
+/* pi's loaded-resources block (interactive-mode.ts showLoadedResources): ThemedText and ExpandableText with padding 0, each
+ * followed by a Spacer(1). The title is "[name]" in a role's colour. The blank row of the block's end is the chat's first Spacer,
+ * so s->any is cleared. */
+void pshow_resource_title(pi_show *s, int role, const char *title)
+{
+    char b[48], l[200];
+    cl_copy(l, sg(s, role, b), sizeof(l));
+    cl_cat(l, "[", sizeof(l));
+    cl_cat(l, title, sizeof(l));
+    cl_cat(l, "]" SGR0, sizeof(l));
+    raw(s, l);
+    raw(s, "\n");
+}
+
+void pshow_resource_line(pi_show *s, int kind, const char *text)
+{
+    char b[48], c[48];
+    if (kind == SKL_COLL_WIN || kind == SKL_COLL_LOSE) {
+        /* "    <glyph> <path>" in the dim colour with the glyph in success (winner) or warning (skipped) */
+        long glyph = 4;
+        if ((long)strlen(text) > glyph + 3 && tui_width(text, (long)strlen(text)) <= s->t->cols) {
+            raw(s, sg(s, PR_DIM, b));
+            jw_raw(&s->batch, text, glyph);
+            raw(s, sg(s, kind == SKL_COLL_WIN ? PR_SUCCESS : PR_WARNING, c));
+            jw_raw(&s->batch, text + glyph, 3);
+            raw(s, "\033[39m");          /* the dim colour is the terminal's own: the glyph's colour ends */
+            raw(s, text + glyph + 3);
+            raw(s, SGR0 "\n");
+            return;
+        }
+        say_pad(s, 0, PR_DIM, "", text);
+        return;
+    }
+    say_pad(s, 0, kind == SKL_ERROR ? PR_ERROR : kind == SKL_LISTING ? PR_DIM : PR_WARNING, "", text);
+}
+
+void pshow_resource_end(pi_show *s)
+{
+    blank(s);                       /* Spacer(1) */
+    s->any = 0;
+    out(s);
+}
+
+void pshow_blank(pi_show *s)
+{
+    blank(s);
+    out(s);
 }
 
 /* a custom message (a session's custom_message entry) with display true: its customType as the label, its text as

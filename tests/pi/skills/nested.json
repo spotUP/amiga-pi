@@ -1,0 +1,44 @@
+{
+ "skills": [
+  {
+   "name": "c",
+   "description": "Found four levels down",
+   "filePath": "@ROOT@/nested/agent/skills/deep/a/b/c/SKILL.md",
+   "baseDir": "@ROOT@/nested/agent/skills/deep/a/b/c",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Found four levels down"
+  },
+  {
+   "name": "real",
+   "description": "Next to it",
+   "filePath": "@ROOT@/nested/agent/skills/mixed/real/SKILL.md",
+   "baseDir": "@ROOT@/nested/agent/skills/mixed/real",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Next to it"
+  },
+  {
+   "name": "skills",
+   "description": "A markdown file at the root is",
+   "filePath": "@ROOT@/nested/agent/skills/tools.md",
+   "baseDir": "@ROOT@/nested/agent/skills",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] A markdown file at the root is"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "warning",
+   "message": "Nested mappings are not allowed in compact mappings at line 2, column 14:\n\ndescription: A skill root: not searched further\n             ^\n",
+   "path": "@ROOT@/nested/agent/skills/top/SKILL.md"
+  }
+ ],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:c\",\"description\":\"Found four levels down\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/nested/agent/skills/deep/a/b/c/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/nested/agent\"}},{\"name\":\"skill:real\",\"description\":\"Next to it\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/nested/agent/skills/mixed/real/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/nested/agent\"}},{\"name\":\"skill:skills\",\"description\":\"A markdown file at the root is\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/nested/agent/skills/tools.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/nested/agent\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>c</name>\n    <description>Found four levels down</description>\n    <location>@ROOT@/nested/agent/skills/deep/a/b/c/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>real</name>\n    <description>Next to it</description>\n    <location>@ROOT@/nested/agent/skills/mixed/real/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>skills</name>\n    <description>A markdown file at the root is</description>\n    <location>@ROOT@/nested/agent/skills/tools.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": []
+}

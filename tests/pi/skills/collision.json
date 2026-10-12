@@ -1,0 +1,55 @@
+{
+ "skills": [
+  {
+   "name": "dup",
+   "description": "From the project",
+   "filePath": "@ROOT@/collision/w/proj/.pi/skills/dup/SKILL.md",
+   "baseDir": "@ROOT@/collision/w/proj/.pi/skills/dup",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] From the project"
+  },
+  {
+   "name": "zed",
+   "description": "No clash",
+   "filePath": "@ROOT@/collision/agent/skills/zed/SKILL.md",
+   "baseDir": "@ROOT@/collision/agent/skills/zed",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] No clash"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "collision",
+   "message": "name \"dup\" collision",
+   "path": "@ROOT@/collision/agent/skills/dup/SKILL.md",
+   "collision": {
+    "name": "dup",
+    "winnerPath": "@ROOT@/collision/w/proj/.pi/skills/dup/SKILL.md",
+    "loserPath": "@ROOT@/collision/agent/skills/dup/SKILL.md"
+   }
+  },
+  {
+   "type": "collision",
+   "message": "name \"dup\" collision",
+   "path": "@ROOT@/collision/agent/skills/other/SKILL.md",
+   "collision": {
+    "name": "dup",
+    "winnerPath": "@ROOT@/collision/w/proj/.pi/skills/dup/SKILL.md",
+    "loserPath": "@ROOT@/collision/agent/skills/other/SKILL.md"
+   }
+  }
+ ],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:dup\",\"description\":\"From the project\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/collision/w/proj/.pi/skills/dup/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/collision/w/proj/.pi\"}},{\"name\":\"skill:zed\",\"description\":\"No clash\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/collision/agent/skills/zed/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/collision/agent\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>dup</name>\n    <description>From the project</description>\n    <location>@ROOT@/collision/w/proj/.pi/skills/dup/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>zed</name>\n    <description>No clash</description>\n    <location>@ROOT@/collision/agent/skills/zed/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": [
+  {
+   "input": "/skill:dup",
+   "output": "<skill name=\"dup\" location=\"@ROOT@/collision/w/proj/.pi/skills/dup/SKILL.md\">\nReferences are relative to @ROOT@/collision/w/proj/.pi/skills/dup.\n\nBody of dup.\n\nSecond paragraph.\n</skill>"
+  }
+ ]
+}

@@ -83,5 +83,8 @@ int pi_tools_kind(const char *name);
 int pi_tools_claude(int kind, const char *args, long an, int *tool, jw *in);
 /* the shell sentence of the system prompt */
 const char *pi_tools_shell_note(const pi_tools *p);
+/* JavaScript's a.localeCompare(b) (ICU, English) for two UTF-8 or Latin-1 names: <0, 0, >0 (the order ls, find and the
+ * skills listing sort in) */
+int pi_locale_compare(const char *a, const char *b);
 
 #endif

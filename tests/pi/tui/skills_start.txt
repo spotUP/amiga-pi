@@ -1,0 +1,40 @@
+
+ ▀▀█  v1.1.0
+ █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash ·
+ ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it how to use or
+ extend Pi.
+
+[Skills]
+  Bad_Name, greet, terse
+
+[Skill conflicts]
+  "greet" collision:
+    ✓ auto (user) ~/agent/skills/greet/SKILL.md
+    ✗ ~/agent/skills/zdup/SKILL.md (skipped)
+  auto (user) ~/agent/skills/Bad_Name/SKILL.md
+    name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)
+  ~/agent/skills/nodesc/SKILL.md
+    description is required
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

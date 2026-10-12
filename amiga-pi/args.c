@@ -31,6 +31,14 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             a->approve = !strcmp(s, "--approve") || !strcmp(s, "-a");
         else if (!strcmp(s, "--no-mcp"))
             a->no_mcp = 1;
+        else if (!strcmp(s, "--no-skills") || !strcmp(s, "-ns"))
+            a->no_skills = 1;
+        else if (!strcmp(s, "--skill") && i + 1 < argc) {
+            /* pi cli/args.ts:193-195: repeatable; the paths are resolved against the working directory by app.c */
+            if (a->nskills < PI_ARG_SKILLS)
+                a->skills[a->nskills++] = argv[i + 1];
+            i++;
+        }
         else if (!strcmp(s, "--no-prompt-templates") || !strcmp(s, "-np"))
             a->no_templates = 1;
         else if (!strcmp(s, "--prompt-template") && i + 1 < argc) {
