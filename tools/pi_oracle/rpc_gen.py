@@ -208,6 +208,8 @@ sc('abort_retry', steps=[('cmd', {'type': 'abort_retry'})], answers=[])
 # ---- bash, stats, export ----
 sc('bash', steps=[('cmd', {'type': 'bash', 'command': 'echo hi'}), ('cmd', {'type': 'bash', 'command': 'echo quiet', 'excludeFromContext': True}),
                   ('prompt', 'hello')], answers=[A('Hello from the fixture.')], session=True)
+# Q15: user bash does not depend on the active tool list (agent-session.ts executeBash: createLocalBashOperations)
+sc('bash_no_tools', steps=[('cmd', {'type': 'bash', 'command': 'echo hi'}), ('cmd', {'type': 'get_state'})], answers=[], args=['--no-tools'])
 sc('abort_bash', steps=[('cmd', {'type': 'abort_bash'})], answers=[])
 sc('get_session_stats', steps=[('prompt', 'hello'), ('cmd', {'type': 'get_session_stats'})], answers=[A('Hello from the fixture.')], session=True)
 sc('export_html', steps=[('prompt', 'hello'), ('cmd', {'type': 'export_html', 'outputPath': 'out.html'})],

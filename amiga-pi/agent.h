@@ -67,6 +67,7 @@ typedef struct pi_session {
     const char *session_id;     /* the session's id (pi's sessionId: openai-responses prompt_cache_key and headers), 0 none */
     pi_tool *tools[PI_TOOLS];
     int ntools;
+    pi_tool *user_bash;         /* the bash backend of user bash (!cmd, RPC bash): set whether or not bash is in the active list (agent-session.ts executeBash) */
     pi_emitter em;
     pi_exts ext;
     /* the conversation: pi-ai messages, each its own allocation */

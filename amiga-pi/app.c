@@ -19,8 +19,20 @@
 #include "claude/path.h"
 #include "claude/repl.h"       /* cl_key_clean */
 
+/* one write per line: json and rpc mode route each write to the diagnostic stream as a line of its own (diag_write), and
+ * pi writes a diagnostic as one line. Only a line over the buffer goes in pieces. */
 static void say(cl_io *io, const char *a, const char *b)
 {
+    char line[1024];
+    size_t na = strlen(a), nb = b ? strlen(b) : 0;
+    if (na + nb + 1 <= sizeof(line)) {
+        memcpy(line, a, na);
+        if (nb)
+            memcpy(line + na, b, nb);
+        line[na + nb] = '\n';
+        io->write(io->u, line, (long)(na + nb + 1));
+        return;
+    }
     io->write(io->u, a, (long)strlen(a));
     if (b)
         io->write(io->u, b, (long)strlen(b));
@@ -560,7 +572,7 @@ static pi_res res;
 static void diag_write(void *u, const char *text, long n)
 {
     pi_rt *rt = (pi_rt *)u;
-    char line[400];
+    char line[1024];
     long i, k = 0;
     if (!rt->pl.diag)
         return;
