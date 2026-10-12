@@ -1,0 +1,70 @@
+{
+ "providers": {
+  "anthropic": {
+   "baseUrl": "https://api.anthropic.com",
+   "api": "anthropic-messages",
+   "models": [
+    {
+     "id": "claude-opus-5-5",
+     "name": "Claude Opus 5.5"
+    },
+    {
+     "id": "claude-opus-5",
+     "name": "Claude Opus 5"
+    },
+    {
+     "id": "claude-sonnet-5-5",
+     "name": "Claude Sonnet 5.5"
+    },
+    {
+     "id": "claude-sonnet-5-5-20260101",
+     "name": "Claude Sonnet 5.5 (dated)"
+    },
+    {
+     "id": "claude-haiku-4-5-20251001",
+     "name": "Claude Haiku 4.5"
+    },
+    {
+     "id": "claude-haiku-4-5-latest",
+     "name": "Claude Haiku 4.5"
+    }
+   ]
+  },
+  "openai": {
+   "baseUrl": "https://api.openai.com/v1",
+   "api": "openai-completions",
+   "models": [
+    {
+     "id": "gpt-5.5",
+     "name": "GPT-5.5"
+    },
+    {
+     "id": "gpt-4.1",
+     "name": "GPT-4.1"
+    },
+    {
+     "id": "gpt-4.1-mini",
+     "name": "GPT-4.1 mini"
+    }
+   ]
+  },
+  "ollama": {
+   "baseUrl": "http://localhost:11434/v1",
+   "api": "openai-completions",
+   "models": [
+    {
+     "id": "qwen2.5-coder:7b",
+     "name": "Qwen2.5 Coder 7B"
+    },
+    {
+     "id": "llama3.1:8b",
+     "name": "Llama 3.1 8B"
+    },
+    {
+     "id": "foo:high",
+     "name": "Colon model"
+    }
+   ]
+  }
+ }
+}

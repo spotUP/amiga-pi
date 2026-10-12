@@ -1,0 +1,15 @@
+literal	"sk-plain"
+dollar	"abc"
+braces	"pre-abc-post"
+two	"1:2"
+missing	UNRESOLVED
+missing_second	UNRESOLVED
+escaped_dollar	"cost$5"
+escaped_bang	"!notacommand"
+lone_dollar	"a $ b"
+unclosed_brace	"x${PI_T_A"
+bad_brace_name	"x${1A}y"
+command	"from-command"
+command_trimmed	"spaced"
+command_fails	UNRESOLVED
+command_empty	UNRESOLVED

@@ -17,6 +17,9 @@
 
 #include "llm/request.h"
 #include "llm/accum.h"
+#include "llm/handoff.h"
+#include "llm/creds.h"
+#include "llm/registry.h"
 #include "events.h"
 #include "ext.h"
 
@@ -47,12 +50,18 @@ typedef struct pi_tool {
 
 typedef struct pi_session {
     llm_model model;
-    const char *key;            /* 0 none */
+    const char *key;            /* 0 none: used when cfg is 0 */
+    llm_cfg *cfg;               /* credentials and config values (models.json, auth.json, --api-key); 0: key */
+    int thinking;               /* the thinking level, LT_*, as the model supports it */
+    long ctx_tokens;            /* tokens the last answer reported (its input, output and cache): the context in use */
+    long cost_micro;            /* what the answers of this run cost, micro-dollars, from the model's price */
+    char keybuf[512];           /* the credential of the request being made */
     const char *user_agent;
     llm_pool *pool;
     llm_hooks h;                /* poll (Ctrl+C), sleep, ms, notice, resolve, log */
     llm_ts (*now)(void *u);     /* the messages' timestamps (h.u) */
     const char *system;         /* the system prompt (prompt.c), 0 none */
+    const char *session_id;     /* the session's id (pi's sessionId: openai-responses prompt_cache_key and headers), 0 none */
     pi_tool *tools[PI_TOOLS];
     int ntools;
     pi_emitter em;
@@ -61,6 +70,13 @@ typedef struct pi_session {
     char **msg;
     long *msg_n;
     int nmsg, cap;
+    /* the transcript's system messages (the session's), each before message sys_at[i]: a model that takes them
+     * mid-conversation (pi-ai supportsMidConvoSystemMessages) gets them in place; any other model the replayed
+     * s->system */
+    char **sys;
+    long *sys_n;
+    int *sys_at;
+    int nsys, syscap;
     int oom;
     long rounds;                /* rounds run since the start (the tests' sentinel) */
     int stop;                   /* the last answer's stop reason (LS_*) */
@@ -75,6 +91,10 @@ typedef struct pi_session {
      * conversation, a failure is told by its own events and the prompt goes on */
     void (*compact)(void *u, struct pi_session *s, int when);
     void *compact_u;
+    /* before a request to a model that takes tool changes in the transcript: the store declares the executable
+     * tools' difference to the transcript as a system message (pi's agent-loop declareToolChanges) */
+    void (*declare)(void *u, struct pi_session *s);
+    void *declare_u;
     /* slash commands (store.c): a line the prompt got that starts with '/'. 1 when handled -- the lines to show
      * go to reply, and editor receives text the user takes back to edit (a message left by /tree); 0 not a command
      * of the store's (the line goes to the model) */
@@ -90,10 +110,16 @@ void pi_session_free(pi_session *s);
 int pi_tool_add(pi_session *s, pi_tool *t);
 /* a message (pi-ai JSON) added to the conversation, copied: 0, -1 out of memory */
 int pi_session_push(pi_session *s, const char *json, long n);
+/* a system message of the transcript added at the end of the conversation (copied): 0, -1 out of memory */
+int pi_session_push_system(pi_session *s, const char *json, long n);
 /* the conversation emptied (a session loaded, a branch left) */
 void pi_session_clear(pi_session *s);
 /* the tools as pi-ai's request carries them: a JSON array of {name, description, parameters} */
 void pi_tools_json(const pi_session *s, jw *w);
+
+/* the credential and the extra headers of a request to s->model, filled into q (hdr holds the header text:
+ * the caller frees it after the request); 0, or -1 with a message in s->err when a header value cannot be resolved */
+int pi_req_auth(pi_session *s, llm_req *q, jw *hdr);
 
 /* the prompt to the end: the last answer's stop reason (LS_STOP, LS_LENGTH,
  * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it) */

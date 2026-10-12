@@ -110,6 +110,7 @@ int main(int argc, char **argv)
     (void)vers;
     mem_watch = GetVar((STRPTR)"PI_MEM", (STRPTR)v, sizeof(v), 0) >= 0;
     mem_start = mem_least = AvailMem(MEMF_ANY);
+    io_amiga_args();
     io_amiga_line(&io);
     io_amiga_screen(&io);
     net_amiga_init(&na, &net);

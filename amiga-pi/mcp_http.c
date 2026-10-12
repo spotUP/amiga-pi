@@ -88,7 +88,7 @@ static unsigned long h_ms(void *u)
 
 /* the configured headers' values (${VAR}, "!command") are resolved once, here, when the transport opens: a
  * "!command" runs once, not at every POST */
-static void resolve_headers(mh *h)
+static int resolve_headers(mh *h)
 {
     mcp_server *s = h->s;
     jw_init(&h->vals);
@@ -99,21 +99,28 @@ static void resolve_headers(mh *h)
             json_iter(o, &it);
             while (json_next(&it, &k, &v) && h->nc < 32) {
                 char *val = json_strdup(v, 0);
+                long mark = h->vals.n;
                 json_str(k, h->names[h->nc], sizeof(h->names[h->nc]));
+                /* pi resolves every header (resolveHeadersOrThrow): one that fails fails the server */
+                if (mcp_value(s, "header", h->names[h->nc], val ? val : "", &h->vals)) {
+                    free(val);
+                    return -1;
+                }
                 if (!h->url.tls && cl_strieq(h->names[h->nc], "authorization")) {
                     /* the LAN rule: no credential over plain http */
                     h->skipped_auth = 1;
+                    h->vals.n = mark;
                     free(val);
                     continue;
                 }
-                h->offs[h->nc] = h->vals.n;
-                mcp_value(s->m, val ? val : "", &h->vals);
+                h->offs[h->nc] = mark;
                 jw_raw(&h->vals, "\0", 1);
                 free(val);
                 h->nc++;
             }
         }
     }
+    return 0;
 }
 
 static int build_head(mh *h, long body_len)
@@ -324,7 +331,14 @@ int mcp_http_open(mcp_server *s)
     jw_init(&h->errbody);
     jw_init(&h->body);
     jw_init(&h->head);
-    resolve_headers(h);
+    if (resolve_headers(h)) {
+        jw_free(&h->errbody);
+        jw_free(&h->body);
+        jw_free(&h->head);
+        jw_free(&h->vals);
+        free(h);
+        return -1;                      /* s->err says which header, as pi does */
+    }
     s->tu = h;
     s->tr.u = h;
     s->tr.inline_reply = 0;

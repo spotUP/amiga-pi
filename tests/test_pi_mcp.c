@@ -794,19 +794,6 @@ static void test_config(void)
     CHECK(mcp_server_named(&m, "b") && mcp_server_named(&m, "b")->kind == MK_STDIO);
     CHECK(m.errors.p && strstr(m.errors.p, "R: server \"c\" needs \"command\" or \"url\"") != 0);
     mcp_free(&m);
-    /* ${VAR} and !command values */
-    {
-        jw w;
-        new_mcp(&m);
-        jw_init(&w);
-        mcp_value(&m, "Bearer ${TOK}-${NOPE}!", &w);
-        CHECK_STR(w.p, "Bearer tv-!");
-        jw_reset(&w);
-        mcp_value(&m, "!echo from-a-command", &w);
-        CHECK_STR(w.p ? w.p : "", "from-a-command");
-        jw_free(&w);
-        mcp_free(&m);
-    }
 }
 
 /* ---- the protocol over stdio ---- */
@@ -992,6 +979,77 @@ static int header_runs(void)
             lines++;
     free(f);
     return lines;
+}
+
+/* FB4: an env or header value as pi's resolveConfigValueOrThrow (extensions/mcp/runtime.js createDefaultTransport): an
+ * unset variable or a failing command fails the server with pi's message, nothing is started or sent; a command runs
+ * every time (no cache on this path) */
+static void value_case(const char *server_json, const char *want_err)
+{
+    mcp m;
+    mcp_server *s;
+    new_mcp(&m);
+    CHECK_INT(mcp_load_text(&m, server_json, (long)strlen(server_json), "test", 0), 0);
+    CHECK_INT(mcp_connect(&m), 0);
+    s = mcp_server_named(&m, "fake");
+    CHECK(s && !s->connected && !strcmp(s->err, want_err));
+    if (s && strcmp(s->err, want_err))
+        printf("    got  %s\n    want %s\n", s->err, want_err);
+    CHECK(m.errors.p && strstr(m.errors.p, "MCP server \"fake\" failed: ") != 0);
+    mcp_free(&m);
+}
+
+static void test_values(void)
+{
+    mcp m;
+    mcp_server *s;
+    jw w, cfg;
+    char cmd[700];
+    /* the symptoms: a stdio server whose env names an unset variable never starts */
+    value_case("{\"mcpServers\":{\"fake\":{\"command\":\"false\",\"env\":{\"TOKEN\":\"Bearer ${TOK}-${NOPE}\"}}}}",
+               "Failed to resolve MCP server \"fake\" env \"TOKEN\" from environment variable: NOPE");
+    value_case("{\"mcpServers\":{\"fake\":{\"command\":\"false\",\"env\":{\"K\":\"$A-${B}-$A\"}}}}",
+               "Failed to resolve MCP server \"fake\" env \"K\" from environment variables: A, B");
+    value_case("{\"mcpServers\":{\"fake\":{\"command\":\"false\",\"env\":{\"K\":\"!exit 3\"}}}}",
+               "Failed to resolve MCP server \"fake\" env \"K\" from shell command: exit 3");
+    value_case("{\"mcpServers\":{\"fake\":{\"command\":\"false\",\"env\":{\"K\":\"!true\"}}}}",
+               "Failed to resolve MCP server \"fake\" env \"K\" from shell command: true");   /* no output is none */
+    /* an HTTP server's headers: the same, before any connection (the Authorization one included) */
+    value_case("{\"mcpServers\":{\"fake\":{\"url\":\"http://127.0.0.1:9/mcp\",\"headers\":{\"X-Token\":\"${NOPE}\"}}}}",
+               "Failed to resolve MCP server \"fake\" header \"X-Token\" from environment variable: NOPE");
+    value_case("{\"mcpServers\":{\"fake\":{\"url\":\"http://127.0.0.1:9/mcp\",\"headers\":{\"Authorization\":\"Bearer ${NOPE}\"}}}}",
+               "Failed to resolve MCP server \"fake\" header \"Authorization\" from environment variable: NOPE");
+    /* what resolves still does, with pi's forms: $NAME, ${NAME}, $$ */
+    new_mcp(&m);
+    jw_init(&w);
+    jw_init(&cfg);
+    stdio_config(&cfg, 0);
+    CHECK_INT(mcp_load_text(&m, cfg.p, cfg.n, "test", 0), 0);
+    s = mcp_server_named(&m, "fake");
+    CHECK(s != 0);
+    if (s) {
+        CHECK_INT(mcp_value(s, "env", "K", "Bearer ${TOK}-x-$TOK-$$", &w), 0);
+        CHECK_STR(w.p ? w.p : "", "Bearer tv-x-tv-$");
+        jw_reset(&w);
+        CHECK_INT(mcp_value(s, "env", "K", "", &w), 0);          /* a literal empty value is a value */
+        CHECK_INT(w.n, 0);
+        jw_reset(&w);
+        CHECK_INT(mcp_value(s, "env", "K", "!echo from-a-command", &w), 0);
+        CHECK_STR(w.p ? w.p : "", "from-a-command");
+        /* no cache: the same command twice runs twice */
+        remove_runs();
+        cl_copy(cmd, "!echo ran >> ", sizeof(cmd));
+        cl_cat(cmd, tmpd, sizeof(cmd));
+        cl_cat(cmd, "/header_runs.txt; echo v", sizeof(cmd));
+        jw_reset(&w);
+        CHECK_INT(mcp_value(s, "header", "H", cmd, &w), 0);
+        CHECK_INT(mcp_value(s, "header", "H", cmd, &w), 0);
+        CHECK_INT(header_runs(), 2);
+        remove_runs();
+    }
+    jw_free(&w);
+    jw_free(&cfg);
+    mcp_free(&m);
 }
 
 static void test_http(void)
@@ -1306,6 +1364,7 @@ void suite_pi_mcp(void)
     test_attach_session_full();
     test_live_poll();
     test_stdio();
+    test_values();
     test_http();
     test_reach();
 }

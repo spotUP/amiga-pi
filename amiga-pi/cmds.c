@@ -17,6 +17,7 @@
 #include <string.h>
 #include "store.h"
 #include "compact.h"
+#include "models.h"
 #include "claude/util.h"
 
 #define ROW_TEXT 60
@@ -580,12 +581,108 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
             jw_rawz(reply, "[INFO] Named.");
         return 1;
     }
+    if ((a = word(line, "/model")) != 0) {
+        pi_session *ag = st->s;
+        pi_models *ms = st->models;
+        char err[200], label[200];
+        const llm_model *to = 0;
+        llm_model found;
+        int lv = -1;
+        if (!ms) {
+            jw_rawz(reply, "[ERROR] models cannot be switched here");
+            return 1;
+        }
+        if (!*a) {
+            pi_models_list(ms, ag, reply);
+            jw_rawz(reply, "Switch with /model <number> or /model <provider/model>.");
+            return 1;
+        }
+        if (*a >= '0' && *a <= '9' && !strchr(a, '/') && !strchr(a, ':')) {
+            to = pi_models_nth(ms, ag, (int)strtol(a, 0, 10));
+            if (!to) {
+                jw_rawz(reply, "[ERROR] no such number in /model's list");
+                return 1;
+            }
+        } else if (llm_reg_resolve(&ms->reg, 0, a, &found, &lv, err, sizeof(err))) {
+            jw_rawz(reply, "[ERROR] ");
+            jw_rawz(reply, err);
+            return 1;
+        } else
+            to = &found;
+        if (pi_model_switch(ms, ag, to, err, sizeof(err))) {
+            jw_rawz(reply, "[ERROR] ");
+            jw_rawz(reply, err);
+            return 1;
+        }
+        if (lv >= 0 && pi_thinking_set(ms, ag, lv) < 0) {
+            jw_rawz(reply, "[ERROR] the thinking level change could not be recorded");
+            return 1;
+        }
+        pi_model_label(&ag->model, label, sizeof(label));
+        jw_rawz(reply, "[INFO] Model: ");
+        jw_rawz(reply, label);
+        jw_rawz(reply, ", thinking ");
+        jw_rawz(reply, llm_think_name(ag->thinking));
+        return 1;
+    }
+    if ((a = word(line, "/thinking")) != 0) {
+        pi_session *ag = st->s;
+        unsigned av = llm_think_levels(&ag->model);
+        int i, lv;
+        if (!st->models) {
+            jw_rawz(reply, "[ERROR] the thinking level cannot be changed here");
+            return 1;
+        }
+        if (!*a) {
+            jw_rawz(reply, "Thinking level: ");
+            jw_rawz(reply, llm_think_name(ag->thinking));
+            jw_rawz(reply, "\nSupported: ");
+            for (i = 0; i < LT_N; i++)
+                if (av & (1u << i)) {
+                    jw_rawz(reply, llm_think_name(i));
+                    jw_rawz(reply, " ");
+                }
+            return 1;
+        }
+        lv = llm_think_of(a);
+        if (lv < 0) {
+            jw_rawz(reply, "[ERROR] Invalid thinking level \"");
+            jw_rawz(reply, a);
+            jw_rawz(reply, "\". Valid values: off, minimal, low, medium, high, xhigh, max");
+            return 1;
+        }
+        lv = pi_thinking_set(st->models, ag, lv);
+        if (lv < 0) {
+            jw_rawz(reply, "[ERROR] the thinking level change could not be recorded");
+            return 1;
+        }
+        jw_rawz(reply, "[INFO] Thinking level: ");
+        jw_rawz(reply, llm_think_name(lv));
+        return 1;
+    }
     if (word(line, "/session")) {
         jw_rawz(reply, s->persist ? s->file : "(not saved: --no-session)");
         jw_rawz(reply, "\nid ");
         jw_rawz(reply, s->id);
         jw_rawz(reply, "\nentries ");
         jw_long(reply, s->n);
+        {
+            pi_session *ag = st->s;
+            char label[200];
+            pi_model_label(&ag->model, label, sizeof(label));
+            jw_rawz(reply, "\nmodel ");
+            jw_rawz(reply, label);
+            jw_rawz(reply, "\nthinking ");
+            jw_rawz(reply, llm_think_name(ag->thinking));
+            if (ag->model.context_window > 0 && ag->ctx_tokens > 0) {
+                jw_rawz(reply, "\ncontext ");
+                jw_long(reply, ag->ctx_tokens * 100 / ag->model.context_window);
+                jw_rawz(reply, "% of ");
+                jw_long(reply, ag->model.context_window);
+            }
+            jw_rawz(reply, "\ncost $");
+            llm_w_micro(reply, ag->cost_micro);
+        }
         return 1;
     }
     return 0;

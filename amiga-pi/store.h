@@ -33,6 +33,7 @@ enum { PS_MODE_NEW, PS_MODE_CONTINUE, PS_MODE_SESSION, PS_MODE_NONE };
 typedef struct pi_store {
     pi_s3 s3;
     pi_session *s;
+    struct pi_models *models;   /* /model and /thinking (models.h), 0: the model cannot be switched */
     cl_sys *sys;
     char data_dir[200];
     char cwd[256];
@@ -57,6 +58,12 @@ int pi_store_open(pi_store *st, int mode, const char *data_dir, const char *cwd,
 /* the model the opened session names (its branch's last model_change or answer): 1 with provider and
  * id, 0 none */
 int pi_store_model(pi_store *st, char *provider, long pcap, char *id, long icap);
+/* the thinking level the opened session's branch ends with: 1 with the level's name in out, 0 when it has
+ * no thinking_level_change */
+int pi_store_level(pi_store *st, char *out, long cap);
+/* a model_change / thinking_level_change entry appended (/model, /thinking): 0, -1 */
+int pi_store_model_change(pi_store *st, const char *provider, const char *id);
+int pi_store_thinking(pi_store *st, const char *level);
 /* settings.json's "compaction" object ({enabled, reserveTokens, keepRecentTokens}) taken; text a JSON object */
 void pi_store_settings(pi_store *st, const char *text, long n);
 /* /compact: the conversation summarized now (instructions 0 none). 0, -1 with the reason in err */

@@ -1,6 +1,7 @@
 /* see args.h */
 #include <string.h>
 #include "args.h"
+#include "llm/registry.h"
 #include "claude/util.h"
 #include "claude/repl.h"        /* CL_DEFAULT_MODEL: C:Claude's default model */
 
@@ -9,6 +10,7 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
     int i;
     memset(a, 0, sizeof(*a));
     a->gate = -1;
+    a->thinking = -1;
     for (i = 1; i < argc; i++) {
         const char *s = argv[i];
         if (!strcmp(s, "-p") || !strcmp(s, "--print"))
@@ -42,7 +44,12 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
                 return -1;
             }
             cl_copy(a->tools, argv[++i], sizeof(a->tools));
-        } else if (!strcmp(s, "--model") || !strcmp(s, "--base-url")) {
+        } else if (!strcmp(s, "--list-models")) {
+            a->list_models = 1;
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+                cl_copy(a->list_search, argv[++i], sizeof(a->list_search));
+        } else if (!strcmp(s, "--model") || !strcmp(s, "--base-url") || !strcmp(s, "--provider") ||
+                   !strcmp(s, "--api-key") || !strcmp(s, "--thinking")) {
             if (i + 1 >= argc) {
                 cl_copy(a->err, s, sizeof(a->err));
                 cl_cat(a->err, " needs a value", sizeof(a->err));
@@ -50,15 +57,26 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             }
             if (!strcmp(s, "--base-url"))
                 cl_copy(a->base_url, argv[++i], sizeof(a->base_url));
-            else {
-                const char *v = argv[++i], *sl = strchr(v, '/');
-                if (!sl || sl == v || !sl[1]) {
-                    cl_copy(a->err, "--model takes provider/id, e.g. ollama/qwen2.5-coder:7b", sizeof(a->err));
+            else if (!strcmp(s, "--provider"))
+                cl_copy(a->cli_provider, argv[++i], sizeof(a->cli_provider));
+            else if (!strcmp(s, "--api-key"))
+                cl_copy(a->api_key, argv[++i], sizeof(a->api_key));
+            else if (!strcmp(s, "--thinking")) {
+                a->thinking = llm_think_of(argv[++i]);
+                if (a->thinking < 0) {
+                    cl_copy(a->err, "Invalid thinking level \"", sizeof(a->err));
+                    cl_cat(a->err, argv[i], sizeof(a->err));
+                    cl_cat(a->err, "\". Valid values: off, minimal, low, medium, high, xhigh, max", sizeof(a->err));
                     return -1;
                 }
-                cl_copy(a->provider, v, sizeof(a->provider));
-                a->provider[sl - v < (long)sizeof(a->provider) ? sl - v : (long)sizeof(a->provider) - 1] = 0;
-                cl_copy(a->id, sl + 1, sizeof(a->id));
+            } else {
+                const char *v = argv[++i], *sl = strchr(v, '/');
+                cl_copy(a->pattern, v, sizeof(a->pattern));
+                if (sl && sl != v && sl[1]) {
+                    cl_copy(a->provider, v, sizeof(a->provider));
+                    a->provider[sl - v < (long)sizeof(a->provider) ? sl - v : (long)sizeof(a->provider) - 1] = 0;
+                    cl_copy(a->id, sl + 1, sizeof(a->id));
+                }
             }
         } else if (s[0] == '-' && s[1]) {
             cl_copy(a->err, "unknown option ", sizeof(a->err));
@@ -83,18 +101,16 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
 
 int pi_args_model(pi_args *a, llm_model *m)
 {
-    memset(m, 0, sizeof(*m));
     if (!a->provider[0]) {
         cl_copy(a->provider, "anthropic", sizeof(a->provider));
         cl_copy(a->id, CL_DEFAULT_MODEL, sizeof(a->id));
     }
+    llm_model_init(m);
     m->id = a->id;
     m->provider = a->provider;
-    m->compat.max_tokens_field = m->compat.usage_in_streaming = m->compat.developer_role =
-        m->compat.tool_result_name = LC_UNSET;
     if (!strcmp(a->provider, "anthropic")) {
         m->api = "anthropic-messages";
-        m->base_url = a->base_url[0] ? a->base_url : "https://api.anthropic.com/v1";
+        m->base_url = a->base_url[0] ? a->base_url : "https://api.anthropic.com";
         m->max_tokens = 8192;
     } else {
         m->api = "openai-completions";

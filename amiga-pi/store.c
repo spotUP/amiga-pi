@@ -42,6 +42,8 @@ void pi_store_free(pi_store *st)
     if (st->s && st->s->compact_u == st) {
         st->s->compact = 0;
         st->s->compact_u = 0;
+        st->s->declare = 0;
+        st->s->declare_u = 0;
     }
     jw_free(&st->system);
     s3_free(&st->s3);
@@ -112,6 +114,30 @@ int pi_store_model(pi_store *st, char *provider, long pcap, char *id, long icap)
     return ok;
 }
 
+int pi_store_level(pi_store *st, char *out, long cap)
+{
+    pi_ctx c;
+    int ok;
+    ctx_init(&c);
+    if (ctx_build(&st->s3, st->s3.leaf, &c))
+        return 0;
+    ok = c.has_thinking;
+    if (ok)
+        cl_copy(out, c.thinking, cap);
+    ctx_free(&c);
+    return ok;
+}
+
+int pi_store_model_change(pi_store *st, const char *provider, const char *id)
+{
+    return s3_model(&st->s3, provider, id) < 0 ? -1 : 0;
+}
+
+int pi_store_thinking(pi_store *st, const char *level)
+{
+    return s3_thinking(&st->s3, level) < 0 ? -1 : 0;
+}
+
 /* ---- the system message ---- */
 
 /* previous sections of the replayed message: name -> text, in order (strings in sec[], names in nm[]) */
@@ -132,7 +158,8 @@ static int same_decl(jv a, jv b)
 }
 
 /* the system message to append now, built into out; 0 nothing to add, 1 appended into out, -1 */
-static int sys_patch(pi_store *st, const pi_psec *cur, const char *tools_json, long tools_n, const pi_ctx *c, jw *out)
+static int sys_patch(pi_store *st, const pi_psec *cur, const char *tools_json, long tools_n, const pi_ctx *c, jw *out,
+                     int sections)
 {
     jw prev, secs, added, removed;
     jv pm, ps, pt, v, k, val, ct;
@@ -144,6 +171,9 @@ static int sys_patch(pi_store *st, const pi_psec *cur, const char *tools_json, l
     jw_init(&secs);
     jw_init(&added);
     jw_init(&removed);
+    if (!have_prev && !sections) {
+        goto done;                      /* tools only, nothing declared yet */
+    }
     if (!have_prev) {
         /* the first request: every section and every tool */
         jw_rawz(&secs, "{");
@@ -162,7 +192,7 @@ static int sys_patch(pi_store *st, const pi_psec *cur, const char *tools_json, l
     json_parse(prev.p, prev.n, &pm);
     /* diffSystemPromptSections */
     jw_rawz(&secs, "{");
-    for (i = 0; i < cur->n; i++) {
+    for (i = 0; sections && i < cur->n; i++) {
         int same = 0;
         if (json_get(pm, "sections", &ps) && json_get(ps, cur->name[i], &v) && json_type(v) == J_STR) {
             char *z;
@@ -180,7 +210,7 @@ static int sys_patch(pi_store *st, const pi_psec *cur, const char *tools_json, l
             jw_str(&secs, cur->text.p + cur->off[i], cur->len[i]);
         }
     }
-    if (json_get(pm, "sections", &ps) && json_type(ps) == J_OBJ) {
+    if (sections && json_get(pm, "sections", &ps) && json_type(ps) == J_OBJ) {
         json_iter(ps, &it);
         while (json_next(&it, &k, &val)) {
             char *nm = json_strdup(k, 0);
@@ -295,9 +325,9 @@ static int sync_system(pi_store *st)
     pi_tools_json(st->s, &tools);
     ctx_init(&c);
     if (!ctx_build(&st->s3, st->s3.leaf, &c)) {
-        rc = sys_patch(st, &cur, tools.p, tools.n, &c, &msg);
+        rc = sys_patch(st, &cur, tools.p, tools.n, &c, &msg, 1);
         if (rc == 1) {
-            if (s3_message(&st->s3, msg.p, msg.n) >= 0) {
+            if (s3_message(&st->s3, msg.p, msg.n) >= 0 && !pi_session_push_system(st->s, msg.p, msg.n)) {
                 st->syncs++;
                 ok = 0;
             }
@@ -312,6 +342,28 @@ static int sync_system(pi_store *st)
     pi_psec_free(&cur);
     st->s->system = st->system.p;
     return ok;
+}
+
+/* pi's agent-loop declareToolChanges, before each request to a model that takes tool changes in the transcript: the
+ * tools the agent can run against the tools the transcript declares, the difference appended as a system message */
+static void declare_tools(void *u, pi_session *s)
+{
+    pi_store *st = (pi_store *)u;
+    jw tools, msg;
+    pi_ctx c;
+    jw_init(&tools);
+    jw_init(&msg);
+    pi_tools_json(s, &tools);
+    ctx_init(&c);
+    if (!ctx_build(&st->s3, st->s3.leaf, &c) && sys_patch(st, 0, tools.p, tools.n, &c, &msg, 0) == 1 &&
+        s3_message(&st->s3, msg.p, msg.n) >= 0 && !pi_session_push_system(s, msg.p, msg.n)) {
+        st->syncs++;
+        if (!replay(st))
+            s->system = st->system.p;
+    }
+    ctx_free(&c);
+    jw_free(&tools);
+    jw_free(&msg);
 }
 
 static void on_event(void *u, const pi_event *e)
@@ -345,6 +397,8 @@ static int load_messages(pi_store *st)
         jv m, r;
         jw_init(&one);
         if (!json_parse(c.msg[i], c.msg_n[i], &m) && json_get(m, "role", &r) && json_streq(r, "system")) {
+            if (pi_session_push_system(st->s, c.msg[i], c.msg_n[i]))
+                rc = -1;
             jw_free(&one);
             continue;
         }
@@ -379,7 +433,7 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     llm_sink k;
     llm_ctx c;
     llm_req q;
-    jw blocks, um, msg, sys;
+    jw blocks, um, msg, sys, hdr;
     const char *msgs[1];
     long mn[1];
     llm_info inf;
@@ -409,7 +463,9 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     c.msg_n = mn;
     c.nmsg = 1;
     c.max_tokens = max_tokens;
+    c.thinking = s->thinking;
     llm_acc_init(&acc, s->model.api, s->model.provider);
+    llm_acc_model(&acc, s->model.id, s->model.cost);
     k.u = &acc;
     k.ev = llm_acc_event;
     memset(&q, 0, sizeof(q));
@@ -417,11 +473,21 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     q.model = &s->model;
     q.be = llm_backend_of(s->model.api);
     q.ctx = &c;
-    q.key = s->key;
     q.user_agent = s->user_agent;
     q.h = s->h;
     q.sink = &k;
-    if (!q.be) {
+    jw_init(&hdr);
+    if (pi_req_auth(s, &q, &hdr)) {
+        llm_event e;
+        char why[256];
+        cl_copy(why, s->err, sizeof(why));
+        llm_event_init(&e, LE_ERROR);
+        e.stop = LS_ERROR;
+        e.err_type = "error";
+        e.p = why;
+        e.n = (long)strlen(why);
+        llm_acc_event(&acc, &e);
+    } else if (!q.be) {
         llm_event e;
         llm_event_init(&e, LE_ERROR);
         e.stop = LS_ERROR;
@@ -431,6 +497,7 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
         llm_acc_event(&acc, &e);
     } else
         llm_request(&q);
+    jw_free(&hdr);
     llm_acc_message(&acc, ts, &msg);
     r->stop = LS_NONE;
     if (!msg.oom && msg.p && llm_msg_info(msg.p, msg.n, &inf) >= 0 && !json_parse(msg.p, msg.n, &m)) {
@@ -675,7 +742,12 @@ int pi_store_attach(pi_store *st, pi_session *s)
     st->s = s;
     if (!st->resumed) {
         /* a new session records what it starts with, so it can be restored on resume (sdk.ts) */
-        if (s3_model(&st->s3, s->model.provider, s->model.id) < 0 || s3_thinking(&st->s3, "off") < 0)
+        if (s3_model(&st->s3, s->model.provider, s->model.id) < 0 || s3_thinking(&st->s3, llm_think_name(s->thinking)) < 0)
+            return -1;
+    } else {
+        /* an older session without a level: pi records the one it starts with (sdk.ts) */
+        char lv[32];
+        if (!pi_store_level(st, lv, sizeof(lv)) && s3_thinking(&st->s3, llm_think_name(s->thinking)) < 0)
             return -1;
     }
     if (load_messages(st))
@@ -684,8 +756,11 @@ int pi_store_attach(pi_store *st, pi_session *s)
         return -1;
     if (st->system.n)
         s->system = st->system.p;
+    s->session_id = st->s3.id[0] ? st->s3.id : 0;
     s->compact = compact_check;
     s->compact_u = st;
+    s->declare = declare_tools;
+    s->declare_u = st;
     s->command = command;
     s->command_u = st;
     return pi_subscribe(&s->em, on_event, st);

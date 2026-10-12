@@ -8,6 +8,7 @@
 #include "claude/http.h"
 #include "claude/schema.h"
 #include "llm/llm.h"
+#include "models.h"
 
 long mcp_call_count;
 
@@ -480,34 +481,38 @@ int mcp_load(mcp *m, const char *path, int project)
     return rc;
 }
 
-/* ---- values: ${VAR} from the environment, "!command" its output ---- */
+/* ---- values: ${VAR} from the environment, "!command" its output (llm/creds.c); a variable that is not set is empty ---- */
 
-void mcp_value(mcp *m, const char *v, jw *out)
+static long cfg_getenv(void *u, const char *name, char *out, long cap)
 {
-    if (v[0] == '!' && m->sys && m->sys->run) {
-        static char buf[4096];
-        long n = 0, rc = 0;
-        if (!m->sys->run(m->sys->u, v + 1, 30, buf, sizeof(buf), &n, &rc)) {
-            while (n > 0 && (buf[n - 1] == '\n' || buf[n - 1] == '\r' || buf[n - 1] == ' ' || buf[n - 1] == '\t'))
-                n--;
-            jw_raw(out, buf, n);
-        }
-        return;
-    }
-    while (*v) {
-        const char *e;
-        if (v[0] == '$' && v[1] == '{' && (e = strchr(v + 2, '}')) != 0 && e - v - 2 < 120) {
-            char name[128], val[1024];
-            long k;
-            memcpy(name, v + 2, (size_t)(e - v - 2));
-            name[e - v - 2] = 0;
-            k = m->getenv ? m->getenv(name, val, sizeof(val)) : -1;
-            if (k > 0)
-                jw_raw(out, val, k < (long)sizeof(val) ? k : (long)sizeof(val) - 1);
-            v = e + 1;
-        } else
-            jw_raw(out, v++, 1);
-    }
+    mcp *m = (mcp *)u;
+    long n = m->getenv ? m->getenv(name, out, cap) : -1;
+    return n > 0 ? n : -1;
+}
+
+static long cfg_run(void *u, const char *cmd, char *out, long cap)
+{
+    return pi_cfg_run(((mcp *)u)->sys, cmd, out, cap);
+}
+
+
+int mcp_value(mcp_server *s, const char *kind, const char *key, const char *v, jw *out)
+{
+    static char buf[4096];
+    char what[240];
+    long n;
+    cl_copy(what, "MCP server \"", sizeof(what));
+    cl_cat(what, s->name, sizeof(what));
+    cl_cat(what, "\" ", sizeof(what));
+    cl_cat(what, kind, sizeof(what));
+    cl_cat(what, " \"", sizeof(what));
+    cl_cat(what, key, sizeof(what));
+    cl_cat(what, "\"", sizeof(what));
+    n = llm_cfg_value_strict(&s->m->cfg, v, what, buf, sizeof(buf), s->err, sizeof(s->err));
+    if (n < 0)
+        return -1;
+    jw_raw(out, buf, n);
+    return 0;
 }
 
 /* ---- JSON-RPC ---- */
@@ -2392,6 +2397,10 @@ void mcp_init(mcp *m, cl_sys *sys, llm_pool *pool, const llm_hooks *h,
     m->getenv = getenv;
     m->cwd = cwd;
     m->tmp = tmp;
+    llm_cfg_init(&m->cfg);
+    m->cfg.u = m;
+    m->cfg.getenv = cfg_getenv;
+    m->cfg.run = cfg_run;
     jw_init(&m->errors);
     jw_init(&m->section);
 }
@@ -2409,5 +2418,6 @@ void mcp_free(mcp *m)
     free(m->srv);
     jw_free(&m->errors);
     jw_free(&m->section);
+    llm_cfg_free(&m->cfg);
     memset(m, 0, sizeof(*m));
 }

@@ -7,6 +7,7 @@
 #include "tools_pi.h"
 #include "ext_gate.h"
 #include "store.h"
+#include "models.h"
 #include "mcp.h"
 #include "claude/util.h"
 #include "claude/repl.h"       /* cl_key_clean */
@@ -129,20 +130,136 @@ static void store_settings(const pi_platform *pl, pi_store *st)
     CL_FREE(b);
 }
 
+/* settings.json's defaultProvider, defaultModel, defaultThinkingLevel (pi's settings.md) */
+static void default_model_settings(const pi_platform *pl, char *prov, long pc, char *id, long ic, int *level)
+{
+    char path[300], *b = 0;
+    long n = 0;
+    jv root, v;
+    prov[0] = id[0] = 0;
+    *level = -1;
+    if (!pl->sys || !pl->agent_dir || !pl->agent_dir[0])
+        return;
+    cl_copy(path, pl->agent_dir, sizeof(path));
+    if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+        cl_cat(path, "/", sizeof(path));
+    cl_cat(path, "settings.json", sizeof(path));
+    if (pl->sys->kind(pl->sys->u, path) != 1 || pl->sys->read(pl->sys->u, path, 256L * 1024, &b, &n))
+        return;
+    if (!json_parse(b, n, &root) && json_type(root) == J_OBJ) {
+        if (json_get(root, "defaultProvider", &v))
+            json_str(v, prov, pc);
+        if (json_get(root, "defaultModel", &v))
+            json_str(v, id, ic);
+        if (json_get(root, "defaultThinkingLevel", &v) && json_type(v) == J_STR) {
+            char t[16];
+            json_str(v, t, sizeof(t));
+            *level = llm_think_of(t);
+        }
+    }
+    CL_FREE(b);
+}
+
+/* --list-models [search]: the registry, one line each */
+static void list_models(const pi_platform *pl, pi_models *ms, const char *search)
+{
+    int i;
+    char line[300], num[16];
+    for (i = 0; i < ms->reg.n; i++) {
+        const llm_model *m = &ms->reg.m[i];
+        char label[200];
+        pi_model_label(m, label, sizeof(label));
+        if (search[0] && !strstr(label, search))
+            continue;
+        cl_copy(line, label, sizeof(line));
+        cl_cat(line, "  ", sizeof(line));
+        cl_cat(line, m->api, sizeof(line));
+        cl_cat(line, "  context ", sizeof(line));
+        cl_ltoa(m->context_window, num);
+        cl_cat(line, num, sizeof(line));
+        if (m->reasoning)
+            cl_cat(line, "  thinking", sizeof(line));
+        if (m->image)
+            cl_cat(line, "  images", sizeof(line));
+        say(pl->io, line, 0);
+    }
+}
+
+/* the model this run starts with: --model (pi's resolveCliModel; a provider the registry does not know is the old
+ * provider/id --base-url form), else the session's, else settings.json's default, else C:Claude's default. 0, -1 with
+ * a->err; *level the :thinking of the pattern or -1 */
+static int pick_model(pi_args *a, pi_models *ms, pi_store *st, const char *dprov, const char *did, llm_model *m, int *level,
+                      char *warn)
+{
+    char err[200];
+    *level = -1;
+    warn[0] = 0;
+    if (a->pattern[0]) {
+        if (!llm_reg_resolve(&ms->reg, a->cli_provider[0] ? a->cli_provider : 0, a->pattern, m, level, err, sizeof(err)))
+            goto done;
+        if (!a->provider[0] || a->cli_provider[0] || llm_reg_has_provider(&ms->reg, a->provider)) {
+            cl_copy(a->err, err, sizeof(a->err));
+            return -1;
+        }
+        return pi_args_model(a, m);     /* an unknown provider: the --base-url form */
+    }
+    {
+        char p[64], id[128];
+        const llm_model *f;
+        if (pi_store_model(st, p, sizeof(p), id, sizeof(id))) {
+            f = llm_reg_find(&ms->reg, p, id);
+            if (f) {
+                *m = *f;
+                goto done;
+            }
+            cl_copy(a->provider, p, sizeof(a->provider));
+            cl_copy(a->id, id, sizeof(a->id));
+            return pi_args_model(a, m);
+        }
+    }
+    if (dprov[0] && did[0]) {
+        const llm_model *f = llm_reg_find(&ms->reg, dprov, did);
+        if (f) {
+            *m = *f;
+            goto done;
+        }
+    }
+    {
+        const llm_model *f = llm_reg_find(&ms->reg, "anthropic", CL_DEFAULT_MODEL);
+        if (!f) {
+            cl_copy(a->err, "no default model in the catalog", sizeof(a->err));
+            return -1;
+        }
+        *m = *f;
+    }
+done:
+    if (a->base_url[0])
+        m->base_url = a->base_url;
+    return 0;
+}
+
 int pi_app(int argc, char **argv, const pi_platform *pl)
 {
     static pi_args a;
     static pi_session s;
-    static char key[512];
+    static pi_models models;
     static pi_tools tools;
     static pi_gate gate;
     static pi_store store;
     static mcp mc;
     llm_model m;
-    char kn[64], err[160], picked[320];
-    int rc, mode;
+    char err[160], picked[320];
+    int rc, mode, level0 = 0;
     if (pi_args_parse(&a, argc, argv))
         return usage(pl, &a);
+    if (a.list_models) {
+        pi_models_init(&models, pl->sys, pl->agent_dir, pl->getenv);
+        if (models.warn[0])
+            say(pl->io, "[WARN] ", models.warn);
+        list_models(pl, &models, a.list_search);
+        pi_models_free(&models);
+        return 0;
+    }
     /* the session first: the model it names is the default (pi restores it on resume) */
     mode = a.no_session || !pl->sys || !pl->data_dir || !pl->data_dir[0] ? PS_MODE_NONE : PS_MODE_NEW;
     picked[0] = 0;
@@ -159,22 +276,36 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         pi_store_free(&store);
         return 2;
     }
-    if (!a.provider[0])
-        pi_store_model(&store, a.provider, sizeof(a.provider), a.id, sizeof(a.id));
-    if (pi_args_model(&a, &m)) {
-        pi_store_free(&store);
-        return usage(pl, &a);
+    {
+        char dprov[64], did[128], warn[200];
+        int dlevel, plevel, want;
+        char lvl[32];
+        pi_models_init(&models, pl->sys, pl->agent_dir, pl->getenv);
+        if (models.warn[0])
+            say(pl->io, "[WARN] ", models.warn);
+        default_model_settings(pl, dprov, sizeof(dprov), did, sizeof(did), &dlevel);
+        models.default_level = dlevel;
+        if (pick_model(&a, &models, &store, dprov, did, &m, &plevel, warn)) {
+            pi_models_free(&models);
+            pi_store_free(&store);
+            return usage(pl, &a);
+        }
+        /* the thinking level: --thinking, the pattern's :level, the session's, settings.json's, pi's "medium" */
+        want = a.thinking >= 0 ? a.thinking : plevel;
+        if (want < 0 && store.resumed && pi_store_level(&store, lvl, sizeof(lvl)))
+            want = llm_think_of(lvl);
+        if (want < 0)
+            want = dlevel;
+        level0 = pi_models_start_level(&m, want);
     }
-    /* the window pi compacts against: Anthropic's from C:Claude's table; another provider's is not known yet (0:
-     * no automatic compaction, /compact still works) */
-    if (!strcmp(m.provider, "anthropic"))
-        m.context_window = repl_window(m.id);
-    pi_key_name(m.provider, kn, sizeof(kn));
-    key[0] = 0;
-    if (pl->getenv && pl->getenv(kn, key, sizeof(key)) > 0)
-        if (cl_key_clean(key))
-            key[0] = 0;         /* not a key (C:Claude's rule) */
-    pi_session_init(&s, &m, key[0] ? key : 0, pl->pool, &pl->h);
+    pi_session_init(&s, &m, 0, pl->pool, &pl->h);
+    s.thinking = level0;
+    if (a.api_key[0]) {
+        cl_copy(models.cfg.runtime_key, a.api_key, sizeof(models.cfg.runtime_key));
+        cl_copy(models.cfg.runtime_provider, m.provider, sizeof(models.cfg.runtime_provider));
+    }
+    pi_models_attach(&models, &s, &store);
+    store.models = &models;
     s.now = pl->now;
     note_io = pl->io;
     s.h.notice = note;
@@ -186,6 +317,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
             say(pl->io, "amiga-pi: ", err);
             pi_tools_free(&tools);
             pi_session_free(&s);
+            pi_models_free(&models);
             return 2;
         }
         if (has_tool(&s, "bash"))
@@ -227,6 +359,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         say(pl->io, "amiga-pi: the session could not be loaded", 0);
         pi_store_free(&store);
         pi_session_free(&s);
+        pi_models_free(&models);
         mcp_free(&mc);
         return 1;
     }
@@ -243,6 +376,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         pi_gate_free(&gate);
         pi_tools_free(&tools);
     }
-    memset(key, 0, sizeof(key));
+    memset(models.cfg.runtime_key, 0, sizeof(models.cfg.runtime_key));
+    pi_models_free(&models);
     return rc;
 }

@@ -30,6 +30,7 @@
 #include "claude/json.h"
 #include "claude/sys.h"
 #include "llm/request.h"
+#include "llm/creds.h"
 #include "agent.h"
 
 #define MCP_OUTPUT_MAX (20L * 1024)     /* pi's MCP_OUTPUT_MAX_BYTES */
@@ -108,6 +109,7 @@ typedef struct mcp {
     int search_on;
     jw section;                 /* the mcp_servers section, empty none */
     pi_session *s;
+    llm_cfg cfg;                /* the values of mcp.json (${VAR}, !command): the one resolver, llm/creds.c */
 } mcp;
 
 /* tools/call requests sent since the start (the reachability test's sentinel) */
@@ -128,9 +130,10 @@ int mcp_connect(mcp *m);
 /* the tools to the session: direct ones declared, tool_search when a
  * deferred one exists, the mcp_servers section. 0, -1 too many tools */
 int mcp_attach(mcp *m, pi_session *s);
-/* a config value as sent: "${NAME}" from the environment (unset: empty), a whole value "!command" the
- * command's output (trailing white space dropped) -- pi's env and headers values */
-void mcp_value(mcp *m, const char *v, jw *out);
+/* an env or header value of server s as pi resolves it (resolveConfigValueOrThrow, no command cache): kind "env" or
+ * "header", key its name. 0 with the value appended to out; -1 with pi's message in s->err ("Failed to resolve MCP
+ * server "x" env "K" from environment variable: V"), the server then fails to connect */
+int mcp_value(mcp_server *s, const char *kind, const char *key, const char *v, jw *out);
 /* the server or tool by name, 0 none */
 mcp_server *mcp_server_named(mcp *m, const char *name);
 mcp_tool *mcp_tool_named(mcp *m, const char *name);

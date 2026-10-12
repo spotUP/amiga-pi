@@ -3,7 +3,9 @@
 #include <string.h>
 #include "agent.h"
 #include "llm/transform.h"
+#include "llm/handoff.h"
 #include "claude/util.h"
+#include "claude/repl.h"        /* cl_key_clean */
 
 long pi_agent_rounds;
 
@@ -18,6 +20,7 @@ void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_poo
     if (h)
         s->h = *h;
     s->user_agent = "UP-Term-amiga-pi/0.1 (AmigaOS)";
+    s->thinking = LT_OFF;
     pi_emitter_init(&s->em);
     pi_exts_init(&s->ext);
     pi_subscribe(&s->em, pi_exts_event, &s->ext);
@@ -29,11 +32,63 @@ void pi_session_clear(pi_session *s)
     for (i = 0; i < s->nmsg; i++)
         free(s->msg[i]);
     s->nmsg = 0;
+    for (i = 0; i < s->nsys; i++)
+        free(s->sys[i]);
+    s->nsys = 0;
+}
+
+int pi_session_push_system(pi_session *s, const char *json, long n)
+{
+    char *c;
+    if (s->nsys == s->syscap) {
+        int nc = s->syscap ? s->syscap * 2 : 8;
+        char **gs = (char **)malloc((size_t)nc * sizeof(*gs));
+        long *gn = (long *)malloc((size_t)nc * sizeof(*gn));
+        int *ga = (int *)malloc((size_t)nc * sizeof(*ga));
+        if (!gs || !gn || !ga) {
+            free(gs);
+            free(gn);
+            free(ga);
+            s->oom = 1;
+            return -1;
+        }
+        if (s->nsys) {
+            memcpy(gs, s->sys, (size_t)s->nsys * sizeof(*gs));
+            memcpy(gn, s->sys_n, (size_t)s->nsys * sizeof(*gn));
+            memcpy(ga, s->sys_at, (size_t)s->nsys * sizeof(*ga));
+        }
+        free(s->sys);
+        free(s->sys_n);
+        free(s->sys_at);
+        s->sys = gs;
+        s->sys_n = gn;
+        s->sys_at = ga;
+        s->syscap = nc;
+    }
+    c = (char *)malloc((size_t)n + 1);
+    if (!c) {
+        s->oom = 1;
+        return -1;
+    }
+    memcpy(c, json, (size_t)n);
+    c[n] = 0;
+    s->sys[s->nsys] = c;
+    s->sys_n[s->nsys] = n;
+    s->sys_at[s->nsys] = s->nmsg;
+    s->nsys++;
+    return 0;
 }
 
 void pi_session_free(pi_session *s)
 {
     pi_session_clear(s);
+    free(s->sys);
+    free(s->sys_n);
+    free(s->sys_at);
+    s->sys = 0;
+    s->sys_n = 0;
+    s->sys_at = 0;
+    s->syscap = 0;
     free(s->msg);
     free(s->msg_n);
     s->msg = 0;
@@ -85,6 +140,18 @@ static int keep(pi_session *s, jw *w)
         s->msg = gm;
         s->msg_n = gn;
         s->cap = nc;
+    }
+    {
+        /* an answer's usage: the context in use and the cost so far */
+        jv m, v;
+        if (!json_parse(w->p, w->n, &m) && json_get(m, "role", &v) && json_streq(v, "assistant") &&
+            json_get(m, "usage", &v)) {
+            llm_usage u;
+            llm_r_usage(v, &u);
+            if (u.input + u.output + u.cache_read + u.cache_write > 0)
+                s->ctx_tokens = u.input + u.output + u.cache_read + u.cache_write;
+            s->cost_micro += u.cost[0] + u.cost[1] + u.cost[2] + u.cost[3];
+        }
     }
     s->msg[s->nmsg] = w->p;
     s->msg_n[s->nmsg] = w->n;
@@ -166,6 +233,27 @@ void pi_tools_json(const pi_session *s, jw *w)
     jw_rawz(w, "]");
 }
 
+int pi_req_auth(pi_session *s, llm_req *q, jw *hdr)
+{
+    q->key = s->key;
+    q->xhead = 0;
+    if (!s->cfg)
+        return 0;
+    s->keybuf[0] = 0;
+    llm_cfg_key(s->cfg, &s->model, s->keybuf, sizeof(s->keybuf), 0);
+    if (s->keybuf[0] && cl_key_clean(s->keybuf))
+        s->keybuf[0] = 0;           /* not a key (C:Claude's rule) */
+    q->key = s->keybuf[0] ? s->keybuf : 0;
+    if (llm_cfg_headers(s->cfg, &s->model, q->key, hdr)) {
+        cl_copy(s->err, "a header value of models.json for ", sizeof(s->err));
+        cl_cat(s->err, s->model.provider, sizeof(s->err));
+        cl_cat(s->err, " could not be resolved", sizeof(s->err));
+        return -1;
+    }
+    q->xhead = hdr->n ? hdr->p : 0;
+    return 0;
+}
+
 /* the request and the answer kept: the answer's index, -1 out of memory */
 static int answer(pi_session *s, stream *t)
 {
@@ -173,9 +261,44 @@ static int answer(pi_session *s, stream *t)
     llm_ctx c;
     llm_req q;
     llm_sink k;
-    jw tools, m;
-    int i;
-    if (llm_transform((const char *const *)s->msg, s->msg_n, s->nmsg, now(s), &v)) {
+    jw tools, m, hdr;
+    int i, rc;
+    const char *const *pm = (const char *const *)s->msg;
+    const long *pn = s->msg_n;
+    int pc = s->nmsg;
+    const char **tm = 0;
+    long *tn = 0;
+    if (llm_ant_mid_system(&s->model)) {
+        /* the transcript's system messages in place (the backend reads the first as the initial one) */
+        int k, j = 0, o = 0;
+        if (s->declare)
+            s->declare(s->declare_u, s);
+        tm = (const char **)malloc((size_t)(s->nmsg + s->nsys + 1) * sizeof(*tm));
+        tn = (long *)malloc((size_t)(s->nmsg + s->nsys + 1) * sizeof(*tn));
+        if (!tm || !tn) {
+            free(tm);
+            free(tn);
+            s->oom = 1;
+            return -1;
+        }
+        for (k = 0; k <= s->nmsg; k++) {
+            while (j < s->nsys && s->sys_at[j] <= k) {
+                tm[o] = s->sys[j];
+                tn[o++] = s->sys_n[j++];
+            }
+            if (k < s->nmsg) {
+                tm[o] = s->msg[k];
+                tn[o++] = s->msg_n[k];
+            }
+        }
+        pm = tm;
+        pn = tn;
+        pc = o;
+    }
+    rc = llm_prepare(&s->model, pm, pn, pc, now(s), &v);
+    free(tm);
+    free(tn);
+    if (rc) {
         llm_view_free(&v);
         s->oom = 1;
         return -1;
@@ -186,12 +309,16 @@ static int answer(pi_session *s, stream *t)
     memset(&c, 0, sizeof(c));
     c.model = &s->model;
     c.system = s->system;
+    c.session_id = s->session_id;
     c.msgs = v.m;
     c.msg_n = v.n;
     c.nmsg = v.count;
     c.tools = s->ntools ? tools.p : 0;
     c.tools_n = tools.n;
+    c.thinking = s->thinking;
     llm_acc_init(&t->acc, s->model.api, s->model.provider);
+    llm_acc_model(&t->acc, s->model.id, s->model.cost);
+    llm_acc_level(&t->acc, llm_ant_effort(&s->model, s->thinking));
     k.u = t;
     k.ev = st_ev;
     memset(&q, 0, sizeof(q));
@@ -199,11 +326,21 @@ static int answer(pi_session *s, stream *t)
     q.model = &s->model;
     q.be = llm_backend_of(s->model.api);
     q.ctx = &c;
-    q.key = s->key;
     q.user_agent = s->user_agent;
     q.h = s->h;
     q.sink = &k;
-    if (!q.be) {
+    jw_init(&hdr);
+    if (pi_req_auth(s, &q, &hdr)) {
+        llm_event e;
+        char why[256];
+        cl_copy(why, s->err, sizeof(why));
+        llm_event_init(&e, LE_ERROR);
+        e.stop = LS_ERROR;
+        e.err_type = "error";
+        e.p = why;
+        e.n = (long)strlen(why);
+        st_ev(t, &e);
+    } else if (!q.be) {
         llm_event e;
         llm_event_init(&e, LE_ERROR);
         e.stop = LS_ERROR;
@@ -215,6 +352,7 @@ static int answer(pi_session *s, stream *t)
         llm_request(&q);
     llm_view_free(&v);
     jw_free(&tools);
+    jw_free(&hdr);
     jw_init(&m);
     llm_acc_message(&t->acc, now(s), &m);
     i = keep(s, &m);
@@ -339,8 +477,11 @@ int pi_prompt(pi_session *s, const char *text)
         s->compact(s->compact_u, s, PI_CP_PROMPT);
     emit_simple(s, PE_AGENT_START);
     emit_simple(s, PE_TURN_START);
+    /* pi: a prompt's content is an array of blocks, the text first (agent-session.js prompt) */
     jw_init(&c);
-    jw_strz(&c, text);
+    jw_rawz(&c, "[");
+    llm_b_text(&c, text, (long)strlen(text), 0);
+    jw_rawz(&c, "]");
     jw_init(&w);
     llm_m_user(&w, c.p, c.n, now(s));
     jw_free(&c);

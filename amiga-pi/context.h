@@ -25,6 +25,7 @@ typedef struct pi_ctx {
     long *msg_n;
     int n, cap;
     char thinking[32];          /* "off" until a thinking_level_change */
+    int has_thinking;           /* a thinking_level_change on the path */
     char provider[64], model[128];
     int has_model;              /* a model_change or an assistant message on the path */
     /* the projection's entries (pi's ProjectedSessionEntry): every entry of the context in order, the tree index of

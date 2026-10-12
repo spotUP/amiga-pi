@@ -308,7 +308,7 @@ int ctx_build(pi_s3 *st, int leaf, pi_ctx *c)
             if (!t || json_parse(t, n, &o))
                 goto out;
             if (e->type == S3_THINKING && json_get(o, "thinkingLevel", &v) && json_type(v) == J_STR)
-                json_str(v, c->thinking, sizeof(c->thinking));
+                json_str(v, c->thinking, sizeof(c->thinking)), c->has_thinking = 1;
             else if (e->type == S3_MODEL) {
                 c->has_model = 1;
                 c->provider[0] = c->model[0] = 0;
