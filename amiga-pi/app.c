@@ -6,6 +6,7 @@
 #include "args.h"
 #include "prompt.h"
 #include "ui_pi.h"
+#include "claude/tui.h"
 #include "tools_pi.h"
 #include "ext_gate.h"
 #include "store.h"
@@ -200,6 +201,25 @@ static int trust_ask(void *u, const char *title, const char *const *labels, int 
     const pi_platform *pl = (const pi_platform *)u;
     char line[160], num[8], buf[16];
     int i;
+    if (pl->io->read && pl->io->raw) {
+        /* a console that answers raw mode: pi's selector (the question before the screen is up, no footer under it) */
+        static cl_tui t;
+        static cl_pitheme th;
+        if (!tui_init(&t, pl->io)) {
+            int pick;
+            pitheme_system(&th);
+            t.look = TUI_LOOK_PI;
+            t.pith = &th;
+            t.pi_nofoot = 1;
+            if (!tui_start(&t)) {
+                pick = tui_menu(&t, title, 0, labels, n, 0, -1);
+                tui_stop(&t);
+                tui_free(&t);
+                return pick;
+            }
+            tui_free(&t);
+        }
+    }
     say(pl->io, title, 0);
     for (i = 0; i < n; i++) {
         num[0] = (char)('1' + i);
@@ -506,7 +526,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     if (pl->sys) {
         trust_setting(pl, dflt, sizeof(dflt));
         trusted = pi_trust_decide(pl->sys, pl->agent_dir, pl->cwd, a.approve, dflt,
-                                  a.print || !pl->io->read_line ? 0 : trust_ask, (void *)pl);
+                                  a.print || (!pl->io->read_line && !(pl->io->read && pl->io->raw)) ? 0 : trust_ask, (void *)pl);
         if (trusted < 0) {
             /* pi stops with the trust store's error (readTrustFile / setMany throw) */
             char terr[400];

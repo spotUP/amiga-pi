@@ -38,6 +38,7 @@ typedef struct scen {
     int when;                   /* 0 at rest after the keys, 1 while the agent works (after the keys) */
     mask masks[12];
 } scen;
+static int cmp_shift;           /* the capture's row r is on our screen at row r + cmp_shift (a selector drawn at the bottom) */
 
 static char *slurp(const char *name, long *n)
 {
@@ -199,10 +200,13 @@ static void compare(void)
     }
     for (r = 0; r < want_rows && r < cs.rows; r++)
         for (c = 0; c < 80; c++) {
-            const vt_cell *a = h_cell(want, c, r), *b = h_cell(cs.vt, c, r);
+            const vt_cell *a = h_cell(want, c, r), *b;
             vt_color af, ab, bf, bb;
             vt_attr mask = (vt_attr)(VT_ATTR_BOLD | VT_ATTR_FAINT | VT_ATTR_ITALIC | VT_ATTR_UNDERLINE | VT_ATTR_INVERSE | VT_ATTR_STRIKE);
             int same;
+            if (r + cmp_shift < 0 || r + cmp_shift >= cs.rows)
+                continue;
+            b = h_cell(cs.vt, c, r + cmp_shift);
             if (masked(cur, r + 1, c))
                 continue;
             vt_resolve_colors(want, a, &af, &ab);
@@ -493,6 +497,7 @@ static char aroot[400], adata[420], aagent[420], asdir[520];
 static sys_posix asp;
 static cl_sys asys;
 static long aclock;
+static int rest_any;            /* take the look at any screen at rest, not only one with the footer */
 static void (*at_rest)(void);   /* called once with the screen at rest (the next chunk is the last one) */
 static int rested;
 
@@ -536,8 +541,9 @@ static void rest_hook(void)
 {
     if (getenv("PI_TUI_HOOK"))
         printf("  hook: next=%d chunk=%s ms=%ld bottom=[%s]\n", cs.next, cs.script[cs.next] ? cs.script[cs.next] : "(end)", cs.read_ms, cs_row(cs.rows - 1));
-    if (rested || (!strstr(cs_row(cs.rows - 1), "-model") && !strstr(cs_row(cs.rows - 1), "claude-")) || cs.read_ms <= 0 || !cs.script[cs.next] ||
-        strcmp(cs.script[cs.next], "\004"))
+    if (rested || (rest_any && cs_find("navigate") < 0) ||
+        (!rest_any && !strstr(cs_row(cs.rows - 1), "-model") && !strstr(cs_row(cs.rows - 1), "claude-")) ||
+        cs.read_ms <= 0 || !cs.script[cs.next] || strcmp(cs.script[cs.next], "\004"))
         return;
     rested = 1;
     if (at_rest)
@@ -1100,6 +1106,72 @@ static void test_theme_keys_app(void)
     unlink(path);
 }
 
+
+/* ---- the trust question as pi's selector (the capture is tests/pi/tui/approval.golden) ---- */
+
+static void approval_rest(void)
+{
+    compare();
+    take_shot();
+}
+
+static void test_approval(void)
+{
+    static const char *keys[] = { "\004", 0 };
+    static scen sc = { "approval", { 0 }, { 0 }, 0, 0, 0,
+                       { { 1, 8, 0, 79, "the folder and the program's own name (the sandbox's path wraps)" },
+                         { 10, 10, 0, 79, "the parent folder is the sandbox's" },
+                         { 18, 25, 0, 79, "below the capture's selector" } } };
+    char proj[700];
+    int i;
+    strcpy(proj, aroot);
+    strcat(proj, "/.pi");
+    mkdir(proj, 0777);
+    strcat(proj, "/SYSTEM.md");
+    {
+        FILE *f = fopen(proj, "wb");
+        if (f) {
+            fputs("Be brief.\n", f);
+            fclose(f);
+        }
+    }
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    cur = &sc;
+    taken = 0;
+    diffs = 0;
+    memset(rowdiff, 0, sizeof(rowdiff));
+    first_diff[0] = 0;
+    load_golden("approval");
+    CHECK(want != 0);
+    if (!want)
+        return;
+    rest_any = 1;
+    cmp_shift = 8;
+    CHECK_INT(app_run(80, want_rows, keys, 0, 0, approval_rest), 0);
+    rest_any = 0;
+    cmp_shift = 0;
+    CHECK(taken);
+    CHECK(shot_has("Trust project folder?") && shot_has("This allows amiga-pi to load .pi settings") &&
+          shot_has("project packages, and execute project extensions."));
+    if (diffs) {
+        printf("  approval: %d cells differ from pi's capture\n%s", diffs, first_diff);
+        if (getenv("PI_TUI_DUMP"))
+            for (i = 0; i < want_rows; i++)
+                printf("    %2d|%s\n", i + 1, snap[i]);
+        if (getenv("PI_TUI_ROWS"))
+            for (i = 0; i < want_rows; i++)
+                if (rowdiff[i]) {
+                    printf("    row %2d pi       |%s\n", i + 1, h_row(want, i));
+                    printf("           amiga-pi |%s   (%d cells)\n", snap[i + 8 < 64 ? i + 8 : i], rowdiff[i]);
+                }
+    }
+    CHECK_INT(diffs, 0);
+    vt_free(want);
+    unlink(proj);
+    proj[strlen(proj) - 10] = 0;
+    rmdir(proj);
+}
+
 /* the start header: the program's own name for pi's version, no startup-help panel and no pi tips */
 #define HDR_VER { 2, 2, 5, 79, "start header" }
 #define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
@@ -1134,6 +1206,7 @@ void suite_pi_tui(void)
     test_bang();
     test_themes();
     test_theme_keys_app();
+    test_approval();
     app_cleanup();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))
