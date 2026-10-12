@@ -1,6 +1,6 @@
 # amiga-pi architecture (milestone 0)
 
-Plan: `~/Code/vtcon/thoughts/shared/plans/2026-10-07-amiga-pi.md` (phase A). Research: `~/Code/vtcon/thoughts/shared/research/2026-10-07_pi-like-amiga-agent.md` (R-numbers below). pi source facts: `thoughts/shared/research/2026-10-07_pi-sources-addendum.md` (pi commit f10993bc7f28145df1375f3ff39c7f5c4cfc05f0). Nothing here ran on an Amiga.
+Plan: `~/Code/vtcon/thoughts/shared/plans/2026-10-07-amiga-pi.md` (phase A). Research: `~/Code/vtcon/thoughts/shared/research/2026-10-07_pi-like-amiga-agent.md` (R-numbers below). pi source facts: `thoughts/shared/research/2026-10-07_pi-sources-addendum.md` (research addendum read pi commit f10993bc, a main snapshot between 1.0.4 and 1.1.0; since 2026-10-12 the reference is **pi 1.0.4 = tag `v1.0.4`, commit 7c10bd4337495ee613f2224843ecdf349b80d1df**, github.com/earendil-works/pi, cloned shallow in `~/Code/amiga-pi/vendor/pi-src` (gitignored): `git clone --depth 1 --branch v1.0.4 https://github.com/earendil-works/pi vendor/pi-src`; read pi code there, not on the web). Nothing here ran on an Amiga.
 
 ## Decisions recorded (owner, 2026-10-07)
 

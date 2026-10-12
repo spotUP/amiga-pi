@@ -92,9 +92,15 @@ typedef struct pi_session {
     int (*ask)(void *u, int tool, const char *name, const char *what, int outside);
     void *ask_u;
     /* the session store's automatic compaction (store.h), at pi's points (PI_CP_*); it may rewrite the
-     * conversation, a failure is told by its own events and the prompt goes on */
-    void (*compact)(void *u, struct pi_session *s, int when);
+     * conversation, a failure is told by its own events and the prompt goes on. At PI_CP_END it answers 1 when it
+     * compacted to recover from a context overflow and the answer is to be asked again, once (pi's _checkCompaction
+     * returning true: the post-run loop calls agent.continue()); 0 otherwise */
+    int (*compact)(void *u, struct pi_session *s, int when);
     void *compact_u;
+    /* pi's preflightResult("started"): called once by pi_prompt after the check before the prompt (its compaction
+     * events come first, as in pi's prompt()), then cleared; RPC mode answers the prompt command there */
+    void (*started)(void *u);
+    void *started_u;
     /* before a request to a model that takes tool changes in the transcript: the store declares the executable
      * tools' difference to the transcript as a system message (pi's agent-loop declareToolChanges) */
     void (*declare)(void *u, struct pi_session *s);
@@ -125,6 +131,11 @@ typedef struct pi_session {
     int retry_on, retry_max;
     long retry_base, retry_max_delay;
     int attempt, retry_stop;
+    int recover;                /* the run ended on a context overflow the store compacted: ask again (pi_prompt) */
+    /* pi's _overflowRecoveryAttempted: set by the store when it omits a failed answer and compacts to ask again; cleared
+     * as pi's _handleAgentEvent does, at every user message (the prompt, steering, a follow-up) and at every answer that
+     * is neither an error nor a length stop -- so a retried answer that calls a tool gives the run its allowance back */
+    int overflow_tried;
     /* the failed answer, message index i, kept out of the context for the retry (the store appends pi's context_edit
      * entry); 0, -1 */
     int (*omit)(void *u, struct pi_session *s, int i);

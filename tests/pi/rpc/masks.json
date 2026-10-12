@@ -12,17 +12,11 @@
   "keys": ["id", "parentId", "sessionId", "leafId", "firstKeptEntryId", "targetId", "fromId"],
   "why": "a uuid or an 8-hex entry id is made per run; the fixed ids of the session fixtures start d000 and are compared"
  },
- "drop": {
-  "cacheWrite1h": "PH-S: pi 1.0.4 message field, llm/ writes pi f10993bc's shape",
-  "responseId": "PH-S: pi 1.0.4 message field",
-  "rawStopReason": "PH-S: pi 1.0.4 message field",
-  "thinkingLevel": "PH-S: pi 1.0.4 message field",
-  "structuredContent": "PH-S: pi 1.0.4 tool_execution_end field"
- },
  "rules": {
   "cost.total": "the sum: pi adds binary floats (0.0036149999999999997), ours prints decimal micro-dollars; the four parts are compared",
   "errorMessage of an HTTP error": "pi: status and the raw body (`400 {...}`, the SDK's APIError text), ours `HTTP 400: <message>`; the value is masked, the key and its place are compared",
-  "message_start usage": "pi serializes the shared partial message when its consumer runs: the first counts are in or not from run to run of pi itself",
+  "tokensBefore of an overflow compaction that asks again": "the failed answer was omitted first (a context_edit), so pi counts the context by estimate alone (compaction.ts estimateProjectedContextTokens), the system message included, whose text is amiga-pi's prompt (as estimatedTokensAfter: both differ by the same 273 tokens in overflow); a silent overflow (willRetry false), a threshold or a manual compaction is usage-based and compared",
+  "message_start usage and responseId": "pi serializes the shared partial message when its consumer runs: the first counts and the response id (both set by the stream's message_start event) are in or not from run to run of pi itself",
   "baseUrl": "the fixture's port",
   "parse error text": "V8's JSON.parse message",
   "get_available_models": "compared for the fixture's provider only (the catalog's plain-http providers are available here without a key)"

@@ -5,8 +5,7 @@
  *
  * A line is compared after the masks of tests/pi/rpc/masks.json (the one list of this test and of vtcon's rig
  * tools/rig/amigapi_rig.py), each with its reason there and a COMPATIBILITY.md row (group pi-modes), never a way to
- * hide one: keys starred (made per run, or compared where they live), fresh ids starred, pi 1.0.4's message fields
- * dropped (PH-S), and the rules: cost `total`, the text of an HTTP errorMessage, message_start usage, baseUrl, the
+ * hide one: keys starred (made per run, or compared where they live), fresh ids starred, and the rules: cost `total`, the text of an HTTP errorMessage, message_start usage, baseUrl, the
  * parse error text, get_available_models for the fixture's provider.
  * A command that arrives while the agent works is held by its `#after <event>` line until pi's run had that event in its
  * output, as the golden was made. */
@@ -104,7 +103,7 @@ typedef struct {
     char k[MASK_MAX][32];
     int n;
 } key_list;
-static key_list star_keys, id_keys, drop_keys;
+static key_list star_keys, id_keys;
 static char fixture_provider[32];
 static int masks_loaded;
 
@@ -138,12 +137,11 @@ static int load_masks(void)
     if (masks_loaded)
         return 1;
     t = slurp_rpc("masks", ".json", &n);
-    if (!t || json_parse(t, n, &v) || !json_get(v, "star", &x) || !json_get(v, "drop", &y)) {
+    if (!t || json_parse(t, n, &v) || !json_get(v, "star", &x)) {
         free(t);
         return 0;
     }
     keys_of(x, &star_keys);
-    keys_of(y, &drop_keys);
     if (!json_get(v, "ids", &x) || !json_get(x, "keys", &y) || !json_get(v, "fixtureProvider", &x)) {
         free(t);
         return 0;
@@ -185,6 +183,7 @@ static int http_error_text(jv v)
 
 #define F_STARTMSG 1
 #define F_COST 2
+#define F_OVERFLOW 4            /* the result of an overflow compaction_end */
 
 static void m_val(jv v, int flags, jw *o, const char *cwd);
 
@@ -222,8 +221,13 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
     jit it;
     jv k, val;
     char key[64];
+    jv wr;
     int first = 1;
     int assistant = str_is(v, "role", "assistant"), retry_start = str_is(v, "type", "auto_retry_start");
+    /* an overflow compaction that asks again followed the omission of the failed answer (a context_edit): pi counts it
+     * by estimate alone (estimateProjectedContextTokens), its system message included; a silent overflow is usage-based */
+    int overflow_end = str_is(v, "type", "compaction_end") && str_is(v, "reason", "overflow") &&
+                       json_get(v, "willRetry", &wr) && json_type(wr) == J_TRUE;
     int parse_err = str_is(v, "command", "parse");
     int start_msg = 0;
     jv m;
@@ -234,14 +238,14 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
     while (json_next(&it, &k, &val)) {
         jv t;
         json_str(k, key, sizeof(key));
-        if (in_list(key, &drop_keys))
-            continue;
+        if ((flags & F_STARTMSG) && !strcmp(key, "responseId"))
+            continue;           /* set by message_start: in pi's shared partial or not, as its consumer runs */
         if (!first)
             jw_rawz(o, ",");
         first = 0;
         jw_strz(o, key);
         jw_rawz(o, ":");
-        if (in_list(key, &star_keys))
+        if (in_list(key, &star_keys) || ((flags & F_OVERFLOW) && !strcmp(key, "tokensBefore")))
             jw_rawz(o, "\"*\"");
         else if ((flags & F_COST) && json_type(val) == J_NUM)
             micro_dollars(val, o);
@@ -264,6 +268,8 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
             jw_rawz(o, "\"*\"");
         else if (!strcmp(key, "message") && start_msg)
             m_val(val, F_STARTMSG, o, cwd);
+        else if (!strcmp(key, "result") && overflow_end)
+            m_val(val, F_OVERFLOW, o, cwd);
         else if (!strcmp(key, "models") && json_type(val) == J_ARR) {
             jit ai;
             jv e;
@@ -1186,6 +1192,36 @@ static void test_retry_overflow(void)
     free(ro.out);
 }
 
+/* HF6: context-overflow recovery, pi's _checkCompaction through pi_prompt (the goldens overflow and overflow_twice are pi's
+ * records of the same scripted answers: the third prompt's request outgrew the window). pi omits the failed answer
+ * (entry_appended), compacts (compaction_start / compaction_end reason overflow, willRetry true) and asks again, once; a
+ * second overflow ends the run with compaction_end's error and no third request. overflow_silent: an answer that succeeded
+ * with more input than the window is compacted and kept, not asked again; overflow_length: a length stop below the output
+ * limit is omitted, compacted and asked again. overflow_tool: the retried answer calls a tool, which gives the allowance
+ * back (pi clears _overflowRecoveryAttempted at a clean answer), so the run's next overflow recovers again;
+ * overflow_twice_next: the check before the next prompt tells the failure again, before the prompt's response */
+static void test_overflow_recovery(void)
+{
+    static const char *const names[] = { "overflow", "overflow_twice", "overflow_silent", "overflow_length", "overflow_tool",
+                                         "overflow_twice_next", 0 };
+    long r0;
+    group(names);
+    if (getenv("PI_MODES_ONLY"))
+        return;
+    /* five requests each: the two answers, the overflowing one, the summary, the retry -- not a sixth */
+    r0 = pi_agent_rounds;
+    {
+        run_opts ro;
+        memset(&ro, 0, sizeof(ro));
+        ro.nocmp = 1;
+        scenario("overflow_twice", &ro);
+        CHECK_INT(ps.nreq, 5);
+        CHECK(has(ro.out, "\"reason\":\"overflow\",\"aborted\":false,\"willRetry\":false,\"errorMessage\":\"Context overflow recovery failed after one"));
+        free(ro.out);
+    }
+    CHECK_INT(pi_agent_rounds - r0, 4);
+}
+
 /* the permission gate over RPC: its question is a select; No blocks the call, Yes runs it */
 static void test_gate(void)
 {
@@ -1343,6 +1379,7 @@ void suite_pi_modes(void)
     test_core();
     test_models();
     test_modes();
+    test_overflow_recovery();
     test_misc();
     test_sessions();
     test_ui();

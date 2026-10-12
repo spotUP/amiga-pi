@@ -1,0 +1,6 @@
+{"id":"1","type":"prompt","message":"hello"}
+#after agent_settled
+{"id":"2","type":"prompt","message":"and again"}
+#after agent_settled
+{"id":"3","type":"prompt","message":"and a third"}
+#after agent_settled
