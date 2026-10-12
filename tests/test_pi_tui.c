@@ -46,6 +46,7 @@ typedef struct scen {
 #define SC_REGULAR(sc) (!strncmp((sc)->name, "reg_", 4) || !strcmp((sc)->name, "exit_regular"))
 #define SC_BAR(sc) (strstr((sc)->name, "_bar") != 0)
 #define SC_HINT(sc) (strstr((sc)->name, "exit_hint") != 0)     /* fullscreenExitOutput "resume-hint" */
+#define SC_PAD0(sc) (strstr((sc)->name, "pad0") != 0)          /* settings.json outputPad 0 (pi 1.1.0) */
 #define SC_THEME(sc) (!strncmp((sc)->name, "dark_", 5) ? 1 : !strncmp((sc)->name, "light_", 6) ? 2 : 0)
 static int cmp_shift;           /* the capture's row r is on our screen at row r + cmp_shift (a selector drawn at the bottom) */
 
@@ -362,6 +363,7 @@ static void run(const scen *sc)
     pi_ui_set_theme(0);                 /* the system theme and pi's keys, whatever an earlier test left */
     pi_ui_set_keybindings(0, 0);
     pi_ui_set_tui(SC_REGULAR(sc), SC_HINT(sc), SC_BAR(sc));
+    pi_ui_set_output_pad(!SC_PAD0(sc));
     pi_ui_set_resume(sc->when == 3 ? test_resume : 0, 0);
     if (SC_THEME(sc)) {
         static cl_pitheme th;
@@ -974,22 +976,20 @@ static void tree_rest(void)
     compare();
 }
 
-static void test_tree(void)
+/* a session fixture of tests/pi (relative to tests/pi/tui) written to <aroot>/<name>, its project directory moved to the
+ * sandbox's: path gets the file's name. 0 when the fixture is missing */
+static int put_session(const char *fixture, const char *name, char *path)
 {
-    static const char *keys[] = { "/tree\r", "\004", 0 };
-    static scen sc = { "tree", { 0 }, { 0 }, 0, 1, 0, { { 1, 6, 0, 79, "the transcript above the selector" },
-                                                        { 9, 10, 0, 79, "tree help keys" },
-                                                        { 24, 25, 0, 79, "the folder and the model of the capture" } } };
-    char src[600], *txt, path[600], *fix;
+    char *txt, *fix;
     long n;
     FILE *f;
-    int i;
     strcpy(path, aroot);
-    strcat(path, "/tree_session.jsonl");
-    txt = slurp("../sessions/doc_branch.jsonl", &n);
+    strcat(path, "/");
+    strcat(path, name);
+    txt = slurp(fixture, &n);
     CHECK(txt != 0);
     if (!txt)
-        return;
+        return 0;
     fix = (char *)malloc((size_t)n * 2 + 200);
     {
         const char *from = txt, *at;
@@ -1010,7 +1010,19 @@ static void test_tree(void)
     }
     free(txt);
     free(fix);
-    (void)src;
+    return 1;
+}
+
+static void test_tree(void)
+{
+    static const char *keys[] = { "/tree\r", "\004", 0 };
+    static scen sc = { "tree", { 0 }, { 0 }, 0, 1, 0, { { 1, 6, 0, 79, "the transcript above the selector" },
+                                                        { 9, 10, 0, 79, "tree help keys" },
+                                                        { 24, 25, 0, 79, "the folder and the model of the capture" } } };
+    char path[600];
+    int i;
+    if (!put_session("../sessions/doc_branch.jsonl", "tree_session.jsonl", path))
+        return;
     app_write("settings.json", "{\"quietStartup\":true}\n");
     cur = &sc;
     taken = 0;
@@ -1039,6 +1051,49 @@ static void test_tree(void)
     vt_free(want);
 }
 
+
+/* P11-I9: a resumed session draws `Took` from the toolResult's recorded durationMs (pi 1.1.0 tool-execution.ts:137,
+ * renderers/bash.ts:104-106): 2300 ms is "Took 2.3s", a result recorded without one shows no Took row. The golden is pi's
+ * own screen for the same session file. */
+static void resume_rest(void)
+{
+    compare();
+}
+
+static void test_resume_took(void)
+{
+    static const char *keys[] = { "\004", 0 };
+    static scen sc = { "resume_took", { 0 }, { 0 }, 0, 0, 0, { { 21, 25, 0, 79, "the editor border (the thinking level of the model) and the footer: the capture's model is the fake one" } } };
+    char path[600];
+    int i;
+    if (!put_session("took_session.jsonl", "took_session.jsonl", path))
+        return;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    cur = &sc;
+    taken = 0;
+    diffs = 0;
+    memset(rowdiff, 0, sizeof(rowdiff));
+    first_diff[0] = 0;
+    load_golden("resume_took");
+    CHECK(want != 0);
+    if (!want)
+        return;
+    app_session = path;
+    CHECK_INT(app_run(80, want_rows, keys, 0, 0, resume_rest), 0);
+    app_session = 0;
+    CHECK(taken);
+    if (diffs) {
+        printf("  resume_took: %d cells differ from pi's capture\n%s", diffs, first_diff);
+        if (getenv("PI_TUI_ROWS"))
+            for (i = 0; i < want_rows; i++)
+                if (rowdiff[i]) {
+                    printf("    row %2d pi       |%s\n", i + 1, h_row(want, i));
+                    printf("           amiga-pi |%s   (%d cells)\n", snap[i], rowdiff[i]);
+                }
+    }
+    CHECK_INT(diffs, 0);
+    vt_free(want);
+}
 
 /* Enter in the selector moves the leaf (a user message goes back to the editor) and the conversation is drawn again */
 static void test_tree_nav(void)
@@ -1637,6 +1692,13 @@ static const scen scenarios[] = {
     { "dark_toolrun", { "run it\r", 0 }, { "dark_toolrun.1.sse", "dark_toolrun.2.sse", 0 }, 2, 0, 2,
       { { 7, 9, 0, 79, "the live Elapsed row of a running tool" }, { 21, 21, 3, 3, "spinner frame" } } },
     { "dark_bang", { "!!echo hi\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* P11 (pi 1.1.0): `!!` keeps its dim header; outputPad 0 takes the padding off messages, tool boxes and `!` output */
+    { "bang_excluded", { "!!!echo hi\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "pad0_markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
+    { "pad0_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "pad0_toolerr", { "run it\r", 0 }, { "toolerr.1.sse", "toolerr.2.sse", 0 }, 2, 0, 0, { { 13, 13, 0, 8, "elapsed time of the run" } } },
+    { "pad0_bang", { "!!echo hi\r", "!!!echo secret\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_pad0_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "light_twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "light_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
 };
@@ -1652,6 +1714,7 @@ void suite_pi_tui(void)
     test_cycle();
     test_tree();
     test_tree_nav();
+    test_resume_took();
     test_export();
     test_bang();
     test_context_figure();

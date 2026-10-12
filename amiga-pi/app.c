@@ -91,6 +91,21 @@ static int quiet_setting(const pi_platform *pl)
     return quiet;
 }
 
+/* settings.json's outputPad (pi 1.1.0 getOutputPad): 0 gives 0, anything else 1 */
+static int output_pad_setting(const pi_platform *pl)
+{
+    char *b, path[300];
+    long n;
+    jv o, v;
+    int pad = 1;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return 1;
+    if (!json_parse(b, n, &o) && json_get(o, "outputPad", &v) && json_type(v) == J_NUM && v.n == 1 && v.p[0] == '0')
+        pad = 0;
+    CL_FREE(b);
+    return pad;
+}
+
 /* settings.json's tuiMode ("regular" | "fullscreen", pi's default), fullscreenExitOutput ("transcript" | "resume-hint")
  * and fullscreenScrollbar ("auto" | "always" | "hidden"; "auto" shows the bar on a pointer's hover only, and there is
  * no pointer here): into the arguments of pi_ui_set_tui. fullscreenCopyOnSelect and fullscreenWheelScrollLines are
@@ -714,6 +729,7 @@ int pi_rt_run(pi_rt *rt)
         long kn = 0;
         pi_ui_set_cwd(pl->cwd);
         pi_ui_set_quiet(quiet_setting(pl));
+        pi_ui_set_output_pad(output_pad_setting(pl));
         {
             int reg, hint, bar;
             tui_settings(pl, a.tui_mode, &reg, &hint, &bar);

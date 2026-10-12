@@ -188,6 +188,28 @@ SCENARIOS = {
                                   ('sse', text_answer('msg_r2', 'Slept.', 20))], theme='dark'),
     'dark_bang': dict(steps=[('type', '!echo hi'), ('enter',), ('sleep', 1.5)],
                       answers=[], theme='dark'),
+    # P11 (pi 1.1.0): `!!` keeps its dim header after the output arrives (bash-execution.ts colorKey)
+    'bang_excluded': dict(steps=[('type', '!!echo hi'), ('enter',), ('sleep', 1.5)], answers=[]),
+    # P11: outputPad 0 (settings.json) removes the horizontal padding of messages, tool boxes and `!` output
+    'pad0_markdown': dict(steps=[('type', 'show markdown'), ('enter',), ('wait', 'return 0')],
+                          answers=[('sse', text_answer('msg_md', MARKDOWN, 180))], settings={'outputPad': 0}),
+    'pad0_tool': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading')],
+                      answers=[('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),
+                               ('sse', text_answer('msg_t2', 'Done reading notes.txt: three lines.', 20))],
+                      settings={'outputPad': 0}),
+    'pad0_toolerr': dict(steps=[('type', 'run it'), ('enter',), ('wait', 'It failed')],
+                         answers=[('sse', tool_answer('msg_e1', 'toolu_2', 'bash', {'command': 'cat nothere.txt'})),
+                                  ('sse', text_answer('msg_e2', 'It failed: no such file.', 20))],
+                         settings={'outputPad': 0}),
+    'pad0_bang': dict(steps=[('type', '!echo hi'), ('enter',), ('sleep', 1.5), ('type', '!!echo secret'), ('enter',), ('sleep', 1.5)],
+                      answers=[], settings={'outputPad': 0}),
+    'dark_pad0_tool': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading')],
+                           answers=[('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),
+                                    ('sse', text_answer('msg_t2', 'Done reading notes.txt: three lines.', 20))],
+                           theme='dark', settings={'outputPad': 0}),
+    # P11: a resumed session shows `Took` from the recorded durationMs of the toolResult (2300 ms: "Took 2.3s"); the
+    # second call has none recorded and shows no Took (tool-execution.ts:137, renderers/bash.ts:104)
+    'resume_took': dict(steps=[('sleep', 1.0)], answers=[], session='took_session.jsonl'),
     'light_twice': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('type', 'second'), ('enter',), ('wait', 'two')],
                         answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))],
                         theme='light'),
@@ -293,7 +315,8 @@ def run(name, sc, cols, rows, keep):
     with open(os.path.join(proj, 'notes.txt'), 'w') as f:
         f.write('one\ntwo\nthree\n')
     if sc.get('session'):       # a session file to open (the tree view needs a conversation with branches)
-        txt = open(os.path.join(HERE, '..', '..', 'tests', 'pi', 'sessions', sc['session'])).read()
+        own = os.path.join(OUT, sc['session'])       # a fixture of this directory first (took_session.jsonl), else tests/pi/sessions
+        txt = open(own if os.path.exists(own) else os.path.join(HERE, '..', '..', 'tests', 'pi', 'sessions', sc['session'])).read()
         open(os.path.join(proj, 'session.jsonl'), 'w').write(txt.replace('/path/to/project', proj))   # else pi asks about the folder
     for rel, text in sc.get('files', {}).items():
         os.makedirs(os.path.dirname(os.path.join(proj, rel)), exist_ok=True)

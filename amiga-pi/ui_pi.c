@@ -85,6 +85,13 @@ void pi_ui_set_tui(int regular, int hint_only, int scrollbar_always)
     ui_bar = scrollbar_always;
 }
 
+static int ui_pad = 1;
+
+void pi_ui_set_output_pad(int pad)
+{
+    ui_pad = pad ? 1 : 0;
+}
+
 void pi_ui_set_resume(const char *(*fn)(void *u), void *u)
 {
     ui_resume = fn;
@@ -196,7 +203,7 @@ static void on_event(void *u, const pi_event *e)
         break;
     case PE_TOOL_END:
         if (p->look) {
-            pshow_tool_end(&p->ps, e->result, e->result_n, e->is_error);
+            pshow_tool_end(&p->ps, e->result, e->result_n, e->is_error, -1);    /* live: the call's clock (batch A's tool_execution_end durationMs replaces -1) */
             break;
         }
         if (e->is_error) {
@@ -717,6 +724,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     else
         km_init_pi(&t->km);
     pshow_init(&p->ps, t, &p->theme);
+    pshow_set_pad(&p->ps, ui_pad);
     pshow_render(&p->ps, &p->render);
     footer(p);
     tui_frame(t);

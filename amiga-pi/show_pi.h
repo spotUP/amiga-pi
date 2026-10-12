@@ -2,7 +2,7 @@
  * message, the answer's Markdown (view/md.c in its pi look), a tool call as pi's renderers draw it
  * (read, bash, write, edit, ls, find, grep: the header, the result as collapsed), errors. Every line goes
  * to the screen through tui_lines in a batch; the colours are the roles of a cl_pitheme (claude/theme.h).
- * The goldens are tests/pi/tui (pi 1.0.4, tools/pi_oracle/tui_gen.py). Portable C89. */
+ * The goldens are tests/pi/tui (pi 1.1.0, tools/pi_oracle/tui_gen.py). Portable C89. */
 #ifndef PI_SHOW_H
 #define PI_SHOW_H
 
@@ -26,12 +26,15 @@ typedef struct pi_show {
     jw args;
     unsigned long t0;
     long n_text, n_blocks, n_tools;
+    int pad;                    /* outputPad: 1 (pi's default) or 0 */
     int replay;                 /* tool results of an earlier run: no duration */
     long box_mark, box_end;     /* the tool's box as drawn at its start: the transcript line count before it and after it */
 } pi_show;
 
 void pshow_init(pi_show *s, cl_tui *t, const cl_pitheme *th);
 void pshow_free(pi_show *s);
+/* settings.json's outputPad (0 or 1) */
+void pshow_set_pad(pi_show *s, int pad);
 /* the colours changed (a theme chosen): the Markdown theme made again */
 void pshow_theme(pi_show *s, const cl_pitheme *th);
 /* the answer's renderer (cl_render) */
@@ -46,7 +49,9 @@ void pshow_note(pi_show *s, int role, const char *text);
 void pshow_error(pi_show *s, const char *text);
 /* a tool call: its header is shown now, its result when it ends. args is the call's JSON object */
 void pshow_tool_start(pi_show *s, const char *name, const char *args, long an);
-void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error);
+/* duration_ms: the result's recorded durationMs (bash's `Took`), -1 when none is recorded: the call's clock is used live and
+ * nothing is shown on replay */
+void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error, long duration_ms);
 /* a result's JSON blocks ([{"type":"text","text":...}]) as the text of their text blocks, joined by newlines */
 long pshow_result_text(const char *json, long n, jw *out);
 
