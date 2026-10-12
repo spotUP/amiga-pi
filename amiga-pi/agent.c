@@ -32,11 +32,63 @@ void pi_session_clear(pi_session *s)
     for (i = 0; i < s->nmsg; i++)
         free(s->msg[i]);
     s->nmsg = 0;
+    for (i = 0; i < s->nsys; i++)
+        free(s->sys[i]);
+    s->nsys = 0;
+}
+
+int pi_session_push_system(pi_session *s, const char *json, long n)
+{
+    char *c;
+    if (s->nsys == s->syscap) {
+        int nc = s->syscap ? s->syscap * 2 : 8;
+        char **gs = (char **)malloc((size_t)nc * sizeof(*gs));
+        long *gn = (long *)malloc((size_t)nc * sizeof(*gn));
+        int *ga = (int *)malloc((size_t)nc * sizeof(*ga));
+        if (!gs || !gn || !ga) {
+            free(gs);
+            free(gn);
+            free(ga);
+            s->oom = 1;
+            return -1;
+        }
+        if (s->nsys) {
+            memcpy(gs, s->sys, (size_t)s->nsys * sizeof(*gs));
+            memcpy(gn, s->sys_n, (size_t)s->nsys * sizeof(*gn));
+            memcpy(ga, s->sys_at, (size_t)s->nsys * sizeof(*ga));
+        }
+        free(s->sys);
+        free(s->sys_n);
+        free(s->sys_at);
+        s->sys = gs;
+        s->sys_n = gn;
+        s->sys_at = ga;
+        s->syscap = nc;
+    }
+    c = (char *)malloc((size_t)n + 1);
+    if (!c) {
+        s->oom = 1;
+        return -1;
+    }
+    memcpy(c, json, (size_t)n);
+    c[n] = 0;
+    s->sys[s->nsys] = c;
+    s->sys_n[s->nsys] = n;
+    s->sys_at[s->nsys] = s->nmsg;
+    s->nsys++;
+    return 0;
 }
 
 void pi_session_free(pi_session *s)
 {
     pi_session_clear(s);
+    free(s->sys);
+    free(s->sys_n);
+    free(s->sys_at);
+    s->sys = 0;
+    s->sys_n = 0;
+    s->sys_at = 0;
+    s->syscap = 0;
     free(s->msg);
     free(s->msg_n);
     s->msg = 0;
@@ -210,8 +262,43 @@ static int answer(pi_session *s, stream *t)
     llm_req q;
     llm_sink k;
     jw tools, m, hdr;
-    int i;
-    if (llm_prepare(&s->model, (const char *const *)s->msg, s->msg_n, s->nmsg, now(s), &v)) {
+    int i, rc;
+    const char *const *pm = (const char *const *)s->msg;
+    const long *pn = s->msg_n;
+    int pc = s->nmsg;
+    const char **tm = 0;
+    long *tn = 0;
+    if (llm_ant_mid_system(&s->model)) {
+        /* the transcript's system messages in place (the backend reads the first as the initial one) */
+        int k, j = 0, o = 0;
+        if (s->declare)
+            s->declare(s->declare_u, s);
+        tm = (const char **)malloc((size_t)(s->nmsg + s->nsys + 1) * sizeof(*tm));
+        tn = (long *)malloc((size_t)(s->nmsg + s->nsys + 1) * sizeof(*tn));
+        if (!tm || !tn) {
+            free(tm);
+            free(tn);
+            s->oom = 1;
+            return -1;
+        }
+        for (k = 0; k <= s->nmsg; k++) {
+            while (j < s->nsys && s->sys_at[j] <= k) {
+                tm[o] = s->sys[j];
+                tn[o++] = s->sys_n[j++];
+            }
+            if (k < s->nmsg) {
+                tm[o] = s->msg[k];
+                tn[o++] = s->msg_n[k];
+            }
+        }
+        pm = tm;
+        pn = tn;
+        pc = o;
+    }
+    rc = llm_prepare(&s->model, pm, pn, pc, now(s), &v);
+    free(tm);
+    free(tn);
+    if (rc) {
         llm_view_free(&v);
         s->oom = 1;
         return -1;
@@ -231,6 +318,7 @@ static int answer(pi_session *s, stream *t)
     c.thinking = s->thinking;
     llm_acc_init(&t->acc, s->model.api, s->model.provider);
     llm_acc_model(&t->acc, s->model.id, s->model.cost);
+    llm_acc_level(&t->acc, llm_ant_effort(&s->model, s->thinking));
     k.u = t;
     k.ev = st_ev;
     memset(&q, 0, sizeof(q));
@@ -389,8 +477,11 @@ int pi_prompt(pi_session *s, const char *text)
         s->compact(s->compact_u, s, PI_CP_PROMPT);
     emit_simple(s, PE_AGENT_START);
     emit_simple(s, PE_TURN_START);
+    /* pi: a prompt's content is an array of blocks, the text first (agent-session.js prompt) */
     jw_init(&c);
-    jw_strz(&c, text);
+    jw_rawz(&c, "[");
+    llm_b_text(&c, text, (long)strlen(text), 0);
+    jw_rawz(&c, "]");
     jw_init(&w);
     llm_m_user(&w, c.p, c.n, now(s));
     jw_free(&c);

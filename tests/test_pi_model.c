@@ -782,8 +782,12 @@ static void test_wire(void)
     jw_free(&w);
     /* adaptive thinking: the effort, from the model's map or pi's levels */
     wire(&opus, LT_MINIMAL, 0, &w, xh, sizeof(xh));
-    CHECK(strstr(w.p, "\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\"},\"output_config\":{\"effort\":\"low\"}") != 0);
-    CHECK(xh[0] == 0 && strstr(w.p, "\"max_tokens\":128000,") != 0);       /* the model's cap, pi-ai's data */
+    /* opus-5-5 is a managed-effort model (supportsMidConvoEffort): the level is the last system message, the thinking
+     * member is pi's fixed adaptive one */
+    CHECK(strstr(w.p, "{\"role\":\"system\",\"content\":[],\"output_config\":{\"effort\":\"low\"}}],\"max_tokens\":128000,") != 0);
+    CHECK(strstr(w.p, "\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\",\"block_binding\":"
+                      "{\"prefix_mismatch_behavior\":\"drop_block\"}},\"output_config\":{\"effort\":\"high\"}}") != 0);
+    CHECK(strstr(xh, "anthropic-beta: mid-conversation-output-config-2026-07-01,thinking-binding-controls-2026-08-01") == xh);
     jw_free(&w);
     wire(&opus, LT_MEDIUM, 0, &w, xh, sizeof(xh));
     CHECK(strstr(w.p, "\"effort\":\"medium\"}") != 0);
@@ -795,7 +799,7 @@ static void test_wire(void)
     CHECK(strstr(w.p, "\"effort\":\"max\"}") != 0);
     jw_free(&w);
     wire(&opus, LT_OFF, 0, &w, xh, sizeof(xh));        /* opus-5-5's map has off: null; the clamp (off -> low) is pi's */
-    CHECK(strstr(w.p, "\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\"},\"output_config\":{\"effort\":\"low\"}") != 0);
+    CHECK(strstr(w.p, "{\"role\":\"system\",\"content\":[],\"output_config\":{\"effort\":\"low\"}}],\"max_tokens\"") != 0);
     jw_free(&w);
     /* a model without reasoning sends none of it */
     {

@@ -190,7 +190,7 @@ static void test_switch(void)
     /* the first request: Anthropic, adaptive thinking at pi's default level */
     CHECK(strstr(ps.head[0], "POST /v1/messages HTTP/1.1\r\nHost: api.anthropic.com\r\n") == ps.head[0]);
     CHECK(strstr(ps.head[0], "x-api-key: sk-ant-test-not-real\r\n") != 0);
-    CHECK(strstr(ps.body[0], "\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\"},\"output_config\":{\"effort\":\"medium\"}") != 0);
+    CHECK(strstr(ps.body[0], "{\"role\":\"system\",\"content\":[],\"output_config\":{\"effort\":\"medium\"}}],\"max_tokens\"") != 0);
     /* the second: OpenAI, the first answer's thinking as plain text (pi's transformMessages), the key of the environment */
     CHECK(strstr(ps.head[1], "POST /v1/responses HTTP/1.1\r\nHost: api.openai.com\r\n") == ps.head[1]);
     CHECK(strstr(ps.head[1], "Authorization: Bearer sk-test-openai\r\n") != 0);
@@ -274,38 +274,67 @@ static void test_switch_back(void)
         return;
     CHECK(strstr(ps.head[0], "POST /v1/responses HTTP/1.1\r\nHost: api.openai.com\r\n") == ps.head[0]);
     CHECK(strstr(ps.head[1], "POST /v1/messages HTTP/1.1\r\nHost: api.anthropic.com\r\n") == ps.head[1]);
-    CHECK(strstr(ps.body[1], "\"thinking\":{\"type\":\"adaptive\",\"display\":\"summarized\"},\"output_config\":{\"effort\":\"low\"}") != 0);
-    /* pi's request for the Anthropic side is tests/pi/model/switch_back_second.json; the level lives in its thinking
-     * and output_config members, which must be in the body byte for byte. The rest of pi's Anthropic body (cache_control,
-     * eager_input_streaming, key order, the mid-conversation compat of opus-5-5) is not ported: COMPATIBILITY.md */
-    {
-        char path[600], *g;
-        FILE *f;
+    CHECK(strstr(ps.body[1], "{\"role\":\"system\",\"content\":[],\"output_config\":{\"effort\":\"low\"}}],\"max_tokens\"") != 0);
+    /* pi's request for the Anthropic side is tests/pi/model/switch_back_second.json, byte for byte (the handoff
+     * from the OpenAI answer, the managed-effort system messages, cache_control, the tool list with its placeholder) */
+    pi_golden("pi/model/switch_back_second.json", ps.body[1]);
+    CHECK(llm_feeds_anthropic > f_anth && llm_feeds_responses > f_open);
+}
+
+/* FB3: Anthropic alone, three prompts at low, high and medium: the requests are pi's byte for byte; the levels of the
+ * earlier answers travel as the system messages pi inserts before each of them. Pi's data path: the level is recorded
+ * on the assistant message (providerThinkingLevel) in the session file and comes back on resume. */
+static void test_levels(void)
+{
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0 };
+    char *c[] = { "amiga-pi", "-c", 0 };
+    static const char *const sse[] = { "../pi/switch_anthropic.sse", "../pi/switch_anthropic.sse", "../pi/switch_anthropic.sse" };
+    char path[600];
+    pi_s3 st;
+    int i, kept = 0;
+    in_lines[0] = "/thinking low";
+    in_lines[1] = "hello";
+    in_lines[2] = "/thinking high";
+    in_lines[3] = "again";
+    in_lines[4] = "/thinking medium";
+    in_lines[5] = "third";
+    in_lines[6] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 3), 0);
+    CHECK_INT(ps.nreq, 3);
+    if (ps.nreq < 3)
+        return;
+    pi_golden("pi/model/levels_first.json", ps.body[0]);
+    pi_golden("pi/model/levels_second.json", ps.body[1]);
+    pi_golden("pi/model/levels_third.json", ps.body[2]);
+    CHECK(strstr(ps.head[2], "anthropic-beta: mid-conversation-output-config-2026-07-01,thinking-binding-controls-2026-08-01,"
+                             "inline-tools-2026-09-15\r\n") != 0);
+    /* the session file keeps each answer's level */
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 7);
+    CHECK_INT(s3_open(&st, path), 0);
+    for (i = 0; i < st.n; i++) {
         long n;
-        strcpy(path, PI_TESTS "/pi/model/switch_back_second.json");
-        f = fopen(path, "rb");
-        CHECK(f != 0);
-        if (f) {
-            fseek(f, 0, SEEK_END);
-            n = ftell(f);
-            g = (char *)malloc((size_t)n + 1);
-            fseek(f, 0, SEEK_SET);
-            n = g ? (long)fread(g, 1, (size_t)n, f) : 0;
-            fclose(f);
-            if (g) {
-                char *t;
-                g[n] = 0;
-                t = strstr(g, "\"thinking\":");
-                CHECK(t != 0 && n > 0 && g[n - 1] == '}');
-                if (t) {
-                    g[n - 1] = 0;
-                    CHECK(ps.body[1] && strstr(ps.body[1], t) != 0);
-                }
-                free(g);
-            }
+        const char *t = s3_text(&st, i, &n);
+        if (t && strstr(t, "\"role\":\"assistant\"")) {
+            static const char *const want[] = { "low", "high", "medium" };
+            char needle[64];
+            strcpy(needle, "\"providerThinkingLevel\":\"");
+            strcat(needle, want[kept < 3 ? kept : 2]);
+            strcat(needle, "\"");
+            CHECK(strstr(t, needle) != 0);
+            kept++;
         }
     }
-    CHECK(llm_feeds_anthropic > f_anth && llm_feeds_responses > f_open);
+    s3_free(&st);
+    CHECK_INT(kept, 3);
+    /* resume: the next request still carries all three levels, from the file */
+    in_lines[0] = "fourth";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(c), c, sse, 1), 0);
+    CHECK_INT(ps.nreq, 1);
+    CHECK(ps.nreq && strstr(ps.body[0], "{\"role\":\"system\",\"content\":[],\"output_config\":{\"effort\":\"low\"}}") != 0);
+    CHECK(ps.nreq && strstr(ps.body[0], "{\"role\":\"system\",\"content\":[],\"output_config\":{\"effort\":\"high\"}}") != 0);
+    CHECK(ps.nreq && strstr(ps.body[0], "{\"role\":\"system\",\"content\":[],\"output_config\":{\"effort\":\"medium\"}}") != 0);
 }
 
 /* resume: pi restores the thinking level (and the model) from the session path (sdk.ts :253); E7 restored only the model */
@@ -497,6 +526,7 @@ void suite_pi_model_reach(void)
     jw_init(&out);
     test_switch();
     test_switch_back();
+    test_levels();
     test_resume();
     test_commands();
     test_command_once();

@@ -42,6 +42,8 @@ void pi_store_free(pi_store *st)
     if (st->s && st->s->compact_u == st) {
         st->s->compact = 0;
         st->s->compact_u = 0;
+        st->s->declare = 0;
+        st->s->declare_u = 0;
     }
     jw_free(&st->system);
     s3_free(&st->s3);
@@ -156,7 +158,8 @@ static int same_decl(jv a, jv b)
 }
 
 /* the system message to append now, built into out; 0 nothing to add, 1 appended into out, -1 */
-static int sys_patch(pi_store *st, const pi_psec *cur, const char *tools_json, long tools_n, const pi_ctx *c, jw *out)
+static int sys_patch(pi_store *st, const pi_psec *cur, const char *tools_json, long tools_n, const pi_ctx *c, jw *out,
+                     int sections)
 {
     jw prev, secs, added, removed;
     jv pm, ps, pt, v, k, val, ct;
@@ -168,6 +171,9 @@ static int sys_patch(pi_store *st, const pi_psec *cur, const char *tools_json, l
     jw_init(&secs);
     jw_init(&added);
     jw_init(&removed);
+    if (!have_prev && !sections) {
+        goto done;                      /* tools only, nothing declared yet */
+    }
     if (!have_prev) {
         /* the first request: every section and every tool */
         jw_rawz(&secs, "{");
@@ -186,7 +192,7 @@ static int sys_patch(pi_store *st, const pi_psec *cur, const char *tools_json, l
     json_parse(prev.p, prev.n, &pm);
     /* diffSystemPromptSections */
     jw_rawz(&secs, "{");
-    for (i = 0; i < cur->n; i++) {
+    for (i = 0; sections && i < cur->n; i++) {
         int same = 0;
         if (json_get(pm, "sections", &ps) && json_get(ps, cur->name[i], &v) && json_type(v) == J_STR) {
             char *z;
@@ -204,7 +210,7 @@ static int sys_patch(pi_store *st, const pi_psec *cur, const char *tools_json, l
             jw_str(&secs, cur->text.p + cur->off[i], cur->len[i]);
         }
     }
-    if (json_get(pm, "sections", &ps) && json_type(ps) == J_OBJ) {
+    if (sections && json_get(pm, "sections", &ps) && json_type(ps) == J_OBJ) {
         json_iter(ps, &it);
         while (json_next(&it, &k, &val)) {
             char *nm = json_strdup(k, 0);
@@ -319,9 +325,9 @@ static int sync_system(pi_store *st)
     pi_tools_json(st->s, &tools);
     ctx_init(&c);
     if (!ctx_build(&st->s3, st->s3.leaf, &c)) {
-        rc = sys_patch(st, &cur, tools.p, tools.n, &c, &msg);
+        rc = sys_patch(st, &cur, tools.p, tools.n, &c, &msg, 1);
         if (rc == 1) {
-            if (s3_message(&st->s3, msg.p, msg.n) >= 0) {
+            if (s3_message(&st->s3, msg.p, msg.n) >= 0 && !pi_session_push_system(st->s, msg.p, msg.n)) {
                 st->syncs++;
                 ok = 0;
             }
@@ -336,6 +342,28 @@ static int sync_system(pi_store *st)
     pi_psec_free(&cur);
     st->s->system = st->system.p;
     return ok;
+}
+
+/* pi's agent-loop declareToolChanges, before each request to a model that takes tool changes in the transcript: the
+ * tools the agent can run against the tools the transcript declares, the difference appended as a system message */
+static void declare_tools(void *u, pi_session *s)
+{
+    pi_store *st = (pi_store *)u;
+    jw tools, msg;
+    pi_ctx c;
+    jw_init(&tools);
+    jw_init(&msg);
+    pi_tools_json(s, &tools);
+    ctx_init(&c);
+    if (!ctx_build(&st->s3, st->s3.leaf, &c) && sys_patch(st, 0, tools.p, tools.n, &c, &msg, 0) == 1 &&
+        s3_message(&st->s3, msg.p, msg.n) >= 0 && !pi_session_push_system(s, msg.p, msg.n)) {
+        st->syncs++;
+        if (!replay(st))
+            s->system = st->system.p;
+    }
+    ctx_free(&c);
+    jw_free(&tools);
+    jw_free(&msg);
 }
 
 static void on_event(void *u, const pi_event *e)
@@ -369,6 +397,8 @@ static int load_messages(pi_store *st)
         jv m, r;
         jw_init(&one);
         if (!json_parse(c.msg[i], c.msg_n[i], &m) && json_get(m, "role", &r) && json_streq(r, "system")) {
+            if (pi_session_push_system(st->s, c.msg[i], c.msg_n[i]))
+                rc = -1;
             jw_free(&one);
             continue;
         }
@@ -729,6 +759,8 @@ int pi_store_attach(pi_store *st, pi_session *s)
     s->session_id = st->s3.id[0] ? st->s3.id : 0;
     s->compact = compact_check;
     s->compact_u = st;
+    s->declare = declare_tools;
+    s->declare_u = st;
     s->command = command;
     s->command_u = st;
     return pi_subscribe(&s->em, on_event, st);

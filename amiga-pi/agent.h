@@ -70,6 +70,13 @@ typedef struct pi_session {
     char **msg;
     long *msg_n;
     int nmsg, cap;
+    /* the transcript's system messages (the session's), each before message sys_at[i]: a model that takes them
+     * mid-conversation (pi-ai supportsMidConvoSystemMessages) gets them in place; any other model the replayed
+     * s->system */
+    char **sys;
+    long *sys_n;
+    int *sys_at;
+    int nsys, syscap;
     int oom;
     long rounds;                /* rounds run since the start (the tests' sentinel) */
     int stop;                   /* the last answer's stop reason (LS_*) */
@@ -84,6 +91,10 @@ typedef struct pi_session {
      * conversation, a failure is told by its own events and the prompt goes on */
     void (*compact)(void *u, struct pi_session *s, int when);
     void *compact_u;
+    /* before a request to a model that takes tool changes in the transcript: the store declares the executable
+     * tools' difference to the transcript as a system message (pi's agent-loop declareToolChanges) */
+    void (*declare)(void *u, struct pi_session *s);
+    void *declare_u;
     /* slash commands (store.c): a line the prompt got that starts with '/'. 1 when handled -- the lines to show
      * go to reply, and editor receives text the user takes back to edit (a message left by /tree); 0 not a command
      * of the store's (the line goes to the model) */
@@ -99,6 +110,8 @@ void pi_session_free(pi_session *s);
 int pi_tool_add(pi_session *s, pi_tool *t);
 /* a message (pi-ai JSON) added to the conversation, copied: 0, -1 out of memory */
 int pi_session_push(pi_session *s, const char *json, long n);
+/* a system message of the transcript added at the end of the conversation (copied): 0, -1 out of memory */
+int pi_session_push_system(pi_session *s, const char *json, long n);
 /* the conversation emptied (a session loaded, a branch left) */
 void pi_session_clear(pi_session *s);
 /* the tools as pi-ai's request carries them: a JSON array of {name, description, parameters} */
