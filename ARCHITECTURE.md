@@ -140,7 +140,7 @@ Differences from pi 1.1.0, on purpose or not yet closed (COMPATIBILITY.md, "exte
 - not hooked: `message_update` (the cumulative partial message and `partial` need pi-ai's streaming parser), `turn_end`
   (BoundaryState and the context preview), the other session events, the model events, `context`, `before_agent_start`, the
   provider events -- later items (L7);
-- `input` does not run for `steer` / `follow_up` messages (pi's `_queueUserInput` does), carries no `images` or `streamingBehavior`;
+- `input` carries no `images`;
 - in RPC mode a replaced session emits `session_start` twice, as pi 1.1.0 does (rpc-mode.ts binds it in the runtime's
   finishSessionReplacement and again in the command);
 - `usage` and `parentToolCallId` of the tool events, `terminate` of a blocked call, and `message_end`'s replacement message are not read.
