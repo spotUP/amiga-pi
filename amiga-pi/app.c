@@ -781,6 +781,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
             /* the skills (skills.h): default directories, settings.json, --skill; --no-skills leaves out all but --skill */
             pi_skill_opts so;
             so.agent_dir = pl->agent_dir;
+            so.data_dir = pl->data_dir;
             so.cwd = pl->cwd;
             so.trusted = trusted;
             so.none = a.no_skills;

@@ -57,6 +57,7 @@ extern long pi_skills_reads;
 
 typedef struct pi_skill_opts {
     const char *agent_dir;      /* skills/, agents-skills/ and settings.json below it (0 none) */
+    const char *data_dir;       /* its skills/ too, after the agent directory's, when it is another directory (ARCHITECTURE.md D10); 0 none */
     const char *cwd;
     int trusted;                /* the project's .pi/ and .agents/skills are used */
     int none;                   /* --no-skills */

@@ -1371,6 +1371,11 @@ int pi_skills_load(pi_skills *k, cl_sys *sys, const pi_skill_opts *o)
             if (rc == 0 && path_join(o->agent_dir, "agents-skills", user_agents, sizeof(user_agents)) == 0)
                 rc = auto_files(&c, user_agents, 1, o->agent_dir, &gset, SKS_USER, &files);
         }
+        /* D10: bulky data lives in the data directory (UP-Term:var/amiga-pi) when the kit is there: its skills count as the
+         * user's, after the agent directory's own */
+        if (rc == 0 && o->data_dir && o->data_dir[0] && !(o->agent_dir && !strcmp(o->agent_dir, o->data_dir)) &&
+            path_join(o->data_dir, "skills", user_skills, sizeof(user_skills)) == 0)
+            rc = auto_files(&c, user_skills, 0, o->data_dir, &gset, SKS_USER, &files);
     }
     /* --skill: loadSkills' skillPaths, after the discovered ones */
     for (i = 0; i < o->npaths && rc == 0; i++) {

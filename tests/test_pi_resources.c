@@ -926,6 +926,37 @@ static void test_skills_goldens(void)
     free(b);
 }
 
+/* ARCHITECTURE.md D10: the data directory's skills/ count as the user's, after the agent directory's (no pi counterpart) */
+static void test_skills_data_dir(void)
+{
+    pi_skills k;
+    pi_skill_opts o;
+    char agent[400], data[400], cwd[400];
+    put("dd/agent/skills/a1/SKILL.md", "---\nname: a1\ndescription: Agent dir\n---\nB\n");
+    put("dd/agent/skills/same/SKILL.md", "---\nname: same\ndescription: Agent dir wins\n---\nB\n");
+    put("dd/data/skills/d1/SKILL.md", "---\nname: d1\ndescription: Data dir\n---\nB\n");
+    put("dd/data/skills/same/SKILL.md", "---\nname: same\ndescription: Data dir loses\n---\nB\n");
+    at(agent, sizeof(agent), "dd/agent");
+    at(data, sizeof(data), "dd/data");
+    at(cwd, sizeof(cwd), "dd/w");
+    mkdirs(cwd);
+    memset(&o, 0, sizeof(o));
+    o.agent_dir = agent;
+    o.data_dir = data;
+    o.cwd = cwd;
+    CHECK_INT(pi_skills_load(&k, &sys, &o), 0);
+    CHECK_INT(k.n, 3);
+    CHECK(k.n == 3 && !strcmp(k.s[0].name, "a1") && !strcmp(k.s[1].name, "same") && !strcmp(k.s[2].name, "d1"));
+    CHECK(k.n == 3 && strstr(k.s[1].desc, "Agent dir wins") != 0 && k.s[2].scope == SKS_USER && strstr(k.s[2].path, "/dd/data/skills/d1/") != 0);
+    CHECK_INT(k.nd, 1);                                 /* the data directory's "same" is the collision's loser */
+    CHECK(k.nd == 1 && k.d[0].type == SKD_COLLISION && strstr(k.d[0].path, "/dd/data/") != 0);
+    pi_skills_free(&k);
+    o.data_dir = agent;                                 /* the same directory: once */
+    CHECK_INT(pi_skills_load(&k, &sys, &o), 0);
+    CHECK_INT(k.n, 2);
+    pi_skills_free(&k);
+}
+
 /* --skill and --no-skills on the command line (pi cli/args.ts:193-195, 210-211) */
 static void test_skills_args(void)
 {
@@ -1056,6 +1087,7 @@ void suite_pi_resources(void)
     test_reach_trust_error();
     test_skills_goldens();
     test_skills_args();
+    test_skills_data_dir();
     test_reach_skills();
     jw_free(&out);
     ps_reset();
