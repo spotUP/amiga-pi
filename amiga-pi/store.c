@@ -805,11 +805,12 @@ static int omit_recovery(pi_store *st, pi_session *s)
 
 enum { OV_NONE = -1, OV_DONE = 0, OV_RETRY = 1 };
 
-/* pi's _checkCompaction, the overflow cases, for the last answer after a run (agent-session.js): a context-overflow
- * error, a successful answer whose input already exceeds the window, a length stop that left no room for output or
- * ended below the model's output limit. A failed or truncated answer is left out of the context, the conversation
- * compacted (reason overflow) and the answer asked again -- once: the second overflow before the next prompt ends the
- * run with compaction_end's error. A successful answer is kept and compacted without a retry.
+/* pi's _checkCompaction, the overflow cases, for the last answer after a run and before a prompt (agent-session.js): a
+ * context-overflow error, a successful answer whose input already exceeds the window, a length stop that left no room for
+ * output or ended below the model's output limit. A failed or truncated answer is left out of the context, the
+ * conversation compacted (reason overflow) and the answer asked again -- once: a second overflow while
+ * s->overflow_tried is set (agent.h: cleared by a user message or a clean answer) ends the run with compaction_end's
+ * error. A successful answer is kept and compacted without a retry.
  * OV_NONE: not an overflow, the threshold check follows; OV_DONE: handled; OV_RETRY: ask again */
 static int overflow_check(pi_store *st, pi_session *s)
 {
@@ -825,8 +826,6 @@ static int overflow_check(pi_store *st, pi_session *s)
             break;
     if (a < 0)
         return OV_NONE;
-    if (inf.stop != LS_ERROR && inf.stop != LS_LENGTH)
-        st->recovered = 0;      /* pi clears it at every answer that is neither an error nor a truncation */
     if (inf.stop == LS_ABORTED || (compaction_time(st, &ct) && ts_le(inf.ts, ct)))
         return OV_NONE;
     prov[0] = model[0] = err[0] = 0;
@@ -856,13 +855,13 @@ static int overflow_check(pi_store *st, pi_session *s)
         run_compaction(st, 0, 2, 0);
         return OV_DONE;
     }
-    if (st->recovered) {
+    if (s->overflow_tried) {
         cp_event(st, PE_COMPACTION_END, 2, 1,
                  deep ? "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model."
                       : "Truncated response recovery failed after one compact-and-retry attempt.", 0);
         return OV_DONE;
     }
-    st->recovered = 1;
+    s->overflow_tried = 1;
     omit_recovery(st, s);
     return run_compaction(st, 0, 2, 1) == 0 ? OV_RETRY : OV_DONE;
 }
@@ -877,12 +876,13 @@ static int compact_check(void *u, pi_session *s, int when)
     pi_ctx c;
     long tokens;
     int ov;
-    if (when == PI_CP_PROMPT)
-        st->recovered = 0;      /* pi: a user message starts a new recovery allowance */
     if (!st->cp_enabled)
         return 0;
-    if (when == PI_CP_END && (ov = overflow_check(st, s)) != OV_NONE)
-        return ov == OV_RETRY;
+    /* after a run, and before a prompt (pi's prompt(): _checkCompaction(lastAssistant, false), before the user message
+     * clears the allowance -- after a second overflow the next prompt tells the failure again; a retry it would ask for
+     * there is not asked, the prompt goes on) */
+    if (when != PI_CP_TURN && (ov = overflow_check(st, s)) != OV_NONE)
+        return when == PI_CP_END && ov == OV_RETRY;
     if (s->model.context_window <= 0)
         return 0;
     if (when == PI_CP_TURN) {

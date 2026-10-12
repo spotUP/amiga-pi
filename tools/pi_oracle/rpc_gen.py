@@ -151,6 +151,19 @@ sc('overflow', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('prompt', '
 sc('overflow_twice', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('prompt', 'and a third')],
    answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), OVERFLOW, SUMMARY, OVERFLOW],
    session=True, settings={'compaction': {'keepRecentTokens': 10}})
+# the allowance comes back at every answer that is neither an error nor a length stop (message_end) and at every user
+# message (message_start): a retried answer that calls a tool lets the next overflow of the run recover again
+sc('overflow_tool', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('prompt', 'and a third')],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), OVERFLOW, SUMMARY,
+            TOOL('read', {'path': 'notes.txt'}), OVERFLOW, SUMMARY, SUMMARY,
+            A('Recovered after compaction.', 20)],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}})
+# the check before a prompt (prompt(): _checkCompaction(lastAssistant, false)) runs before the user message resets the
+# allowance: after the second overflow, the next prompt first tells the failure again
+sc('overflow_twice_next', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('prompt', 'and a third'), ('prompt', 'a fourth')],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), OVERFLOW, SUMMARY, OVERFLOW,
+            A('After the failure.', 20)],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}})
 
 
 def BIG(text, input_tokens, stop='end_turn', out=20):

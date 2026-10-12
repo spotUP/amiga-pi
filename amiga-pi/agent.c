@@ -508,6 +508,11 @@ static int answer(pi_session *s, stream *t)
     llm_acc_message(&t->acc, now(s), &m);
     i = keep(s, &m);
     jw_free(&m);
+    if (i >= 0) {
+        llm_info inf;
+        if (llm_msg_info(s->msg[i], s->msg_n[i], &inf) >= 0 && inf.stop != LS_ERROR && inf.stop != LS_LENGTH)
+            s->overflow_tried = 0;      /* pi: message_end of an answer that is neither an error nor a length stop */
+    }
     return i;
 }
 
@@ -787,6 +792,7 @@ static int add_user(pi_session *s, const char *text)
     i = keep(s, &w);
     jw_free(&w);
     if (i >= 0) {
+        s->overflow_tried = 0;          /* pi: message_start of a user message */
         emit_msg(s, PE_MESSAGE_START, i, LR_USER);
         emit_msg(s, PE_MESSAGE_END, i, LR_USER);
     }
@@ -989,6 +995,11 @@ int pi_prompt(pi_session *s, const char *text)
     /* the context against the window before the user message is kept */
     if (s->compact)
         s->compact(s->compact_u, s, PI_CP_PROMPT);
+    if (s->started) {
+        void (*f)(void *) = s->started;
+        s->started = 0;
+        f(s->started_u);
+    }
     rc = run(s, text);
     /* a failed answer pi retries after its delay; a context overflow the store compacted is asked again at once, and
      * only once (the store keeps count: its second overflow ends the run, as pi's _overflowRecoveryAttempted) */

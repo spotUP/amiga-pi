@@ -97,6 +97,10 @@ typedef struct pi_session {
      * returning true: the post-run loop calls agent.continue()); 0 otherwise */
     int (*compact)(void *u, struct pi_session *s, int when);
     void *compact_u;
+    /* pi's preflightResult("started"): called once by pi_prompt after the check before the prompt (its compaction
+     * events come first, as in pi's prompt()), then cleared; RPC mode answers the prompt command there */
+    void (*started)(void *u);
+    void *started_u;
     /* before a request to a model that takes tool changes in the transcript: the store declares the executable
      * tools' difference to the transcript as a system message (pi's agent-loop declareToolChanges) */
     void (*declare)(void *u, struct pi_session *s);
@@ -128,6 +132,10 @@ typedef struct pi_session {
     long retry_base, retry_max_delay;
     int attempt, retry_stop;
     int recover;                /* the run ended on a context overflow the store compacted: ask again (pi_prompt) */
+    /* pi's _overflowRecoveryAttempted: set by the store when it omits a failed answer and compacts to ask again; cleared
+     * as pi's _handleAgentEvent does, at every user message (the prompt, steering, a follow-up) and at every answer that
+     * is neither an error nor a length stop -- so a retried answer that calls a tool gives the run its allowance back */
+    int overflow_tried;
     /* the failed answer, message index i, kept out of the context for the retry (the store appends pi's context_edit
      * entry); 0, -1 */
     int (*omit)(void *u, struct pi_session *s, int i);

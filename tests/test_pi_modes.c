@@ -221,9 +221,13 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
     jit it;
     jv k, val;
     char key[64];
+    jv wr;
     int first = 1;
     int assistant = str_is(v, "role", "assistant"), retry_start = str_is(v, "type", "auto_retry_start");
-    int overflow_end = str_is(v, "type", "compaction_end") && str_is(v, "reason", "overflow");
+    /* an overflow compaction that asks again followed the omission of the failed answer (a context_edit): pi counts it
+     * by estimate alone (estimateProjectedContextTokens), its system message included; a silent overflow is usage-based */
+    int overflow_end = str_is(v, "type", "compaction_end") && str_is(v, "reason", "overflow") &&
+                       json_get(v, "willRetry", &wr) && json_type(wr) == J_TRUE;
     int parse_err = str_is(v, "command", "parse");
     int start_msg = 0;
     jv m;
@@ -1193,10 +1197,13 @@ static void test_retry_overflow(void)
  * (entry_appended), compacts (compaction_start / compaction_end reason overflow, willRetry true) and asks again, once; a
  * second overflow ends the run with compaction_end's error and no third request. overflow_silent: an answer that succeeded
  * with more input than the window is compacted and kept, not asked again; overflow_length: a length stop below the output
- * limit is omitted, compacted and asked again */
+ * limit is omitted, compacted and asked again. overflow_tool: the retried answer calls a tool, which gives the allowance
+ * back (pi clears _overflowRecoveryAttempted at a clean answer), so the run's next overflow recovers again;
+ * overflow_twice_next: the check before the next prompt tells the failure again, before the prompt's response */
 static void test_overflow_recovery(void)
 {
-    static const char *const names[] = { "overflow", "overflow_twice", "overflow_silent", "overflow_length", 0 };
+    static const char *const names[] = { "overflow", "overflow_twice", "overflow_silent", "overflow_length", "overflow_tool",
+                                         "overflow_twice_next", 0 };
     long r0;
     group(names);
     if (getenv("PI_MODES_ONLY"))

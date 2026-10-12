@@ -48,8 +48,6 @@ typedef struct pi_store {
     long compactions;           /* compaction entries appended */
     long keep, reserve;         /* compaction settings (settings.json "compaction"; pi's defaults) */
     int cp_enabled;
-    int recovered;              /* a context overflow was compacted and the answer asked again since the last prompt (pi's
-                                 * _overflowRecoveryAttempted): the next one ends the run */
     char err[200];
 } pi_store;
 
