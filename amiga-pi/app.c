@@ -448,7 +448,7 @@ static int usage(const pi_platform *pl, const pi_args *a)
         pl->diag(line);
     else
         say(pl->io, line, 0);
-    return 2;
+    return 1;
 }
 
 /* <agent dir>/settings.json: the compaction settings taken by the store */

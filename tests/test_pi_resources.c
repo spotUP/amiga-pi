@@ -682,7 +682,7 @@ static void test_reach_trust(void)
     CHECK_INT(app_run("r5/w/proj", "r5/agent", 0, 0, yes), 0);
     CHECK(strstr(out.p, "Trust project folder?") == 0 && sent("R5-RULES"));
     /* the flags are pi's: an unknown one is refused, -a and -na parse */
-    CHECK_INT(app_run("r5/w/proj", "r5/agent", "--approved", 1, 0), 2);
+    CHECK_INT(app_run("r5/w/proj", "r5/agent", "--approved", 1, 0), 1);
 }
 
 void suite_pi_resources(void)

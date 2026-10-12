@@ -1296,8 +1296,8 @@ static void test_diag_one_line(void)
     free(ro.out);
 }
 
-/* pi prints an argument error as "Error: Unknown option: --bogus" on stderr in every mode (oracle run, pi 1.1.0;
- * the exit code stays amiga-pi's 2): the diagnostic stream, never the JSONL or RPC stdout */
+/* pi prints an argument error as "Error: Unknown option: --bogus" on stderr in every mode and exits 1
+ * (oracle run, pi 1.1.0; main.ts process.exit(1) on an args error): the diagnostic stream, never the JSONL or RPC stdout */
 static void test_arg_error_on_diag(void)
 {
     static const char *const mode[] = { "json_text", "prompt_tool" };
@@ -1311,7 +1311,7 @@ static void test_arg_error_on_diag(void)
         scenario(mode[i], &ro);
         CHECK(!strcmp(diag_log, "Error: Unknown option: --bogus"));
         CHECK(!ro.out || ro.out[0] == 0);
-        CHECK_INT(ro.rc, 2);
+        CHECK_INT(ro.rc, 1);
         free(ro.out);
     }
 }

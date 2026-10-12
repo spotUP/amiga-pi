@@ -644,7 +644,7 @@ static void test_commands(void)
     CHECK_INT(run(ARGC(lm), lm, sse, 0), 0);
     CHECK(strstr(out.p, "openai/gpt-5.5  openai-responses  context 272000  thinking  images") != 0);
     CHECK(strstr(out.p, "claude") == 0);
-    CHECK_INT(run(ARGC(bad), bad, sse, 0), 2);
+    CHECK_INT(run(ARGC(bad), bad, sse, 0), 1);
     CHECK(strstr(out.p, "Invalid thinking level \"loud\"") != 0);
 }
 
