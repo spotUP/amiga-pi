@@ -1,0 +1,30 @@
+[Skill conflicts]
+  "greet" collision:
+    ✓ auto (user) ~/agent/skills/greet/SKILL.md
+    ✗ ~/agent/skills/zdup/SKILL.md (skipped)
+  auto (user) ~/agent/skills/Bad_Name/SKILL.md
+    name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)
+  ~/agent/skills/nodesc/SKILL.md
+    description is required
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+/skill:
+────────────────────────────────────────────────────────────────────────────────
+→ skill:Bad_Name  [u] Has a name pi warns about
+  skill:greet     [u] Greets the user by name
+  skill:terse     [u] Answers in five words
+~/project
+0.0%/200k (auto)                                                      fake-model

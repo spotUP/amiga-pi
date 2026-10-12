@@ -837,6 +837,7 @@ static void rest_hook(void)
 
 /* pi_app with the keys typed on a screen of cols x rows; the answers streamed in order. The exit code. */
 static const char *app_session;     /* --session <file> for the next app_run, 0 none */
+static const char *app_agent;       /* the agent directory for the next app_run (0: the sandbox's) */
 static const char *app_tui_cli;     /* --tui-mode <x> for the next app_run, 0 none */
 static const char *app_name_cli;    /* --name <x> for the next app_run, 0 none */
 static const char *app_sdir_cli;    /* --session-dir <x> for the next app_run, 0 none */
@@ -895,7 +896,7 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pl.tmp = aroot;
     pl.utc = 1;
     pl.data_dir = adata;
-    pl.agent_dir = aagent;
+    pl.agent_dir = app_agent ? app_agent : aagent;
     rc = pi_app(argc, a, &pl);
     free(app_out);
     app_out = (char *)malloc((size_t)cs.sent.n + 1);
@@ -1209,6 +1210,189 @@ static void test_resume_summaries(void)
     resume_case("light_resume_summaries", "summaries_session.jsonl", "{\"quietStartup\":true,\"theme\":\"light\"}\n");
     resume_case("dark_pad0_resume_summaries", "summaries_session.jsonl",
                 "{\"quietStartup\":true,\"theme\":\"dark\",\"outputPad\":0}\n");
+}
+
+/* ---- I1/I3: skills on the screen: the start's [Skills] list and [Skill conflicts] block, the slash menu, the /skill:name box
+ * (the captures are tests/pi/tui/skills_*.golden, resume_skill*.golden, skill_cmd.golden: pi 1.1.0, tools/pi_oracle/tui_gen.py) ---- */
+
+static char skdir[420];             /* the agent directory with the skills: short, so a path stays on one row as pi's "~/agent/..." does */
+
+/* the skills of tui_gen.py's SKILL_FILES (tests/pi/tui/skills_files.json) written under skdir/skills */
+static void skills_tree(const char *settings)
+{
+    char *b, p[600], d[600];
+    long n;
+    jv all, k, v;
+    jit it;
+    FILE *f;
+    char *e;
+    if (!skdir[0]) {
+        strcpy(skdir, "/tmp/pis_XXXXXX");
+        if (!mkdtemp(skdir)) {
+            CHECK(0);
+            return;
+        }
+        strcat(skdir, "/agent");
+        mkdir(skdir, 0777);
+        strcpy(p, skdir);
+        strcat(p, "/skills");
+        mkdir(p, 0777);
+    }
+    b = slurp("skills_files.json", &n);
+    CHECK(b != 0);
+    if (!b || json_parse(b, n, &all)) {
+        free(b);
+        return;
+    }
+    json_iter(all, &it);
+    while (json_next(&it, &k, &v)) {
+        char *rel = json_strdup(k, 0), *text = json_strdup(v, 0);
+        strcpy(p, skdir);
+        strcat(p, "/");
+        strcat(p, rel ? rel : "");
+        strcpy(d, p);
+        e = strrchr(d, '/');
+        if (e) {
+            *e = 0;
+            mkdir(d, 0777);
+        }
+        f = fopen(p, "wb");
+        if (f) {
+            fputs(text ? text : "", f);
+            fclose(f);
+        }
+        free(rel);
+        free(text);
+    }
+    free(b);
+    strcpy(p, skdir);
+    strcat(p, "/settings.json");
+    f = fopen(p, "wb");
+    if (f) {
+        fputs(settings, f);
+        fclose(f);
+    }
+}
+
+/* the cells of the golden's paths ("~/agent/...") are the sandbox's own: masked from the first one on, found in the capture's text */
+static int skills_masks(scen *sc, const char *name, int from)
+{
+    char fn[80], *g, *line, *nl;
+    long n;
+    int row = 0, k = from;
+    cl_copy(fn, name, sizeof(fn));
+    cl_cat(fn, ".txt", sizeof(fn));
+    g = slurp(fn, &n);
+    if (!g)
+        return k;
+    for (line = g; line && *line && k < 11; line = nl ? nl + 1 : 0) {
+        char *at;
+        nl = strchr(line, '\n');
+        if (nl)
+            *nl = 0;
+        row++;
+        at = strstr(line, "~/agent");
+        if (at) {
+            /* columns count characters: the glyph lines hold three-byte characters before the path */
+            long col = 0, i;
+            for (i = 0; line + i < at; i++)
+                if (((unsigned char)line[i] & 0xC0) != 0x80)
+                    col++;
+            sc->masks[k].r0 = sc->masks[k].r1 = row;
+            sc->masks[k].c0 = (int)col;
+            sc->masks[k].c1 = 79;
+            sc->masks[k].why = "the sandbox's own path";
+            k++;
+        }
+    }
+    free(g);
+    return k;
+}
+
+static void skills_rest(void)
+{
+    compare();
+}
+
+/* one capture: settings, the keys, the golden compared. mr: pairs of golden rows (first, last) left out, ended by 0: the
+ * editor border and the footer carry the capture's fake model, a block compared with a shift has the rows around it left out */
+static void skills_case(const char *name, const char *settings, const char **keys, const char *const *sse, int nsse,
+                        int session, int shift, const int *mr, int with_skills)
+{
+    static scen sc;
+    char path[600];
+    int i, k = 0;
+    memset(&sc, 0, sizeof(sc));
+    sc.name = name;
+    if (with_skills)
+        skills_tree(settings);
+    else
+        app_write("settings.json", settings);       /* the sandbox's agent directory: no skills */
+    if (session && !put_session("skill_session.jsonl", "skill_session.jsonl", path))
+        return;
+    cur = &sc;
+    taken = 0;
+    diffs = 0;
+    memset(rowdiff, 0, sizeof(rowdiff));
+    first_diff[0] = 0;
+    load_golden(name);
+    CHECK(want != 0);
+    if (!want)
+        return;
+    for (i = 0; mr[i] && k < 6; i += 2, k++) {
+        sc.masks[k].r0 = mr[i];
+        sc.masks[k].r1 = mr[i + 1];
+        sc.masks[k].c0 = 0;
+        sc.masks[k].c1 = 79;
+        sc.masks[k].why = "the start header's tips, or the editor border and the footer of the capture's fake model";
+    }
+    skills_masks(&sc, name, k);
+    cmp_shift = shift;
+    app_session = session ? path : 0;
+    app_agent = with_skills ? skdir : 0;
+    CHECK_INT(app_run(80, want_rows, keys, sse, nsse, skills_rest), 0);
+    app_agent = 0;
+    app_session = 0;
+    cmp_shift = 0;
+    CHECK(taken);
+    if (diffs) {
+        printf("  %s: %d cells differ from pi's capture\n%s", name, diffs, first_diff);
+        if (getenv("PI_TUI_ROWS"))
+            for (i = 0; i < want_rows; i++)
+                if (rowdiff[i]) {
+                    printf("    row %2d pi       |%s\n", i + 1, h_row(want, i));
+                    printf("           amiga-pi |%s   (%d cells)\n", snap[i + shift >= 0 ? i + shift : 0], rowdiff[i]);
+                }
+    }
+    CHECK_INT(diffs, 0);
+    vt_free(want);
+}
+
+static void test_skills_screen(void)
+{
+    static const char *keys_end[] = { "\004", 0 };
+    static const char *keys_menu[] = { "/skill:", "\004", 0 };
+    static const char *keys_exp[] = { "\017", "\004", 0 };
+    static const char *keys_cmd[] = { "/skill:greet please greet Bob\r", "\004", 0 };
+    static const char *const sse_cmd[] = { "skill_cmd.1.sse" };
+    static const int m_start[] = { 1, 9, 22, 40, 0 }, m_quiet[] = { 26, 30, 0 }, m_menu[] = { 23, 23, 25, 25, 29, 30, 0 },
+                     m_exp[] = { 36, 40, 0 };
+    char cmd[460];
+    /* the start: header, "[Skills]", "[Skill conflicts]" (the capture's rows 10-21; ours begin four rows higher: pi's help panel and tips are not drawn) */
+    skills_case("skills_start", "{}\n", keys_end, 0, 0, 0, -4, m_start, 1);
+    /* quietStartup: the diagnostics alone, at the top */
+    skills_case("skills_quiet", "{\"quietStartup\":true}\n", keys_end, 0, 0, 0, 0, m_quiet, 1);
+    skills_case("skills_menu", "{\"quietStartup\":true}\n", keys_menu, 0, 0, 0, 0, m_menu, 1);
+    skills_case("resume_skill", "{\"quietStartup\":true}\n", keys_end, 0, 0, 1, 0, m_quiet, 0);
+    skills_case("resume_skill_expanded", "{\"quietStartup\":true}\n", keys_exp, 0, 0, 1, 0, m_exp, 0);
+    skills_case("skill_cmd", "{\"quietStartup\":true}\n", keys_cmd, sse_cmd, 1, 0, 0, m_quiet, 1);
+    if (skdir[0] && strlen(skdir) > 10) {
+        strcpy(cmd, "rm -rf '");
+        strncat(cmd, skdir, strlen(skdir) - 6);         /* /tmp/pis_XXXXXX/agent without "/agent" */
+        strcat(cmd, "'");
+        if (system(cmd))
+            CHECK(0);
+    }
 }
 
 /* R4: Ctrl+O (app.tools.expand) toggles pi's toolOutputExpanded (interactive-mode.ts:4557-4574): the compaction and branch
@@ -2087,6 +2271,7 @@ void suite_pi_tui(void)
     test_resume_ansi();
     test_resume_summaries();
     test_expand_summaries();
+    test_skills_screen();
     test_compact_live();
     test_export();
     test_bang();

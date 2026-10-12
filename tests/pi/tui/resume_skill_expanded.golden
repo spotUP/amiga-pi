@@ -1,0 +1,40 @@
+
+ [1m[38;5;5m[skill][0m
+ [1;2mgreet[0m
+
+ [2mReferences are relative to /private/tmp/pitui/agent/skills/greet.[0m
+
+ [2mSay hello warmly, in [1mone[0;2m sentence.[0m
+
+ [38;5;5m- [2m[39mkeep it short[0m
+ [38;5;5m- [2m[39muse the name given[0m
+
+
+
+ please greet Bob
+
+
+ Hello Bob, nice to meet you!
+
+
+ [1m[38;5;5m[skill][0m
+ [1;2mterse[0m
+
+ [2mReferences are relative to /private/tmp/pitui/agent/skills/terse.[0m
+
+ [2mAnswer in five words.[0m
+
+
+ Done in five words.
+
+ [2mTool output: expanded[0m
+
+
+
+
+
+[2m────────────────────────────────────────────────────────────────────────────────
+[0;7m [0m
+[2m────────────────────────────────────────────────────────────────────────────────
+~/project[0m
+[2m↑20 ↓10 0.0%/200k (auto)                                              fake-model

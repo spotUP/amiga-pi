@@ -1,0 +1,7 @@
+{
+ "skills/greet/SKILL.md": "---\nname: greet\ndescription: Greets the user by name\n---\nSay hello warmly.\n",
+ "skills/terse/SKILL.md": "---\nname: terse\ndescription: Answers in five words\n---\nSay hello warmly.\n",
+ "skills/Bad_Name/SKILL.md": "---\ndescription: Has a name pi warns about\n---\nSay hello warmly.\n",
+ "skills/nodesc/SKILL.md": "---\nname: nodesc\n---\nSay hello warmly.\n",
+ "skills/zdup/SKILL.md": "---\nname: greet\ndescription: A second skill called greet\n---\nSay hello warmly.\n"
+}

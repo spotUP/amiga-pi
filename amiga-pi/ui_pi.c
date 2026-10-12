@@ -7,6 +7,7 @@
 #include "claude/show.h"
 #include "claude/util.h"
 #include "show_pi.h"
+#include "resources.h"
 #include "pstatus.h"
 #include "claude/tools.h"
 #include "compact.h"
@@ -26,6 +27,8 @@ typedef struct pi_ui {
     pi_pstatus pst;             /* OSC 7501 program status (pstatus.h) */
     int pst_on;                 /* the screen is up and reports go through pst */
     char name[160];             /* the session's name as pst_name last read it from the store */
+    cl_cmd *menu;               /* the slash menu: the commands, then /skill:name for each skill (settings.json enableSkillCommands) */
+    char *menu_text;            /* its strings */
 } pi_ui;
 
 /* the slash commands the menu offers: pi's own names and descriptions (core/slash-commands.js, in its order) of
@@ -817,6 +820,45 @@ int pi_ui_print(pi_session *s, cl_io *io, const char *prompt)
 }
 
 /* C:Claude's screen without its REPL (claude/repl.c repl_screen's part that is the screen's), in pi's look */
+/* pi's autocomplete list (interactive-mode.ts:804-822): the commands, then skill:<name> with "[u] description" for each skill */
+static void build_menu(pi_ui *p, cl_tui *t)
+{
+    const pi_skills *k = p->s->res ? &p->s->res->skills : 0;
+    long text = 0, at = 0;
+    int i, n = ui_ncmds;
+    free(p->menu);
+    free(p->menu_text);
+    p->menu = 0;
+    p->menu_text = 0;
+    if (!k || !k->n || !k->commands)
+        return;
+    for (i = 0; i < k->n; i++)
+        text += (long)strlen(k->s[i].name) + (long)strlen(k->s[i].desc) + 64;
+    p->menu = (cl_cmd *)malloc(sizeof(cl_cmd) * (size_t)(ui_ncmds + k->n));
+    p->menu_text = (char *)malloc((size_t)text);
+    if (!p->menu || !p->menu_text) {
+        free(p->menu);
+        free(p->menu_text);
+        p->menu = 0;
+        p->menu_text = 0;
+        return;
+    }
+    memcpy(p->menu, ui_cmds, sizeof(cl_cmd) * (size_t)ui_ncmds);
+    for (i = 0; i < k->n; i++) {
+        char *name = p->menu_text + at, *desc;
+        long nl = (long)strlen(k->s[i].name) + 16, dl = (long)strlen(k->s[i].desc) + 8;
+        desc = name + nl;
+        pi_skill_command(&k->s[i], name + 1, nl - 1, desc, dl);
+        name[0] = '/';
+        p->menu[n].name = name;
+        p->menu[n].help = desc;
+        n++;
+        at += nl + dl;
+    }
+    t->cmds = p->menu;
+    t->ncmds = n;
+}
+
 static cl_tui *screen(pi_ui *p, cl_io *io)
 {
     cl_tui *t;
@@ -845,6 +887,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     t->pith = &p->theme;
     t->cmds = ui_cmds;
     t->ncmds = ui_ncmds;
+    build_menu(p, t);
     p->look = 1;
     show_init(sh, t);
     window_title(p, t);         /* before the start, which writes it */
@@ -1024,6 +1067,57 @@ static void user_echo(pi_ui *p, const char *line)
         ui_user(&p->ui, line);
 }
 
+/* the lines of the skills report: pi's show in its look, plain lines otherwise */
+static void skl_line(void *u, int kind, const char *text)
+{
+    pi_ui *p = (pi_ui *)u;
+    if (p->look)
+        pshow_resource_line(&p->ps, kind, text);
+    else
+        ui_line(&p->ui, text);
+}
+
+static void skl_count(void *u, int kind, const char *text)
+{
+    (void)kind;
+    (void)text;
+    (*(int *)u)++;
+}
+
+/* pi's showLoadedResources for skills (interactive-mode.ts:1772-1930, 2044): the "[Skills]" list unless quietStartup, and the
+ * "[Skill conflicts]" diagnostics always. header: the start header was drawn (its Spacer separates the block from it) */
+static void skills_report(pi_ui *p, int listing, int header)
+{
+    const pi_skills *k = p->s->res ? &p->s->res->skills : 0;
+    int nd = 0;
+    if (!k || (!k->n && !k->nd))
+        return;
+    pi_skills_report(k, skl_count, &nd);
+    listing = listing && k->n;
+    if (!listing && !nd)
+        return;
+    if (header && p->look)
+        pshow_blank(&p->ps);
+    if (listing) {
+        if (p->look)
+            pshow_resource_title(&p->ps, PR_MD_HEADING, "Skills");
+        else
+            ui_line(&p->ui, "[Skills]");
+        pi_skills_listing(k, skl_line, p);
+        if (p->look)
+            pshow_resource_end(&p->ps);
+    }
+    if (nd) {
+        if (p->look)
+            pshow_resource_title(&p->ps, PR_WARNING, "Skill conflicts");
+        else
+            ui_line(&p->ui, "[Skill conflicts]");
+        pi_skills_report(k, skl_line, p);
+        if (p->look)
+            pshow_resource_end(&p->ps);
+    }
+}
+
 int pi_ui_run(pi_session *s, cl_io *io, const char *first)
 {
     static pi_ui p;
@@ -1062,6 +1156,7 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         cl_cat(hello, ". Type /exit to leave.", sizeof(hello));
         ui_line(&p.ui, hello);
     }
+    skills_report(&p, !ui_quiet, p.look && !ui_quiet);
     if (p.look && s->nmsg)
         redraw_session(&p);            /* a resumed session shows its conversation, as pi's renderInitialMessages */
     if (first && *first) {
@@ -1118,5 +1213,9 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         p.ui.show = 0;
     }
     free(line);
+    free(p.menu);
+    free(p.menu_text);
+    p.menu = 0;
+    p.menu_text = 0;
     return 0;
 }

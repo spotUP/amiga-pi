@@ -84,6 +84,12 @@ void pshow_bash(pi_show *s, const char *command, const char *output, int exit_co
 void pshow_compaction_summary(pi_show *s, long tokens_before, const char *summary, long n);
 void pshow_branch_summary(pi_show *s, const char *summary, long n);
 void pshow_custom(pi_show *s, const char *type, const char *text, long n);
+/* pi's loaded-resources block at the start (showLoadedResources): "[title]" in a role's colour, the lines of a skills report
+ * (skills.h SKL_*), then the blank row that ends it; pshow_blank is the row between the header and the block */
+void pshow_resource_title(pi_show *s, int role, const char *title);
+void pshow_resource_line(pi_show *s, int kind, const char *text);
+void pshow_resource_end(pi_show *s);
+void pshow_blank(pi_show *s);
 /* the conversation of ses drawn again from its messages (a branch left for another, a session resumed) */
 struct pi_session;
 void pshow_replay(pi_show *s, const struct pi_session *ses);

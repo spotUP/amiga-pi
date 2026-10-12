@@ -1,0 +1,30 @@
+[Skill conflicts]
+  "greet" collision:
+    ✓ auto (user) ~/agent/skills/greet/SKILL.md
+    ✗ ~/agent/skills/zdup/SKILL.md (skipped)
+  auto (user) ~/agent/skills/Bad_Name/SKILL.md
+    name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)
+  ~/agent/skills/nodesc/SKILL.md
+    description is required
+
+
+ [skill] greet (ctrl+o to expand)
+
+
+
+ please greet Bob
+
+
+ Hello Bob, nice to meet you!
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑1.2k ↓20 $0.004 0.6%/200k (auto)                                     fake-model

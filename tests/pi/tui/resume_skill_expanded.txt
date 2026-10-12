@@ -1,0 +1,40 @@
+
+ [skill]
+ greet
+
+ References are relative to /private/tmp/pitui/agent/skills/greet.
+
+ Say hello warmly, in one sentence.
+
+ - keep it short
+ - use the name given
+
+
+
+ please greet Bob
+
+
+ Hello Bob, nice to meet you!
+
+
+ [skill]
+ terse
+
+ References are relative to /private/tmp/pitui/agent/skills/terse.
+
+ Answer in five words.
+
+
+ Done in five words.
+
+ Tool output: expanded
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑20 ↓10 0.0%/200k (auto)                                              fake-model
