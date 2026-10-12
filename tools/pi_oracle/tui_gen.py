@@ -220,6 +220,8 @@ SCENARIOS = {
                          answers=[('sse', text_answer('msg_n', 'late answer', 20))], pipe=True, env='PI_PROGRAM_STATUS=1'),
     # P11: a resumed session shows `Took` from the recorded durationMs of the toolResult (2300 ms: "Took 2.3s"); the
     # second call has none recorded and shows no Took (tool-execution.ts:137, renderers/bash.ts:104)
+    # Q2: a bash tool result with escape sequences in a resumed session: pi's getTextOutput (render-utils.ts) strips them
+    'resume_ansi': dict(steps=[('sleep', 1.0)], answers=[], session='ansi_session.jsonl'),
     'resume_took': dict(steps=[('sleep', 1.0)], answers=[], session='took_session.jsonl'),
     'light_twice': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('type', 'second'), ('enter',), ('wait', 'two')],
                         answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))],

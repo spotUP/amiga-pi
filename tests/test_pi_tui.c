@@ -1074,13 +1074,14 @@ static void resume_rest(void)
     compare();
 }
 
-static void test_resume_took(void)
+static void resume_case(const char *name, const char *file)
 {
     static const char *keys[] = { "\004", 0 };
-    static scen sc = { "resume_took", { 0 }, { 0 }, 0, 0, 0, { { 21, 25, 0, 79, "the editor border (the thinking level of the model) and the footer: the capture's model is the fake one" } } };
+    static scen sc = { "", { 0 }, { 0 }, 0, 0, 0, { { 21, 25, 0, 79, "the editor border (the thinking level of the model) and the footer: the capture's model is the fake one" } } };
     char path[600];
     int i;
-    if (!put_session("took_session.jsonl", "took_session.jsonl", path))
+    sc.name = name;
+    if (!put_session(file, file, path))
         return;
     app_write("settings.json", "{\"quietStartup\":true}\n");
     cur = &sc;
@@ -1088,7 +1089,7 @@ static void test_resume_took(void)
     diffs = 0;
     memset(rowdiff, 0, sizeof(rowdiff));
     first_diff[0] = 0;
-    load_golden("resume_took");
+    load_golden(name);
     CHECK(want != 0);
     if (!want)
         return;
@@ -1097,7 +1098,7 @@ static void test_resume_took(void)
     app_session = 0;
     CHECK(taken);
     if (diffs) {
-        printf("  resume_took: %d cells differ from pi's capture\n%s", diffs, first_diff);
+        printf("  %s: %d cells differ from pi's capture\n%s", name, diffs, first_diff);
         if (getenv("PI_TUI_ROWS"))
             for (i = 0; i < want_rows; i++)
                 if (rowdiff[i]) {
@@ -1107,6 +1108,19 @@ static void test_resume_took(void)
     }
     CHECK_INT(diffs, 0);
     vt_free(want);
+}
+
+static void test_resume_took(void)
+{
+    resume_case("resume_took", "took_session.jsonl");
+}
+
+/* Q2: pi 1.1.0 getTextOutput (core/tools/render-utils.ts:39-48, used by renderers/bash.ts:52) strips escape sequences,
+ * binary garbage and carriage returns from the text blocks of a tool result at render time. The session holds a bash
+ * result with SGR, EL and an OSC title in its text; the golden is pi's own screen for it ("red plain tail"). */
+static void test_resume_ansi(void)
+{
+    resume_case("resume_ansi", "ansi_session.jsonl");
 }
 
 /* Enter in the selector moves the leaf (a user message goes back to the editor) and the conversation is drawn again */
@@ -1962,6 +1976,7 @@ void suite_pi_tui(void)
     test_tree();
     test_tree_nav();
     test_resume_took();
+    test_resume_ansi();
     test_export();
     test_bang();
     test_output_pad_setting();
