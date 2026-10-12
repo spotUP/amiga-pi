@@ -102,9 +102,9 @@ static int tool_run(void *u, pi_session *s, const char *args, long an, jw *conte
 }
 
 #define PARAMS "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}"
-static pi_tool t_read = { "read", "Read a file", PARAMS, 0, 0, tool_run, 0, 0 };
-static pi_tool t_bash = { "bash", "Run a command", PARAMS, 0, (void *)1, tool_run, 0, 0 };
-static pi_tool t_bang = { "bash", "Run a command", PARAMS, 0, (void *)2, tool_run, 0, 0 };
+static pi_tool t_read = { "read", "Read a file", PARAMS, 0, 0, tool_run, 0, 0, 0 };
+static pi_tool t_bash = { "bash", "Run a command", PARAMS, 0, (void *)1, tool_run, 0, 0, 0 };
+static pi_tool t_bang = { "bash", "Run a command", PARAMS, 0, (void *)2, tool_run, 0, 0, 0 };
 
 /* pi's own slash menu (core/slash-commands.js and two more entries: 26 in the capture), so the menu's layout compares */
 static const cl_cmd pi_cmds[] = {
