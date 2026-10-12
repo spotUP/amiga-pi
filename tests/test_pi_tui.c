@@ -395,6 +395,63 @@ static void steer_two(pi_session *s)
     tool_hook = 0;
 }
 
+/* pi's runLoop order at a turn with steering: turn_end, (compaction), turn_start, the tool changes declared, then the
+ * steering message. ev_log keeps the events as letters: T turn_start, E turn_end, U a user message's start */
+static char ev_log[64];
+static int ev_n;
+static void ev_rec(void *u, const pi_event *e)
+{
+    (void)u;
+    if (ev_n < (int)sizeof(ev_log) - 1 && (e->type == PE_TURN_START || e->type == PE_TURN_END ||
+                                          (e->type == PE_MESSAGE_START && e->role == LR_USER)))
+        ev_log[ev_n++] = e->type == PE_TURN_START ? 'T' : e->type == PE_TURN_END ? 'E' : 'U';
+    ev_log[ev_n] = 0;
+}
+
+static int decl_armed;
+static void decl_once(void *u, pi_session *s)
+{
+    static const char sys[] = "{\"role\":\"system\",\"content\":\"\",\"toolsAdded\":[{\"name\":\"ls\"}],\"timestamp\":0}";
+    (void)u;
+    if (decl_armed) {
+        decl_armed = 0;
+        pi_session_push_system(s, sys, (long)strlen(sys));
+    }
+}
+
+static void steer_and_change(pi_session *s)
+{
+    pi_steer(s, "go left");
+    decl_armed = 1;             /* the tools change while the tool runs: declared before the next request */
+    tool_hook = 0;
+}
+
+static void test_queue_order(void)
+{
+    static pi_session ses;
+    int k, left = -1;
+    up_session(&ses, 1);
+    answer("tool.1.sse");
+    answer("markdown.1.sse");
+    ev_n = 0;
+    ev_log[0] = 0;
+    pi_subscribe(&ses.em, ev_rec, 0);
+    ses.declare = decl_once;
+    tool_hook = steer_and_change;
+    CHECK_INT(pi_prompt(&ses, "read the file"), LS_STOP);
+    CHECK_INT(ps.nreq, 2);
+    /* the prompt in the first turn; the steering message after the second turn_start, as pi emits it */
+    CHECK_STR(ev_log, "TUETUE");
+    for (k = 0; k < ses.nmsg; k++)
+        if (strstr(ses.msg[k], "go left"))
+            left = k;
+    CHECK(left > 0);
+    /* the declaration sits before the steering message (declareToolChanges inserts before the first pending one) */
+    CHECK_INT(ses.nsys, 1);
+    CHECK_INT(ses.nsys ? ses.sys_at[0] : -1, left);
+    pi_session_free(&ses);
+}
+
 static void test_queue_agent(void)
 {
     static pi_session ses;
@@ -402,6 +459,7 @@ static void test_queue_agent(void)
     const char *r2;
     long left, up;
     int n;
+    test_queue_order();
     /* steering typed while a tool runs: after the turn's tool calls, before the next request; one a turn */
     up_session(&ses, 1);
     answer("tool.1.sse");

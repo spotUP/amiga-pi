@@ -549,26 +549,35 @@ int pi_queue_take(pi_session *s, char **out, int max)
 }
 
 /* agent-loop.js getSteeringMessages / getFollowUpMessages: the next queued message (all of them in "all" mode)
- * delivered as user messages; how many */
-static int deliver(pi_session *s, char **q, int *n, int all)
+ * taken off the queue into pend (polled: pi delivers them at the next turn); how many */
+static int poll_queue(char **q, int *n, int all, char **pend)
 {
-    int take = all ? *n : (*n ? 1 : 0), i, got = 0;
-    char *t[PI_QUEUE];
+    int take = all ? *n : (*n ? 1 : 0), i;
     for (i = 0; i < take; i++)
-        t[i] = q[i];
+        pend[i] = q[i];
     memmove(q, q + take, sizeof(q[0]) * (size_t)(*n - take));
     *n -= take;
-    for (i = 0; i < take; i++) {
-        if (add_user(s, t[i]) >= 0)
-            got++;
-        free(t[i]);
+    return take;
+}
+
+/* runLoop's pending messages before the next request: the tool changes declared first (declareToolChanges puts
+ * its system message before the first pending one), then each as a user message */
+static void deliver(pi_session *s, char **pend, int np)
+{
+    int i;
+    if (np && s->declare)
+        s->declare(s->declare_u, s);
+    for (i = 0; i < np; i++) {
+        add_user(s, pend[i]);
+        free(pend[i]);
     }
-    return got;
 }
 
 int pi_prompt(pi_session *s, const char *text)
 {
-    int i, round;
+    int i, round, np;
+    char *pend[PI_QUEUE], **from = s->steer;
+    int *from_n = &s->nsteer;
     s->err[0] = 0;
     /* the context against the window before the user message is kept */
     if (s->compact)
@@ -582,16 +591,25 @@ int pi_prompt(pi_session *s, const char *text)
         emit_simple(s, PE_AGENT_END);
         return s->stop;
     }
-    deliver(s, s->steer, &s->nsteer, s->steer_all);     /* typed before the first request (pi polls at the start) */
+    np = poll_queue(s->steer, &s->nsteer, s->steer_all, pend);   /* typed before the first request (pi polls at the start) */
     for (round = 0; round < PI_ROUNDS; round++) {
         stream t;
         llm_info inf;
         int k, n, stopped = 0;
         if (round) {
+            /* pi's prepareNextTurn (compaction) runs before the pending messages go in; steering typed meanwhile is
+             * polled only when the turn's poll found nothing (one-at-a-time mode delivers one a turn) */
             if (s->compact)
                 s->compact(s->compact_u, s, PI_CP_TURN);
+            if (!np) {
+                from = s->steer;
+                from_n = &s->nsteer;
+                np = poll_queue(s->steer, &s->nsteer, s->steer_all, pend);
+            }
             emit_simple(s, PE_TURN_START);
         }
+        deliver(s, pend, np);
+        np = 0;
         pi_agent_rounds++;
         s->rounds++;
         memset(&t, 0, sizeof(t));
@@ -626,13 +644,27 @@ int pi_prompt(pi_session *s, const char *text)
         emit_simple(s, PE_TURN_END);
         if (stopped)
             return run_end(s, 0);               /* pi does not check a run the user stopped */
-        /* steering goes in after the turn's tool calls, before the next request; the run goes on for it even
-         * when the answer called no tool. At the end of the run, a follow-up does the same. */
-        if (deliver(s, s->steer, &s->nsteer, s->steer_all) || n)
+        /* steering is polled after the turn's tool calls and goes in at the next turn; the run goes on for it even
+         * when the answer called no tool. When the run would stop, a follow-up does the same. */
+        from = s->steer;
+        from_n = &s->nsteer;
+        np = poll_queue(s->steer, &s->nsteer, s->steer_all, pend);
+        if (np || n)
             continue;
-        if (deliver(s, s->follow, &s->nfollow, s->follow_all))
+        from = s->follow;
+        from_n = &s->nfollow;
+        np = poll_queue(s->follow, &s->nfollow, s->follow_all, pend);
+        if (np)
             continue;
         return run_end(s, 1);
+    }
+    /* the round limit with messages polled and not delivered: back to the front of their queue (no key was read
+     * since the poll, so the room they left is still there) */
+    if (np) {
+        memmove(from + np, from, sizeof(from[0]) * (size_t)*from_n);
+        for (i = 0; i < np; i++)
+            from[i] = pend[i];
+        *from_n += np;
     }
     cl_copy(s->err, "stopped after 64 rounds", sizeof(s->err));
     return run_end(s, 1);
