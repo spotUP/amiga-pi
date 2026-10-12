@@ -5,6 +5,7 @@
 #include "compact.h"
 #include "cp_prompts.h"
 #include "claude/util.h"
+#include "llm/estimate.h"
 
 static llm_ts store_now(pi_store *st)
 {
@@ -153,6 +154,12 @@ static int same_decl(jv a, jv b)
     if (json_get(a, "parameters", &x) != json_get(b, "parameters", &y))
         return 0;
     if (json_get(a, "parameters", &x) && json_get(b, "parameters", &y) && (x.n != y.n || memcmp(x.p, y.p, (size_t)x.n)))
+        return 0;
+    /* declarationsEqual compares the whole declaration, constrainedSampling included */
+    if (json_get(a, "constrainedSampling", &x) != json_get(b, "constrainedSampling", &y))
+        return 0;
+    if (json_get(a, "constrainedSampling", &x) && json_get(b, "constrainedSampling", &y) &&
+        (x.n != y.n || memcmp(x.p, y.p, (size_t)x.n)))
         return 0;
     return 1;
 }
@@ -457,6 +464,23 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     msgs[0] = um.p;
     mn[0] = um.n;
     memset(&c, 0, sizeof(c));
+    {
+        /* pi's completeSimple normalizes the context: the prompt becomes the leading system message, which
+         * buildBaseOptions' estimate counts */
+        jw sm;
+        const char *est_m[2];
+        long est_n[2];
+        jw_init(&sm);
+        jw_rawz(&sm, "{\"role\":\"system\",\"content\":");
+        jw_strz(&sm, sys.p ? sys.p : "");
+        jw_rawz(&sm, ",\"timestamp\":0}");
+        est_m[0] = sm.p;
+        est_n[0] = sm.n;
+        est_m[1] = um.p;
+        est_n[1] = um.n;
+        c.est_tokens = llm_estimate_context(est_m, est_n, 2);
+        jw_free(&sm);
+    }
     c.model = &s->model;
     c.system = sys.p;
     c.msgs = msgs;
