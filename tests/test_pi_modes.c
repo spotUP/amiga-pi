@@ -1279,13 +1279,15 @@ static void test_overflow_recovery(void)
     CHECK_INT(pi_agent_rounds - r0, 4);
 }
 
-/* Q6b: the agent's bash call emits pi's tool_execution_update records (bash.ts onUpdate): an empty one when the command
- * starts, the output (details {}) when it is done; the stream equals the oracle's golden (pi 1.1.0) */
+/* Q6b, R1: the agent's bash call emits pi's tool_execution_update records (bash.ts onUpdate): an empty one when the
+ * command starts, then the output so far for each chunk (details {}); the stream equals the oracle's golden (pi 1.1.0).
+ * prompt_bash: one chunk; prompt_bash_chunks: two chunks 0.6 s apart, three records (the old end-only update gave two) */
 static void test_tool_update(void)
 {
     run_opts ro;
     memset(&ro, 0, sizeof(ro));
-    CHECK(scenario("prompt_bash", &ro));    /* the stream against the golden: its two tool_execution_update records */
+    CHECK(scenario("prompt_bash", &ro));
+    CHECK(scenario("prompt_bash_chunks", &ro));
 }
 
 /* Q16: pi writes a diagnostic as one line; amiga-pi's say() wrote "amiga-pi: " and the message in two writes, which json

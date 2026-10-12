@@ -31,6 +31,10 @@ enum { PT_READ, PT_WRITE, PT_EDIT, PT_BASH, PT_GREP, PT_FIND, PT_LS, PT_COUNT };
 enum { PI_SH_VSH, PI_SH_AMIGASHELL, PI_SH_HOST };
 
 #define PI_CAPTURE (512L * 1024)    /* a command's output kept for pi_cut (its tail beyond) */
+#define PI_BASH_UPDATE_MS 100UL     /* pi renderers/bash.ts:19 BASH_UPDATE_THROTTLE_MS: the least between two tool_execution_update */
+
+/* does an update go out now (bash.ts scheduleOutputUpdate): none yet, or PI_BASH_UPDATE_MS since the last one (ms clock) */
+int pi_update_due(int has_last, unsigned long last, unsigned long now);
 
 typedef struct pi_tools pi_tools;
 
