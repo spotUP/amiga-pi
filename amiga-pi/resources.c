@@ -42,18 +42,24 @@ static int take_ctx(void *u, const char *path, int flags)
 {
     rtake *t = (rtake *)u;
     pi_res *r = t->r;
+    char same[300];
     int i;
     (void)flags;
     if (t->sys->kind(t->sys->u, path) != 1)
         return 0;
+    /* a file is the same file by its canonical name, as the working directory's is (NameFromLock): the agent
+     * directory spelled through an assign (ENVARC:amiga-pi) is the working directory when one is inside the other */
+    if (!t->sys->canon || t->sys->canon(t->sys->u, path, same, sizeof(same)))
+        cl_copy(same, path, sizeof(same));
     for (i = 0; i < r->nf; i++)
-        if (cl_strieq(r->f[i].path, path))
+        if (cl_strieq(r->f[i].same, same))
             return 1;           /* seen (the agent directory is an ancestor): this directory's file, once */
     if (r->nf >= PI_CTX_FILES)
         return 1;
     if (read_text(r, t->sys, path, &r->f[r->nf].text, &r->f[r->nf].n))
         return 0;               /* pi: a file it cannot read is passed over */
     cl_copy(r->f[r->nf].path, path, sizeof(r->f[0].path));
+    cl_copy(r->f[r->nf].same, same, sizeof(r->f[0].same));
     r->nf++;
     return 1;
 }
@@ -186,8 +192,10 @@ int pi_trust_decide(cl_sys *sys, const char *agent_dir, const char *cwd, int ove
         return override;
     if (!pi_trust_needed(sys, cwd))
         return 1;
-    if (trust_file(agent_dir, f, sizeof(f)) == 0 && (got = trust_near(sys, f, cwd, 0, 0)) >= 0)
-        return got;
+    if (trust_file(agent_dir, f, sizeof(f)) == 0 && (got = trust_near(sys, f, cwd, 0, 0)) != -1) {
+        /* pi's readTrustFile throws on a file it cannot read: pi stops, the file stays as it is */
+        return got < 0 ? -1 : got;
+    }
     if (dflt && !strcmp(dflt, "always"))
         return 1;
     if (dflt && !strcmp(dflt, "never"))
@@ -205,8 +213,23 @@ int pi_trust_decide(cl_sys *sys, const char *agent_dir, const char *cwd, int ove
     i = ask(ask_u, title, lp, n);
     if (i < 0 || i >= n)
         return 0;
-    keep(sys, agent_dir, cwd, kind[i]);
+    if (keep(sys, agent_dir, cwd, kind[i]))
+        return -1;              /* pi's setMany throws: the error is pi's, not a silent "not kept" */
     return kind[i] == PI_TRUST_YES || kind[i] == PI_TRUST_PARENT || kind[i] == PI_TRUST_SESSION;
+}
+
+void pi_trust_why(cl_sys *sys, const char *agent_dir, char *err, long cap)
+{
+    char f[300];
+    err[0] = 0;
+    if (trust_file(agent_dir, f, sizeof(f))) {
+        cl_copy(err, "Failed to write trust store: no agent directory", cap);
+        return;
+    }
+    if (trust_check(sys, f, err, cap) && err[0])
+        return;
+    cl_copy(err, "Failed to write trust store ", cap);
+    cl_cat(err, f, cap);
 }
 
 int pi_trust_command(cl_sys *sys, const char *agent_dir, const char *cwd, int pick, jw *out)
@@ -226,6 +249,13 @@ int pi_trust_command(cl_sys *sys, const char *agent_dir, const char *cwd, int pi
             jw_rawz(out, labels[i]);
         }
         got = trust_file(agent_dir, f, sizeof(f)) == 0 ? trust_near(sys, f, cwd, where, sizeof(where)) : -1;
+        if (got == -2) {
+            char err[400];
+            pi_trust_why(sys, agent_dir, err, sizeof(err));
+            jw_rawz(out, "\n[ERROR] ");
+            jw_rawz(out, err);
+            return -1;
+        }
         jw_rawz(out, got < 0 ? "\nNo decision kept." : got ? "\nKept: trusted (" : "\nKept: not trusted (");
         if (got >= 0) {
             jw_rawz(out, where);
@@ -238,10 +268,14 @@ int pi_trust_command(cl_sys *sys, const char *agent_dir, const char *cwd, int pi
         return -1;
     }
     if (keep(sys, agent_dir, cwd, kind[pick - 1])) {
-        jw_rawz(out, "[ERROR] trust.json could not be written");
+        char err[400];
+        pi_trust_why(sys, agent_dir, err, sizeof(err));
+        jw_rawz(out, "[ERROR] ");
+        jw_rawz(out, err);
         return -1;
     }
-    jw_rawz(out, "Kept for future sessions: ");
-    jw_rawz(out, labels[pick - 1]);
+    /* pi's showStatus after trustStore.setMany(selection.updates), APP_NAME amiga-pi */
+    jw_rawz(out, kind[pick - 1] == PI_TRUST_NO ? "Saved trust decision: untrusted. Restart amiga-pi for this to take effect."
+                                                : "Saved trust decision: trusted. Restart amiga-pi for this to take effect.");
     return 0;
 }

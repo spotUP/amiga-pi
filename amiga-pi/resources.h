@@ -31,6 +31,7 @@
 
 typedef struct pi_ctxfile {
     char path[300];                     /* as pi names it: the directory joined with the candidate's name */
+    char same[300];                     /* the canonical name (NameFromLock): ENVARC:amiga-pi and the volume it is on are one */
     char *text;
     long n;
 } pi_ctxfile;
@@ -66,13 +67,19 @@ typedef int (*pi_trust_ask_fn)(void *u, const char *title, const char *const *la
 
 /* pi's resolveProjectTrusted: override 1 / 0 (-a, -na), -1 none; dflt settings.json's
  * defaultProjectTrust ("ask" when 0); ask 0 when nobody can answer. An answer that is kept is
- * written to <agent dir>/trust.json. 1 trusted, 0 not. */
+ * written to <agent dir>/trust.json. 1 trusted, 0 not, -1 an error as pi's (trust.json that pi's
+ * readTrustFile would refuse, left as it is; or the answer could not be kept): pi_trust_why says what. */
 int pi_trust_decide(cl_sys *sys, const char *agent_dir, const char *cwd, int override, const char *dflt,
                     pi_trust_ask_fn ask, void *ask_u);
 
+/* the words for a -1 of pi_trust_decide / pi_trust_command, pi's: "Failed to read trust store <file>: ...",
+ * "Invalid trust store <file>: ...", or "Failed to write trust store <file>" */
+void pi_trust_why(cl_sys *sys, const char *agent_dir, char *err, long cap);
+
 /* /trust (pi: "Save project trust decision for future sessions"): pick 0 lists the answers that can
  * be kept (Trust, Trust parent folder, Do not trust) and the decision in force into out; pick 1.. saves
- * that one and says so. 0, -1 (a bad pick, or trust.json could not be written: out says why) */
+ * that one and says so in pi's words ("Saved trust decision: trusted. Restart amiga-pi for this to take
+ * effect."). 0, -1 (a bad pick, or trust.json could not be read or written: out says why) */
 int pi_trust_command(cl_sys *sys, const char *agent_dir, const char *cwd, int pick, jw *out);
 
 #endif

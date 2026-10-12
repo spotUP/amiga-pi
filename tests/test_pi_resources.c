@@ -239,7 +239,7 @@ static void test_trust_store(void)
     /* pi's updates, in the order gen_resources.ts makes them (parent trust deletes the child's entry) */
     CHECK_INT(trust_put(&sys, f, "/w/proj/a", 1), 0);
     CHECK_INT(pi_trust_command(&sys, agent, "/w/proj/a", 2, &o), 0);
-    CHECK(strstr(o.p, "Trust parent folder (/w/proj)") != 0);
+    CHECK_STR(o.p, "Saved trust decision: trusted. Restart amiga-pi for this to take effect.");
     CHECK_INT(trust_put(&sys, f, "/w/b", 0), 0);
     CHECK_INT(trust_put(&sys, f, "/w/Zeta", 1), 0);
     CHECK_INT(trust_put(&sys, f, "/w/b/c", 1), 0);
@@ -359,7 +359,7 @@ static void test_decide(void)
         jw o;
         jw_init(&o);
         CHECK_INT(pi_trust_command(&sys, agent, cwd, 2, &o), 0);
-        CHECK(strstr(o.p, "Kept for future sessions: Trust parent folder") != 0);
+        CHECK(strstr(o.p, "Saved trust decision: trusted. Restart amiga-pi for this to take effect.") != 0);
         jw_free(&o);
         got = slurp_text(f, &gn);
         CHECK(got && strstr(got, parent) != 0 && strstr(got, "false") == 0);
@@ -368,6 +368,54 @@ static void test_decide(void)
         CHECK_INT(pi_trust_decide(&sys, agent, cwd, -1, "never", ask_fn, 0), 1);
         CHECK_INT(asked_count, 0);
     }
+}
+
+/* GA3: a trust.json pi's readTrustFile would refuse stops pi; it is not "no decision" and not rewritten;
+ * an answer that cannot be kept is an error, not a silent not-kept */
+static void test_trust_errors(void)
+{
+    char agent[400], cwd[400], f[420], blocker[420], *got;
+    long gn;
+    jw o;
+    int k;
+    static const char *const bad[] = { "{\"/w\": true,", "[true]", "{\"/w/proj\": \"yes\", \"/w\": true}", 0 };
+    at(agent, sizeof(agent), "err_agent");
+    at(cwd, sizeof(cwd), "l3/w/proj");
+    mkdirs(agent);
+    cl_copy(f, agent, sizeof(f));
+    cl_cat(f, "/trust.json", sizeof(f));
+    jw_init(&o);
+    for (k = 0; bad[k]; k++) {
+        char err[400];
+        put("err_agent/trust.json", bad[k]);
+        asked_count = 0;
+        answer = PI_TRUST_YES;
+        CHECK_INT(pi_trust_decide(&sys, agent, cwd, -1, "always", ask_fn, 0), -1);   /* not "always" over a lost "no" */
+        CHECK_INT(asked_count, 0);
+        pi_trust_why(&sys, agent, err, sizeof(err));
+        CHECK(strstr(err, "trust store ") != 0 && strstr(err, "trust.json") != 0);
+        jw_free(&o);
+        jw_init(&o);
+        CHECK_INT(pi_trust_command(&sys, agent, cwd, 0, &o), -1);
+        CHECK(strstr(o.p, "[ERROR] ") != 0 && strstr(o.p, "trust store ") != 0);
+        jw_free(&o);
+        jw_init(&o);
+        CHECK_INT(pi_trust_command(&sys, agent, cwd, 1, &o), -1);
+        got = slurp_text(f, &gn);
+        CHECK(got != 0 && !strcmp(got, bad[k]));                                   /* not rewritten */
+        free(got);
+    }
+    /* the kept answer that cannot be written is pi's error too: the agent directory is under a file */
+    remove(f);
+    put("err_blocker", "x");
+    at(blocker, sizeof(blocker), "err_blocker/agent");
+    answer = PI_TRUST_YES;
+    CHECK_INT(pi_trust_decide(&sys, blocker, cwd, -1, "ask", ask_fn, 0), -1);
+    jw_free(&o);
+    jw_init(&o);
+    CHECK_INT(pi_trust_command(&sys, blocker, cwd, 1, &o), -1);
+    CHECK(strstr(o.p, "[ERROR] Failed to write trust store ") != 0);
+    jw_free(&o);
 }
 
 /* ---- through pi_app ---- */
@@ -514,7 +562,48 @@ static void write_file(const char *rel, const char *text)
     put(rel, text);
 }
 
+/* GA6: the agent directory spelled another way (an assign, a link) than the working directory it is inside
+ * of, or is, loads its AGENTS.md once */
+static void test_agent_dir_alias(void)
+{
+    char cwd[400], link[400], lnk_target[400];
+    pi_res r;
+    put("r6/w/AGENTS.md", "ALIASED-RULES-3");
+    at(cwd, sizeof(cwd), "r6/w");
+    at(link, sizeof(link), "r6/link");
+    at(lnk_target, sizeof(lnk_target), "r6/w");
+    remove(link);
+    CHECK_INT(symlink(lnk_target, link), 0);
+    CHECK_INT(pi_res_load(&r, &sys, link, cwd, 0), 0);
+    CHECK_INT(r.nf, 1);                                 /* running inside the agent directory: the file once */
+    pi_res_free(&r);
+    /* a different agent directory still contributes its own file */
+    put("r6/agent/AGENTS.md", "AGENT-RULES-4");
+    at(link, sizeof(link), "r6/agent");
+    CHECK_INT(pi_res_load(&r, &sys, link, cwd, 0), 0);
+    CHECK_INT(r.nf, 2);
+    pi_res_free(&r);
+}
+
 /* G2/G3: SYSTEM.md and APPEND_SYSTEM.md, and who may supply them, through pi_app */
+/* GA3 through pi_app: a broken trust.json ends the run with pi's error, nothing is sent */
+static void test_reach_trust_error(void)
+{
+    char f[420], *got;
+    long gn;
+    put("r5/w/proj/.pi/SYSTEM.md", "PROJECT-SYSTEM-TEXT");
+    put("r5/agent/trust.json", "{\"/w\": 1}");
+    CHECK_INT(app_run("r5/w/proj", "r5/agent", 0, 1, 0), 2);
+    CHECK_INT(ps.nreq, 0);
+    CHECK(strstr(out.p, "amiga-pi: Invalid trust store ") != 0 && strstr(out.p, "must be true, false, or null") != 0);
+    at(f, sizeof(f), "r5/agent/trust.json");
+    got = slurp_text(f, &gn);
+    CHECK(got != 0 && !strcmp(got, "{\"/w\": 1}"));
+    free(got);
+    /* -na and -a do not read the file (pi decides from the flag first) */
+    CHECK_INT(app_run("r5/w/proj", "r5/agent", "-na", 1, 0), 0);
+}
+
 static void test_reach_trust(void)
 {
     char f[420], *got;
@@ -552,7 +641,7 @@ static void test_reach_trust(void)
     CHECK(strstr(out.p, "Trust project folder?") != 0 && strstr(out.p, "Trust parent folder (") != 0);
     CHECK(sent("PROJECT-SYSTEM-TEXT"));
     CHECK(strstr(out.p, "Kept: trusted (") != 0);
-    CHECK(strstr(out.p, "Kept for future sessions: Do not trust") != 0);
+    CHECK(strstr(out.p, "Saved trust decision: untrusted. Restart amiga-pi for this to take effect.") != 0);
     got = slurp_text(f, &gn);
     CHECK(got && strstr(got, "false") != 0 && strstr(got, "true") == 0);
     free(got);
@@ -612,8 +701,11 @@ void suite_pi_resources(void)
     test_goldens();
     test_trust_store();
     test_decide();
+    test_trust_errors();
     test_reach_context();
+    test_agent_dir_alias();
     test_reach_trust();
+    test_reach_trust_error();
     jw_free(&out);
     ps_reset();
     {

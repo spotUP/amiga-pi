@@ -251,6 +251,17 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         trust_setting(pl, dflt, sizeof(dflt));
         trusted = pi_trust_decide(pl->sys, pl->agent_dir, pl->cwd, a.approve, dflt,
                                   a.print || !pl->io->read_line ? 0 : trust_ask, (void *)pl);
+        if (trusted < 0) {
+            /* pi stops with the trust store's error (readTrustFile / setMany throw) */
+            char terr[400];
+            pi_trust_why(pl->sys, pl->agent_dir, terr, sizeof(terr));
+            say(pl->io, "amiga-pi: ", terr);
+            pi_store_free(&store);
+            pi_session_free(&s);
+            pi_gate_free(&gate);
+            pi_tools_free(&tools);
+            return 2;
+        }
         pi_res_load(&res, pl->sys, pl->agent_dir, pl->cwd, trusted);
         s.res = &res;
     }
