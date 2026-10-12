@@ -41,6 +41,7 @@ typedef struct pi_store {
     int mode;
     int resumed;                /* an existing file was opened */
     jw system;                  /* the replayed system prompt: what the next request carries */
+    jw cp_result;               /* the last compaction's pi CompactionResult (JSON object), empty when it failed */
     int loading;                /* messages being put into the agent: nothing is appended */
     long persisted;             /* messages appended on message_end (the tests' sentinel) */
     long syncs;                 /* system messages appended */
@@ -81,6 +82,23 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor);
 /* ! and !! (pi executeBash): a bashExecution message recorded in the session; unless exclude (!!) the agent gets it as
  * the user message pi's convertToLlm makes of it ("Ran `cmd`" and the output), for the next request. 0, -1 */
 int pi_store_bash(pi_store *st, const char *command, const char *output, int exit_code, int cancelled, int exclude);
+
+/* /fork N and /clone: a new session from the branch ending at entry leaf (-1: an empty one with this as parentSession),
+ * the session continued there. 0, or -1 with the reason in reply ("[ERROR] ...") */
+int pi_store_branch(pi_store *st, int leaf, jw *reply);
+/* the text of the user message entry i, as the input takes it back (the text blocks joined) */
+void pi_user_text(pi_s3 *s, int i, jw *out);
+/* pi's newSession: an empty session in the same directory (parentSession: parent, "" none), the agent's conversation
+ * cleared and the session's model and thinking level recorded again. 0, -1 with err */
+int pi_store_new_session(pi_store *st, const char *parent);
+/* pi's switchSession: the session file opened and its conversation loaded; the model and thinking level it names are
+ * restored. 0, -1 with err (the current session is kept) */
+int pi_store_switch(pi_store *st, const char *path);
+/* pi's setSessionName: a session_info entry and the session_info_changed event. 0, -1 */
+int pi_store_name(pi_store *st, const char *name);
+/* a bash command run through the session's bash tool and recorded as !cmd is (pi executeBash): its output in text, the
+ * exit code, whether it was stopped. 0, -1 when there is no bash tool */
+int pi_store_bash_run(pi_store *st, const char *command, int exclude, jw *text, int *code, int *stopped);
 
 /* the leaf moved to entry idx as /tree N does (summarize, instr, replace: pi's navigateTree options): the lines to show
  * in reply ("[ERROR] ..." when it failed), the text of a user message left in editor */

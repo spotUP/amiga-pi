@@ -7,6 +7,7 @@
 #include "cp_prompts.h"
 #include "claude/util.h"
 #include "llm/estimate.h"
+#include "show_pi.h"
 
 static llm_ts store_now(pi_store *st)
 {
@@ -34,6 +35,7 @@ void pi_store_init(pi_store *st, cl_sys *sys, llm_ts (*now)(void *u), void *u, i
     seed ^= (unsigned long)(size_t)st << 4;
     s3_init(&st->s3, sys, now, u, utc, seed ? seed : 1UL);
     jw_init(&st->system);
+    jw_init(&st->cp_result);
     st->keep = CP_KEEP;
     st->reserve = CP_RESERVE;
     st->cp_enabled = 1;
@@ -48,6 +50,7 @@ void pi_store_free(pi_store *st)
         st->s->declare_u = 0;
     }
     jw_free(&st->system);
+    jw_free(&st->cp_result);
     s3_free(&st->s3);
 }
 
@@ -429,6 +432,15 @@ static void cp_event(pi_store *st, int type, int reason, int is_error, const cha
     e.is_error = is_error;
     e.msg = text;
     e.msg_n = text ? (long)strlen(text) : 0;
+    if (type == PE_COMPACTION_END) {
+        /* pi's CompactionResult on success; a stopped one is `aborted`, any other failure carries errorMessage */
+        if (!is_error && st->cp_result.n) {
+            e.result = st->cp_result.p;
+            e.result_n = st->cp_result.n;
+        }
+        if (is_error && text && !strcmp(text, "Compaction cancelled"))
+            e.aborted = 1;
+    }
     pi_emit(&st->s->em, &e);
 }
 
@@ -575,6 +587,7 @@ static int run_compaction(pi_store *st, const char *instr, int reason)
     jw usage, sysm, info;
     int rc, ok = -1, i;
     long after = 0;
+    jw_reset(&st->cp_result);
     cp_event(st, PE_COMPACTION_START, reason, 0, 0);
     st->err[0] = 0;
     rc = cp_prepare(&st->s3, st->s3.leaf, st->keep, &p);
@@ -623,6 +636,21 @@ static int run_compaction(pi_store *st, const char *instr, int reason)
                             after += cp_estimate(c.msg[i], c.msg_n[i]);
                         ctx_free(&c);
                     }
+                    /* pi's CompactionResult: what compact() returns, what compaction_end carries */
+                    jw_reset(&st->cp_result);
+                    jw_rawz(&st->cp_result, "{\"summary\":");
+                    jw_str(&st->cp_result, res.summary.p ? res.summary.p : "", res.summary.n);
+                    jw_rawz(&st->cp_result, ",\"firstKeptEntryId\":");
+                    jw_strz(&st->cp_result, s3_id(&st->s3, p.first_kept >= 0 ? p.first_kept : st->s3.leaf));
+                    jw_rawz(&st->cp_result, ",\"tokensBefore\":");
+                    jw_long(&st->cp_result, res.tokens_before);
+                    jw_rawz(&st->cp_result, ",\"estimatedTokensAfter\":");
+                    jw_long(&st->cp_result, after);
+                    jw_rawz(&st->cp_result, ",\"usage\":");
+                    llm_w_usage(&st->cp_result, &res.usage);
+                    jw_rawz(&st->cp_result, ",\"details\":");
+                    jw_raw(&st->cp_result, res.details.p ? res.details.p : "{}", res.details.p ? res.details.n : 2);
+                    jw_rawz(&st->cp_result, "}");
                     jw_init(&info);
                     jw_rawz(&info, "Compacted: about ");
                     jw_long(&info, res.tokens_before);
@@ -795,6 +823,150 @@ int pi_store_bash(pi_store *st, const char *command, const char *output, int exi
     return rc;
 }
 
+
+int pi_store_new_session(pi_store *st, const char *parent)
+{
+    pi_s3 *s = &st->s3;
+    char dir[256], cwd[256];
+    cl_copy(dir, s->dir, sizeof(dir));
+    cl_copy(cwd, s->cwd, sizeof(cwd));
+    if (s3_new(s, dir, cwd, parent ? parent : "", 0, s->persist)) {
+        cl_copy(st->err, s->err[0] ? s->err : "the new session could not be made", sizeof(st->err));
+        return -1;
+    }
+    st->resumed = 0;
+    if (st->s) {
+        pi_session *ag = st->s;
+        if (s3_model(s, ag->model.provider, ag->model.id) < 0 || s3_thinking(s, llm_think_name(ag->thinking)) < 0 ||
+            pi_store_reload(st)) {
+            cl_copy(st->err, "the new session could not be started", sizeof(st->err));
+            return -1;
+        }
+        ag->session_id = s->id[0] ? s->id : 0;
+        ag->ctx_tokens = 0;
+    }
+    return 0;
+}
+
+int pi_store_switch(pi_store *st, const char *path)
+{
+    pi_s3 n;
+    pi_session *ag = st->s;
+    char prov[64], id[128], lv[32];
+    s3_init(&n, st->sys, st->s3.now, st->s3.u, st->s3.utc, st->s3.seed);
+    cl_copy(n.cwd, st->cwd, sizeof(n.cwd));
+    if (s3_open(&n, path)) {
+        cl_copy(st->err, n.err[0] ? n.err : "the session could not be opened", sizeof(st->err));
+        s3_free(&n);
+        return -1;
+    }
+    st->resumed = st->sys->kind(st->sys->u, path) == 1;
+    s3_free(&st->s3);
+    st->s3 = n;
+    if (!ag)
+        return 0;
+    /* what pi restores from the session it opens: its model and its thinking level */
+    if (pi_store_model(st, prov, sizeof(prov), id, sizeof(id)) && st->models) {
+        const llm_model *f = llm_reg_find(&st->models->reg, prov, id);
+        if (f)
+            ag->model = *f;
+    }
+    if (pi_store_level(st, lv, sizeof(lv)))
+        ag->thinking = llm_think_clamp(&ag->model, llm_think_of(lv));
+    else if (st->resumed && s3_thinking(&st->s3, llm_think_name(ag->thinking)) < 0) {
+        cl_copy(st->err, "the session could not be recorded", sizeof(st->err));
+        return -1;
+    }
+    if (pi_store_reload(st)) {
+        cl_copy(st->err, "the session could not be loaded", sizeof(st->err));
+        return -1;
+    }
+    ag->session_id = st->s3.id[0] ? st->s3.id : 0;
+    ag->ctx_tokens = 0;
+    return 0;
+}
+
+int pi_store_name(pi_store *st, const char *name)
+{
+    pi_event e;
+    if (s3_session_info(&st->s3, name) < 0)
+        return -1;
+    if (st->s) {
+        pi_event_init(&e, PE_SESSION_INFO);
+        e.msg = name && name[0] ? name : 0;
+        e.msg_n = name ? (long)strlen(name) : 0;
+        pi_emit(&st->s->em, &e);
+    }
+    return 0;
+}
+
+int pi_store_bash_run(pi_store *st, const char *cmd, int exclude, jw *text, int *code, int *stopped)
+{
+    pi_session *s = st->s;
+    pi_tool *tool = 0;
+    int i, is_error = 0;
+    jw args, content;
+    char *tail;
+    for (i = 0; i < s->ntools; i++)
+        if (!strcmp(s->tools[i]->name, "bash"))
+            tool = s->tools[i];
+    if (!tool)
+        return -1;
+    jw_init(&args);
+    jw_init(&content);
+    jw_rawz(&args, "{\"command\":");
+    jw_strz(&args, cmd);
+    jw_raw(&args, "}", 1);
+    *code = 0;
+    *stopped = tool->run(tool->u, s, args.p, args.n, &content, &is_error);
+    pshow_result_text(content.p ? content.p : "[]", content.n, text);
+    jw_rawz(text, "");
+    /* the tool appends "Command exited with code N" to the output of a failed command: pi keeps the code apart */
+    tail = text->p ? strstr(text->p, "Command exited with code ") : 0;
+    if (tail && !strchr(tail, '\n')) {
+        *code = (int)strtol(tail + 25, 0, 10);
+        while (tail > text->p && tail[-1] == '\n')
+            tail--;
+        *tail = 0;
+        text->n = (long)(tail - text->p);
+    } else if (is_error && !*stopped)
+        *code = 1;
+    pi_store_bash(st, cmd, text->p ? text->p : "", *code, *stopped, exclude);
+    jw_free(&args);
+    jw_free(&content);
+    return 0;
+}
+
+/* a retry drops the failed answer from the context: pi's _omitRecoveryAttempt appends a context_edit with no replacement
+ * for its entry and announces the entry. i is the answer's place in the conversation, the entry the last assistant message
+ * of the branch */
+static int omit_answer(void *u, pi_session *s, int i)
+{
+    pi_store *st = (pi_store *)u;
+    pi_s3 *t = &st->s3;
+    int j, idx;
+    long n;
+    const char *line;
+    pi_event e;
+    (void)i;
+    for (j = t->leaf; j >= 0; j = t->e[j].parent)
+        if (t->e[j].type == S3_MESSAGE && t->e[j].role == S3R_ASSISTANT)
+            break;
+    if (j < 0)
+        return -1;
+    idx = s3_context_edit(t, j, 0);
+    if (idx < 0)
+        return -1;
+    line = s3_text(t, idx, &n);
+    if (line) {
+        pi_event_init(&e, PE_ENTRY_APPENDED);
+        e.msg = line;
+        e.msg_n = n;
+        pi_emit(&s->em, &e);
+    }
+    return 0;
+}
+
 static int cycle(void *u, pi_session *s, int what, int dir, char *msg, long cap)
 {
     pi_store *st = (pi_store *)u;
@@ -834,5 +1006,7 @@ int pi_store_attach(pi_store *st, pi_session *s)
     s->command_u = st;
     s->cycle = cycle;
     s->cycle_u = st;
+    s->omit = omit_answer;
+    s->omit_u = st;
     return pi_subscribe(&s->em, on_event, st);
 }

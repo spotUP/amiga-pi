@@ -26,6 +26,23 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             a->approve = !strcmp(s, "--approve") || !strcmp(s, "-a");
         else if (!strcmp(s, "--no-mcp"))
             a->no_mcp = 1;
+        else if (!strcmp(s, "--no-extensions") || !strcmp(s, "-ne"))
+            ;                   /* pi's flag: amiga-pi has no extension host to switch off */
+        else if (!strcmp(s, "--mode")) {
+            const char *v = i + 1 < argc ? argv[++i] : "";
+            if (!strcmp(v, "text"))
+                a->mode = PI_MODE_TEXT;
+            else if (!strcmp(v, "json"))
+                a->mode = PI_MODE_JSON;
+            else if (!strcmp(v, "rpc"))
+                a->mode = PI_MODE_RPC;
+            else {
+                cl_copy(a->err, "Invalid mode \"", sizeof(a->err));
+                cl_cat(a->err, v, sizeof(a->err));
+                cl_cat(a->err, "\". Valid values: text, json, rpc", sizeof(a->err));
+                return -1;
+            }
+        }
         else if (!strcmp(s, "--session") || !strcmp(s, "--name") || !strcmp(s, "-n")) {
             if (i + 1 >= argc) {
                 cl_copy(a->err, s, sizeof(a->err));
@@ -89,10 +106,16 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             if (a->prompt[0])
                 cl_cat(a->prompt, " ", sizeof(a->prompt));
             cl_cat(a->prompt, s, sizeof(a->prompt));
+            if (a->nmsg < PI_ARG_MSGS)
+                a->msg[a->nmsg++] = s;
         }
     }
     if (a->no_session && (a->cont || a->resume || a->session[0])) {
         cl_copy(a->err, "--no-session cannot be combined with --continue, --resume or --session", sizeof(a->err));
+        return -1;
+    }
+    if (a->mode == PI_MODE_RPC && a->print) {
+        cl_copy(a->err, "--mode rpc cannot be combined with -p", sizeof(a->err));
         return -1;
     }
     if (a->print && !a->prompt[0]) {

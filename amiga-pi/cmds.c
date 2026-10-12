@@ -328,6 +328,11 @@ static void message_text(pi_s3 *s, int i, jw *out)
         content_line(v, out);
 }
 
+void pi_user_text(pi_s3 *s, int i, jw *out)
+{
+    message_text(s, i, out);
+}
+
 /* navigateTree */
 static void navigate(pi_store *st, int target, int summarize, const char *instr, int replace, const char *label,
                      jw *reply, jw *editor)
@@ -444,8 +449,9 @@ static void fork_list(pi_store *st, jw *reply)
     free(path);
 }
 
-/* a new session from the branch ending at leaf; -1 a fork at the root: a new empty session with parentSession */
-static int new_branch(pi_store *st, int leaf, jw *reply)
+/* a new session from the branch ending at leaf; -1 a fork at the root: a new empty session with parentSession.
+ * 0, or -1 with the reason in reply ("[ERROR] ...") */
+int pi_store_branch(pi_store *st, int leaf, jw *reply)
 {
     pi_s3 *s = &st->s3;
     if (s->persist && !s->flushed) {
@@ -555,7 +561,7 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
                 return 1;
             }
             message_text(s, pick, editor);
-            if (new_branch(st, s->e[pick].parent, reply))
+            if (pi_store_branch(st, s->e[pick].parent, reply))
                 return 1;
             jw_rawz(reply, "[INFO] Forked into a new session.");
         }
@@ -566,7 +572,7 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
             jw_rawz(reply, "[ERROR] Nothing to clone yet");
             return 1;
         }
-        if (new_branch(st, s->leaf, reply))
+        if (pi_store_branch(st, s->leaf, reply))
             return 1;
         jw_rawz(reply, "[INFO] Cloned into a new session.");
         return 1;

@@ -62,6 +62,9 @@ int pi_model_cycle(pi_models *m, pi_session *s, int dir, char *msg, long cap);
  * does not support thinking". 1 changed, 0 not, -1 not recorded */
 int pi_thinking_cycle(pi_models *m, pi_session *s, char *msg, long cap);
 
+/* a credential for the model's provider, or an endpoint that wants none (pi's getAvailable: what /model offers, what RPC lists) */
+int pi_model_usable(pi_models *m, const llm_model *mo);
+
 /* the lines of /model: every model whose provider has a credential, numbered, the current one marked */
 void pi_models_list(pi_models *m, const pi_session *s, jw *out);
 /* the model the Nth line of pi_models_list names (1-based): 0 none */

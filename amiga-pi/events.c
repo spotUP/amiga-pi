@@ -5,7 +5,9 @@
 static const char *const names[PE_N] = {
     "agent_start", "turn_start", "message_start", "message_update", "message_end",
     "tool_execution_start", "tool_execution_update", "tool_execution_end", "turn_end", "agent_end",
-    "compaction_start", "compaction_end"
+    "compaction_start", "compaction_end",
+    "agent_settled", "queue_update", "thinking_level_changed", "session_info_changed", "entry_appended",
+    "auto_retry_start", "auto_retry_end"
 };
 
 void pi_emitter_init(pi_emitter *em)
@@ -19,6 +21,19 @@ int pi_subscribe(pi_emitter *em, pi_listener fn, void *u)
         return -1;
     em->fn[em->n] = fn;
     em->u[em->n++] = u;
+    return 0;
+}
+
+int pi_unsubscribe(pi_emitter *em, pi_listener fn, void *u)
+{
+    int i;
+    for (i = 0; i < em->n; i++)
+        if (em->fn[i] == fn && em->u[i] == u) {
+            memmove(em->fn + i, em->fn + i + 1, sizeof(em->fn[0]) * (size_t)(em->n - i - 1));
+            memmove(em->u + i, em->u + i + 1, sizeof(em->u[0]) * (size_t)(em->n - i - 1));
+            em->n--;
+            return 1;
+        }
     return 0;
 }
 

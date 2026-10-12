@@ -115,6 +115,24 @@ typedef struct pi_session {
     char *steer[PI_QUEUE], *follow[PI_QUEUE];
     int nsteer, nfollow;
     int steer_all, follow_all;
+    /* the messages polled from a queue and not yet in the conversation (they leave the queue the session shows -- queue_update --
+     * when their user message is made); pend_follow: they came from the follow-up queue */
+    char *pend[PI_QUEUE];
+    int npend, pend_follow;
+    /* automatic retry of a failed answer (agent-session.ts _prepareRetry; settings.json "retry"): on, how many times,
+     * the first delay in ms (it doubles, 60 s at most). attempt counts the retries of the failure being retried; retry_stop
+     * cuts the wait (abort_retry) */
+    int retry_on, retry_max;
+    long retry_base;
+    int attempt, retry_stop;
+    /* the failed answer, message index i, kept out of the context for the retry (the store appends pi's context_edit
+     * entry); 0, -1 */
+    int (*omit)(void *u, struct pi_session *s, int i);
+    void *omit_u;
+    int active;                 /* a prompt is running (pi's isStreaming) */
+    int run_msg0, run_sys0;     /* the conversation's size when the run began: agent_end's messages are what came after */
+    int sys_seen;               /* the transcript's system messages announced as message events so far */
+    jw structured;              /* the tool call running now: pi's structuredContent of its result (JSON), empty none */
     char err[256];              /* its errorMessage, or why the prompt stopped */
 } pi_session;
 
@@ -137,8 +155,18 @@ void pi_tools_json(const pi_session *s, jw *w);
 int pi_req_auth(pi_session *s, llm_req *q, jw *hdr);
 
 /* the prompt to the end: the last answer's stop reason (LS_STOP, LS_LENGTH,
- * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it) */
+ * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it). A retryable failure (agent-session.js
+ * isRetryableAssistantError) is retried as pi does when s->retry_on; agent_settled is the last event. */
 int pi_prompt(pi_session *s, const char *text);
+/* the conversation from message m0 and system message sys0 on, as a JSON array of pi-ai messages (the transcript's system
+ * messages in their places) */
+void pi_messages_json(const pi_session *s, int m0, int sys0, jw *w);
+/* the queues' text as the session shows them (queue_update's two arrays), JSON arrays of strings appended to w */
+void pi_queue_json(const pi_session *s, int follow, jw *w);
+/* the same count */
+int pi_queue_len(const pi_session *s, int follow);
+/* pi's isRetryableAssistantError on an errorMessage: 1 when it looks like a transient provider or transport failure */
+int pi_retryable(const char *error_message);
 /* queue a message while a prompt runs (copied): 0, -1 when the queue is full or memory is out. The run takes it
  * at pi's points (see pi_session.steer) */
 int pi_steer(pi_session *s, const char *text);

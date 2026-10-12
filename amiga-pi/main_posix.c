@@ -9,6 +9,7 @@
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
+#include <poll.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -36,6 +37,28 @@ static long p_read(void *u, char *buf, long cap)
     while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r'))
         buf[--n] = 0;
     return n;
+}
+
+/* bytes from stdin (rpc mode): up to cap, waiting timeout_ms for the first (0: do not wait); 0 none came, -1 the end. The
+ * stdio buffer is not used: fgets (p_read) and this are not mixed in one run. */
+static long p_readbytes(void *u, char *buf, long cap, long timeout_ms)
+{
+    struct pollfd pf;
+    ssize_t n;
+    (void)u;
+    pf.fd = 0;
+    pf.events = POLLIN;
+    pf.revents = 0;
+    if (poll(&pf, 1, (int)timeout_ms) <= 0)
+        return 0;
+    n = read(0, buf, (size_t)cap);
+    return n > 0 ? (long)n : n == 0 ? -1 : 0;
+}
+
+static void p_diag(const char *line)
+{
+    fputs(line, stderr);
+    fputc('\n', stderr);
 }
 
 static void p_write(void *u, const char *s, long n)
@@ -122,6 +145,7 @@ int main(int argc, char **argv)
     nets[0] = &net;
     llm_pool_init(&pool, nets, 1);
     io.read_line = p_read;
+    io.read = p_readbytes;      /* rpc mode reads commands while a run goes on; no raw mode, so the screen is not offered */
     io.write = p_write;
     io.brk = p_brk;
     io.sleep = p_sleep;
@@ -133,6 +157,7 @@ int main(int argc, char **argv)
     pl.h.ms = p_ms;
     pl.h.resolve = p_resolve;
     pl.now = p_now;
+    pl.diag = p_diag;
     pl.getenv = p_getenv;
     pl.cwd = getcwd(cwd, sizeof(cwd)) ? cwd : ".";
     /* the tools over C:Claude's host sys (commands through /bin/sh) */
