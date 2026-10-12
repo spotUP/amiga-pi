@@ -164,6 +164,10 @@ SCENARIOS = {
     'exit_hint': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('sleep', 1.5), ('exit',)],
                       answers=[('sse', text_answer('msg_a', 'answer one', 20))], persist=True, raw=True,
                       settings={'fullscreenExitOutput': 'resume-hint'}),
+    # Q11: --session-dir with a space in the path: the resume line carries it, quoted (formatResumeCommand, quoteIfNeeded)
+    'exit_sdir': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('sleep', 1.5), ('exit',)],
+                      answers=[('sse', text_answer('msg_a', 'answer one', 20))], persist=True, raw=True,
+                      sdir='my sessions'),
     'exit_regular': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('sleep', 1.5), ('exit',)],
                          answers=[('sse', text_answer('msg_a', 'answer one', 20))], persist=True, raw=True, tui='regular'),
     # TM4: what pi's output stream holds when a turn finishes (no bell, no notification)
@@ -354,7 +358,7 @@ def run(name, sc, cols, rows, keep):
         env = env.replace('env -i ', 'env -i %s ' % sc['env'])
     pipelog = os.path.join(work, 'pty.bytes')
     tmux('new-session', '-d', '-s', sess, '-x', str(cols), '-y', str(rows), '-c', proj,
-         env + (PI + (' --session session.jsonl' if sc.get('session') else '' if sc.get('persist') else ' --no-session')))
+         env + (PI + (" --session-dir '%s'" % os.path.join(work, sc['sdir']) if sc.get('sdir') else '') + (' --session session.jsonl' if sc.get('session') else '' if sc.get('persist') else ' --no-session')))
     tmux('set-option', '-t', sess, 'remain-on-exit', 'on')
     if sc.get('pipe'):
         tmux('pipe-pane', '-t', sess, 'cat > %s' % pipelog)

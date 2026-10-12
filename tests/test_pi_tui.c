@@ -793,6 +793,7 @@ static void rest_hook(void)
 static const char *app_session;     /* --session <file> for the next app_run, 0 none */
 static const char *app_tui_cli;     /* --tui-mode <x> for the next app_run, 0 none */
 static const char *app_name_cli;    /* --name <x> for the next app_run, 0 none */
+static const char *app_sdir_cli;    /* --session-dir <x> for the next app_run, 0 none */
 static char *app_out;               /* every byte the last app_run wrote to the screen */
 
 static int app_run(int cols, int rows, const char **keys, const char *const *sse, int nsse, void (*rest)(void))
@@ -813,6 +814,10 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     if (app_name_cli) {
         a[argc++] = (char *)"--name";
         a[argc++] = (char *)app_name_cli;
+    }
+    if (app_sdir_cli) {
+        a[argc++] = (char *)"--session-dir";
+        a[argc++] = (char *)app_sdir_cli;
     }
     ps_reset();
     ps_pool_up(LLM_POOL);
@@ -1731,6 +1736,39 @@ static void test_tui_mode_app(void)
     app_out = 0;
 }
 
+/* Q11: with --session-dir the resume line carries the directory, quoted when it needs it, before --session (pi's
+ * formatResumeCommand; tests/pi/tui/exit_sdir.txt is pi 1.1.0's line for "<work>/my sessions"); the default directory is
+ * left out, and the session is stored in that directory */
+static void test_resume_session_dir(void)
+{
+    static const char *keys[] = { "hello\r", "\004", 0 };
+    static const char *sse[] = { "twice.1.sse" };
+    char dir[500], want[600], line[200];
+    long n = 0;
+    char *g = slurp("exit_sdir.txt", &n);
+    CHECK(g != 0);
+    if (g) {
+        char *l = strstr(g, "To resume this session:");
+        CHECK(l && strstr(l, "pi --session-dir '") != 0);          /* pi: the quoted path first, then --session */
+        CHECK(l && strstr(l, "my sessions'") != 0);
+        free(g);
+    }
+    cl_copy(dir, aroot, sizeof(dir));
+    cl_cat(dir, "/my sessions", sizeof(dir));
+    cl_copy(line, "To resume this session:", sizeof(line));
+    cl_copy(want, "amiga-pi --session-dir '", sizeof(want));
+    cl_cat(want, dir, sizeof(want));
+    cl_cat(want, "' --session ", sizeof(want));
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    app_sdir_cli = dir;
+    CHECK_INT(app_run(80, 25, keys, sse, 1, 0), 0);
+    app_sdir_cli = 0;
+    CHECK(app_out && strstr(app_out, line) != 0);
+    CHECK(app_out && strstr(app_out, want) != 0);
+    CHECK_INT(app_run(80, 25, keys, sse, 1, 0), 0);                /* no option: the line as before */
+    CHECK(app_out && strstr(app_out, "amiga-pi --session ") != 0 && strstr(app_out, "--session-dir") == 0);
+}
+
 /* ---- the trust question as pi's selector (the capture is tests/pi/tui/approval.golden) ---- */
 
 static void approval_rest(void)
@@ -1931,6 +1969,7 @@ void suite_pi_tui(void)
     test_program_status();
     test_pstatus_states();
     test_program_status_name();
+    test_resume_session_dir();
     test_context_figure();
     test_ctrl_d();
     test_themes();

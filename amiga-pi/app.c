@@ -163,11 +163,38 @@ static void tui_settings(const pi_platform *pl, int cli, int *regular, int *hint
 /* pi's resume line: the command that opens this session again, only when its file exists */
 static const char *resume_cmd(void *u)
 {
-    static char cmd[400];
+    static char cmd[700];
+    char def[300];
     pi_store *st = (pi_store *)u;
     if (!st->s3.persist || !st->s3.flushed || !st->s3.id[0])
         return "";
-    cl_copy(cmd, "amiga-pi --session ", sizeof(cmd));
+    cl_copy(cmd, "amiga-pi ", sizeof(cmd));
+    /* formatResumeCommand: --session-dir <dir> (quoteIfNeeded) when the directory is not the default one */
+    if (st->sdir[0] && (s3_dir(st->data_dir, st->cwd, def, sizeof(def)) || strcmp(def, st->sdir))) {
+        const char *c;
+        int plain = 1;
+        for (c = st->sdir; *c; c++)
+            if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || strchr("_-./~:@", *c)))
+                plain = 0;
+        cl_cat(cmd, "--session-dir ", sizeof(cmd));
+        if (plain && st->sdir[0])
+            cl_cat(cmd, st->sdir, sizeof(cmd));
+        else {
+            char q[2] = { 0, 0 };
+            cl_cat(cmd, "'", sizeof(cmd));
+            for (c = st->sdir; *c; c++) {
+                if (*c == '\'')
+                    cl_cat(cmd, "'\\''", sizeof(cmd));
+                else {
+                    q[0] = *c;
+                    cl_cat(cmd, q, sizeof(cmd));
+                }
+            }
+            cl_cat(cmd, "'", sizeof(cmd));
+        }
+        cl_cat(cmd, " ", sizeof(cmd));
+    }
+    cl_cat(cmd, "--session ", sizeof(cmd));
     cl_cat(cmd, st->s3.id, sizeof(cmd));
     return cmd;
 }
@@ -376,14 +403,16 @@ static void pick_fn(void *c, const char *path, const char *id, const char *title
     p->n++;
 }
 
-static int pick_session(const pi_platform *pl, const char *data_dir, char *out, long cap)
+static int pick_session(const pi_platform *pl, const char *data_dir, const char *sdir, char *out, long cap)
 {
     pick p;
     char dir[300], buf[16];
     long n;
     p.io = pl->io;
     p.n = 0;
-    if (s3_dir(data_dir, pl->cwd, dir, sizeof(dir)))
+    if (sdir[0])
+        cl_copy(dir, sdir, sizeof(dir));
+    else if (s3_dir(data_dir, pl->cwd, dir, sizeof(dir)))
         return -1;
     say(pl->io, "Sessions in this directory (number to resume, anything else to start a new one):", 0);
     s3_list(pl->sys, dir, 9, pick_fn, &p);
@@ -400,7 +429,7 @@ static int usage(const pi_platform *pl, const pi_args *a)
 {
     say(pl->io, "amiga-pi: ", a->err);
     say(pl->io, "usage: amiga-pi [-p] [--model provider/id] [--base-url URL] [--tools list] [--no-tools] "
-                "[--gate|--no-gate] [--approve|--no-approve] [--no-mcp] [-c] [--session path-or-id] [-r] [--no-session] [-n name] [prompt]", 0);
+                "[--gate|--no-gate] [--approve|--no-approve] [--no-mcp] [-c] [--session path-or-id] [--session-dir dir] [-r] [--no-session] [-n name] [prompt]", 0);
     return 2;
 }
 
@@ -594,7 +623,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     /* the session first: the model it names is the default (pi restores it on resume) */
     mode = a.no_session || !pl->sys || !pl->data_dir || !pl->data_dir[0] ? PS_MODE_NONE : PS_MODE_NEW;
     picked[0] = 0;
-    if (mode != PS_MODE_NONE && a.resume && !pick_session(pl, pl->data_dir, picked, sizeof(picked)))
+    if (mode != PS_MODE_NONE && a.resume && !pick_session(pl, pl->data_dir, a.session_dir, picked, sizeof(picked)))
         mode = PS_MODE_SESSION;
     else if (mode != PS_MODE_NONE && a.session[0]) {
         mode = PS_MODE_SESSION;
@@ -602,6 +631,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     } else if (mode != PS_MODE_NONE && a.cont)
         mode = PS_MODE_CONTINUE;
     pi_store_init(&store, pl->sys, pl->now, pl->h.u, pl->utc);
+    cl_copy(store.sdir, a.session_dir, sizeof(store.sdir));
     if (pi_store_open(&store, mode, pl->data_dir, pl->cwd, picked)) {
         say(pl->io, "amiga-pi: ", store.err);
         pi_store_free(&store);

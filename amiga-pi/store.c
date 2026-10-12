@@ -64,7 +64,9 @@ int pi_store_open(pi_store *st, int mode, const char *data_dir, const char *cwd,
     st->err[0] = 0;
     if (mode == PS_MODE_NONE || !st->data_dir[0])
         return s3_new(&st->s3, "", st->cwd, 0, 0, 0);
-    if (s3_dir(st->data_dir, st->cwd, dir, sizeof(dir))) {
+    if (st->sdir[0])
+        cl_copy(dir, st->sdir, sizeof(dir));
+    else if (s3_dir(st->data_dir, st->cwd, dir, sizeof(dir))) {
         cl_copy(st->err, "the session directory name is too long", sizeof(st->err));
         return -1;
     }

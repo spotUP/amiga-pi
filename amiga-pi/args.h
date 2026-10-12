@@ -44,6 +44,7 @@ typedef struct pi_args {
     int approve;                /* -a / --approve 1 trusts the project's .pi/ resources, -na / --no-approve 0, -1 ask */
     int no_mcp;                 /* --no-mcp: no MCP servers this run (pi's flag) */
     char session[300];          /* --session's argument, "" none */
+    char session_dir[300];      /* --session-dir: where the sessions are stored and looked up, "" the default */
     char name[128];             /* --name, "" none */
     char provider[48], id[96], base_url[256];   /* --model provider/id split as written (a provider the registry does not know) */
     char cli_provider[48];      /* --provider */
