@@ -570,9 +570,15 @@ static llm_ts adv_now(void *u)
     return t;
 }
 
+static const char *app_colorterm;       /* what the test's terminal says in COLORTERM (0: unset) */
+
 static long app_env(const char *name, char *o, long cap)
 {
     const char *v = 0;
+    if (!strcmp(name, "COLORTERM"))
+        v = app_colorterm;
+    else if (!strcmp(name, "TERM"))
+        v = "vtcon";
     if (!strcmp(name, "OPENAI_API_KEY"))
         v = "sk-test-openai";
     else if (!strcmp(name, "ANTHROPIC_API_KEY"))
@@ -1208,6 +1214,13 @@ static void test_theme_keys_app(void)
     app_write("settings.json", "{\"quietStartup\":true,\"theme\":\"dark\"}\n");
     CHECK_INT(app_run(80, 25, keys1, 0, 0, themed_shot), 0);
     CHECK(rule_fg != system_fg);
+    /* UT7: the depth is pi's, not a fixed 16. Without COLORTERM the dark theme's grey rule is an index of the
+     * 256 palette (it was mapped down to ANSI 8, bright black); COLORTERM=truecolor makes it a direct colour. */
+    CHECK(rule_fg >= 16 && rule_fg < 256);
+    app_colorterm = "truecolor";
+    CHECK_INT(app_run(80, 25, keys1, 0, 0, themed_shot), 0);
+    CHECK(((unsigned long)rule_fg & VT_COLOR_RGB) != 0);
+    app_colorterm = 0;
     /* a theme file of the user's in the data directory */
     strcpy(path, adata);
     strcat(path, "/themes");

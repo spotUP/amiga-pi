@@ -182,6 +182,23 @@ static void load_theme(const pi_platform *pl, cl_pitheme *th)
         CL_FREE(txt);
 }
 
+/* A loaded theme is drawn in the depth pi would pick on this terminal (pi-tui 1.0.4: truecolor when COLORTERM or
+ * TERM says so, else the 256 palette; UP-Term tells COLORTERM through /colors rgb), never the fixed 16 that turned a
+ * dark theme's #343541 into ANSI 8. The system theme is indexed colours: its depth does not matter. */
+static void theme_depth(const pi_platform *pl, cl_pitheme *th)
+{
+    char term[48], ct[24], pt[8];
+    term[0] = ct[0] = pt[0] = 0;
+    if (strcmp(th->name, "system") == 0)
+        return;
+    if (pl->getenv) {
+        pl->getenv("TERM", term, sizeof(term));
+        pl->getenv("COLORTERM", ct, sizeof(ct));
+        pl->getenv("PI_TRUE_COLOR", pt, sizeof(pt));
+    }
+    th->depth = pitheme_depth(term, ct, pt);
+}
+
 /* <agent dir>/keybindings.json read (pi's shape): the text, CL_FREEd by the caller; 0 none */
 static char *keybindings_text(const pi_platform *pl, long *n)
 {
@@ -657,6 +674,7 @@ int pi_rt_run(pi_rt *rt)
         pi_ui_set_cwd(pl->cwd);
         pi_ui_set_quiet(quiet_setting(pl));
         load_theme(pl, &th);
+        theme_depth(pl, &th);
         pi_ui_set_theme(&th);
         kb = keybindings_text(pl, &kn);
         pi_ui_set_keybindings(kb, kn);
