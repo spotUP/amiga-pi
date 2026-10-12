@@ -1006,8 +1006,9 @@ const char *pi_tool_list_error(const char *list, char *buf, long cap)
 }
 
 /* applyToolModifiers: the +name and -name entries of list, in order, on the mask. A name this build has no tool of
- * (pi's codemode, ...): -name removes nothing, +name is an error (-1, name in bad) */
-static int apply_modifiers(unsigned *on, const char *list, char *bad, int cap)
+ * (pi's codemode, an extension's tool, a typo) selects nothing and is no error: pi 1.1.0 sdk.ts:289-294 filters the
+ * names it has no tool for without a word, on every stream (checked against the 1.1.0 oracle, --tools +nosuch) */
+static void apply_modifiers(unsigned *on, const char *list)
 {
     const char *q = list ? list : "";
     char e[64];
@@ -1016,19 +1017,13 @@ static int apply_modifiers(unsigned *on, const char *list, char *bad, int cap)
         if (!is_modifier(e))
             continue;
         k = pi_tools_kind(e + 1);
-        if (k < 0) {
-            if (e[0] == '+' && e[1]) {
-                cl_copy(bad, e + 1, cap);
-                return -1;
-            }
+        if (k < 0)
             continue;
-        }
         if (e[0] == '+')
             *on |= 1u << k;
         else
             *on &= ~(1u << k);
     }
-    return 0;
 }
 
 #define PI_DEFAULT_TOOLS ((1u << PT_READ) | (1u << PT_BASH) | (1u << PT_EDIT) | (1u << PT_WRITE))
@@ -1045,7 +1040,7 @@ void pi_tools_defaults(pi_tools *p, const char *entries, int no_tools)
 static unsigned resolve_defaults(const pi_tools *p)
 {
     const char *q = p->defaults;
-    char e[64], bad[64];
+    char e[64];
     unsigned plain = 0, on;
     int n = 0, np = 0;
     if (!p->defaults_set)
@@ -1059,7 +1054,7 @@ static unsigned resolve_defaults(const pi_tools *p)
         }
     }
     on = np > 0 || n == 0 ? plain : PI_DEFAULT_TOOLS;
-    apply_modifiers(&on, p->defaults, bad, sizeof(bad));
+    apply_modifiers(&on, p->defaults);
     return on;
 }
 
@@ -1069,7 +1064,7 @@ int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long c
     int i;
     if (list && *list) {
         const char *bad = pi_tool_list_error(list, err, cap);
-        char name[64], nm[64];
+        char name[64];
         const char *q = list;
         int mods = 0;
         if (bad) {
@@ -1081,11 +1076,7 @@ int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long c
             mods |= is_modifier(name);
         if (mods) {
             /* only +name/-name entries: they change the default selection (sdk.ts:284-286) */
-            if (apply_modifiers(&on, list, nm, sizeof(nm))) {
-                cl_copy(err, "unknown tool in --tools: ", cap);
-                cl_cat(err, nm, cap);
-                return -1;
-            }
+            apply_modifiers(&on, list);
         } else {
             /* an allowlist of plain names, "*" for every tool */
             on = 0;
@@ -1093,11 +1084,7 @@ int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long c
             while (next_entry(&q, name, sizeof(name))) {
                 if (!strcmp(name, "*"))
                     on = (1u << PT_COUNT) - 1;
-                else if (pi_tools_kind(name) < 0) {
-                    cl_copy(err, "unknown tool in --tools: ", cap);
-                    cl_cat(err, name, cap);
-                    return -1;
-                } else
+                else if (pi_tools_kind(name) >= 0)
                     on |= 1u << pi_tools_kind(name);
             }
         }

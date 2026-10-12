@@ -923,8 +923,14 @@ static void test_select(void)
     CHECK_INT(pi_tools_add(&pt, &ses, "*", err, sizeof(err)), 0);
     CHECK_INT(ses.ntools, PT_COUNT);
     memset(&ses, 0, sizeof(ses));
-    CHECK_INT(pi_tools_add(&pt, &ses, "read,rm", err, sizeof(err)), -1);
-    CHECK_STR(err, "unknown tool in --tools: rm");
+    /* Q16: pi 1.1.0 (sdk.ts:289-294) drops a name it has no tool for without a word: no error, no stream */
+    CHECK_INT(pi_tools_add(&pt, &ses, "read,rm", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "+rm", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,bash,edit,write");
     /* Q15: user bash (!cmd, RPC bash) runs the backend whatever the list: pi's executeBash (agent-session.ts:3841-3858)
      * uses createLocalBashOperations, not the active tool */
     memset(&ses, 0, sizeof(ses));
@@ -1423,8 +1429,6 @@ static void test_reach(void)
                      "-p", "please edit it", 0 };
     char *argv_tools[] = { "amiga-pi", "--model", "fixture/q", "--base-url", "http://192.168.1.10:11434/v1",
                            "--tools", "read,grep,find,ls", "-p", "hello", 0 };
-    char *argv_bad[] = { "amiga-pi", "--model", "fixture/q", "--base-url", "http://192.168.1.10:11434/v1",
-                         "--tools", "read,rm", "-p", "hello", 0 };
     char *argv_gate[] = { "amiga-pi", "--model", "fixture/q", "--base-url", "http://192.168.1.10:11434/v1",
                           "--gate", "-p", "please edit it", 0 };
     static const char *const edit_bash[] = {
@@ -1458,9 +1462,6 @@ static void test_reach(void)
     CHECK_INT(pi_app(9, argv_tools, &pl), 0);
     CHECK(ps.nreq == 1 && has(ps.body[0], "\"name\":\"grep\"") && has(ps.body[0], "\"name\":\"ls\"") &&
           !has(ps.body[0], "\"name\":\"bash\""));
-    app_platform(&pl, &io);
-    CHECK_INT(pi_app(9, argv_bad, &pl), 2);
-    CHECK(has(out.p, "unknown tool in --tools: rm"));
     /* --gate in print mode: nobody can approve the edit, the file stays */
     put("pi-test.txt", "hello\n", -1);
     app_platform(&pl, &io);
