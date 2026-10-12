@@ -505,6 +505,7 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     c.thinking = s->thinking;
     llm_acc_init(&acc, s->model.api, s->model.provider);
     llm_acc_model(&acc, s->model.id, s->model.cost);
+    llm_acc_fallbacks(&acc, s->model.compat.fb, s->model.compat.nfb);
     k.u = &acc;
     k.ev = llm_acc_event;
     memset(&q, 0, sizeof(q));

@@ -186,11 +186,17 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
         put_key(w, "result");
         jw_rawz(w, "{\"content\":");
         jw_raw(w, e->result ? e->result : "[]", e->result ? e->result_n : 2);
+        if (e->details) {                       /* an MCP result: content, details, structuredContent, isError (convertMcpResult) */
+            jw_rawz(w, ",\"details\":");
+            jw_raw(w, e->details, e->details_n);
+        }
         if (e->structured) {
             jw_rawz(w, ",\"structuredContent\":");
             jw_raw(w, e->structured, e->structured_n);
         }
-        if (e->is_error && !e->structured)      /* a thrown error has details {}; bash's non-zero exit is a result */
+        if (e->details && e->is_error)
+            jw_rawz(w, ",\"isError\":true");
+        if (e->is_error && !e->structured && !e->details)   /* a thrown error has details {}; bash's non-zero exit is a result */
             jw_rawz(w, ",\"details\":{}");
         jw_rawz(w, "}");
         put_key(w, "isError");

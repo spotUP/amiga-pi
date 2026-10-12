@@ -457,6 +457,74 @@ static void test_convert(void)
         CHECK(e && strstr(out.p, "Invalid MCP tools/call result") != 0);
         jw_free(&out);
     }
+    /* Q7: what convertMcpResult returns beside the content -- details and structuredContent (the result without _meta) --
+     * against pi 1.1.0 (tools/pi_oracle/mcp_structured_gen.mjs); a result whose text is cut also gets fullOutputPath */
+    {
+        jv all, k, v;
+        jit it;
+        jw sg;
+        char *longres;
+        long ln = 25000, i;
+        jw_init(&sg);
+        if (res && !json_parse(res, n, &all)) {
+            json_iter(all, &it);
+            while (json_next(&it, &k, &v)) {
+                char name[64];
+                jw out, det, st;
+                int is_error = 0;
+                json_str(k, name, sizeof(name));
+                jw_init(&out);
+                jw_init(&det);
+                jw_init(&st);
+                mcp_result_ex(&m, "fake", name, "call_1", v.p, v.n, &out, &is_error, &det, &st);
+                jw_rawz(&sg, "== ");
+                jw_rawz(&sg, name);
+                jw_rawz(&sg, "\n{\"details\":");
+                jw_raw(&sg, det.p, det.n);
+                jw_rawz(&sg, ",\"structuredContent\":");
+                jw_raw(&sg, st.p, st.n);
+                if (is_error)
+                    jw_rawz(&sg, ",\"isError\":true");
+                jw_rawz(&sg, "}\n");
+                jw_free(&out);
+                jw_free(&det);
+                jw_free(&st);
+            }
+        }
+        longres = (char *)malloc((size_t)ln + 128);
+        if (longres) {
+            long at;
+            jw out, det, st, path;
+            int is_error = 0;
+            char num[16], tp[300];
+            strcpy(longres, "{\"content\":[{\"type\":\"text\",\"text\":\"");
+            at = (long)strlen(longres);
+            for (i = 0; i < ln; i++)
+                longres[at++] = 'x';
+            strcpy(longres + at, "\"}],\"_meta\":{\"progressToken\":1}}");
+            jw_init(&out);
+            jw_init(&det);
+            jw_init(&st);
+            jw_init(&path);
+            mcp_result_ex(&m, "fake", "long", "call_1", longres, (long)strlen(longres), &out, &is_error, &det, &st);
+            pi_cut_path(tmpd, "call_1", tp, sizeof(tp));
+            jw_rawz(&path, det.p ? det.p : "");
+            replace_all(&path, tp, "SAVED.txt");
+            cl_ltoa(st.n, num);
+            jw_rawz(&sg, "== long\n{\"details\":");
+            jw_raw(&sg, path.p, path.n);
+            jw_rawz(&sg, ",\"structuredBytes\":");
+            jw_rawz(&sg, num);
+            jw_rawz(&sg, "}\n");
+            jw_free(&out);
+            jw_free(&det);
+            jw_free(&st);
+            jw_free(&path);
+            free(longres);
+        }
+        pi_golden("pi/mcp/structured.expected", sg.p ? sg.p : "");
+        jw_free(&sg);
+    }
     free(res);
     jw_free(&g);
     mcp_free(&m);
@@ -1247,12 +1315,13 @@ static const char sse_final[] =
 
 static const char *app_cwd = "/work/proj";     /* the working directory of the next run */
 static const char *app_flag;                     /* a flag before the model's, 0 none (-a, -na) */
+static const char *app_mode;                     /* --mode value, 0 none */
 
 static int app_run(int no_mcp)
 {
     cl_io io;
     pi_platform pl;
-    char *argv[10];
+    char *argv[14];
     int a = 0;
     memset(&io, 0, sizeof(io));
     io.read_line = l_read;
@@ -1286,6 +1355,10 @@ static int app_run(int no_mcp)
         argv[a++] = "--no-mcp";
     if (app_flag)
         argv[a++] = (char *)app_flag;
+    if (app_mode) {
+        argv[a++] = "--mode";
+        argv[a++] = (char *)app_mode;
+    }
     argv[a++] = "--model";
     argv[a++] = "fixture/qwen2.5-coder:7b";
     argv[a++] = "--base-url";
@@ -1325,6 +1398,13 @@ static void test_reach(void)
     app_run(1);
     CHECK_INT(mcp_call_count - calls, 0);
     CHECK(ps.nreq >= 1 && strstr(ps.body[0], "mcp__fake__echo") == 0);
+    /* Q7: the call's tool_execution_end in the json stream carries convertMcpResult's details and structuredContent */
+    app_mode = "json";
+    app_run(0);
+    app_mode = 0;
+    CHECK(out.p && strstr(out.p, "\"type\":\"tool_execution_end\",\"toolCallId\":") != 0 &&
+          strstr(out.p, "\"details\":{\"server\":\"fake\",\"tool\":\"echo\"},\"structuredContent\":{\"content\":"
+                        "[{\"type\":\"text\",\"text\":\"echo: from the model\"}]}}") != 0);
     remove(path);
     llm_pool_close(&rpool);
     sys.spawn2_close(sys.u, h, 3000);

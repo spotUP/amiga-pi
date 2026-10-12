@@ -762,6 +762,27 @@ static void test_bad_models_json(void)
     remove(strcat(strcpy(marker, agent), "/models.json"));
 }
 
+/* PHS7: compat.allowedFallbackModels through pi_app. The request names the fallbacks (the beta header, "fallbacks" last);
+ * the server answers with claude-fb (tests/claude/fallback.sse): the answer's cost is claude-fb's price (output 20 per
+ * million, the model's own is 15), its `model` stays the configured id and responseModel names the server's */
+static void test_fallback_pricing(void)
+{
+    char *a[] = { "amiga-pi", "--model", "fb/claude-x", "--mode", "json", "hi", 0 };
+    static const char *const sse[] = { "fallback.sse" };
+    write_file(agent, "models.json",
+               "{\"providers\":{\"fb\":{\"baseUrl\":\"https://fb.example\",\"api\":\"anthropic-messages\",\"apiKey\":\"k\","
+               "\"compat\":{\"allowedFallbackModels\":[{\"provider\":\"fb\",\"model\":\"claude-fb\","
+               "\"cost\":{\"input\":10,\"output\":20,\"cacheRead\":1,\"cacheWrite\":2}}]},"
+               "\"models\":[{\"id\":\"claude-x\",\"cost\":{\"input\":3,\"output\":15,\"cacheRead\":0.3,\"cacheWrite\":3.75}}]}}}");
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    CHECK_INT(ps.nreq, 1);
+    CHECK(ps.nreq && strstr(ps.head[0], "server-side-fallback-2026-07-01") != 0);
+    CHECK(ps.nreq && ps.body[0] && strstr(ps.body[0], ",\"fallbacks\":[{\"model\":\"claude-fb\"}]}") != 0);
+    CHECK(out.p && strstr(out.p, "\"model\":\"claude-x\"") != 0 && strstr(out.p, "\"responseModel\":\"claude-fb\"") != 0);
+    CHECK(out.p && strstr(out.p, "\"cost\":{\"input\":0,\"output\":20,\"cacheRead\":0,\"cacheWrite\":0,\"total\":20}") != 0);
+    remove(strcat(strcpy(marker, agent), "/models.json"));
+}
+
 void suite_pi_model_reach(void)
 {
     const char *base = getenv("TMPDIR");
@@ -794,5 +815,6 @@ void suite_pi_model_reach(void)
     test_command_once();
     test_switch_level();
     test_bad_models_json();
+    test_fallback_pricing();
     jw_free(&out);
 }

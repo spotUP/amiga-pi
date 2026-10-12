@@ -151,6 +151,11 @@ int mcp_limit(cl_sys *sys, const char *tmp, const char *id, const char *blocks, 
  * then holds pi's words for it). *is_error from the result. */
 int mcp_result(mcp *m, const char *server, const char *tool, const char *id, const char *res, long n, jw *out,
                int *is_error);
+/* the same, and what convertMcpResult returns beside the content: details ({server, tool, fullOutputPath when the
+ * text was cut and saved}, a JSON object) and structuredContent (the CallToolResult without _meta, compact JSON), both
+ * appended; left alone when the result is not valid */
+int mcp_result_ex(mcp *m, const char *server, const char *tool, const char *id, const char *res, long n, jw *out,
+                  int *is_error, jw *details, jw *structured);
 /* tool_search: the deferred tools not loaded yet ranked for query (pi's
  * BM25), the best limit loaded into the session; the result text as pi
  * words it. 0, -1 (text holds the error) */

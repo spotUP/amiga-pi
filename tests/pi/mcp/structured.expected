@@ -1,0 +1,18 @@
+== echo_hi
+{"details":{"server":"fake","tool":"echo_hi"},"structuredContent":{"content":[{"type":"text","text":"echo: hi"}]}}
+== fail
+{"details":{"server":"fake","tool":"fail"},"structuredContent":{"content":[{"type":"text","text":"it failed"}],"isError":true},"isError":true}
+== fail_empty
+{"details":{"server":"fake","tool":"fail_empty"},"structuredContent":{"content":[],"isError":true},"isError":true}
+== structured
+{"details":{"server":"fake","tool":"structured"},"structuredContent":{"structuredContent":{"a":1,"list":[1,"two",{"x":null}],"empty":{},"emptyList":[],"s":"q\"\né\t\u0001/"},"content":[]}}
+== struct_and_text
+{"details":{"server":"fake","tool":"struct_and_text"},"structuredContent":{"content":[{"type":"text","text":"{\"a\":1}"}],"structuredContent":{"a":1}}}
+== mixed
+{"details":{"server":"fake","tool":"mixed"},"structuredContent":{"content":[{"type":"text","text":"first"},{"type":"image","data":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==","mimeType":"image/png"},{"type":"audio","data":"AAAA","mimeType":"audio/wav"},{"type":"resource_link","uri":"file:///docs/a.txt","name":"a.txt","title":"The A","mimeType":"text/plain","size":2048,"description":"a doc"},{"type":"resource_link","uri":"file:///b","name":"b"},{"type":"resource","resource":{"uri":"file:///t.md","text":"embedded text"}},{"type":"resource","resource":{"uri":"file:///d.json","mimeType":"application/json","blob":"eyJrIjoxfQ=="}},{"type":"resource","resource":{"uri":"https://x.example/files/data.bin?v=1","mimeType":"application/octet-stream","blob":"AAECAwQFBgcICQoLDA0ODw=="}},{"type":"resource","resource":{"uri":"file:///noext","blob":"AAE="}},{"type":"resource","resource":{"uri":"file:///i.png","mimeType":"image/png","blob":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}},{"type":"resource","resource":{"uri":"file:///nothing"}},{"type":"weird"}]}}
+== empty
+{"details":{"server":"fake","tool":"empty"},"structuredContent":{"content":[]}}
+== no_content
+{"details":{"server":"fake","tool":"no_content"},"structuredContent":{"content":[]}}
+== long
+{"details":{"server":"fake","tool":"long","fullOutputPath":"SAVED.txt"},"structuredBytes":25039}

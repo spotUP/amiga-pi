@@ -916,6 +916,48 @@ static long held(const pi_s3 *st, int *entries)
     return b;
 }
 
+/* Q7: combineUsage with usage.reasoning -- the sums below are what pi 1.1.0's combineUsage (usage-totals.ts, run on the same
+ * operands) gives */
+static void test_usage_sum(void)
+{
+    static const char *const first[3] = {
+        "{\"input\":1,\"output\":5,\"cacheRead\":2,\"cacheWrite\":3,\"cacheWrite1h\":1,\"reasoning\":2,\"totalTokens\":11,"
+        "\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}",
+        "{\"input\":1,\"output\":5,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":2,\"totalTokens\":6,"
+        "\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}",
+        "{\"input\":1,\"output\":5,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":6,"
+        "\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}"
+    };
+    static const char *const second =
+        "{\"input\":4,\"output\":6,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":3,\"totalTokens\":10,"
+        "\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}";
+    static const char *const want[3] = {
+        "{\"input\":5,\"output\":11,\"cacheRead\":2,\"cacheWrite\":3,\"cacheWrite1h\":1,\"reasoning\":5,\"totalTokens\":21,"
+        "\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}",
+        "{\"input\":5,\"output\":11,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":5,\"totalTokens\":16,"
+        "\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}",
+        "{\"input\":5,\"output\":11,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":3,\"totalTokens\":16,"
+        "\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}}"
+    };
+    int i;
+    for (i = 0; i < 3; i++) {
+        jv v;
+        llm_usage a, b;
+        jw o;
+        memset(&a, 0, sizeof(a));
+        memset(&b, 0, sizeof(b));
+        CHECK(json_parse(first[i], (long)strlen(first[i]), &v) == 0);
+        llm_r_usage(v, &a);
+        CHECK(json_parse(second, (long)strlen(second), &v) == 0);
+        llm_r_usage(v, &b);
+        cp_usage_add(&a, &b);
+        jw_init(&o);
+        llm_w_usage(&o, &a);
+        CHECK_STR(o.p ? o.p : "", want[i]);
+        jw_free(&o);
+    }
+}
+
 /* Q6a: where the last answer stands for the overflow cases of _checkCompaction (assistantIsProjected,
  * hasPostAssistantContextEdit, assistantRetainedForExplicitRecovery) and the decision on top of it */
 static void test_overflow_state(void)
@@ -1333,6 +1375,7 @@ void suite_pi_session(void)
     test_names();
     test_find();
     test_list_reads_only();
+    test_usage_sum();
     test_overflow_state();      /* last: the tests above count on the clock's ticks */
     {
         char cmd[600];

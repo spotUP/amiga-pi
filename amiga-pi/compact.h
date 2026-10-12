@@ -76,6 +76,9 @@ int cp_should(long tokens, long window, long reserve);
  * compaction's cut do not), after_edit hasPostAssistantContextEdit (any context_edit after it on the branch), retained
  * assistantRetainedForExplicitRecovery (no compaction after it and its latest edit, if any, does not omit it). An answer
  * with no entry on the branch (pi: no persisted id) is projected and retained */
+/* pi's combineUsage (usage-totals.ts): b added to a; cacheWrite1h and reasoning appear in the sum when either has them */
+void cp_usage_add(llm_usage *a, const llm_usage *b);
+
 typedef struct cp_asst {
     int projected, after_edit, retained;
 } cp_asst;

@@ -62,6 +62,8 @@ typedef struct pi_event {
     const struct llm_acc *acc;
     const char *structured;
     long structured_n;
+    const char *details;        /* tool_execution_end: the result's details (a JSON object, an MCP tool's), 0 none */
+    long details_n;
     int retry, aborted;
     /* tool_execution_end: durationMs (pi-agent-core 1.1.0), -1 when the tool did not run: no key;
      * agent_settled: aborted is pi's _agentRunAbortRequested */

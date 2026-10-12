@@ -799,7 +799,7 @@ static void cat_lines(jw *w, const char *const *lines)
         jw_rawz(w, *lines);
 }
 
-static void add_usage(llm_usage *a, const llm_usage *b)
+void cp_usage_add(llm_usage *a, const llm_usage *b)
 {
     int i;
     a->input += b->input;
@@ -809,6 +809,10 @@ static void add_usage(llm_usage *a, const llm_usage *b)
     if (a->has_1h || b->has_1h) {   /* pi's combineUsage: the sum has cacheWrite1h when either has it, in its place */
         a->cache_write_1h += b->cache_write_1h;
         a->has_1h = a->combined = 1;
+    }
+    if (a->has_reasoning || b->has_reasoning) {     /* likewise reasoning, after cacheWrite1h */
+        a->reasoning += b->reasoning;
+        a->has_reasoning = 1;
     }
     for (i = 0; i < 4; i++)
         a->cost[i] += b->cost[i];
@@ -971,7 +975,7 @@ int cp_compact(const pi_prep *p, long reserve, long model_max_tokens, const char
             jw_raw(&summary, prefix_text.p ? prefix_text.p : "", prefix_text.n);
             usage = pu;
             if (have_hist)
-                add_usage(&usage, &hu);
+                cp_usage_add(&usage, &hu);
         }
     } else {
         jw conv, prompt;
