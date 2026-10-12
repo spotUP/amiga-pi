@@ -27,19 +27,15 @@ static const llm_ablock *block_of(const llm_acc *a, long index)
     return 0;
 }
 
-/* the answer so far, as pi's message_start carries it: no content yet, the usage the stream reported, stopReason pending
- * (pi-ai's AssistantMessage while it streams) */
+/* the answer so far, as pi's message_start carries it: no content yet, the usage the stream reported with its cost,
+ * stopReason pending (pi-ai's AssistantMessage while it streams) */
 static void partial_message(const pi_session *s, const llm_acc *a, jw *w)
 {
     llm_meta m;
     llm_ts ts;
     jw t;
     char *at;
-    memset(&m, 0, sizeof(m));
-    m.api = a->api;
-    m.provider = a->provider;
-    m.model = a->cfg_model[0] ? a->cfg_model : a->model;
-    m.usage = a->usage;
+    llm_acc_meta(a, &m);
     ts.sec = 0;
     ts.ms = 0;
     if (s->now)
@@ -63,6 +59,7 @@ static int update_event(const pi_event *e, jw *w)
     const llm_acc *acc = e->acc;
     const llm_ablock *b;
     const char *name = 0;
+    llm_meta m;
     if (!a || !acc)
         return 0;
     b = block_of(acc, a->index);
@@ -85,8 +82,9 @@ static int update_event(const pi_event *e, jw *w)
         name = b->kind == LB_TEXT ? "text_end" : b->kind == LB_THINKING ? "thinking_end" : "toolcall_end";
     } else
         return 0;               /* a signature delta is part of the block, not an event */
+    llm_acc_meta(acc, &m);      /* the usage so far with its cost, as pi-ai's calculateCost keeps it on every update */
     jw_rawz(w, "{\"type\":\"message_update\",\"usage\":");
-    llm_w_usage(w, &acc->usage);
+    llm_w_usage(w, &m.usage);
     jw_rawz(w, ",\"assistantMessageEvent\":");
     type_open(w, name);
     put_key(w, "contentIndex");
