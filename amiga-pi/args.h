@@ -31,6 +31,7 @@
 
 #define PI_ARG_MSGS 16
 #define PI_ARG_SKILLS 16
+#define PI_ARG_TMPLS 8
 
 /* the pi release amiga-pi matches (tag v1.1.0): the start header and --version both print it */
 #define PI_VERSION "1.1.0"
@@ -52,6 +53,9 @@ typedef struct pi_args {
     int no_skills;              /* --no-skills / -ns: no skills but those of --skill (skills.h) */
     const char *skills[PI_ARG_SKILLS];  /* --skill <path>, repeatable: a skill file or a directory of them; pointers into argv */
     int nskills;
+    int no_templates;           /* --no-prompt-templates / -np: only the --prompt-template paths */
+    char tmpl_paths[PI_ARG_TMPLS][300];   /* --prompt-template <file or directory>, repeatable */
+    int ntmpl_paths;
     char session[300];          /* --session's argument, "" none */
     char session_dir[300];      /* --session-dir: where the sessions are stored and looked up, "" the default */
     char name[128];             /* --name, "" none */

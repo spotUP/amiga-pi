@@ -103,6 +103,9 @@ sc('prompt_tool', steps=[('prompt', 'read the file')],
 # the agent's own bash call: pi's tool_execution_update records (an empty one at the start, the output after)
 sc('prompt_bash', steps=[('prompt', 'run it')],
    answers=[TOOL('bash', {'command': 'echo one; echo two'}, 'I will run it.'), A('Ran it.')])
+# R1: a command that writes in two pieces 0.6 s apart: an update per chunk (bash.ts handleData, throttled to 100 ms)
+sc('prompt_bash_chunks', steps=[('prompt', 'run it')],
+   answers=[TOOL('bash', {'command': 'echo a; sleep 0.6; echo b'}, 'I will run it.'), A('Ran it.')])
 # a command typed during a run: the first turn (a read) is over, the next answer is a long time coming
 R1 = lambda: TOOL('read', {'path': 'notes.txt'}, 'I will read it.')
 sc('prompt_busy', steps=[('send', P('read it')), ('gate', 'turn_end'), ('cmd', P('again')),
@@ -217,6 +220,22 @@ sc('export_html', steps=[('prompt', 'hello'), ('cmd', {'type': 'export_html', 'o
 sc('get_last_assistant_text', steps=[('cmd', {'type': 'get_last_assistant_text'}), ('prompt', 'hello'),
                                      ('cmd', {'type': 'get_last_assistant_text'})], answers=[A('Hello from the fixture.')])
 sc('get_commands', steps=[('cmd', {'type': 'get_commands'})], answers=[], args=['--no-extensions'])
+# J: prompt templates (core/prompt-templates.ts): agent dir prompts/, trusted project .pi/prompts/ (the project wins a name),
+# frontmatter description and argument-hint, the first line as the description, the substitution forms
+TEMPLATES = {
+    'agent/prompts/review.md': '---\ndescription: Review code\nargument-hint: "<path> [focus]"\n---\nReview $1 focusing on ${2:-general quality}. All: $@. Rest: ${@:2}.\n',
+    'project/.pi/prompts/review.md': '---\ndescription: Project review\n---\nProject review of $ARGUMENTS\n',
+    'project/.pi/prompts/fix.md': 'Fix the failing test in $1 and explain what was wrong with the code in detail so that it never returns\nsecond line\n',
+    'agent/prompts/sum.md': '---\ndescription: Sum\n---\n${@:2:1}|${1:-none}|$ARGUMENTS|$9|${ARGUMENTS:-empty}|$1$2\n',
+}
+sc('prompt_templates', steps=[('cmd', {'type': 'get_commands'}), ('prompt', '/review src "two words"'), ('prompt', '/fix a.c'),
+                              ('prompt', '/sum  x   "y z" w'), ('prompt', '/sum'), ('prompt', '/nosuch q'), ('cmd', {'type': 'get_messages'})],
+   answers=[A('Reviewed.'), A('Fixed.'), A('Summed.'), A('Summed none.'), A('Unknown.')], args=['--no-extensions'],
+   settings={'defaultProjectTrust': 'always'}, text_files=TEMPLATES)
+sc('prompt_template_path', steps=[('cmd', {'type': 'get_commands'}), ('prompt', '/ext one "two words"')],
+   answers=[A('Extra.')], args=['--no-extensions', '--no-prompt-templates', '--prompt-template', 'extra'],
+   settings={'defaultProjectTrust': 'always'},
+   text_files={'project/extra/ext.md': 'Extra $2 then $1\n', 'project/extra/.dot.md': 'dot\n', 'agent/prompts/skipped.md': 'skipped\n'})
 # ---- sessions ----
 sc('new_session', steps=[('prompt', 'hello'), ('cmd', {'type': 'new_session'}), ('cmd', {'type': 'get_state'})],
    answers=[A('Hello from the fixture.')], session=True)
@@ -301,6 +320,10 @@ def setup(name, s, port):
         open(os.path.join(proj, rel), 'w').write(txt.replace('/path/to/project', proj))
     if s.get('ext'):
         open(os.path.join(proj, 'ext.ts'), 'w').write(s['ext'])
+    for rel, txt in s.get('text_files', {}).items():       # J: prompt templates; rel is under agent/ or project/
+        path = os.path.join(WORK, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, 'w').write(txt)
     return agent, proj
 
 
@@ -450,7 +473,7 @@ def run(name, s, keep):
         # the scenario's environment, for the host test (tests/test_pi_modes.c reads it with the golden)
         cfg = {'mode': mode, 'args': s.get('args', []), 'model': s.get('model', 'fake-model'), 'thinking': s.get('thinking', 'off'),
                'retry': bool(s.get('retry')), 'settings': s.get('settings', {}),
-               'session': ('new' if sess is True else sess) if sess else None, 'files': s.get('files', {}),
+               'session': ('new' if sess is True else sess) if sess else None, 'files': s.get('files', {}), 'text_files': s.get('text_files', {}),
                'answers': [a[0] for a in s['answers']], 'tools': 'read,bash,edit,write'}
         with open(os.path.join(OUT, name + '.cfg.json'), 'w') as f:
             json.dump(cfg, f, indent=1)

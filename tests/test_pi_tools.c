@@ -395,6 +395,29 @@ static void test_edit_pi(void)
 
 /* ---- D3: bash through sys->run ---- */
 
+/* R1: bash's tool_execution_update records, on a clock the test moves (no sleeping for the throttle) */
+static char upd[8][64];
+static int nupd;
+static unsigned long fake_ms, fake_step;
+
+static unsigned long fake_clock(void *u)
+{
+    (void)u;
+    fake_ms += fake_step;
+    return fake_ms;
+}
+
+static void on_update(void *u, const pi_event *e)
+{
+    (void)u;
+    if (e->type != PE_TOOL_UPDATE || nupd >= 8)
+        return;
+    upd[nupd][0] = 0;
+    if (e->result_n < (long)sizeof(upd[0]))
+        sprintf(upd[nupd], "%.*s", (int)e->result_n, e->result ? e->result : "");
+    nupd++;
+}
+
 static void test_bash(void)
 {
     char *t, *f, path[600];
@@ -439,6 +462,38 @@ static void test_bash(void)
         CHECK(time(0) - t0 < 10);
         CHECK_INT(pt.t.stop, 0);
         jw_free(&c);
+    }
+    /* R1: an update per chunk, held back to 100 ms (renderers/bash.ts:19; bash.ts scheduleOutputUpdate), the one held
+     * going out at the end (finishOutput): three chunks 0.4 s apart. The clock frozen: the first at once, the other two
+     * held and sent as one; the clock 500 ms per look: every chunk sent. */
+    {
+        static const char a3[] = "{\"command\":\"echo a; sleep 0.4; echo b; sleep 0.4; echo c\"}";
+        int step;
+        ses.h.ms = fake_clock;
+        pi_subscribe(&ses.em, on_update, 0);
+        for (step = 0; step < 2; step++) {
+            jw c;
+            int err = 0;
+            jw_init(&c);
+            nupd = 0;
+            fake_ms = 1000;
+            fake_step = step ? 500 : 0;
+            CHECK_INT(pt.tool[PT_BASH].run(pt.tool[PT_BASH].u, &ses, a3, (long)strlen(a3), &c, &err), 0);
+            CHECK_INT(nupd, step ? 4 : 3);
+            CHECK(has(upd[0], "[]"));
+            CHECK(has(upd[1], "\"a\\n\"") && !has(upd[1], "b"));
+            if (step) {
+                CHECK(has(upd[2], "a\\nb\\n") && !has(upd[2], "c"));
+                CHECK(has(upd[3], "a\\nb\\nc\\n"));
+            } else
+                CHECK(has(upd[2], "a\\nb\\nc\\n"));
+            jw_free(&c);
+        }
+        pi_unsubscribe(&ses.em, on_update, 0);
+        ses.h.ms = 0;
+        CHECK(!pi_update_due(1, 1000, 1099));       /* pi: 100 ms */
+        CHECK(pi_update_due(1, 1000, 1100));
+        CHECK(pi_update_due(0, 1000, 1000));        /* the first update: lastUpdateAt 0 */
     }
     /* over 50 KB: the tail, the whole output in the kept file */
     jw_init(&cmd);

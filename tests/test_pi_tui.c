@@ -20,6 +20,7 @@
 #include "../amiga-pi/context.h"
 #include "../amiga-pi/compact.h"
 #include "../amiga-pi/pstatus.h"
+#include "../amiga-pi/templates.h"
 #include "claude/sys_posix.h"
 #include "claude/theme.h"
 #include "view/hl_style.h"
@@ -31,6 +32,8 @@ typedef struct mask {
     int r0, r1, c0, c1;
     const char *why;
 } mask;
+
+static pi_tmpls slash_tm;      /* the templates of slash_prompts */
 
 typedef struct scen {
     const char *name;           /* the golden's name */
@@ -479,10 +482,23 @@ static void run(const scen *sc)
     pi_ui_set_cwd("~/project");
     pi_ui_set_quiet(!sc->header);
     pi_ui_set_commands(pi_cmds, (int)(sizeof(pi_cmds) / sizeof(pi_cmds[0])));
+    if (!strcmp(sc->name, "slash_prompts")) {
+        /* J2: the agent directory's prompts/ (the same files tools/pi_oracle/tui_gen.py gave pi) after the built-in rows */
+        static sys_posix sp;
+        static cl_sys tsys;
+        int nt;
+        const cl_cmd *rows;
+        sys_posix_init(&sp, &tsys);
+        CHECK_INT(pi_tmpl_load(&slash_tm, &tsys, PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
+        rows = pi_tmpl_menu(&slash_tm, &nt);
+        pi_ui_set_extra_commands(0, rows, nt);
+    }
     if (sc->when == 1)
         ps.silent = 1;
     tool_hook = sc->when == 2 ? compare_in_tool : !strcmp(sc->name, "dark_tools2") ? nested_tools : 0;
     CHECK_INT(pi_ui_run(&ses, &io, 0), 0);
+    pi_ui_set_extra_commands(0, 0, 0);
+    pi_tmpl_free(&slash_tm);
     if (sc->when == 3) {
         exit_check(sc);
         taken = 1;
@@ -2201,6 +2217,7 @@ static const scen scenarios[] = {
     { "start", { 0 }, { 0 }, 0, 1, 0, { HDR_VER, HDR_HELP } },
     { "editor", { "hello there", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "slash", { "/", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "slash_prompts", { "/rev", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
     { "table", { "show a table\r", 0 }, { "table.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "markdown2", { "more markdown\r", 0 }, { "markdown2.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },

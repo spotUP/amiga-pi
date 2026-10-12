@@ -54,6 +54,39 @@ void pi_ui_set_commands(const cl_cmd *cmds, int n)
     ui_ncmds = cmds ? n : (int)(sizeof(default_cmds) / sizeof(default_cmds[0]));
 }
 
+/* the rows after the built-in ones: prompt templates (templates.h pi_tmpl_menu), in pi's order (built-in, templates,
+ * extensions, skills); the arrays belong to the caller and stay until the run ends */
+#define UI_EXTRA_MAX 512
+static const cl_cmd *ui_extra[4];
+static int ui_nextra[4];
+
+void pi_ui_set_extra_commands(int slot, const cl_cmd *cmds, int n)
+{
+    if (slot >= 0 && slot < 4) {
+        ui_extra[slot] = cmds;
+        ui_nextra[slot] = cmds ? n : 0;
+    }
+}
+
+/* the menu: the built-in list, then each slot's rows */
+static const cl_cmd *ui_menu(int *n)
+{
+    static cl_cmd menu[UI_EXTRA_MAX];
+    int i, k, m = ui_ncmds;
+    if (!ui_nextra[0] && !ui_nextra[1] && !ui_nextra[2] && !ui_nextra[3]) {
+        *n = ui_ncmds;
+        return ui_cmds;
+    }
+    for (i = 0; i < ui_ncmds && i < UI_EXTRA_MAX; i++)
+        menu[i] = ui_cmds[i];
+    m = i;
+    for (k = 0; k < 4; k++)
+        for (i = 0; i < ui_nextra[k] && m < UI_EXTRA_MAX; i++)
+            menu[m++] = ui_extra[k][i];
+    *n = m;
+    return menu;
+}
+
 /* what the footer shows of the program (pi_ui_set_cwd): the working directory */
 static char ui_cwd[300];
 static char ui_version[40] = "";
@@ -820,12 +853,14 @@ int pi_ui_print(pi_session *s, cl_io *io, const char *prompt)
 }
 
 /* C:Claude's screen without its REPL (claude/repl.c repl_screen's part that is the screen's), in pi's look */
-/* pi's autocomplete list (interactive-mode.ts:804-822): the commands, then skill:<name> with "[u] description" for each skill */
-static void build_menu(pi_ui *p, cl_tui *t)
+/* pi's autocomplete rows for skills (interactive-mode.ts:804-822): skill:<name> with "[u] description", registered as slot 3 of the
+ * extra commands (after the templates and extensions, pi's order); freed when the run ends */
+static void build_skill_rows(pi_ui *p)
 {
     const pi_skills *k = p->s->res ? &p->s->res->skills : 0;
     long text = 0, at = 0;
-    int i, n = ui_ncmds;
+    int i;
+    pi_ui_set_extra_commands(3, 0, 0);
     free(p->menu);
     free(p->menu_text);
     p->menu = 0;
@@ -834,7 +869,7 @@ static void build_menu(pi_ui *p, cl_tui *t)
         return;
     for (i = 0; i < k->n; i++)
         text += (long)strlen(k->s[i].name) + (long)strlen(k->s[i].desc) + 64;
-    p->menu = (cl_cmd *)malloc(sizeof(cl_cmd) * (size_t)(ui_ncmds + k->n));
+    p->menu = (cl_cmd *)malloc(sizeof(cl_cmd) * (size_t)k->n);
     p->menu_text = (char *)malloc((size_t)text);
     if (!p->menu || !p->menu_text) {
         free(p->menu);
@@ -843,20 +878,17 @@ static void build_menu(pi_ui *p, cl_tui *t)
         p->menu_text = 0;
         return;
     }
-    memcpy(p->menu, ui_cmds, sizeof(cl_cmd) * (size_t)ui_ncmds);
     for (i = 0; i < k->n; i++) {
         char *name = p->menu_text + at, *desc;
         long nl = (long)strlen(k->s[i].name) + 16, dl = (long)strlen(k->s[i].desc) + 8;
         desc = name + nl;
         pi_skill_command(&k->s[i], name + 1, nl - 1, desc, dl);
         name[0] = '/';
-        p->menu[n].name = name;
-        p->menu[n].help = desc;
-        n++;
+        p->menu[i].name = name;
+        p->menu[i].help = desc;
         at += nl + dl;
     }
-    t->cmds = p->menu;
-    t->ncmds = n;
+    pi_ui_set_extra_commands(3, p->menu, k->n);
 }
 
 static cl_tui *screen(pi_ui *p, cl_io *io)
@@ -885,9 +917,8 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     t->exit_hint_only = ui_hint_only;
     t->scrollbar = ui_bar;
     t->pith = &p->theme;
-    t->cmds = ui_cmds;
-    t->ncmds = ui_ncmds;
-    build_menu(p, t);
+    build_skill_rows(p);
+    t->cmds = ui_menu(&t->ncmds);
     p->look = 1;
     show_init(sh, t);
     window_title(p, t);         /* before the start, which writes it */
@@ -1217,5 +1248,6 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
     free(p.menu_text);
     p.menu = 0;
     p.menu_text = 0;
+    pi_ui_set_extra_commands(3, 0, 0);
     return 0;
 }

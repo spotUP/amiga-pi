@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "agent.h"
+#include "templates.h"
 #include "llm/transform.h"
 #include "llm/handoff.h"
 #include "llm/estimate.h"
@@ -1060,7 +1061,14 @@ int pi_prompt(pi_session *s, const char *typed)
         s->started = 0;
         f(s->started_u);
     }
-    rc = run(s, text);
+    if (s->templates && text && text[0] == '/') {
+        /* agent-session.ts prompt(): a prompt template's /name args becomes its body (after the skill commands) */
+        jw ex;
+        jw_init(&ex);
+        rc = pi_tmpl_expand(s->templates, text, &ex) && !ex.oom ? run(s, ex.p ? ex.p : "") : run(s, text);
+        jw_free(&ex);
+    } else
+        rc = run(s, text);
     /* a failed answer pi retries after its delay; a context overflow the store compacted is asked again at once, and
      * only once (the store keeps count: its second overflow ends the run, as pi's _overflowRecoveryAttempted) */
     for (;;) {

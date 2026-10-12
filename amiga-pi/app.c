@@ -15,6 +15,7 @@
 #include "resources.h"
 #include "mode_json.h"
 #include "mode_rpc.h"
+#include "templates.h"
 #include "claude/util.h"
 #include "claude/path.h"
 #include "claude/repl.h"       /* cl_key_clean */
@@ -598,6 +599,7 @@ static pi_gate gate;
 static pi_store store;
 static mcp mc;
 static pi_res res;
+static pi_tmpls tmpls;
 
 /* json and rpc mode: stdout is the protocol's, so the program's own messages go to the platform's diagnostic channel */
 static void diag_write(void *u, const char *text, long n)
@@ -791,6 +793,12 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         }
         s.res = &res;
     }
+    /* prompt templates (templates.h): --prompt-template paths, then the project's (when trusted) and the agent directory's */
+    memset(&tmpls, 0, sizeof(tmpls));
+    if (pl->sys) {
+        pi_tmpl_load(&tmpls, pl->sys, pl->agent_dir, pl->cwd, trusted, a.no_templates, a.tmpl_paths, a.ntmpl_paths);
+        s.templates = &tmpls;
+    }
     /* MCP servers from <agent dir>/mcp.json (pi: ~/.pi/agent/mcp.json), then the project's <cwd>/.pi/mcp.json for a
      * trusted project (pi: guarded by trust) */
     mcp_init(&mc, pl->sys, pl->mcp_pool ? pl->mcp_pool : pl->pool, &s.h, pl->getenv, pl->cwd, pl->tmp);
@@ -822,6 +830,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         pi_models_free(&models);
         mcp_free(&mc);
         pi_res_free(&res);
+        pi_tmpl_free(&tmpls);
         return 1;
     }
     if (a.name[0])
@@ -834,6 +843,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     rt->store = &store;
     rt->mc = &mc;
     rt->res = &res;
+    rt->tmpls = &tmpls;
     rt->trusted = trusted;
     return 0;
 }
@@ -853,6 +863,11 @@ int pi_rt_run(pi_rt *rt)
         static char *kb;
         long kn = 0;
         pi_ui_set_cwd(pl->cwd);
+        {
+            int nt;
+            const cl_cmd *tm = pi_tmpl_menu(&tmpls, &nt);
+            pi_ui_set_extra_commands(0, tm, nt);
+        }
         pi_ui_set_quiet(quiet_setting(pl));
         pi_ui_set_output_pad(output_pad_setting(pl));
         {
@@ -884,6 +899,7 @@ void pi_rt_close(pi_rt *rt)
     pi_session_free(&s);
     mcp_free(&mc);
     pi_res_free(&res);
+    pi_tmpl_free(&tmpls);
     if (rt->pl.sys) {
         pi_gate_free(&gate);
         pi_tools_free(&tools);

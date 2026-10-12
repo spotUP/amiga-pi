@@ -39,6 +39,9 @@ void pi_ui_set_theme(const cl_pitheme *th);
 void pi_ui_set_keybindings(const char *json, long n);
 /* the slash commands the menu offers (claude/tui.h cl_cmd: "/name", the description); 0: amiga-pi's own */
 void pi_ui_set_commands(const cl_cmd *cmds, int n);
+/* more rows after the built-in ones, by slot (0 prompt templates; the others for the other kinds of command, in pi's
+ * order); the array stays valid until the run ends, 0 clears the slot */
+void pi_ui_set_extra_commands(int slot, const cl_cmd *cmds, int n);
 /* -p: 0 when the answer completed (stop), 1 otherwise (the error on io) */
 int pi_ui_print(pi_session *s, cl_io *io, const char *prompt);
 /* the conversation until /exit, /quit or the end of input; first: a prompt
