@@ -43,6 +43,19 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
                 return -1;
             }
         }
+        else if (!strcmp(s, "--tui-mode")) {
+            const char *v = i + 1 < argc ? argv[++i] : "";
+            if (!strcmp(v, "fullscreen"))
+                a->tui_mode = 1;
+            else if (!strcmp(v, "regular"))
+                a->tui_mode = 2;
+            else {
+                cl_copy(a->err, "Invalid TUI mode \"", sizeof(a->err));
+                cl_cat(a->err, v, sizeof(a->err));
+                cl_cat(a->err, "\". Valid values: fullscreen, regular", sizeof(a->err));
+                return -1;
+            }
+        }
         else if (!strcmp(s, "--session") || !strcmp(s, "--name") || !strcmp(s, "-n")) {
             if (i + 1 >= argc) {
                 cl_copy(a->err, s, sizeof(a->err));

@@ -21,6 +21,13 @@ void pi_ui_set_cwd(const char *cwd);
 void pi_dir_name(const char *path, char *out, int n);
 /* settings.json's quietStartup: the screen starts without the header */
 void pi_ui_set_quiet(int quiet);
+/* settings.json's tuiMode / fullscreenExitOutput / fullscreenScrollbar (TM1): regular 1 is pi's "regular" mode (the
+ * main screen, the editor follows the content), 0 its default "fullscreen" (the alternate screen); hint_only 1 is
+ * fullscreenExitOutput "resume-hint"; scrollbar_always 1 is fullscreenScrollbar "always" */
+void pi_ui_set_tui(int regular, int hint_only, int scrollbar_always);
+/* the command that resumes the session, asked for when the screen is left ("" none: pi prints the line only for a
+ * session that has a file) */
+void pi_ui_set_resume(const char *(*fn)(void *u), void *u);
 /* the colours (claude/theme.h) and the keybindings.json text (pi's shape, 0: pi's defaults) the screen starts with;
  * the theme is copied, the text only read while the screen starts */
 void pi_ui_set_theme(const cl_pitheme *th);

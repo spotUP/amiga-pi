@@ -55,6 +55,45 @@ static void say(pi_show *s, int role, const char *attr, const char *text)
     show_wrap(&s->batch, " ", " ", st, text, (long)strlen(text), s->t->cols - 2);
 }
 
+/* the rows of the batch from `from` on become a panel, pi's Box: the background of role bg behind every row over
+ * the whole width, put back after each reset inside the row. Nothing changes when the theme draws no background
+ * there (pi's system theme). The ONE place the panels' backgrounds are drawn; the colours are the theme's tokens. */
+static void panel(pi_show *s, long from, int bgrole)
+{
+    char bg[48], *tmp;
+    long n, a = 0, i;
+    pitheme_sgr(s->th, bgrole, bg);
+    if (!bg[0] || s->batch.n <= from)
+        return;
+    n = s->batch.n - from;
+    tmp = (char *)malloc((size_t)n + 1);
+    if (!tmp)
+        return;
+    memcpy(tmp, s->batch.p + from, (size_t)n);
+    s->batch.n = from;
+    s->batch.p[from] = 0;
+    for (i = 0; i < n; i++) {
+        long j, w, k;
+        if (tmp[i] != '\n')
+            continue;
+        w = tui_width(tmp + a, i - a);
+        jw_rawz(&s->batch, bg);
+        for (j = a; j < i; j++) {
+            if (tmp[j] == '\033' && j + 3 < i && tmp[j + 1] == '[' && tmp[j + 2] == '0' && tmp[j + 3] == 'm') {
+                jw_rawz(&s->batch, SGR0);
+                jw_rawz(&s->batch, bg);
+                j += 3;
+            } else
+                jw_raw(&s->batch, tmp + j, 1);
+        }
+        for (k = w; k < s->t->cols; k++)
+            jw_rawz(&s->batch, " ");
+        jw_rawz(&s->batch, SGR0 "\n");
+        a = i + 1;
+    }
+    free(tmp);
+}
+
 void pshow_theme(pi_show *s, const cl_pitheme *th)
 {
     s->th = th;
@@ -115,7 +154,7 @@ static void md_start(pi_show *s)
     md_opts mo;
     if (s->md)
         return;
-    vo_init(&s->vo, md_sink, s, VW_UTF8, 16, &s->hlt);
+    vo_init(&s->vo, md_sink, s, VW_UTF8, s->th->depth >= 256 ? s->th->depth : 16, &s->hlt);
     mo.width = s->t->cols - 2;
     mo.urls = 1;
     mo.look = MD_LOOK_PI;
@@ -189,14 +228,25 @@ void pshow_header(pi_show *s, const char *name, const char *version)
     raw(s, l);
     {
         /* the hint continues the logo's row and wraps in the width as pi's text does (one column of padding each
-         * side; the logo and its space take five of the first row) */
+         * side; the logo and its space take five of the first row). The keys are in the dim colour, what they do and
+         * the dots in the muted one (pi's keyHint): \001 starts a key, \002 what it does */
         static const char hint[] =
-            "escape interrupt \302\267 ctrl+c/ctrl+d clear/exit \302\267 / commands \302\267 ! bash \302\267 ctrl+o more";
-        long n = (long)sizeof(hint) - 1, cut = 0, i;
-        int w = 0, room = s->t->cols - 2 - 5;
+            "\001escape\002 interrupt \302\267 \001ctrl+c/ctrl+d\002 clear/exit \302\267 \001/\002 commands \302\267 "
+            "\001!\002 bash \302\267 \001ctrl+o\002 more";
+        char muted[48], key[48];
+        long n = (long)sizeof(hint) - 1, cut = 0, i, k;
+        int w = 0, room = s->t->cols - 2 - 5, row;
+        sg(s, PR_MUTED, muted);
+        sg(s, PR_DIM, key);
         for (i = 0; i < n;) {
             unsigned long cp;
-            int cl = vw_char(hint + i, n - i, &cp), cw = vw_cp_width(cp);
+            int cl, cw;
+            if (hint[i] == 1 || hint[i] == 2) {
+                i++;
+                continue;
+            }
+            cl = vw_char(hint + i, n - i, &cp);
+            cw = vw_cp_width(cp);
             if (w + cw > room)
                 break;
             if (cp == ' ')
@@ -208,13 +258,29 @@ void pshow_header(pi_show *s, const char *name, const char *version)
             cut = n;
         else if (!cut)
             cut = i;
-        raw(s, dim);
-        jw_raw(&s->batch, hint, cut);
-        raw(s, SGR0 "\n");
-        if (cut < n) {
-            while (cut < n && hint[cut] == ' ')
-                cut++;
-            show_wrap(&s->batch, " ", " ", dim, hint + cut, n - cut, s->t->cols - 2);
+        for (row = 0; row < 2; row++) {
+            long from = row ? cut : 0, to = row ? n : cut;
+            if (row && cut >= n)
+                break;
+            if (row) {
+                while (from < to && hint[from] == ' ')
+                    from++;
+                raw(s, " ");
+                for (k = from - 1; k >= 0; k--)
+                    if (hint[k] == 1 || hint[k] == 2) {
+                        raw(s, hint[k] == 1 ? key : muted);
+                        break;
+                    }
+            }
+            for (k = from; k < to; k++) {
+                if (hint[k] == 1)
+                    raw(s, key);
+                else if (hint[k] == 2)
+                    raw(s, muted);
+                else
+                    jw_raw(&s->batch, hint + k, 1);
+            }
+            raw(s, SGR0 "\n");
         }
     }
     out(s);
@@ -222,10 +288,13 @@ void pshow_header(pi_show *s, const char *name, const char *version)
 
 void pshow_user(pi_show *s, const char *text)
 {
+    long from;
     spacer(s);
+    from = s->batch.n;
     blank(s);                       /* the message's padding row, above and below */
-    say(s, -1, "", text);
+    say(s, PR_USER_MESSAGE_TEXT, "", text);
     blank(s);
+    panel(s, from, PR_USER_MESSAGE_BG);
     out(s);
 }
 
@@ -288,6 +357,7 @@ static void header_line(pi_show *s, const char *name, jv a)
         jv v;
         arg_str(a, "command", tmp, sizeof(tmp));
         cl_cat(l, BOLD, sizeof(l));
+        cl_cat(l, sg(s, PR_TOOL_TITLE, b2), sizeof(l));      /* pi: bold, then toolTitle */
         cl_cat(l, "$ ", sizeof(l));
         cl_cat(l, tmp[0] ? tmp : "...", sizeof(l));
         cl_cat(l, SGR0, sizeof(l));
@@ -307,7 +377,9 @@ static void header_line(pi_show *s, const char *name, jv a)
         if (!arg_str(a, "path", path, sizeof(path)) || !path[0])
             cl_copy(path, ".", sizeof(path));
         arg_str(a, "glob", glob, sizeof(glob));
-        cl_cat(l, BOLD "grep" SGR0 " ", sizeof(l));
+        cl_cat(l, BOLD, sizeof(l));
+        cl_cat(l, sg(s, PR_TOOL_TITLE, b2), sizeof(l));
+        cl_cat(l, "grep" SGR0 " ", sizeof(l));
         cl_cat(l, sg(s, PR_ACCENT, b), sizeof(l));
         cl_cat(l, "/", sizeof(l));
         cl_cat(l, pat, sizeof(l));
@@ -335,6 +407,7 @@ static void header_line(pi_show *s, const char *name, jv a)
         if (!arg_str(a, "path", path, sizeof(path)) || !path[0])
             cl_copy(path, ".", sizeof(path));
         cl_cat(l, BOLD, sizeof(l));
+        cl_cat(l, sg(s, PR_TOOL_TITLE, b2), sizeof(l));      /* pi: bold, then toolTitle */
         cl_cat(l, name, sizeof(l));
         cl_cat(l, SGR0 " ", sizeof(l));
         if (is_find) {
@@ -364,6 +437,7 @@ static void header_line(pi_show *s, const char *name, jv a)
         if (!arg_str(a, "path", path, sizeof(path)))
             arg_str(a, "file_path", path, sizeof(path));
         cl_cat(l, BOLD, sizeof(l));
+        cl_cat(l, sg(s, PR_TOOL_TITLE, b2), sizeof(l));      /* pi: bold, then toolTitle */
         cl_cat(l, name, sizeof(l));
         cl_cat(l, SGR0 " ", sizeof(l));
         if (path[0]) {
@@ -407,9 +481,14 @@ void pshow_tool_start(pi_show *s, const char *name, const char *args, long an)
     if (json_parse(s->args.p, s->args.n, &a))
         a.p = 0, a.n = 0;
     spacer(s);                      /* the block is a blank line below what is above it, with one of its own inside */
+    out(s);
+    s->box_mark = s->t->n_lines;
     blank(s);
     header_line(s, name, a);
+    blank(s);
+    panel(s, 0, PR_TOOL_PENDING_BG);    /* pi's box while the tool runs; the end draws it again in its final colour */
     out(s);
+    s->box_end = s->t->n_lines;
 }
 
 /* the duration as pi writes it */
@@ -529,7 +608,16 @@ static void bash_result(pi_show *s, const char *text, unsigned long ms)
 void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error)
 {
     jw text;
+    jv a;
+    long hdr_end, hdr_rows;
     unsigned long ms = (s->t->io->ms ? s->t->io->ms(s->t->io->u) : 0) - s->t0;
+    out(s);
+    if (json_parse(s->args.p, s->args.n, &a))
+        a.p = 0, a.n = 0;
+    blank(s);                       /* the box again: its top padding and the header ... */
+    header_line(s, s->name, a);
+    for (hdr_rows = 0, hdr_end = 0; hdr_end < s->batch.n; hdr_end++)
+        hdr_rows += s->batch.p[hdr_end] == '\n';
     jw_init(&text);
     pshow_result_text(result, rn, &text);
     jw_rawz(&text, "");
@@ -544,7 +632,23 @@ void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error)
         result_lines(s, text.p ? text.p : "", PR_TOOL_OUTPUT, 15);
     blank(s);                       /* the block's bottom padding */
     jw_free(&text);
-    out(s);
+    panel(s, 0, is_error ? PR_TOOL_ERROR_BG : PR_TOOL_SUCCESS_BG);
+    if (s->box_end == s->t->n_lines && s->box_end > s->box_mark) {
+        /* nothing came after the pending box: it is replaced by the finished one */
+        tui_replace_tail(s->t, s->box_mark, s->batch.p, s->batch.n);
+        jw_reset(&s->batch);
+    } else {
+        /* something is under it (a second tool): the result goes below, the header keeps its colour */
+        long skip = 0, at = 0;
+        while (skip < hdr_rows && at < s->batch.n) {
+            if (s->batch.p[at] == '\n')
+                skip++;
+            at++;
+        }
+        tui_lines(s->t, s->batch.p + at, s->batch.n - at);
+        jw_reset(&s->batch);
+    }
+    s->box_end = s->box_mark = 0;
 }
 
 /* ---- the conversation again ---- */

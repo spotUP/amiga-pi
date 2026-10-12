@@ -1,0 +1,14 @@
+                                                                               │
+ ### Third level                                                               │
+                                                                               │
+ Text right under a heading with struck words and https://example.org/x bare.  │
+                                                                               ┃
+ 1. first                                                                      ┃
+ 2. second                                                                     ┃
+ 3. third             ↓ Jump to latest message · Ctrl+End                      │
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑1.2k ↓150 $0.006 0.7%/200k (auto)                                    fake-model

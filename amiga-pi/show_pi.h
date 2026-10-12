@@ -27,6 +27,7 @@ typedef struct pi_show {
     unsigned long t0;
     long n_text, n_blocks, n_tools;
     int replay;                 /* tool results of an earlier run: no duration */
+    long box_mark, box_end;     /* the tool's box as drawn at its start: the transcript line count before it and after it */
 } pi_show;
 
 void pshow_init(pi_show *s, cl_tui *t, const cl_pitheme *th);
