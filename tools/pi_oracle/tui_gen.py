@@ -99,6 +99,8 @@ SCENARIOS = {
                   answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))]),
     # /tree over a session with a branch (tests/pi/sessions/doc_branch.jsonl): the selector and its keys
     'tree': dict(steps=[('type', '/tree'), ('sleep', 0.8), ('enter',), ('sleep', 1.5)], answers=[], session='doc_branch.jsonl'),
+    # ! runs a command and puts its output into the context, !! keeps it out
+    'bang': dict(steps=[('type', '!echo hi'), ('enter',), ('sleep', 1.5), ('type', '!!echo secret'), ('enter',), ('sleep', 1.5)], answers=[]),
     # a tool call block (read of a file in the cwd) and the answer after it
     'tool': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading')],
                  answers=[('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),

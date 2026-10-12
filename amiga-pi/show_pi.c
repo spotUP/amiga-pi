@@ -660,3 +660,78 @@ void pshow_replay(pi_show *s, const struct pi_session *ses)
     flush_calls(s, calls, &ncall);
     s->replay = 0;
 }
+
+void pshow_bash(pi_show *s, const char *command, const char *output, int exit_code, int cancelled, int excluded)
+{
+    char b[48], rule[48], line[700], num[16];
+    int role = excluded ? PR_DIM : PR_BASH_MODE, i, w = s->t->cols, hidden = 0, nrows = 0;
+    long n = (long)strlen(output), a = 0, k;
+    long rowstart[64];
+    jw body;
+    blank(s);                       /* pi's component starts with its own spacer, even first in the chat */
+    s->any = 1;
+    sg(s, role, rule);
+    raw(s, rule);
+    for (i = 0; i < w; i++)
+        raw(s, "\342\224\200");
+    raw(s, SGR0 "\n");
+    cl_copy(line, " ", sizeof(line));
+    cl_cat(line, sg(s, PR_BASH_MODE, b), sizeof(line));
+    cl_cat(line, BOLD "$ ", sizeof(line));
+    cl_cat(line, command, sizeof(line));
+    cl_cat(line, SGR0, sizeof(line));
+    raw(s, line);
+    raw(s, "\n");
+    if (n > 0) {
+        /* the output split into lines (a final newline leaves an empty last line, as pi's split does), the last
+         * twenty logical lines wrapped to the width, the last twenty rows of those kept */
+        long lines_start[2048], nl = 0;
+        long first;
+        jw_init(&body);
+        lines_start[nl++] = 0;
+        for (k = 0; k < n && nl < 2047; k++)
+            if (output[k] == '\n')
+                lines_start[nl++] = k + 1;
+        lines_start[nl] = n + 1;
+        first = nl > 20 ? nl - 20 : 0;
+        hidden = (int)first;
+        for (k = first; k < nl; k++) {
+            long e = lines_start[k + 1] - 1;
+            show_wrap(&body, " ", " ", sg(s, PR_MUTED, b), output + lines_start[k], e - lines_start[k], w - 2);
+        }
+        (void)a;
+        (void)rowstart;
+        (void)nrows;
+        blank(s);
+        jw_raw(&s->batch, body.p ? body.p : "", body.n);
+        jw_free(&body);
+    }
+    if (hidden > 0 || cancelled || exit_code != 0) {
+        char st[200];
+        int any = 0;
+        blank(s);
+        if (hidden > 0) {
+            cl_copy(st, "... ", sizeof(st));
+            cl_ltoa(hidden, num);
+            cl_cat(st, num, sizeof(st));
+            cl_cat(st, " more lines (ctrl+o to expand)", sizeof(st));
+            show_wrap(&s->batch, " ", " ", sg(s, PR_MUTED, b), st, (long)strlen(st), w - 2);
+            any = 1;
+        }
+        if (cancelled)
+            show_wrap(&s->batch, " ", " ", sg(s, PR_WARNING, b), "(cancelled)", 11, w - 2);
+        else if (exit_code != 0) {
+            cl_copy(st, "(exit ", sizeof(st));
+            cl_ltoa(exit_code, num);
+            cl_cat(st, num, sizeof(st));
+            cl_cat(st, ")", sizeof(st));
+            show_wrap(&s->batch, " ", " ", sg(s, PR_ERROR, b), st, (long)strlen(st), w - 2);
+        }
+        (void)any;
+    }
+    raw(s, rule);
+    for (i = 0; i < w; i++)
+        raw(s, "\342\224\200");
+    raw(s, SGR0 "\n");
+    out(s);
+}

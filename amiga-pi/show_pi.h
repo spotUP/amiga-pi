@@ -49,6 +49,9 @@ void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error);
 /* a result's JSON blocks ([{"type":"text","text":...}]) as the text of their text blocks, joined by newlines */
 long pshow_result_text(const char *json, long n, jw *out);
 
+/* a command of the user's (! and !!, pi's BashExecutionComponent): between two rules in the bash colour (faint when
+ * the output stays out of the context), the command, the last twenty rows of the output, how it ended */
+void pshow_bash(pi_show *s, const char *command, const char *output, int exit_code, int cancelled, int excluded);
 /* the conversation of ses drawn again from its messages (a branch left for another, a session resumed) */
 struct pi_session;
 void pshow_replay(pi_show *s, const struct pi_session *ses);

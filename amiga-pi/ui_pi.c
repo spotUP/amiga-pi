@@ -696,6 +696,54 @@ static void tree_command(pi_ui *p, cl_tui *t)
     status(p);
 }
 
+/* ! runs a command and puts its output into the conversation, !! keeps it out (pi: executeBash). 1 when handled */
+static int bang(pi_ui *p, const char *line)
+{
+    pi_session *s = p->s;
+    int excl = line[1] == '!', i, is_error = 0, stopped, code = 0;
+    const char *cmd = line + (excl ? 2 : 1);
+    pi_tool *tool = 0;
+    jw args, content, text;
+    char *tail;
+    while (*cmd == ' ' || *cmd == '\t')
+        cmd++;
+    if (!*cmd)
+        return 0;
+    for (i = 0; i < s->ntools; i++)
+        if (!strcmp(s->tools[i]->name, "bash"))
+            tool = s->tools[i];
+    if (!tool) {
+        pshow_error(&p->ps, "The bash tool is not available");
+        return 1;
+    }
+    jw_init(&args);
+    jw_init(&content);
+    jw_init(&text);
+    jw_rawz(&args, "{\"command\":");
+    jw_strz(&args, cmd);
+    jw_raw(&args, "}", 1);
+    stopped = tool->run(tool->u, s, args.p, args.n, &content, &is_error);
+    pshow_result_text(content.p ? content.p : "[]", content.n, &text);
+    jw_rawz(&text, "");
+    /* the tool appends "Command exited with code N" to the output of a failed command: pi keeps the code apart */
+    tail = text.p ? strstr(text.p, "Command exited with code ") : 0;
+    if (tail && !strchr(tail, '\n')) {
+        code = (int)strtol(tail + 25, 0, 10);
+        while (tail > text.p && tail[-1] == '\n')
+            tail--;
+        *tail = 0;
+    } else if (is_error && !stopped)
+        code = 1;
+    pshow_bash(&p->ps, cmd, text.p ? text.p : "", code, stopped, excl);
+    if (s->command_u && s->command)
+        pi_store_bash((pi_store *)s->command_u, cmd, text.p ? text.p : "", code, stopped, excl);
+    jw_free(&args);
+    jw_free(&content);
+    jw_free(&text);
+    status(p);
+    return 1;
+}
+
 static int run_command(pi_ui *p, cl_tui *t, const char *line)
 {
     jw reply, editor;
@@ -791,6 +839,8 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         }
         prefill[0] = 0;
         if (!n)
+            continue;
+        if (p.look && t && line[0] == '!' && bang(&p, line))
             continue;
         if (run_command(&p, t, line))
             continue;

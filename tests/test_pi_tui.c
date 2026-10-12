@@ -72,7 +72,19 @@ static int tool_run(void *u, pi_session *s, const char *args, long an, jw *conte
     echo_calls++;
     if (tool_hook)
         tool_hook(s);
-    if (u) {
+    if (u == (void *)2) {
+        /* the bash tool of the ! scenarios: echo's text and a newline */
+        static char outb[200];
+        const char *c = strstr(args, "echo ");
+        long k = 0;
+        c = c ? c + 5 : "";
+        while (*c && *c != '\"' && k < 190)
+            outb[k++] = *c++;
+        outb[k++] = '\\';
+        outb[k++] = 'n';
+        outb[k] = 0;
+        text = outb;
+    } else if (u) {
         text = "cat: nothere.txt: No such file or directory\\n\\n\\nCommand exited with code 1";
         err = 1;
     } else
@@ -87,6 +99,7 @@ static int tool_run(void *u, pi_session *s, const char *args, long an, jw *conte
 #define PARAMS "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}"
 static pi_tool t_read = { "read", "Read a file", PARAMS, 0, 0, tool_run, 0, 0 };
 static pi_tool t_bash = { "bash", "Run a command", PARAMS, 0, (void *)1, tool_run, 0, 0 };
+static pi_tool t_bang = { "bash", "Run a command", PARAMS, 0, (void *)2, tool_run, 0, 0 };
 
 /* pi's own slash menu (core/slash-commands.js and two more entries: 26 in the capture), so the menu's layout compares */
 static const cl_cmd pi_cmds[] = {
@@ -269,6 +282,8 @@ static void run(const scen *sc)
         pi_tool_add(&ses, &t_read);
     if (sc->tools == 2)
         pi_tool_add(&ses, &t_bash);
+    if (sc->tools == 3)
+        pi_tool_add(&ses, &t_bang);
     for (i = 0; sc->answers[i]; i++) {
         long n;
         char *b = slurp(sc->answers[i], &n);
@@ -558,7 +573,7 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pl.h.resolve = ps_resolve;
     pl.now = adv_now;
     pl.getenv = app_env;
-    pl.cwd = "/work/proj";
+    pl.cwd = aroot;                 /* the tools run here */
     pl.sys = &asys;
     pl.tmp = aroot;
     pl.utc = 1;
@@ -650,7 +665,7 @@ static void app_sandbox(void)
     mkdir(adata, 0777);
     mkdir(aagent, 0777);
     sys_posix_init(&asp, &asys);
-    s3_dir(adata, "/work/proj", asdir, sizeof(asdir));
+    s3_dir(adata, aroot, asdir, sizeof(asdir));
 }
 
 static void app_cleanup(void)
@@ -859,6 +874,46 @@ static void test_export(void)
     }
 }
 
+
+/* ---- N5: ! puts the command's output into the conversation, !! does not ---- */
+
+static void test_bang(void)
+{
+    /* a chunk's first "!" is the harness's mark and is dropped: the commands start with a second one */
+    static const char *keys[] = { "!!echo hi\r", "!!!echo secret\r", "what did it print\r", "\004", 0 };
+    static const char *const sse[] = { "markdown.1.sse" };
+    char sh[1200];
+    char path[600];
+    pi_s3 st;
+    int i, found_hi = 0, found_secret = 0;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 40, keys, sse, 1, take_shot), 0);
+    CHECK(shot_has("$ echo hi"));
+    CHECK(shot_has("$ echo secret"));
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq < 1)
+        return;
+    /* the request holds the first command's output, as pi's convertToLlm words it, and not the second's */
+    CHECK(strstr(ps.body[0], "Ran `echo hi`") != 0);
+    CHECK(strstr(ps.body[0], "echo secret") == 0 && strstr(ps.body[0], "\"secret\"") == 0);
+    /* the session file keeps both, the second marked */
+    app_shape(sh, sizeof(sh));
+    CHECK_INT(app_newest(path, sizeof(path)), 0);
+    s3_init(&st, &asys, adv_now, 0, 1, 7);
+    CHECK_INT(s3_open(&st, path), 0);
+    for (i = 0; i < st.n; i++) {
+        long n;
+        const char *t = s3_text(&st, i, &n);
+        if (t && strstr(t, "\"role\":\"bashExecution\"") && strstr(t, "echo hi") && !strstr(t, "excludeFromContext"))
+            found_hi = 1;
+        if (t && strstr(t, "\"role\":\"bashExecution\"") && strstr(t, "echo secret") && strstr(t, "\"excludeFromContext\":true"))
+            found_secret = 1;
+    }
+    s3_free(&st);
+    CHECK(found_hi);
+    CHECK(found_secret);
+}
+
 /* the start header: the program's own name for pi's version, no startup-help panel and no pi tips */
 #define HDR_VER { 2, 2, 5, 79, "start header" }
 #define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
@@ -876,6 +931,7 @@ static const scen scenarios[] = {
     { "working", { "hello\r", 0 }, { 0 }, 0, 0, 1, { { 21, 21, 3, 3, "spinner frame" }, { 25, 25, 0, 6, "context estimate" } } },
     { "queued", { "hello\r", "!steer me\r", "!and then this\033\r", 0 }, { 0 }, 0, 0, 1,
       { { 21, 21, 3, 3, "spinner frame" }, { 25, 25, 0, 6, "context estimate" } } },
+    { "bang", { "!!echo hi\r", "!!!echo secret\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
 };
 
@@ -889,6 +945,7 @@ void suite_pi_tui(void)
     test_tree();
     test_tree_nav();
     test_export();
+    test_bang();
     app_cleanup();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))
