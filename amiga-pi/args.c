@@ -126,7 +126,7 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
                 }
             }
         } else if (s[0] == '-' && s[1]) {
-            cl_copy(a->err, "unknown option ", sizeof(a->err));
+            cl_copy(a->err, "Unknown option: ", sizeof(a->err));
             cl_cat(a->err, s, sizeof(a->err));
             return -1;
         } else {
