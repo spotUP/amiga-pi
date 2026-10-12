@@ -36,7 +36,7 @@ typedef struct pi_ext {
                         int *is_error);
     /* text: the prompt so far (JSON-free bytes), an extension may rewrite it (reset and write); source is pi's
      * InputSource ("interactive", "rpc", "extension"); 1 handled (the first one ends the dispatch) */
-    int (*input)(void *u, const char *source, jw *text);
+    int (*input)(void *u, const char *source, const char *streaming, jw *text);
     /* pi's SessionStartEvent: reason "startup", "reload", "new", "resume", "fork"; prev the previous session file, 0 none */
     void (*session_start)(void *u, const char *reason, const char *prev);
 } pi_ext;
@@ -46,6 +46,7 @@ typedef struct pi_exts {
     int n;
     long calls, blocks;         /* tool_call dispatches, blocks (the tests count them) */
     int replace_binds;          /* how many times the mode binds a replaced session (session_start per new / resume): 0 or 1 once; RPC 2 */
+    const char *streaming;      /* the input event's streamingBehavior ("steer", "followUp") while a queued message is dispatched, else 0 */
     const char *source;         /* the input event's source for the prompt now running (0: "interactive") */
     /* the running tool's structured content and details, for a tool_result extension that replaces the content
      * (pi: structuredContent is dropped unless the handler returns it too); set by the loop, 0 outside it */

@@ -52,7 +52,7 @@ int pi_exts_input(pi_exts *x, jw *text)
 {
     int i;
     for (i = 0; i < x->n; i++)
-        if (x->e[i]->input && x->e[i]->input(x->e[i]->u, x->source ? x->source : "interactive", text))
+        if (x->e[i]->input && x->e[i]->input(x->e[i]->u, x->source ? x->source : "interactive", x->streaming, text))
             return 1;
     return 0;
 }

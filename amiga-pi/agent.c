@@ -874,26 +874,42 @@ static const char *expand_input(const pi_session *s, const char *text, jw *buf)
     return text;
 }
 
-int pi_steer(pi_session *s, const char *text)
+/* agent-session.ts _queueUserInput (2173-2199): the extensions' input event first (streamingBehavior "steer" or
+ * "followUp"; "handled" queues nothing), then the skill command expands, then the message is queued */
+static int queue_input(pi_session *s, const char *text, int follow)
 {
-    jw ex;
-    int rc = queue_add(s->steer, &s->nsteer, expand_input(s, text, &ex));
+    jw t, ex;
+    int rc;
+    jw_init(&t);
+    jw_rawz(&t, text);
+    if (s->ext.n) {
+        int handled;
+        s->ext.streaming = follow ? "followUp" : "steer";
+        handled = pi_exts_input(&s->ext, &t);
+        s->ext.streaming = 0;
+        if (handled) {
+            jw_free(&t);
+            return 0;
+        }
+    }
+    rc = follow ? queue_add(s->follow, &s->nfollow, expand_input(s, t.p ? t.p : "", &ex))
+                : queue_add(s->steer, &s->nsteer, expand_input(s, t.p ? t.p : "", &ex));
     jw_free(&ex);
+    jw_free(&t);
     if (rc)
         return -1;
     emit_queue(s);
     return 0;
 }
 
+int pi_steer(pi_session *s, const char *text)
+{
+    return queue_input(s, text, 0);
+}
+
 int pi_follow_up(pi_session *s, const char *text)
 {
-    jw ex;
-    int rc = queue_add(s->follow, &s->nfollow, expand_input(s, text, &ex));
-    jw_free(&ex);
-    if (rc)
-        return -1;
-    emit_queue(s);
-    return 0;
+    return queue_input(s, text, 1);
 }
 
 int pi_queue_take(pi_session *s, char **out, int max)

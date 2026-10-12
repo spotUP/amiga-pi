@@ -293,6 +293,40 @@ static void test_input(void)
     jw_free(&text);
 }
 
+/* agent-session.ts _queueUserInput (2173-2199): a steer or follow-up message goes through the input event too, with
+ * streamingBehavior "steer" / "followUp"; a transform is what is queued, "handled" queues nothing */
+static void test_queue_input(void)
+{
+    jw s;
+    char *seen;
+    jw_init(&s);
+    put("q1.sh", "cat > \"$CLAUDE_PROJECT_DIR/q1.json\"\ncat <<'EOF'\n{\"action\":\"transform\",\"text\":\"changed\"}\nEOF\n");
+    settings_for(&s, "input", 0, "q1.sh", 0, 0);
+    up(s.p);
+    CHECK_INT(pi_steer(&ses, "look at this"), 0);
+    CHECK_INT(ses.nsteer, 1);
+    CHECK(ses.nsteer == 1 && !strcmp(ses.steer[0], "changed"));
+    seen = read_all("q1.json");
+    CHECK(seen && !strcmp(seen, "{\"type\":\"input\",\"text\":\"look at this\",\"source\":\"interactive\",\"streamingBehavior\":\"steer\"}\n"));
+    free(seen);
+    CHECK_INT(pi_follow_up(&ses, "and this"), 0);
+    CHECK(ses.nfollow == 1 && !strcmp(ses.follow[0], "changed"));
+    seen = read_all("q1.json");
+    CHECK(seen && strstr(seen, "\"streamingBehavior\":\"followUp\"") != 0);
+    free(seen);
+    CHECK(ses.ext.streaming == 0);
+    down();
+    put("q2.sh", "cat >/dev/null\necho '{\"action\":\"handled\"}'\n");
+    jw_reset(&s);
+    settings_for(&s, "input", 0, "q2.sh", 0, 0);
+    up(s.p);
+    CHECK_INT(pi_steer(&ses, "eaten"), 0);
+    CHECK_INT(pi_follow_up(&ses, "eaten"), 0);
+    CHECK_INT(ses.nsteer + ses.nfollow, 0);
+    down();
+    jw_free(&s);
+}
+
 /* tool_result: the content replaced without structuredContent drops the structured content (runner.ts emitToolResult,
  * types.ts ToolResultEventResult); with it, both are kept; isError follows */
 static void test_result(void)
@@ -393,6 +427,7 @@ void suite_pi_hooks(void)
     test_call_order();
     test_no_decision_and_matcher();
     test_input();
+    test_queue_input();
     test_result();
     test_turn_index();
     test_off();

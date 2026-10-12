@@ -20,7 +20,7 @@ typedef struct hk_ctx {
     jw *content;                        /* tool_result */
     int *is_error;
     jw *text;                           /* input */
-    const char *source;
+    const char *source, *streaming;
     char *reason;                       /* tool_call: the block's reason out */
     long cap;
     int blocked, handled;
@@ -317,6 +317,10 @@ static int build_input(hk_ctx *c)
     jw_str(&c->body, c->text->p ? c->text->p : "", c->text->p ? c->text->n : 0);
     jw_rawz(&c->body, ",\"source\":");
     jw_strz(&c->body, c->source);
+    if (c->streaming) {
+        jw_rawz(&c->body, ",\"streamingBehavior\":");
+        jw_strz(&c->body, c->streaming);
+    }
     jw_rawz(&c->body, "}");
     return 1;
 }
@@ -347,7 +351,7 @@ static int input_done(void *u, const cl_hook *kk, int st, long rc, const char *o
     return 0;
 }
 
-static int hk_input(void *u, const char *source, jw *text)
+static int hk_input(void *u, const char *source, const char *streaming, jw *text)
 {
     pi_hooks *k = (pi_hooks *)u;
     hk_ctx c;
@@ -358,6 +362,7 @@ static int hk_input(void *u, const char *source, jw *text)
     c.build = build_input;
     c.text = text;
     c.source = source;
+    c.streaming = streaming;
     jw_init(&c.body);
     pi_hook_runs += hooks_run_raw(&k->h, HK_PI_INPUT, "", hk_body, input_done, &c);
     jw_free(&c.body);
