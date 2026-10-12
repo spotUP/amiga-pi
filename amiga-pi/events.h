@@ -52,6 +52,7 @@ typedef struct pi_event {
      *   agent_end: result is the messages the run made (the transcript's system messages among them), a JSON array,
      *     and retry says a retry follows
      *   tool_execution_end: structured is pi's structuredContent of the result (a JSON value), 0 none
+     *   tool_execution_update: result is the partial result's content, structured its details (a JSON value), 0 none
      *   compaction_end: result is the CompactionResult object, is_error with the failure in msg, retry willRetry,
      *     aborted
      *   thinking_level_changed: msg is the level; session_info_changed: msg is the name, 0 cleared

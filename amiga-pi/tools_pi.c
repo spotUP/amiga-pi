@@ -780,6 +780,32 @@ static int bash_exit(const char *status, long sn, long *code)
 
 /* ---- the run ---- */
 
+/* bash's onUpdate (bash.ts): tool_execution_update with the output so far -- the empty one when the command starts
+ * (content [], no details), the output (details {}) once it is done; text 0 is the empty one */
+static void bash_update(pi_session *s, const char *id, const char *args, long an, const char *text, long n)
+{
+    pi_event e;
+    jw c;
+    if (!s || !s->call_id)      /* the user's bash command (!, rpc bash) is no tool call */
+        return;
+    jw_init(&c);
+    jw_rawz(&c, "[");
+    if (text)
+        llm_b_text(&c, text, n, 0);
+    jw_rawz(&c, "]");
+    pi_event_init(&e, PE_TOOL_UPDATE);
+    e.tool_id = id;
+    e.tool_name = "bash";
+    e.args = args;
+    e.args_n = an;
+    e.result = c.p;
+    e.result_n = c.n;
+    e.structured = text ? "{}" : 0;
+    e.structured_n = 2;
+    pi_emit(&s->em, &e);
+    jw_free(&c);
+}
+
 static int run(void *u, pi_session *s, const char *args, long an, jw *content, int *is_error)
 {
     pi_tslot *sl = (pi_tslot *)u;
@@ -816,6 +842,8 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
         pi_tool_runs[kind]++;
         p->t.pi_status_n = 0;
         ran = 1;
+        if (kind == PT_BASH)
+            bash_update(s, id, args, an, 0, 0);
         t0 = clock_of(s);
         if (kind == PT_LS)
             *is_error = run_ls(p, a, &text);
@@ -856,6 +884,8 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
         pi_cut(p->t.sys, p->tmp, id, text.p ? text.p : "", text.n - sn, 1, &cut);
         if (sn)
             jw_raw(&cut, text.p + text.n - sn, sn);
+        if (ran && text.n - sn > 0)    /* output arrived: the update of its end (pi's finishOutput) */
+            bash_update(s, id, args, an, cut.p ? cut.p : "", cut.n);
         llm_b_text(content, cut.p ? cut.p : "", cut.n, 0);
         jw_free(&cut);
     } else

@@ -171,6 +171,10 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
         put_key(w, "partialResult");
         jw_rawz(w, "{\"content\":");
         jw_raw(w, e->result ? e->result : "[]", e->result ? e->result_n : 2);
+        if (e->structured) {
+            jw_rawz(w, ",\"details\":");
+            jw_raw(w, e->structured, e->structured_n);
+        }
         jw_rawz(w, "}}");
         return 1;
     case PE_TOOL_END:

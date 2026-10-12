@@ -100,6 +100,9 @@ sc('json_retry', mode='json', args=['hello'], retry=True,
 sc('prompt', steps=[('prompt', 'hello')], answers=[A('Hello from the fixture.')])
 sc('prompt_tool', steps=[('prompt', 'read the file')],
    answers=[TOOL('read', {'path': 'notes.txt'}, 'I will read it.'), A('Done reading notes.txt.')])
+# the agent's own bash call: pi's tool_execution_update records (an empty one at the start, the output after)
+sc('prompt_bash', steps=[('prompt', 'run it')],
+   answers=[TOOL('bash', {'command': 'echo one; echo two'}, 'I will run it.'), A('Ran it.')])
 # a command typed during a run: the first turn (a read) is over, the next answer is a long time coming
 R1 = lambda: TOOL('read', {'path': 'notes.txt'}, 'I will read it.')
 sc('prompt_busy', steps=[('send', P('read it')), ('gate', 'turn_end'), ('cmd', P('again')),
