@@ -174,7 +174,10 @@ static void sync_queue(pi_ui *p);
 
 static int u_poll(void *u)
 {
-    return ui_poll(&((pi_ui *)u)->ui);
+    pi_ui *p = (pi_ui *)u;
+    if (p->look)
+        pshow_tick(&p->ps);     /* a running bash call's Elapsed row */
+    return ui_poll(&p->ui);
 }
 
 static void on_event(void *u, const pi_event *e)
@@ -256,7 +259,7 @@ static void on_event(void *u, const pi_event *e)
         break;
     case PE_TOOL_START:
         if (p->look) {
-            pshow_tool_start(&p->ps, e->tool_name, e->args, e->args_n);
+            pshow_tool_start(&p->ps, e->tool_id, e->tool_name, e->args, e->args_n);
             break;
         }
         {
@@ -269,9 +272,13 @@ static void on_event(void *u, const pi_event *e)
             ui_line(&p->ui, line);
         }
         break;
+    case PE_TOOL_UPDATE:
+        if (p->look)
+            pshow_tool_update(&p->ps, e->tool_id, e->result, e->result_n);
+        break;
     case PE_TOOL_END:
         if (p->look) {
-            pshow_tool_end(&p->ps, e->result, e->result_n, e->is_error, e->duration_ms);    /* pi 1.1.0: the recorded durationMs, -1 the clock */
+            pshow_tool_end(&p->ps, e->tool_id, e->result, e->result_n, e->is_error, e->duration_ms);    /* pi 1.1.0: the recorded durationMs, -1 the clock */
             break;
         }
         if (e->is_error) {

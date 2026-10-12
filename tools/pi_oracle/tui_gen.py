@@ -79,6 +79,18 @@ def tool_answer(mid, tid, name, args, lead=None):
     return sse(ev)
 
 
+def tool_answer2(mid, calls):
+    """one assistant message with several tool calls (calls: (id, name, args)): pi runs them in parallel"""
+    ev = [msg_start(mid)]
+    for i, (tid, name, args) in enumerate(calls):
+        ev += [{'type': 'content_block_start', 'index': i, 'content_block': {'type': 'tool_use', 'id': tid, 'name': name, 'input': {}}},
+               {'type': 'content_block_delta', 'index': i, 'delta': {'type': 'input_json_delta', 'partial_json': json.dumps(args)}},
+               {'type': 'content_block_stop', 'index': i}]
+    ev += [{'type': 'message_delta', 'delta': {'stop_reason': 'tool_use', 'stop_sequence': None}, 'usage': {'output_tokens': 40}},
+           {'type': 'message_stop'}]
+    return sse(ev)
+
+
 MARKDOWN = (
     "# Plan\n\nHere is **bold**, *italic* and `inline code`.\n\n"
     "- first item\n- second item with a [link](https://example.org)\n\n"
@@ -190,6 +202,20 @@ SCENARIOS = {
     'dark_toolrun': dict(steps=[('type', 'run it'), ('enter',), ('wait', 'sleep 4'), ('sleep', 1.0), ('capture_now',)],
                          answers=[('sse', tool_answer('msg_r1', 'toolu_3', 'bash', {'command': 'sleep 4'})),
                                   ('sse', text_answer('msg_r2', 'Slept.', 20))], theme='dark'),
+    # Q9: the same with output so far: bash's update carries "hi", the box shows it above the Elapsed row (renderers/bash.ts:61-111)
+    'dark_toolrun_out': dict(steps=[('type', 'run it'), ('enter',), ('wait', 'sleep 4'), ('sleep', 1.0), ('capture_now',)],
+                             answers=[('sse', tool_answer('msg_r1', 'toolu_3', 'bash', {'command': 'echo hi; sleep 4'})),
+                                      ('sse', text_answer('msg_r2', 'Slept.', 20))], theme='dark'),
+    # Q10: two tool calls of one message run in parallel; the second (echo hi) ends before the first (cat of a missing file,
+    # which fails): each box takes its own result's colour, whatever the order they end in
+    'dark_tools2': dict(steps=[('type', 'run both'), ('enter',), ('wait', 'It failed')],
+                        answers=[('sse', tool_answer2('msg_p1', [('toolu_p1', 'bash', {'command': 'sleep 1; cat nothere.txt'}),
+                                                                  ('toolu_p2', 'bash', {'command': 'echo hi'})])),
+                                 ('sse', text_answer('msg_p2', 'It failed: no such file.', 20))], theme='dark', rows=32,
+                        # amiga-pi runs its tools one after the other: the host test plays the first call alone and makes
+                        # the second one's events itself (tests/test_pi_tui.c), so the screens can be compared
+                        host=[tool_answer('msg_p1', 'toolu_p1', 'bash', {'command': 'sleep 1; cat nothere.txt'}),
+                              text_answer('msg_p2', 'It failed: no such file.', 20)]),
     'dark_bang': dict(steps=[('type', '!echo hi'), ('enter',), ('sleep', 1.5)],
                       answers=[], theme='dark'),
     # P11 (pi 1.1.0): `!!` keeps its dim header after the output arrives (bash-execution.ts colorKey)
@@ -417,6 +443,9 @@ def run(name, sc, cols, rows, keep):
             shutil.copyfile(pipelog, os.path.join(OUT, name + '.bytes'))
         if sc.get('raw'):
             shutil.copyfile(rawlog, os.path.join(OUT, name + '.raw'))
+        for i, a in enumerate(sc.get('host', [])):
+            with open(os.path.join(OUT, '%s.host.%d.sse' % (name, i + 1)), 'w') as f:
+                f.write(a)
         for i, a in enumerate(sc['answers']):
             if a[0] in ('sse', 'slow'):
                 with open(os.path.join(OUT, '%s.%d.sse' % (name, i + 1)), 'w') as f:
