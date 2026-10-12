@@ -562,7 +562,14 @@ static int setup_files(jv cfg, char *session_arg, long cap)
     jw_strz(&st, think);
     jw_rawz(&st, ",\"retry\":{\"enabled\":");
     jw_rawz(&st, retry ? "true" : "false");
-    jw_rawz(&st, ",\"maxRetries\":2,\"baseDelayMs\":100");
+    {
+        jv rs, bd;
+        long base = 100;            /* a scenario's settings.retry.baseDelayMs (a wait long enough to abort in) replaces it */
+        if (json_get(cfg, "settings", &s) && json_get(s, "retry", &rs) && json_get(rs, "baseDelayMs", &bd))
+            base = json_long(bd, 100);
+        jw_rawz(&st, ",\"maxRetries\":2,\"baseDelayMs\":");
+        jw_long(&st, base);
+    }
     if (extra_retry)
         jw_rawz(&st, extra_retry);
     jw_rawz(&st, "},\"quietStartup\":true");
@@ -570,6 +577,8 @@ static int setup_files(jv cfg, char *session_arg, long cap)
         json_iter(s, &it);
         while (json_next(&it, &v, &e)) {
             json_str(v, key, sizeof(key));
+            if (!strcmp(key, "retry"))      /* the scenario's own retry object (a long delay to abort in) replaces the default */
+                continue;
             jw_rawz(&st, ",");
             jw_strz(&st, key);
             jw_rawz(&st, ":");
@@ -1009,7 +1018,8 @@ static void test_models(void)
 static void test_modes(void)
 {
     static const char *const names[] = { "set_steering_mode", "set_follow_up_mode", "compact", "compact_empty",
-                                         "set_auto_compaction", "set_auto_retry", "abort_retry", 0 };
+                                         "set_auto_compaction", "set_auto_retry", "abort_retry", "abort_in_retry", "abort_retry_wait",
+                                         "abort_in_compaction", 0 };
     group(names);
 }
 
@@ -1140,6 +1150,29 @@ static void test_retry_cancel(void)
     CHECK(has(ro.out, "\"type\":\"agent_settled\""));
     CHECK(!has(ro.out, "Recovered."));
     CHECK_INT(ps.nreq, 1);
+    free(ro.out);
+}
+
+/* P11-I5: the session entries carry durationMs (pi 1.1.0) on the assistant and the toolResult message, as the records of
+ * the run do: the run's answer and its tool call, then the entries read back */
+static void test_duration_entries(void)
+{
+    run_opts ro;
+    const char *e;
+    memset(&ro, 0, sizeof(ro));
+    ro.force_mode = "rpc";
+    ro.nocmp = 1;
+    ro.inline_in = "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"read the file\"}\n#after agent_settled\n"
+                   "{\"id\":\"2\",\"type\":\"get_entries\"}\n";
+    scenario("json_tool", &ro);
+    e = strstr(ro.out, "\"command\":\"get_entries\"");
+    CHECK(e != 0);
+    if (e) {
+        const char *tr = strstr(e, "\"role\":\"toolResult\"");
+        const char *as = strstr(e, "\"role\":\"assistant\"");
+        CHECK(tr && strstr(tr, "\"isError\":false,\"durationMs\":"));
+        CHECK(as && strstr(as, "\"rawStopReason\":\"tool_use\",\"durationMs\":"));
+    }
     free(ro.out);
 }
 
@@ -1386,6 +1419,7 @@ void suite_pi_modes(void)
     test_reach();
     test_sdk();
     test_retry_cancel();
+    test_duration_entries();
     test_retry_cap();
     test_retry_overflow();
     test_gate();

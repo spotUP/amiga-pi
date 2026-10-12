@@ -1,0 +1,21 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": true,
+ "settings": {
+  "retry": {
+   "enabled": true,
+   "maxRetries": 2,
+   "baseDelayMs": 4000
+  }
+ },
+ "session": null,
+ "files": {},
+ "answers": [
+  "http",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write"
+}

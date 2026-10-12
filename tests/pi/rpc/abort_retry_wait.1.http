@@ -1,0 +1,5 @@
+HTTP/1.1 529 X
+content-type: application/json
+content-length: 81
+
+{"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}
