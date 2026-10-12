@@ -1,0 +1,3 @@
+{"id":"1","type":"prompt","message":"hello"}
+#after agent_settled
+{"id":"2","type":"export_html","outputPath":"out.html"}

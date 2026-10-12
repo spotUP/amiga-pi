@@ -1,0 +1,4 @@
+{"id":"1","type":"get_state"}
+{"id":"2","type":"prompt","message":"hello"}
+#after agent_settled
+{"id":"3","type":"get_state"}

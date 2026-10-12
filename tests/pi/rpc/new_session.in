@@ -1,0 +1,4 @@
+{"id":"1","type":"prompt","message":"hello"}
+#after agent_settled
+{"id":"2","type":"new_session"}
+{"id":"3","type":"get_state"}

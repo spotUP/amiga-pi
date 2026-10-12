@@ -1,0 +1,2 @@
+{"id":"1","type":"set_model","provider":"fake","modelId":"fake-think"}
+{"id":"2","type":"set_model","provider":"fake","modelId":"nope"}

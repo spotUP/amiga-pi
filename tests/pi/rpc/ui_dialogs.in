@@ -1,0 +1,8 @@
+{"id":"1","type":"prompt","message":"run it"}
+#after extension_ui_request
+{"type":"extension_ui_response","id":"$ui:1","value":"Allow"}
+#after extension_ui_request
+{"type":"extension_ui_response","id":"$ui:2","confirmed":true}
+#after extension_ui_request
+{"type":"extension_ui_response","id":"$ui:3","value":"because"}
+#after agent_settled

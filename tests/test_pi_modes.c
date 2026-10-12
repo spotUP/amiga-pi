@@ -15,6 +15,8 @@
  *   - errorMessage of an assistant message and of auto_retry_start, finalError: pi puts the status and the raw body, ours
  *     the status and the error's message;
  *   - the text of a parse failure: V8's; the base URL (the fixture's port); wall_time_seconds;
+ *   - estimatedTokensAfter: pi counts the compacted context with its system message, whose text is the prompt of pi
+ *     (ours is amiga-pi's); tokensBefore is compared;
  *   - get_available_models lists the fixture's provider only (the catalog's plain-http providers are available here
  *     without a key, as /model has it).
  * A command that arrives while the agent works is held by its `#after <event>` line until pi's run had that event in its
@@ -114,7 +116,7 @@ static int in_list(const char *k, const char *const *list)
 }
 
 static const char *const id_keys[] = { "id", "parentId", "sessionId", "leafId", "firstKeptEntryId", "targetId", "fromId", 0 };
-static const char *const star_keys[] = { "timestamp", "labelTimestamp", "sections", "sessionFile", "path", "wall_time_seconds", 0 };
+static const char *const star_keys[] = { "timestamp", "labelTimestamp", "sections", "sessionFile", "path", "wall_time_seconds", "estimatedTokensAfter", 0 };
 static const char *const drop_keys[] = { "cacheWrite1h", "responseId", "rawStopReason", "thinkingLevel", "providerThinkingLevel",
                                          "structuredContent", "responseModel", "finalError", 0 };
 #define F_STARTMSG 1

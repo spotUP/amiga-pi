@@ -1,0 +1,6 @@
+{"id":"1","type":"prompt","message":"read it"}
+#after turn_end
+{"id":"2","type":"steer","message":"go left"}
+{"id":"3","type":"follow_up","message":"and after"}
+{"id":"4","type":"clear_queue"}
+#after agent_settled

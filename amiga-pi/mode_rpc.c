@@ -7,6 +7,7 @@
 #include "compact.h"
 #include "claude/util.h"
 #include "claude/tools.h"       /* ASK_* */
+#include "claude/path.h"
 
 #define IN_CAP 4096L
 #define IN_MAX (4L * 1024 * 1024)
@@ -1072,10 +1073,18 @@ static void cmd_switch_session(const cmd *c)
     path = str_of(c->obj, "sessionPath", &n);
     if (!path)
         fail(c, "Missing sessionPath");
-    else if (pi_store_switch(r->st, path))
-        fail(c, r->st->err);
-    else
-        ok(c, "{\"cancelled\":false}");
+    else {
+        /* a relative path is the working directory's, as pi's process has it */
+        char full[600];
+        if (path[0] != '/' && !strchr(path, ':') && !path_join(r->st->cwd, path, full, sizeof(full)))
+            ;
+        else
+            cl_copy(full, path, sizeof(full));
+        if (pi_store_switch(r->st, full))
+            fail(c, r->st->err);
+        else
+            ok(c, "{\"cancelled\":false}");
+    }
     free(path);
 }
 

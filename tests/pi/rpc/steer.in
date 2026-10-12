@@ -1,0 +1,4 @@
+{"id":"1","type":"prompt","message":"read it"}
+#after turn_end
+{"id":"2","type":"steer","message":"go left"}
+#after agent_settled

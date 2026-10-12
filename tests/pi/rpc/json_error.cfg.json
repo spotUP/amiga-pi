@@ -1,0 +1,16 @@
+{
+ "mode": "json",
+ "args": [
+  "hello"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "answers": [
+  "http"
+ ],
+ "tools": "read,bash,edit,write"
+}

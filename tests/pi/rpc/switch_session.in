@@ -1,0 +1,3 @@
+{"id":"1","type":"switch_session","sessionPath":"other.jsonl"}
+{"id":"2","type":"get_state"}
+{"id":"3","type":"switch_session","sessionPath":"missing.jsonl"}

@@ -1,0 +1,4 @@
+{"id":"1","type":"steer","message":"go left"}
+{"id":"2","type":"follow_up","message":"and after"}
+{"id":"3","type":"get_state"}
+{"id":"4","type":"clear_queue"}

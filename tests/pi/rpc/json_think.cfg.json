@@ -1,0 +1,16 @@
+{
+ "mode": "json",
+ "args": [
+  "think about it"
+ ],
+ "model": "fake-think",
+ "thinking": "high",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write"
+}

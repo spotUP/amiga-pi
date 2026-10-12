@@ -1,0 +1,2 @@
+{"id":"1","type":"set_steering_mode","mode":"all"}
+{"id":"2","type":"get_state"}

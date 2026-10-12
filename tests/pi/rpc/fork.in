@@ -1,0 +1,4 @@
+{"id":"1","type":"get_fork_messages"}
+{"id":"2","type":"fork","entryId":"d0000006"}
+{"id":"3","type":"get_state"}
+{"id":"4","type":"fork","entryId":"nothere"}
