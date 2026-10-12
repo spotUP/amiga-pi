@@ -794,6 +794,71 @@ static void test_tree_nav(void)
     }
 }
 
+
+/* ---- N4: /export through the prompt: the page and the JSONL, pi's message ---- */
+
+static void test_export(void)
+{
+    char html[600], jl[600], cmd1[700], cmd2[700], cmd3[700];
+    static const char *keys[8];
+    static const char *const sse[] = { "markdown.1.sse" };
+    char *h, *j;
+    long n;
+    FILE *f;
+    strcpy(html, aroot);
+    strcat(html, "/out.html");
+    strcpy(jl, aroot);
+    strcat(jl, "/out.jsonl");
+    strcpy(cmd1, "/export ");
+    strcat(cmd1, html);
+    strcat(cmd1, "\r");
+    strcpy(cmd2, "/export ");
+    strcat(cmd2, jl);
+    strcat(cmd2, "\r");
+    strcpy(cmd3, "/export /nonexistent/dir/x.html\r");
+    keys[0] = "show markdown\r";
+    keys[1] = cmd1;
+    keys[2] = cmd2;
+    keys[3] = cmd3;
+    keys[4] = "\004";
+    keys[5] = 0;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 40, keys, sse, 1, take_shot), 0);
+    CHECK(shot_has("Session exported to:"));
+    CHECK(shot_has("Failed to export session"));
+    f = fopen(html, "rb");
+    CHECK(f != 0);
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        n = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        h = (char *)malloc((size_t)n + 1);
+        if (h && fread(h, 1, (size_t)n, f) == (size_t)n) {
+            h[n] = 0;
+            CHECK(strstr(h, "<!DOCTYPE html>") == h);
+            CHECK(strstr(h, "show markdown") != 0);
+            CHECK(strstr(h, "Here is **bold**") != 0);
+        }
+        free(h);
+        fclose(f);
+    }
+    f = fopen(jl, "rb");
+    CHECK(f != 0);
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        n = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        j = (char *)malloc((size_t)n + 1);
+        if (j && fread(j, 1, (size_t)n, f) == (size_t)n) {
+            j[n] = 0;
+            CHECK(strstr(j, "{\"type\":\"session\",\"version\":3,\"id\":\"") == j);
+            CHECK(strstr(j, "\"parentId\":null") != 0);
+        }
+        free(j);
+        fclose(f);
+    }
+}
+
 /* the start header: the program's own name for pi's version, no startup-help panel and no pi tips */
 #define HDR_VER { 2, 2, 5, 79, "start header" }
 #define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
@@ -823,6 +888,7 @@ void suite_pi_tui(void)
     test_cycle();
     test_tree();
     test_tree_nav();
+    test_export();
     app_cleanup();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))
