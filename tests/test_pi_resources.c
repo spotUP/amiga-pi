@@ -22,6 +22,7 @@
 #include "../amiga-pi/app.h"
 #include "../amiga-pi/prompt.h"
 #include "../amiga-pi/resources.h"
+#include "../amiga-pi/args.h"
 
 static char root[400];
 static sys_posix sp;
@@ -85,17 +86,23 @@ static char *slurp_text(const char *path, long *n)
     return b;
 }
 
-/* the golden NAME of tests/pi/resources with @ROOT@ replaced by the temp directory */
-static char *golden(const char *name, long *n)
+/* the golden NAME of tests/pi/<dir>/ with @ROOT@ replaced by the temp directory */
+static char *golden_in(const char *dir, const char *name, long *n)
 {
     char path[600], *raw, *res;
     long rn, i, k = 0, rl = (long)strlen(root);
-    cl_copy(path, PI_TESTS "/pi/resources/", sizeof(path));
+    cl_copy(path, PI_TESTS "/pi/", sizeof(path));
+    cl_cat(path, dir, sizeof(path));
+    cl_cat(path, "/", sizeof(path));
     cl_cat(path, name, sizeof(path));
     raw = slurp_text(path, &rn);
     if (!raw)
         return 0;
-    res = (char *)malloc((size_t)(rn + 1) + 40 * (size_t)rl);
+    for (i = 0, k = 0; i + 6 <= rn; i++)
+        if (!strncmp(raw + i, "@ROOT@", 6))
+            k++;
+    res = (char *)malloc((size_t)(rn + 1) + (size_t)k * (size_t)rl);
+    k = 0;
     for (i = 0; i < rn;) {
         if (!strncmp(raw + i, "@ROOT@", 6)) {
             memcpy(res + k, root, (size_t)rl);
@@ -108,6 +115,11 @@ static char *golden(const char *name, long *n)
     *n = k;
     free(raw);
     return res;
+}
+
+static char *golden(const char *name, long *n)
+{
+    return golden_in("resources", name, n);
 }
 
 /* ---- the prompt's sections against pi's ---- */
@@ -459,13 +471,16 @@ static int l_brk(void *u)
     return 0;
 }
 
+/* a second flag with its value and the prompt, for the next app_run only (0: none, "hello") */
+static const char *app_flag2, *app_value2, *app_prompt;
+
 /* pi_app in root/cwd_rel with the agent directory root/agent_rel; extra the flag between the options and the
  * prompt (0 none); print: -p; lines the typed input (the trust answer first) */
 static int app_run(const char *cwd_rel, const char *agent_rel, const char *extra, int print, const char *const *lines)
 {
     cl_io io;
     pi_platform pl;
-    char cwd[400], agent[400], tmp[420], *argv[12];
+    char cwd[400], agent[400], tmp[420], *argv[16];
     int a = 0, i;
     at(cwd, sizeof(cwd), cwd_rel);
     at(agent, sizeof(agent), agent_rel);
@@ -508,12 +523,18 @@ static int app_run(const char *cwd_rel, const char *agent_rel, const char *extra
     argv[a++] = "--no-mcp";
     if (extra)
         argv[a++] = (char *)extra;
+    if (app_flag2) {
+        argv[a++] = (char *)app_flag2;
+        if (app_value2)
+            argv[a++] = (char *)app_value2;
+    }
     argv[a++] = "--model";
     argv[a++] = "fixture/qwen2.5-coder:7b";
     argv[a++] = "--base-url";
     argv[a++] = "http://192.168.1.10:11434/v1";
-    argv[a++] = "hello";
+    argv[a++] = (char *)(app_prompt ? app_prompt : "hello");
     argv[a] = 0;
+    app_flag2 = app_value2 = app_prompt = 0;
     return pi_app(a, argv, &pl);
 }
 
@@ -685,6 +706,333 @@ static void test_reach_trust(void)
     CHECK_INT(app_run("r5/w/proj", "r5/agent", "--approved", 1, 0), 1);
 }
 
+/* ---- skills (plan phase I): tests/pi/skills/layouts.json trees, loaded and compared with what pi 1.1.0's own code gave
+ * (tools/pi_oracle/gen_skills.mjs: DefaultResourceLoader, loadSkills, buildSystemPromptSections, _expandSkillCommand) ---- */
+
+static pi_tool t_grep = { "grep", "", "{}", "Search file contents", 0, 0, 0, no_guide, 0 };
+
+/* a string member of a JSON object, malloc'ed, 0 absent */
+static char *jstr(jv o, const char *key)
+{
+    jv v;
+    long n;
+    return json_get(o, key, &v) && json_type(v) == J_STR ? json_strdup(v, &n) : 0;
+}
+
+/* the member key of o equals got (shown when it does not) */
+static int same(jv o, const char *key, const char *got, const char *layout, const char *what)
+{
+    char *want = jstr(o, key);
+    int ok = want != 0 && !strcmp(want, got);
+    if (!ok)
+        printf("  skills %s %s: want [%s] got [%s]\n", layout, what, want ? want : "(none)", got);
+    free(want);
+    return ok;
+}
+
+static int diag_type(const char *t)
+{
+    return !strcmp(t, "warning") ? SKD_WARNING : !strcmp(t, "error") ? SKD_ERROR : SKD_COLLISION;
+}
+
+/* one layout: the tree made, loaded, and every result compared with NAME.json */
+static void skills_layout(const char *name, jv lay)
+{
+    char agent[400], cwd[400], rel[500], paths[8][300], dir[400];
+    const char *pp[8];
+    char *g, *cwd_rel;
+    long gn;
+    jv gv, f, k, v, item, o2;
+    jit it;
+    pi_skills sk;
+    pi_skill_opts o;
+    int i, np = 0;
+    cl_copy(dir, name, sizeof(dir));
+    json_get(lay, "files", &f);
+    json_iter(f, &it);
+    while (json_next(&it, &k, &v)) {
+        char *p = json_strdup(k, 0), *text = json_strdup(v, 0);
+        cl_copy(rel, name, sizeof(rel));
+        cl_cat(rel, "/", sizeof(rel));
+        cl_cat(rel, p ? p : "", sizeof(rel));
+        put(rel, text ? text : "");
+        free(p);
+        free(text);
+    }
+    cwd_rel = jstr(lay, "cwd");
+    cl_copy(rel, name, sizeof(rel));
+    cl_cat(rel, "/", sizeof(rel));
+    cl_cat(rel, cwd_rel ? cwd_rel : "", sizeof(rel));
+    at(cwd, sizeof(cwd), rel);
+    mkdirs(cwd);
+    cl_copy(rel, name, sizeof(rel));
+    cl_cat(rel, "/agent", sizeof(rel));
+    at(agent, sizeof(agent), rel);
+    mkdirs(agent);
+    free(cwd_rel);
+    if (json_get(lay, "skillPaths", &v) && json_type(v) == J_ARR) {
+        json_iter(v, &it);
+        while (json_next(&it, 0, &item) && np < 8) {
+            json_str(item, paths[np], sizeof(paths[0]));
+            pp[np] = paths[np];
+            np++;
+        }
+    }
+    memset(&o, 0, sizeof(o));
+    o.agent_dir = agent;
+    o.cwd = cwd;
+    o.trusted = json_get(lay, "trusted", &v) && json_type(v) == J_TRUE;
+    o.none = json_get(lay, "noSkills", &v) && json_type(v) == J_TRUE;
+    o.paths = pp;
+    o.npaths = np;
+    CHECK_INT(pi_skills_load(&sk, &sys, &o), 0);
+    cl_copy(rel, name, sizeof(rel));
+    cl_cat(rel, ".json", sizeof(rel));
+    g = golden_in("skills", rel, &gn);
+    CHECK(g != 0);
+    if (!g || json_parse(g, gn, &gv)) {
+        CHECK(0);
+        pi_skills_free(&sk);
+        free(g);
+        return;
+    }
+    /* the skills, in pi's order, with their source labels and the slash menu's descriptions */
+    json_get(gv, "skills", &v);
+    CHECK_INT(json_count(v), sk.n);
+    json_iter(v, &it);
+    for (i = 0; json_next(&it, 0, &item) && i < sk.n; i++) {
+        char label[40], cname[200], cdesc[1400];
+        CHECK(same(item, "name", sk.s[i].name, name, "name"));
+        CHECK(same(item, "description", sk.s[i].desc, name, "description"));
+        CHECK(same(item, "filePath", sk.s[i].path, name, "filePath"));
+        CHECK(same(item, "baseDir", sk.s[i].base, name, "baseDir"));
+        CHECK_INT(json_get(item, "disableModelInvocation", &o2) && json_type(o2) == J_TRUE, sk.s[i].hidden);
+        pi_skill_label(&sk.s[i], label, sizeof(label));
+        CHECK(same(item, "label", label, name, "label"));
+        pi_skill_command(&sk.s[i], cname, sizeof(cname), cdesc, sizeof(cdesc));
+        CHECK(same(item, "command", cdesc, name, "slash menu description"));
+    }
+    /* the diagnostics: pi's messages, paths and order */
+    json_get(gv, "diagnostics", &v);
+    CHECK_INT(json_count(v), sk.nd);
+    json_iter(v, &it);
+    for (i = 0; json_next(&it, 0, &item) && i < sk.nd; i++) {
+        char *t = jstr(item, "type");
+        CHECK(t != 0 && diag_type(t) == sk.d[i].type);
+        free(t);
+        CHECK(same(item, "message", sk.d[i].msg, name, "diagnostic message"));
+        CHECK(same(item, "path", sk.d[i].path, name, "diagnostic path"));
+        if (json_get(item, "collision", &o2)) {
+            CHECK(same(o2, "name", sk.d[i].name ? sk.d[i].name : "", name, "collision name"));
+            CHECK(same(o2, "winnerPath", sk.d[i].winner, name, "collision winner"));
+            CHECK(same(o2, "loserPath", sk.d[i].path, name, "collision loser"));
+        }
+    }
+    CHECK_INT(json_get(gv, "enableSkillCommands", &v) && json_type(v) == J_TRUE, sk.commands);
+    /* get_commands' skills (rpc-mode.ts:701-708), with each skill's sourceInfo */
+    {
+        jw cj;
+        jw_init(&cj);
+        jw_rawz(&cj, "[");
+        pi_skills_commands(&sk, &cj);
+        jw_rawz(&cj, "]");
+        CHECK(same(gv, "rpcCommands", cj.p, name, "get_commands"));
+        jw_free(&cj);
+    }
+    /* the prompt's "skills" section for each tool set, through pi_prompt_sections */
+    if (json_get(gv, "sections", &v)) {
+        json_iter(v, &it);
+        while (json_next(&it, &k, &item)) {
+            char keyname[80], *w, *plus;
+            pi_res r;
+            pi_psec sec;
+            int j, found = -1;
+            json_str(k, keyname, sizeof(keyname));
+            memset(&ps_s, 0, sizeof(ps_s));
+            for (w = keyname; w && *w;) {
+                plus = strchr(w, '+');
+                if (plus)
+                    *plus = 0;
+                ps_s.tools[ps_s.ntools++] = !strcmp(w, "read") ? &t_read : !strcmp(w, "bash") ? &t_bash : &t_grep;
+                w = plus ? plus + 1 : 0;
+            }
+            memset(&r, 0, sizeof(r));
+            r.skills = sk;
+            ps_s.res = &r;
+            CHECK_INT(pi_prompt_sections(&ps_s, cwd, &sec), 0);
+            for (j = 0; j < sec.n; j++)
+                if (!strcmp(sec.name[j], "skills"))
+                    found = j;
+            if (json_type(item) == J_NULL)
+                CHECK(found < 0);
+            else {
+                char *want = json_strdup(item, &gn);
+                CHECK(found >= 0 && want != 0 && sec.len[found] == gn && !memcmp(sec.text.p + sec.off[found], want, (size_t)gn));
+                if (found >= 0 && want && (sec.len[found] != gn || memcmp(sec.text.p + sec.off[found], want, (size_t)gn)))
+                    printf("  skills %s section [%s]:\n--- want\n%s\n--- got\n%.*s\n", name, keyname, want, (int)sec.len[found],
+                           sec.text.p + sec.off[found]);
+                free(want);
+            }
+            pi_psec_free(&sec);
+        }
+    }
+    /* /skill:name args: pi's expansion, or the text as typed */
+    if (json_get(gv, "expand", &v)) {
+        json_iter(v, &it);
+        while (json_next(&it, 0, &item)) {
+            char *in = jstr(item, "input"), *want = jstr(item, "output");
+            jw w;
+            int rc;
+            jw_init(&w);
+            rc = pi_skill_expand(&sk, in ? in : "", &w);
+            if (in && want && !strcmp(in, want))
+                CHECK_INT(rc, 0);               /* not a skill command, or an unknown skill: passed through */
+            else {
+                CHECK_INT(rc, 1);
+                CHECK(want != 0 && w.p != 0 && !strcmp(w.p, want));
+                if (rc == 1 && want && w.p && strcmp(w.p, want))
+                    printf("  skills %s expand [%s]:\n--- want\n%s\n--- got\n%s\n", name, in, want, w.p);
+            }
+            jw_free(&w);
+            free(in);
+            free(want);
+        }
+    }
+    pi_skills_free(&sk);
+    free(g);
+}
+
+static void test_skills_goldens(void)
+{
+    char *b;
+    long bn;
+    jv all, lay, k;
+    jit it;
+    long reads = pi_skills_reads;
+    b = slurp_text(PI_TESTS "/pi/skills/layouts.json", &bn);
+    CHECK(b != 0);
+    if (!b || json_parse(b, bn, &all)) {
+        CHECK(0);
+        free(b);
+        return;
+    }
+    json_iter(all, &it);
+    while (json_next(&it, &k, &lay)) {
+        char name[64];
+        json_str(k, name, sizeof(name));
+        skills_layout(name, lay);
+    }
+    CHECK(pi_skills_reads > reads);
+    free(b);
+}
+
+/* --skill and --no-skills on the command line (pi cli/args.ts:193-195, 210-211) */
+static void test_skills_args(void)
+{
+    pi_args a;
+    char *argv1[] = { "amiga-pi", "--skill", "one", "-ns", "--skill", "two.md", "go", 0 };
+    char *argv2[] = { "amiga-pi", "--skill", 0 };
+    CHECK_INT(pi_args_parse(&a, 7, argv1), 0);
+    CHECK_INT(a.nskills, 2);
+    CHECK_STR(a.skills[0], "one");
+    CHECK_STR(a.skills[1], "two.md");
+    CHECK_INT(a.no_skills, 1);
+    CHECK_STR(a.prompt, "go");
+    CHECK_INT(pi_args_parse(&a, 2, argv2), -1);        /* a trailing --skill is an unknown option, as pi's */
+    CHECK(strstr(a.err, "Unknown option: --skill") != 0);
+}
+
+/* the escaped form of text as it stands inside a JSON string of the request body */
+static char *json_inner(const char *text)
+{
+    jw w;
+    char *r;
+    jw_init(&w);
+    jw_str(&w, text, (long)strlen(text));
+    r = (char *)malloc((size_t)w.n);
+    memcpy(r, w.p + 1, (size_t)w.n - 2);
+    r[w.n - 2] = 0;
+    jw_free(&w);
+    return r;
+}
+
+/* I5/I2/I4/I3 through pi_app -> pi_prompt: the "reach" layout (two skills the model sees, one it does not) in the request */
+static void test_reach_skills(void)
+{
+    long reads = pi_skills_reads, gn;
+    char *g = golden_in("skills", "reach.json", &gn), *sec = 0, *exp1 = 0, *exp2 = 0, *esc;
+    jv gv, v, item;
+    jit it;
+    char p[420];
+    const char *s, *c, *pc;
+    CHECK(g != 0 && json_parse(g, gn, &gv) == 0);
+    if (!g)
+        return;
+    json_get(gv, "sections", &v);
+    json_get(v, "read+bash", &item);
+    sec = json_strdup(item, &gn);
+    json_get(gv, "expand", &v);
+    json_iter(v, &it);
+    json_next(&it, 0, &item);
+    exp1 = jstr(item, "output");
+    json_next(&it, 0, &item);
+    exp2 = jstr(item, "output");
+    /* the section, between the project context and cwd, with the hidden skill left out */
+    CHECK_INT(app_run("reach/w/proj", "reach/agent", 0, 1, 0), 0);
+    CHECK_INT(pi_skills_reads - reads, 3);              /* the sentinel: skills.c read the three SKILL.md files */
+    CHECK_INT(ps.nreq, 1);
+    esc = json_inner(sec);
+    CHECK(sent(esc));
+    free(esc);
+    CHECK(sent("<name>alpha</name>") && sent("<name>zeta</name>") && !sent("<name>hid</name>"));
+    s = pos("<skills>");
+    c = pos("<cwd>");
+    pc = pos("expert coding assistant");
+    CHECK(s != 0 && c != 0 && pc != 0 && pc < s && s < c);
+    /* /skill:name args: the block and the arguments are the user's message */
+    app_prompt = "/skill:alpha review it";
+    CHECK_INT(app_run("reach/w/proj", "reach/agent", 0, 1, 0), 0);
+    esc = json_inner(exp1);
+    CHECK(sent(esc));
+    free(esc);
+    CHECK(!sent("/skill:alpha"));
+    /* a hidden skill is not in the section, and /skill: loads it all the same */
+    app_prompt = "/skill:hid";
+    CHECK_INT(app_run("reach/w/proj", "reach/agent", 0, 1, 0), 0);
+    esc = json_inner(exp2);
+    CHECK(sent(esc));
+    free(esc);
+    /* an unknown skill goes to the model as typed */
+    app_prompt = "/skill:nope x";
+    CHECK_INT(app_run("reach/w/proj", "reach/agent", 0, 1, 0), 0);
+    CHECK(sent("/skill:nope x"));
+    /* --no-skills: nothing is read, no section; --skill brings one back */
+    reads = pi_skills_reads;
+    CHECK_INT(app_run("reach/w/proj", "reach/agent", "--no-skills", 1, 0), 0);
+    CHECK_INT(pi_skills_reads - reads, 0);
+    CHECK(!sent("<skills>") && !sent("<available_skills>"));
+    app_flag2 = "--skill";
+    app_value2 = "../../agent/skills/zeta";
+    CHECK_INT(app_run("reach/w/proj", "reach/agent", "--no-skills", 1, 0), 0);
+    CHECK(sent("<name>zeta</name>") && !sent("<name>alpha</name>"));
+    /* the file is the knob: without it the section loses the skill */
+    at(p, sizeof(p), "reach/agent/skills/alpha/SKILL.md");
+    CHECK_INT(remove(p), 0);
+    CHECK_INT(app_run("reach/w/proj", "reach/agent", 0, 1, 0), 0);
+    CHECK(!sent("<name>alpha</name>") && sent("<name>zeta</name>"));
+    /* no skills at all: no section */
+    at(p, sizeof(p), "reach/agent/skills/zeta/SKILL.md");
+    CHECK_INT(remove(p), 0);
+    at(p, sizeof(p), "reach/agent/skills/hid/SKILL.md");
+    CHECK_INT(remove(p), 0);
+    CHECK_INT(app_run("reach/w/proj", "reach/agent", 0, 1, 0), 0);
+    CHECK(!sent("<skills>"));
+    free(sec);
+    free(exp1);
+    free(exp2);
+    free(g);
+}
+
 void suite_pi_resources(void)
 {
     const char *base = getenv("TMPDIR");
@@ -706,6 +1054,9 @@ void suite_pi_resources(void)
     test_agent_dir_alias();
     test_reach_trust();
     test_reach_trust_error();
+    test_skills_goldens();
+    test_skills_args();
+    test_reach_skills();
     jw_free(&out);
     ps_reset();
     {

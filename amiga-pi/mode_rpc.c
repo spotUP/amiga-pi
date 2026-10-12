@@ -1363,8 +1363,17 @@ static void handle_cmd(const cmd *c)
         cmd_get_last_assistant_text(c);
     else if (!strcmp(t, "set_session_name"))
         cmd_set_session_name(c);
-    else if (!strcmp(t, "get_commands"))
-        ok(c, "{\"commands\":[]}");
+    else if (!strcmp(t, "get_commands")) {
+        /* pi rpc-mode.ts:680-710: the extension commands, the prompt templates, then the skills as skill:<name> */
+        jw d;
+        jw_init(&d);
+        jw_rawz(&d, "{\"commands\":[");
+        if (c->r->s->res)
+            pi_skills_commands(&c->r->s->res->skills, &d);
+        jw_rawz(&d, "]}");
+        okw(c, &d);
+        jw_free(&d);
+    }
     else {
         char err[200];
         cl_copy(err, "Unknown command: ", sizeof(err));

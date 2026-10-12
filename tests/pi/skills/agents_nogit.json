@@ -1,0 +1,38 @@
+{
+ "skills": [
+  {
+   "name": "here",
+   "description": "Here",
+   "filePath": "@ROOT@/agents_nogit/w/p/q/.agents/skills/here/SKILL.md",
+   "baseDir": "@ROOT@/agents_nogit/w/p/q/.agents/skills/here",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] Here"
+  },
+  {
+   "name": "two",
+   "description": "Two levels up",
+   "filePath": "@ROOT@/agents_nogit/w/.agents/skills/two/SKILL.md",
+   "baseDir": "@ROOT@/agents_nogit/w/.agents/skills/two",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] Two levels up"
+  },
+  {
+   "name": "top",
+   "description": "At the layout's top",
+   "filePath": "@ROOT@/agents_nogit/.agents/skills/top/SKILL.md",
+   "baseDir": "@ROOT@/agents_nogit/.agents/skills/top",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] At the layout's top"
+  }
+ ],
+ "diagnostics": [],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:here\",\"description\":\"Here\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/agents_nogit/w/p/q/.agents/skills/here/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/agents_nogit/w/p/q/.agents\"}},{\"name\":\"skill:two\",\"description\":\"Two levels up\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/agents_nogit/w/.agents/skills/two/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/agents_nogit/w/.agents\"}},{\"name\":\"skill:top\",\"description\":\"At the layout's top\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/agents_nogit/.agents/skills/top/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/agents_nogit/.agents\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>here</name>\n    <description>Here</description>\n    <location>@ROOT@/agents_nogit/w/p/q/.agents/skills/here/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>two</name>\n    <description>Two levels up</description>\n    <location>@ROOT@/agents_nogit/w/.agents/skills/two/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>top</name>\n    <description>At the layout&apos;s top</description>\n    <location>@ROOT@/agents_nogit/.agents/skills/top/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": []
+}

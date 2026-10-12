@@ -1,0 +1,56 @@
+{
+ "skills": [
+  {
+   "name": "s",
+   "description": "In the working directory",
+   "filePath": "@ROOT@/agents_walk/repo/pkg/sub/.agents/skills/s/SKILL.md",
+   "baseDir": "@ROOT@/agents_walk/repo/pkg/sub/.agents/skills/s",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] In the working directory"
+  },
+  {
+   "name": "b",
+   "description": "In the package",
+   "filePath": "@ROOT@/agents_walk/repo/pkg/.agents/skills/b/SKILL.md",
+   "baseDir": "@ROOT@/agents_walk/repo/pkg/.agents/skills/b",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] In the package"
+  },
+  {
+   "name": "c",
+   "description": "A markdown file below the root is",
+   "filePath": "@ROOT@/agents_walk/repo/pkg/.agents/skills/c/extra.md",
+   "baseDir": "@ROOT@/agents_walk/repo/pkg/.agents/skills/c",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] A markdown file below the root is"
+  },
+  {
+   "name": "a",
+   "description": "At the repository top",
+   "filePath": "@ROOT@/agents_walk/repo/.agents/skills/a/SKILL.md",
+   "baseDir": "@ROOT@/agents_walk/repo/.agents/skills/a",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] At the repository top"
+  },
+  {
+   "name": "u",
+   "description": "User skill",
+   "filePath": "@ROOT@/agents_walk/agent/skills/u/SKILL.md",
+   "baseDir": "@ROOT@/agents_walk/agent/skills/u",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] User skill"
+  }
+ ],
+ "diagnostics": [],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:s\",\"description\":\"In the working directory\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/agents_walk/repo/pkg/sub/.agents/skills/s/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/agents_walk/repo/pkg/sub/.agents\"}},{\"name\":\"skill:b\",\"description\":\"In the package\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/agents_walk/repo/pkg/.agents/skills/b/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/agents_walk/repo/pkg/.agents\"}},{\"name\":\"skill:c\",\"description\":\"A markdown file below the root is\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/agents_walk/repo/pkg/.agents/skills/c/extra.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/agents_walk/repo/pkg/.agents\"}},{\"name\":\"skill:a\",\"description\":\"At the repository top\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/agents_walk/repo/.agents/skills/a/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/agents_walk/repo/.agents\"}},{\"name\":\"skill:u\",\"description\":\"User skill\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/agents_walk/agent/skills/u/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/agents_walk/agent\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>s</name>\n    <description>In the working directory</description>\n    <location>@ROOT@/agents_walk/repo/pkg/sub/.agents/skills/s/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>b</name>\n    <description>In the package</description>\n    <location>@ROOT@/agents_walk/repo/pkg/.agents/skills/b/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>c</name>\n    <description>A markdown file below the root is</description>\n    <location>@ROOT@/agents_walk/repo/pkg/.agents/skills/c/extra.md</location>\n  </skill>\n  <skill>\n    <name>a</name>\n    <description>At the repository top</description>\n    <location>@ROOT@/agents_walk/repo/.agents/skills/a/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>u</name>\n    <description>User skill</description>\n    <location>@ROOT@/agents_walk/agent/skills/u/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": []
+}
