@@ -1,7 +1,7 @@
 // Goldens for tests/test_pi_model_reach.c test_switch and test_switch_back: the request pi's own providers send
 // after a model switch, from pi-ai's streamSimple (anthropic-messages and openai-responses) with a fake fetch that
 // answers with a recorded stream. Inputs (tests/pi/model/switch_inputs.json): the system prompt, the bash description and
-// the session id the app sends (the tools are pi's real declarations, $VTCON_DIR/tests/pi/pi_tools.json), and the session id its store makes. Writes tests/pi/model/switch_second.json
+// and the session id its store makes (the tools are pi's real declarations, $VTCON_DIR/tests/pi/pi_tools.json). Writes tests/pi/model/switch_second.json
 // (Anthropic answer, then gpt-4.1) and switch_back_second.json (gpt-4.1 answer, then Anthropic at the level the
 // switch clamps off to).
 //   VTCON_DIR=<vtcon> [PI_NPM=<pi install>] node tools/pi_oracle/gen_switch.mjs
