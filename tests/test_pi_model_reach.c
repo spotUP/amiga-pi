@@ -545,6 +545,43 @@ static void test_declare_every_model(void)
     s3_free(&st);
 }
 
+/* PX5: gpt-5.5 takes system messages in the conversation and tool additions (supportsMidConvoSystemMessages,
+ * supportsAdditionalTools). A tool added during the run: the second request keeps the initial tools at the top and
+ * carries the late one as an additional_tools item of its input after the tool result; both requests' "input" and
+ * "tools" are pi's (tests/pi/model/declare55_*.json, made by tools/pi_oracle/gen_declare.mjs from pi-agent-core
+ * runAgentLoop and pi-ai's openai-responses). Through pi_app: the agent decides to send the transcript's system messages */
+static void test_declare_mid_responses(void)
+{
+    char *a[] = { "amiga-pi", "--model", "openai/gpt-5.5", 0 };
+    static const char *const sse[] = { "../pi/responses/adder.sse", "../pi/responses/plain.sse" };
+    static const char *const gold[] = { "declare55_first.json", "declare55_second.json" };
+    char want[12000], got[12000], roles[200];
+    int i;
+    ready_hook = ready_adder;
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 2), 0);
+    ready_hook = 0;
+    CHECK_INT(ps.nreq, 2);
+    if (ps.nreq < 2)
+        return;
+    for (i = 0; i < 2; i++) {
+        jv b, in, tl;
+        CHECK_INT(slurp_line(gold[i], want, sizeof(want)), 0);
+        CHECK(json_parse(ps.body[i], (long)strlen(ps.body[i]), &b) == 0 && json_get(b, "input", &in) && json_get(b, "tools", &tl));
+        if (in.n + tl.n + 30 < (long)sizeof(got)) {
+            sprintf(got, "{\"input\":%.*s,\"tools\":%.*s}", (int)in.n, in.p, (int)tl.n, tl.p);
+            if (strcmp(got, want)) {
+                printf("    request %d\n      got  %s\n      want %s\n", i + 1, got, want);
+                CHECK(0);
+            }
+        } else
+            CHECK(0);
+    }
+    CHECK_INT(slurp_line("declare55_roles.txt", roles, sizeof(roles)), 0);
+    CHECK(strstr(ps.body[1], "\"type\":\"additional_tools\"") != 0);
+}
+
 /* resume: pi restores the thinking level (and the model) from the session path (sdk.ts :253); E7 restored only the model */
 static void test_resume(void)
 {
@@ -656,6 +693,19 @@ static void test_command_once(void)
     }
     CHECK_INT(n, 1);                    /* the command ran once for three requests */
     CHECK(strstr(ps.body[2], "\"model\":\"m1\"") != 0);
+    /* PX4: pi's supportsStore (openai-completions detectCompat): a host not listed as non-standard gets "store":false */
+    CHECK(strstr(ps.body[2], ",\"store\":false,") != 0);
+    /* and models.json's compat.supportsStore false overrides it (pi's getCompat): no store member */
+    strcpy(text, "{\"providers\":{\"keyed\":{\"baseUrl\":\"https://public.example/v1\",\"api\":\"openai-completions\","
+                 "\"apiKey\":\"!");
+    strcat(text, cmd);
+    strcat(text, "\",\"headers\":{\"X-Team\":\"amiga\"},\"models\":[{\"id\":\"m1\",\"contextWindow\":50000,"
+                 "\"compat\":{\"supportsStore\":false}}]}}}");
+    write_file(agent, "models.json", text);
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    CHECK_INT(ps.nreq, 1);
+    CHECK(ps.nreq == 1 && strstr(ps.body[0], "\"store\"") == 0);
     remove(marker);
     remove(strcat(strcpy(cmd, agent), "/models.json"));
 }
@@ -737,6 +787,7 @@ void suite_pi_model_reach(void)
     test_levels();
     test_declare();
     test_declare_every_model();
+    test_declare_mid_responses();
     test_clamp_first();
     test_resume();
     test_commands();

@@ -304,7 +304,7 @@ static int answer(pi_session *s, stream *t)
     }
     /* pi's buildBaseOptions: the output cap is clamped by the estimate over this transcript, as it stands */
     est = llm_estimate_context(tm, tn, o);
-    if (llm_ant_mid_system(&s->model)) {
+    if (llm_mid_system(&s->model)) {
         pm = tm;
         pn = tn;
         pc = o;
