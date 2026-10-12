@@ -8,8 +8,14 @@
  *               {block: true, reason}); the first blocker wins and the
  *               model gets an isError toolResult with the reason;
  *   tool_result after it ran: replace its content and isError (pi:
- *               tool_result handlers returning {content, isError}).
- * Portable C89. */
+ *               tool_result handlers returning {content, isError});
+ *   input       the prompt text before templates expand it: rewrite it (pi:
+ *               {action: "transform", text}) or consume it ({action:
+ *               "handled"}: no run); the first "handled" wins;
+ *   session_start the session began (startup) or was replaced (new, resume).
+ * One ordered list: the built-in gate, the hook commands (ext_hooks.h) and later
+ * extensions are dispatched in the order they were added (plan L8: the gate joins
+ * the same list). Portable C89. */
 #ifndef PI_EXT_H
 #define PI_EXT_H
 
@@ -28,12 +34,23 @@ typedef struct pi_ext {
     /* content: the result's blocks (JSON array) to keep or rewrite */
     void (*tool_result)(void *u, const char *id, const char *name, const char *args, long an, jw *content,
                         int *is_error);
+    /* text: the prompt so far (JSON-free bytes), an extension may rewrite it (reset and write); source is pi's
+     * InputSource ("interactive", "rpc", "extension"); 1 handled (the first one ends the dispatch) */
+    int (*input)(void *u, const char *source, jw *text);
+    /* pi's SessionStartEvent: reason "startup", "reload", "new", "resume", "fork"; prev the previous session file, 0 none */
+    void (*session_start)(void *u, const char *reason, const char *prev);
 } pi_ext;
 
 typedef struct pi_exts {
     const pi_ext *e[PI_EXTS];
     int n;
     long calls, blocks;         /* tool_call dispatches, blocks (the tests count them) */
+    int replace_binds;          /* how many times the mode binds a replaced session (session_start per new / resume): 0 or 1 once; RPC 2 */
+    const char *source;         /* the input event's source for the prompt now running (0: "interactive") */
+    /* the running tool's structured content and details, for a tool_result extension that replaces the content
+     * (pi: structuredContent is dropped unless the handler returns it too); set by the loop, 0 outside it */
+    jw *structured, *details;
+    int thrown;                 /* the tool itself failed: its result's details are {} when it has none */
 } pi_exts;
 
 void pi_exts_init(pi_exts *x);
@@ -45,5 +62,8 @@ void pi_exts_event(void *u, const pi_event *e);
 int pi_exts_tool_call(pi_exts *x, const char *id, const char *name, jw *args, char *reason, long cap);
 void pi_exts_tool_result(pi_exts *x, const char *id, const char *name, const char *args, long an, jw *content,
                          int *is_error);
+/* pi's emitInput: text rewritten by the extensions in order; 1 when one handled it (no run) */
+int pi_exts_input(pi_exts *x, jw *text);
+void pi_exts_session_start(pi_exts *x, const char *reason, const char *prev);
 
 #endif

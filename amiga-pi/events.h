@@ -68,6 +68,7 @@ typedef struct pi_event {
     /* tool_execution_end: durationMs (pi-agent-core 1.1.0), -1 when the tool did not run: no key;
      * agent_settled: aborted is pi's _agentRunAbortRequested */
     long duration_ms;
+    int thrown;                 /* tool_execution_end: the tool itself failed (a thrown error: details {}), not just isError set by an extension */
     long n1, n2, n3;
 } pi_event;
 

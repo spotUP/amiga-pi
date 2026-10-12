@@ -796,8 +796,8 @@ static void bash_update(pi_session *s, const char *id, const char *args, long an
     pi_event_init(&e, PE_TOOL_UPDATE);
     e.tool_id = id;
     e.tool_name = "bash";
-    e.args = args;
-    e.args_n = an;
+    e.args = s->call_args ? s->call_args : args;       /* toolCall.arguments: what the model sent, not what an extension rewrote */
+    e.args_n = s->call_args ? s->call_args_n : an;
     e.result = c.p;
     e.result_n = c.n;
     e.structured = text ? "{}" : 0;

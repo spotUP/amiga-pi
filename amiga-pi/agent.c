@@ -571,7 +571,7 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
 {
     pi_event e;
     jw args, content, m;
-    int is_error = 0, stopped = 0, i;
+    int is_error = 0, stopped = 0, i, thrown = -1;
     long duration = -1;         /* pi-agent-core 1.1.0: the tool's execute() time; none when it did not run */
     char reason[256], what[160];
     pi_tool *t;
@@ -617,15 +617,23 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     } else {
         t->calls++;
         s->call_id = b->id;
+        s->call_args = b->a.n ? b->a.p : no_args;       /* what the model sent: the tool's events carry it, whatever an extension rewrote */
+        s->call_args_n = b->a.n ? b->a.n : (long)strlen(no_args);
         {
             tick t1 = tick_now(s);
             stopped = t->run(t->u, s, args.p, args.n, &content, &is_error);
             duration = tick_since(s, &t1);      /* around the tool only: not the extensions' tool_result hook below */
         }
         s->call_id = 0;
+        s->call_args = 0;
         if (!content.n)
             jw_rawz(&content, "[]");
+        thrown = is_error;              /* the tool's own failure: its result has details {}; an extension's isError does not */
+        s->ext.structured = &s->structured;     /* a tool_result extension may replace them with the content */
+        s->ext.details = &s->details;
+        s->ext.thrown = thrown;
         pi_exts_tool_result(&s->ext, b->id, b->name, args.p, args.n, &content, &is_error);
+        s->ext.structured = s->ext.details = 0;
     }
     pi_event_init(&e, PE_TOOL_END);
     e.tool_id = b->id;
@@ -635,6 +643,9 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     e.result = content.p;
     e.result_n = content.n;
     e.is_error = is_error;
+    if (thrown < 0)
+        thrown = is_error;
+    e.thrown = thrown;
     e.structured = s->structured.n ? s->structured.p : 0;
     e.structured_n = s->structured.n;
     e.details = s->details.n ? s->details.p : 0;
@@ -643,8 +654,8 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     pi_emit(&s->em, &e);
     jw_init(&m);
     llm_m_toolresult(&m, b->id, b->name, content.p, content.n,
-                     s->details.n ? s->details.p : is_error && !s->structured.n ? "{}" : 0,
-                     s->details.n ? s->details.n : is_error && !s->structured.n ? 2 : 0, is_error, duration, now(s));
+                     s->details.n ? s->details.p : thrown && !s->structured.n ? "{}" : 0,
+                     s->details.n ? s->details.n : thrown && !s->structured.n ? 2 : 0, is_error, duration, now(s));
     i = keep(s, &m);
     jw_free(&m);
     if (i >= 0) {
@@ -1024,7 +1035,7 @@ static int retry_wait(pi_session *s, long ms)
     return s->retry_stop;
 }
 
-int pi_prompt(pi_session *s, const char *text)
+static int prompt_run(pi_session *s, const char *text)
 {
     int rc;
     pi_agent_prompts++;
@@ -1098,6 +1109,33 @@ int pi_prompt(pi_session *s, const char *text)
         e.aborted = s->aborted;
         pi_emit(&s->em, &e);
     }
+    return rc;
+}
+
+/* agent-session.ts prompt(): the extensions' input event comes before the templates expand (and the prompt's compaction
+ * check); "handled" ends the call with no run, "transform" is the new text */
+int pi_prompt(pi_session *s, const char *text)
+{
+    jw t;
+    int rc;
+    if (!text || !s->ext.n)
+        return prompt_run(s, text);
+    jw_init(&t);
+    jw_rawz(&t, text);
+    if (pi_exts_input(&s->ext, &t)) {
+        jw_free(&t);
+        s->err[0] = 0;
+        if (s->started) {               /* preflightResult("handled") */
+            void (*f)(void *) = s->started;
+            s->started = 0;
+            s->disposition = "handled";
+            f(s->started_u);
+            s->disposition = 0;
+        }
+        return 0;
+    }
+    rc = prompt_run(s, t.p ? t.p : "");
+    jw_free(&t);
     return rc;
 }
 

@@ -1181,7 +1181,7 @@ static int ext_tool_call(void *u, const char *id, const char *name, jw *args, ch
     return 0;
 }
 
-static pi_ext ui_ext = { "ui-test", 0, 0, ext_tool_call, 0 };
+static pi_ext ui_ext = { "ui-test", 0, 0, ext_tool_call, 0, 0, 0 };
 static long ui_ready_calls;
 
 static void ui_ready(pi_session *s)
