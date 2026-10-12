@@ -579,19 +579,18 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         s3_session_info(&store.s3, a.name);
     if (a.print)
         rc = pi_ui_print(&s, pl->io, a.prompt);
-    else
+    else {
+        static cl_pitheme th;
+        static char *kb;
+        long kn = 0;
         pi_ui_set_cwd(pl->cwd);
         pi_ui_set_quiet(quiet_setting(pl));
-        {
-            static cl_pitheme th;
-            static char *kb;
-            long kn = 0;
-            load_theme(pl, &th);
-            pi_ui_set_theme(&th);
-            kb = keybindings_text(pl, &kn);
-            pi_ui_set_keybindings(kb, kn);
-        }
+        load_theme(pl, &th);
+        pi_ui_set_theme(&th);
+        kb = keybindings_text(pl, &kn);
+        pi_ui_set_keybindings(kb, kn);
         rc = pi_ui_run(&s, pl->io, a.prompt[0] ? a.prompt : 0);
+    }
     pi_store_free(&store);
     pi_session_free(&s);
     mcp_free(&mc);

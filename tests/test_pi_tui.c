@@ -1172,6 +1172,63 @@ static void test_approval(void)
     rmdir(proj);
 }
 
+
+/* ---- the cost of a key: pi's footer redraws the same diffed rows C:Claude's does ---- */
+
+static long key_mark[16];
+static int nmark;
+static void mark_hook(void)
+{
+    if (nmark < 16)
+        key_mark[nmark++] = cs.sent.n;
+}
+
+/* bytes sent per typed character with the given look, over a screen that is up (the first mark is the screen drawn) */
+static long bytes_per_key(int look)
+{
+    static const char *script[] = { "a", "b", "c", "d", "e", "f", "\r", 0 };
+    cl_io io;
+    cl_tui t;
+    cl_pitheme th;
+    char buf[64];
+    long total, rows0;
+    cs_open(80, 25, script);
+    cs_io(&io);
+    cs.before_read = mark_hook;
+    nmark = 0;
+    CHECK_INT(tui_init(&t, &io), 0);
+    if (look == TUI_LOOK_PI) {
+        pitheme_system(&th);
+        t.look = TUI_LOOK_PI;
+        t.pith = &th;
+        strcpy(t.pi_cwd, "~/project");
+        strcpy(t.pi_ctx, "0.0%/200k (auto)");
+        strcpy(t.pi_right, "fake-model");
+    }
+    t.model = "fake-model";
+    CHECK_INT(tui_start(&t), 0);
+    tui_frame(&t);
+    rows0 = t.n_rows;
+    CHECK(tui_read(&t, buf, sizeof(buf)) == 6);
+    /* marks: one before each read; the bytes between the marks of the 2nd and the 7th read are six keys */
+    total = nmark >= 8 ? key_mark[7] - key_mark[1] : -1;
+    CHECK((t.n_rows - rows0) <= 8);            /* a key redraws a row (the box's), never the whole footer */
+    CHECK_INT(t.n_full, t.n_full);
+    tui_stop(&t);
+    tui_free(&t);
+    cs_close();
+    return total;
+}
+
+static void test_footer_cost(void)
+{
+    long claude = bytes_per_key(TUI_LOOK_CLAUDE), pi = bytes_per_key(TUI_LOOK_PI);
+    CHECK(claude > 0 && pi > 0);
+    CHECK(pi <= claude);            /* the same path (build the rows, send those that changed): never more bytes */
+    if (getenv("PI_TUI_DUMP"))
+        printf("  six keys: C:Claude's look %ld bytes, pi's look %ld bytes\n", claude, pi);
+}
+
 /* the start header: the program's own name for pi's version, no startup-help panel and no pi tips */
 #define HDR_VER { 2, 2, 5, 79, "start header" }
 #define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
@@ -1207,6 +1264,7 @@ void suite_pi_tui(void)
     test_themes();
     test_theme_keys_app();
     test_approval();
+    test_footer_cost();
     app_cleanup();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))

@@ -80,7 +80,7 @@ static void cusp(double a, double b, double *cl, double *cc)
     mx = lin[0] > lin[1] ? lin[0] : lin[1];
     if (lin[2] > mx)
         mx = lin[2];
-    *cl = cbrt(1 / mx);
+    *cl = pow(1 / mx, 1.0 / 3.0);   /* C89 has no cbrt */
     *cc = *cl * s;
 }
 

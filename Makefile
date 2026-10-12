@@ -80,7 +80,7 @@ build/amiga/amiga-pi: $(PI_CORE) $(PI_HDR) amiga-pi/main_amiga.c $(CLAUDE_PORTAB
 	  -c -o $(CURDIR)/build/amiga/obj/tls.o $(call vtvar,CLAUDE_TLS)
 	cd $(VTCON_DIR) && $(call vtvar,VC) -Dmain=up_main -dontwarn=153,65 -I$(VTCON_DIR) -o $(CURDIR)/$@ \
 	  $(PI_AMIGA_SRC) $(CURDIR)/build/amiga/obj/net_amiga.o $(CURDIR)/build/amiga/obj/tls.o $(CURDIR)/build/amiga/obj/stb_impl.o \
-	  build/amiga/obj/cpuchk-amiga-pi.o
+	  build/amiga/obj/cpuchk-amiga-pi.o -lmieee
 
 # K5: a stdio MCP server that runs on the Amiga (rig step 10), on vtcon's json.c
 build/amiga/mcp-echo: tools/probe/mcp_echo.c
