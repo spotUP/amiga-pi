@@ -1,0 +1,25 @@
+
+ run it
+
+
+
+ $ cat nothere.txt
+
+ cat: nothere.txt: No such file or directory
+
+
+ Command exited with code 1
+
+ Took 0.1s
+
+
+ It failed: no such file.
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model

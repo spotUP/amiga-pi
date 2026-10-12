@@ -1,9 +1,12 @@
 /* see app.h */
+#include "okcolor.h"
+#include "themes_builtin.h"
 #include <string.h>
 #include "app.h"
 #include "args.h"
 #include "prompt.h"
 #include "ui_pi.h"
+#include "claude/tui.h"
 #include "tools_pi.h"
 #include "ext_gate.h"
 #include "store.h"
@@ -71,12 +74,152 @@ static void trust_setting(const pi_platform *pl, char *out, long cap)
     CL_FREE(b);
 }
 
+/* settings.json's quietStartup: true hides the start header ("header" keeps it: it has no resource listing to hide) */
+static int quiet_setting(const pi_platform *pl)
+{
+    char *b, path[300];
+    long n;
+    jv o, v;
+    int quiet = 0;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return 0;
+    if (!json_parse(b, n, &o) && json_get(o, "quietStartup", &v) && json_type(v) == J_TRUE)
+        quiet = 1;
+    CL_FREE(b);
+    return quiet;
+}
+
+/* settings.json's steeringMode / followUpMode: 1 for "all", 0 for "one-at-a-time" (the default) */
+static int queue_mode_all(const pi_platform *pl, const char *key)
+{
+    char *b, path[300], v[32];
+    long n;
+    jv o, x;
+    int all = 0;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return 0;
+    if (!json_parse(b, n, &o) && json_get(o, key, &x) && json_type(x) == J_STR) {
+        json_str(x, v, sizeof(v));
+        all = !strcmp(v, "all");
+    }
+    CL_FREE(b);
+    return all;
+}
+
+/* settings.json's enabledModels (an array of patterns): joined by newlines into out, "" when absent */
+static void enabled_models(const pi_platform *pl, char *out, long cap)
+{
+    char *b, path[300], pat[200];
+    long n;
+    jv o, a, e;
+    jit it;
+    out[0] = 0;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return;
+    if (!json_parse(b, n, &o) && json_get(o, "enabledModels", &a) && json_type(a) == J_ARR) {
+        json_iter(a, &it);
+        while (json_next(&it, 0, &e))
+            if (json_type(e) == J_STR) {
+                json_str(e, pat, sizeof(pat));
+                if (out[0])
+                    cl_cat(out, "\n", cap);
+                cl_cat(out, pat, cap);
+            }
+    }
+    CL_FREE(b);
+}
+
+/* the theme settings.json names ("theme"; "system" when absent): a file <data dir>/themes/<name>.json or
+ * <agent dir>/themes/<name>.json, else pi's built-in dark or light; a theme that is invalid or missing is told and
+ * the system theme used (pi: the same fallback) */
+static void load_theme(const pi_platform *pl, cl_pitheme *th)
+{
+    char *b, path[300], name[80], err[800], *txt = 0;
+    long n, tn = 0;
+    jv o, v;
+    int i, own = 0;
+    pitheme_system(th);
+    name[0] = 0;
+    if (!settings_text(pl, &b, &n, path, sizeof(path))) {
+        if (!json_parse(b, n, &o) && json_get(o, "theme", &v) && json_type(v) == J_STR)
+            json_str(v, name, sizeof(name));
+        CL_FREE(b);
+    }
+    if (!name[0] || !strcmp(name, "system"))
+        return;
+    for (i = 0; i < 2 && !txt; i++) {
+        const char *dir = i ? pl->agent_dir : pl->data_dir;
+        if (!dir || !dir[0] || strchr(name, '/') || !pl->sys)
+            continue;
+        cl_copy(path, dir, sizeof(path));
+        if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+            cl_cat(path, "/", sizeof(path));
+        cl_cat(path, "themes/", sizeof(path));
+        cl_cat(path, name, sizeof(path));
+        cl_cat(path, ".json", sizeof(path));
+        if (pl->sys->kind(pl->sys->u, path) == 1 && !pl->sys->read(pl->sys->u, path, 256L * 1024, &txt, &tn))
+            own = 1;
+        else
+            txt = 0;
+    }
+    if (!txt) {
+        const char *bt = !strcmp(name, "dark") ? pi_theme_dark : !strcmp(name, "light") ? pi_theme_light : 0;
+        if (!bt) {
+            say(pl->io, "[WARN] Theme not found: ", name);
+            return;
+        }
+        if (pitheme_load(th, bt, (long)strlen(bt), pi_okcolor, err, sizeof(err)))
+            pitheme_system(th);
+        return;
+    }
+    if (pitheme_load(th, txt, tn, pi_okcolor, err, sizeof(err))) {
+        say(pl->io, "[WARN] ", err);
+        pitheme_system(th);
+    }
+    if (own)
+        CL_FREE(txt);
+}
+
+/* <agent dir>/keybindings.json read (pi's shape): the text, CL_FREEd by the caller; 0 none */
+static char *keybindings_text(const pi_platform *pl, long *n)
+{
+    char *b = 0, path[300];
+    if (!pl->sys || !pl->agent_dir || !pl->agent_dir[0])
+        return 0;
+    cl_copy(path, pl->agent_dir, sizeof(path));
+    if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+        cl_cat(path, "/", sizeof(path));
+    cl_cat(path, "keybindings.json", sizeof(path));
+    if (pl->sys->kind(pl->sys->u, path) != 1 || pl->sys->read(pl->sys->u, path, 256L * 1024, &b, n))
+        return 0;
+    return b;
+}
+
 /* pi's trust question on the console: the title, the answers numbered, a number typed (0 or none: no answer) */
 static int trust_ask(void *u, const char *title, const char *const *labels, int n)
 {
     const pi_platform *pl = (const pi_platform *)u;
     char line[160], num[8], buf[16];
     int i;
+    if (pl->io->read && pl->io->raw) {
+        /* a console that answers raw mode: pi's selector (the question before the screen is up, no footer under it) */
+        static cl_tui t;
+        static cl_pitheme th;
+        if (!tui_init(&t, pl->io)) {
+            int pick;
+            pitheme_system(&th);
+            t.look = TUI_LOOK_PI;
+            t.pith = &th;
+            t.pi_nofoot = 1;
+            if (!tui_start(&t)) {
+                pick = tui_menu(&t, title, 0, labels, n, 0, -1);
+                tui_stop(&t);
+                tui_free(&t);
+                return pick;
+            }
+            tui_free(&t);
+        }
+    }
     say(pl->io, title, 0);
     for (i = 0; i < n; i++) {
         num[0] = (char)('1' + i);
@@ -325,6 +468,11 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
             say(pl->io, "[WARN] ", models.warn);
         default_model_settings(pl, dprov, sizeof(dprov), did, sizeof(did), &dlevel);
         models.default_level = dlevel;
+        {
+            char scope[2048];
+            enabled_models(pl, scope, sizeof(scope));
+            pi_models_set_scope(&models, scope);
+        }
         if (pick_model(&a, &models, &store, dprov, did, &m, &plevel, warn)) {
             pi_models_free(&models);
             pi_store_free(&store);
@@ -339,6 +487,8 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         level0 = pi_models_start_level(&m, want);
     }
     pi_session_init(&s, &m, 0, pl->pool, &pl->h);
+    s.steer_all = queue_mode_all(pl, "steeringMode");
+    s.follow_all = queue_mode_all(pl, "followUpMode");
     s.thinking = level0;
     if (a.api_key[0]) {
         cl_copy(models.cfg.runtime_key, a.api_key, sizeof(models.cfg.runtime_key));
@@ -376,7 +526,7 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     if (pl->sys) {
         trust_setting(pl, dflt, sizeof(dflt));
         trusted = pi_trust_decide(pl->sys, pl->agent_dir, pl->cwd, a.approve, dflt,
-                                  a.print || !pl->io->read_line ? 0 : trust_ask, (void *)pl);
+                                  a.print || (!pl->io->read_line && !(pl->io->read && pl->io->raw)) ? 0 : trust_ask, (void *)pl);
         if (trusted < 0) {
             /* pi stops with the trust store's error (readTrustFile / setMany throw) */
             char terr[400];
@@ -429,8 +579,18 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         s3_session_info(&store.s3, a.name);
     if (a.print)
         rc = pi_ui_print(&s, pl->io, a.prompt);
-    else
+    else {
+        static cl_pitheme th;
+        static char *kb;
+        long kn = 0;
+        pi_ui_set_cwd(pl->cwd);
+        pi_ui_set_quiet(quiet_setting(pl));
+        load_theme(pl, &th);
+        pi_ui_set_theme(&th);
+        kb = keybindings_text(pl, &kn);
+        pi_ui_set_keybindings(kb, kn);
         rc = pi_ui_run(&s, pl->io, a.prompt[0] ? a.prompt : 0);
+    }
     pi_store_free(&store);
     pi_session_free(&s);
     mcp_free(&mc);

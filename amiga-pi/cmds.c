@@ -18,6 +18,7 @@
 #include "store.h"
 #include "resources.h"
 #include "compact.h"
+#include "export.h"
 #include "models.h"
 #include "claude/util.h"
 
@@ -405,6 +406,11 @@ done:
     jw_free(&usage);
 }
 
+void pi_tree_navigate(pi_store *st, int idx, int summarize, const char *instr, int replace, jw *reply, jw *editor)
+{
+    navigate(st, idx, summarize, instr, replace, 0, reply, editor);
+}
+
 static const char *skip_ws(const char *p)
 {
     while (*p == ' ' || *p == '\t')
@@ -516,6 +522,17 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
             }
             navigate(st, idx, sum, focus, replace, lab, reply, editor);
         }
+        return 1;
+    }
+    if ((a = word(line, "/export")) != 0) {
+        char done[700], err[200];
+        cl_pitheme th;
+        pitheme_system(&th);
+        if (pi_export(st, &th, st->s3.cwd, *a ? a : 0, done, sizeof(done), err, sizeof(err))) {
+            jw_rawz(reply, "[ERROR] Failed to export session: ");
+            jw_rawz(reply, err);
+        } else
+            jw_rawz(reply, done);
         return 1;
     }
     if ((a = word(line, "/fork")) != 0) {

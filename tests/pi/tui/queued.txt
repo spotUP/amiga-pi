@@ -1,0 +1,25 @@
+
+ hello
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Steering: steer me
+ Follow-up: and then this
+ ↳ Option+Up to edit all queued messages
+
+── ⠧ Working ───────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.7%/200k (auto)                                                      fake-model

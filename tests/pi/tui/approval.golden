@@ -1,0 +1,25 @@
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+
+[39m [1mTrust project folder?[0m
+ [1m/private/tmp/pitui/project[0m
+
+ [1mThis allows pi to load .pi settings and resources, install missing project
+[0m [1mpackages, and execute project extensions.[0m
+
+ → Trust
+   Trust parent folder (/private/tmp/pitui)
+   Trust (this session only)
+   Do not trust
+   Do not trust (this session only)
+
+ [2m↑↓ navigate[0m  [2menter select[0m  [2mescape/ctrl+c cancel[0m
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+

@@ -1,0 +1,25 @@
+
+ run it
+
+
+
+ [1m$ cat nothere.txt[0m
+
+ [2mcat: nothere.txt: No such file or directory[0m
+
+
+ [2mCommand exited with code 1[0m
+
+ [2mTook 0.1s[0m
+
+
+ It failed: no such file.
+
+
+
+
+[2m────────────────────────────────────────────────────────────────────────────────
+[0;7m [0m
+[2m────────────────────────────────────────────────────────────────────────────────
+~/project[0m
+[2m↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model

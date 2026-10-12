@@ -22,6 +22,7 @@ typedef struct pi_models {
     char *auth;                 /* auth.json text, owned */
     char warn[320];             /* what was wrong with models.json, "" nothing */
     struct pi_store *store;     /* the session file the switches are recorded in, 0 none */
+    char *scope;                /* settings.json enabledModels, the patterns one to a line (owned), 0 none: Ctrl+P cycles those */
     int default_level;          /* settings.json defaultThinkingLevel (LT_*), -1 none: a switch applies it (pi's getDefaultThinkingLevel) */
 } pi_models;
 
@@ -42,10 +43,24 @@ int pi_models_start_level(const llm_model *model, int want);
 
 /* pi's setModel: 0, or -1 with err ("No API key for provider/id") */
 int pi_model_switch(pi_models *m, pi_session *s, const llm_model *to, char *err, long cap);
+/* the same with the level the model starts at given (a scoped model's ":level"; -1: the usual rule) */
+int pi_model_switch_level(pi_models *m, pi_session *s, const llm_model *to, int explicit_level, char *err, long cap);
 /* pi's setThinkingLevel: the level in effect afterwards, -1 when the session file cannot take the entry (the level is unchanged) */
 int pi_thinking_set(pi_models *m, pi_session *s, int level);
 /* "provider/id" of the model */
 void pi_model_label(const llm_model *m, char *out, long cap);
+
+/* settings.json's enabledModels (patterns joined by newlines, 0 none): what Ctrl+P cycles through */
+int pi_models_set_scope(pi_models *m, const char *patterns);
+/* pi's cycleModel (agent-session.js :1980): the next (dir 1) or previous (dir -1) model of the scope -- the models of
+ * enabledModels that have a credential, in the order the patterns give them (resolveModelScopeFromModels: globs over
+ * provider/id and id, ":level" for the level of that model) -- or, with no scope, of all models that have one. Switched
+ * the way /model does (model_change, thinking_level_change when it changed). 1 switched, 0 nothing to switch to, -1 the
+ * session file could not take it; msg is the line pi shows ("Switched to x (thinking: high)", "Only one model in scope") */
+int pi_model_cycle(pi_models *m, pi_session *s, int dir, char *msg, long cap);
+/* pi's cycleThinkingLevel: the next level the model supports, wrapping; msg "Thinking level: x" or "Current model
+ * does not support thinking". 1 changed, 0 not, -1 not recorded */
+int pi_thinking_cycle(pi_models *m, pi_session *s, char *msg, long cap);
 
 /* the lines of /model: every model whose provider has a credential, numbered, the current one marked */
 void pi_models_list(pi_models *m, const pi_session *s, jw *out);

@@ -78,6 +78,14 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, struct cp_re
 /* the slash commands of the session (cmds.c): /tree /fork /clone /label /name /session /trust; 1 when handled */
 int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor);
 
+/* ! and !! (pi executeBash): a bashExecution message recorded in the session; unless exclude (!!) the agent gets it as
+ * the user message pi's convertToLlm makes of it ("Ran `cmd`" and the output), for the next request. 0, -1 */
+int pi_store_bash(pi_store *st, const char *command, const char *output, int exit_code, int cancelled, int exclude);
+
+/* the leaf moved to entry idx as /tree N does (summarize, instr, replace: pi's navigateTree options): the lines to show
+ * in reply ("[ERROR] ..." when it failed), the text of a user message left in editor */
+void pi_tree_navigate(pi_store *st, int idx, int summarize, const char *instr, int replace, jw *reply, jw *editor);
+
 /* tied to the agent: subscribed to its events, the branch's messages loaded, the system prompt the replay.
  * A new session records the model and the thinking level. 0, -1 */
 int pi_store_attach(pi_store *st, pi_session *s);

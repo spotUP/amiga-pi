@@ -3,6 +3,7 @@
 #include <string.h>
 #include "store.h"
 #include "compact.h"
+#include "models.h"
 #include "cp_prompts.h"
 #include "claude/util.h"
 #include "llm/estimate.h"
@@ -761,6 +762,50 @@ static int command(void *u, pi_session *s, const char *line, jw *reply, jw *edit
     return pi_cmd(st, line, reply, editor);
 }
 
+int pi_store_bash(pi_store *st, const char *command, const char *output, int exit_code, int cancelled, int exclude)
+{
+    jw w, one;
+    llm_ts t;
+    int rc = 0;
+    jw_init(&w);
+    jw_rawz(&w, "{\"role\":\"bashExecution\",\"command\":");
+    jw_strz(&w, command);
+    jw_rawz(&w, ",\"output\":");
+    jw_strz(&w, output);
+    jw_rawz(&w, ",\"exitCode\":");
+    jw_long(&w, exit_code);
+    jw_rawz(&w, cancelled ? ",\"cancelled\":true,\"truncated\":false,\"timestamp\":" : ",\"cancelled\":false,\"truncated\":false,\"timestamp\":");
+    t.sec = 0;
+    t.ms = 0;
+    if (st->s3.now)
+        t = st->s3.now(st->s3.u);
+    s3_ms(t, &w);
+    if (exclude)
+        jw_rawz(&w, ",\"excludeFromContext\":true");
+    jw_raw(&w, "}", 1);
+    if (w.oom || s3_message(&st->s3, w.p, w.n) < 0)
+        rc = -1;
+    else if (!exclude) {
+        jw_init(&one);
+        if (ctx_msg_to_llm(w.p, w.n, &one) && pi_session_push(st->s, one.p, one.n))
+            rc = -1;
+        jw_free(&one);
+    }
+    jw_free(&w);
+    return rc;
+}
+
+static int cycle(void *u, pi_session *s, int what, int dir, char *msg, long cap)
+{
+    pi_store *st = (pi_store *)u;
+    (void)s;
+    if (!st->models) {
+        cl_copy(msg, "models cannot be switched here", cap);
+        return -1;
+    }
+    return what ? pi_thinking_cycle(st->models, st->s, msg, cap) : pi_model_cycle(st->models, st->s, dir, msg, cap);
+}
+
 int pi_store_attach(pi_store *st, pi_session *s)
 {
     st->s = s;
@@ -787,5 +832,7 @@ int pi_store_attach(pi_store *st, pi_session *s)
     s->declare_u = st;
     s->command = command;
     s->command_u = st;
+    s->cycle = cycle;
+    s->cycle_u = st;
     return pi_subscribe(&s->em, on_event, st);
 }
