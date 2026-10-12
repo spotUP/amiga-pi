@@ -551,6 +551,63 @@ static void test_steer_ui(void)
 }
 
 
+/* the directory name in the title: Unix and Amiga paths, a trailing '/', a volume root (an Amiga path is not cut at '/'
+ * only: "DH0:proj" names proj, "Ram Disk:" names the volume) */
+static void test_title_dir_name(void)
+{
+    static const char *const cases[][2] = {
+        { "/Users/spot/project", "project" }, { "/Users/spot/project/", "project" }, { "DH0:Work/proj", "proj" },
+        { "DH0:proj", "proj" }, { "Ram Disk:", "Ram Disk" }, { "proj", "proj" }, { "/", "" }, { 0, 0 }
+    };
+    char out[64];
+    int i;
+    for (i = 0; cases[i][0]; i++) {
+        pi_dir_name(cases[i][0], out, sizeof(out));
+        CHECK_STR(out, cases[i][1]);
+    }
+    pi_dir_name("/a/abcdefgh", out, 4);
+    CHECK_STR(out, "abc");
+}
+
+/* the window title is pi's -- "pi - <directory name>", the letter pi first -- set once at the start and left alone while
+ * the agent works and after (TM2; pi 1.0.4 updateTerminalTitle): never C:Claude's "Claude", "Claude - working" */
+static void test_window_title(void)
+{
+    static pi_session ses;
+    static const char *script[] = { "read the file\r", "\004", 0 };
+    cl_io io;
+    const char *p, *e;
+    int n = 0, bad = 0;
+    up_session(&ses, 1);
+    answer("tool.1.sse");
+    answer("tool.2.sse");
+    cs_open(80, 25, script);
+    cs_io(&io);
+    pi_ui_set_quiet(1);
+    pi_ui_set_theme(0);
+    pi_ui_set_keybindings(0, 0);
+    pi_ui_set_cwd("~/project");
+    pi_ui_set_commands(0, 0);
+    cs.before_read = 0;
+    taken = 0;
+    cur = 0;
+    CHECK_INT(pi_ui_run(&ses, &io, 0), 0);
+    CHECK_INT(ps.nreq, 2);                   /* the agent did work */
+    for (p = (const char *)cs.sent.p; p && (p = strstr(p, "\033]2;")) != 0; p = e) {
+        e = strchr(p, '\a');
+        if (!e)
+            break;
+        n++;
+        if (e - (p + 4) != (long)strlen("\317\200 - project") || strncmp(p + 4, "\317\200 - project", (size_t)(e - (p + 4))))
+            bad++;
+    }
+    CHECK_INT(n, 1);
+    CHECK_INT(bad, 0);
+    CHECK(cs.sent.p && strstr((const char *)cs.sent.p, "Claude - working") == 0);
+    cs_close();
+    pi_session_free(&ses);
+}
+
 /* ---- pi_app on the screen: a sandbox (agent dir, data dir), the keys typed, a look at the screen at rest ---- */
 
 static char aroot[400], adata[420], aagent[420], asdir[520];
@@ -1390,6 +1447,8 @@ void suite_pi_tui(void)
     unsigned i;
     test_queue_agent();
     test_steer_ui();
+    test_title_dir_name();
+    test_window_title();
     app_sandbox();
     test_cycle();
     test_tree();
