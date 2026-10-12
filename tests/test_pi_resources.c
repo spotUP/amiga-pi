@@ -113,8 +113,8 @@ static char *golden(const char *name, long *n)
 /* ---- the prompt's sections against pi's ---- */
 
 static const char *const no_guide[] = { 0 };
-static pi_tool t_read = { "read", "", "{}", "Read file contents", 0, 0, 0, no_guide };
-static pi_tool t_bash = { "bash", "", "{}", "Execute bash commands", 0, 0, 0, no_guide };
+static pi_tool t_read = { "read", "", "{}", "Read file contents", 0, 0, 0, no_guide, 0 };
+static pi_tool t_bash = { "bash", "", "{}", "Execute bash commands", 0, 0, 0, no_guide, 0 };
 static pi_session ps_s;
 
 /* one layout: pi_res_load for cwd (root/rel) and the agent directory, the sections compared with NAME.json. The

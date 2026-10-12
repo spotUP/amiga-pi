@@ -17,19 +17,17 @@ static const char d_read[] =
     "as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use "
     "offset/limit for large files. When you need the full file, continue with offset until complete.";
 static const char s_read[] =
-    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file to "
-    "read (relative or absolute)\"},\"offset\":{\"type\":\"number\",\"description\":\"Line number to start "
-    "reading from (1-indexed)\"},\"limit\":{\"type\":\"number\",\"description\":\"Maximum number of lines to "
-    "read\"}},\"required\":[\"path\"]}";
+    "{\"type\":\"object\",\"required\":[\"path\"],\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file to read (relative or absolute)\"}"
+    ",\"offset\":{\"type\":\"number\",\"description\":\"Line number to start reading from (1-indexed)\"},\"limit\":{\"type\":"
+    "\"number\",\"description\":\"Maximum number of lines to read\"}}}";
 static const char *const g_read[] = { "Use read to examine files instead of cat or sed.", 0 };
 
 static const char d_write[] =
     "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Automatically "
     "creates parent directories.";
 static const char s_write[] =
-    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file to "
-    "write (relative or absolute)\"},\"content\":{\"type\":\"string\",\"description\":\"Content to write to "
-    "the file\"}},\"required\":[\"path\",\"content\"]}";
+    "{\"type\":\"object\",\"required\":[\"path\",\"content\"],\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file to write (relative or absolute)\"}"
+    ",\"content\":{\"type\":\"string\",\"description\":\"Content to write to the file\"}}}";
 static const char *const g_write[] = { "Use write only for new files or complete rewrites.", 0 };
 
 static const char d_edit[] =
@@ -39,16 +37,13 @@ static const char d_edit[] =
     "connect distant changes.";
 /* in parts (C90 caps a string literal at 509 bytes), joined by pi_tools_init */
 static const char *const s_edit[] = {
-    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file to "
-    "edit (relative or absolute)\"},\"edits\":{\"type\":\"array\",\"items\":{\"type\":\"object\","
-    "\"properties\":{\"oldText\":{\"type\":\"string\",\"description\":\"Exact text for one targeted "
-    "replacement. It must be unique in the original file and must not overlap with any other edits[].oldText "
-    "in the same call.\"},",
-    "\"newText\":{\"type\":\"string\",\"description\":\"Replacement text for this "
-    "targeted edit.\"}},\"required\":[\"oldText\",\"newText\"]},\"description\":\"One or more targeted "
-    "replacements. Each edit is matched against the original file, not incrementally. Do not include "
-    "overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one "
-    "edit instead.\"}},\"required\":[\"path\",\"edits\"]}",
+    "{\"type\":\"object\",\"required\":[\"path\",\"edits\"],\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Path to the file to edit (relative or absolute)\"}"
+    ",\"edits\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"required\":[\"oldText\",\"newText\"],\"properties\":{\"oldText\":"
+    "{\"type\":\"string\",\"description\":\"Exact text for one targeted replacement. It must be unique in the original file and must not overlap with any other edits[",
+    "].oldText in the same call.\"},\"newText\":{\"type\":\"string\",\"description\":\"Replacement text for this targeted edit.\"}"
+    "}},\"description\":\"One or more targeted replacements. Each edit is matched against the original file,"
+    " not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines,"
+    " merge them into one edit instead.\"}}}",
     0
 };
 static const char *const g_edit[] = {
@@ -63,25 +58,21 @@ static const char *const g_edit[] = {
 };
 
 static const char s_bash[] =
-    "{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Shell command to "
-    "execute\"},\"timeout\":{\"type\":\"number\",\"description\":\"Timeout in seconds (optional, no default "
-    "timeout)\"}},\"required\":[\"command\"]}";
+    "{\"type\":\"object\",\"required\":[\"command\"],\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Shell command to execute\"}"
+    ",\"timeout\":{\"type\":\"number\",\"description\":\"Timeout in seconds (optional, no default timeout)\"}}}";
 
 static const char d_grep[] =
     "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects "
     ".gitignore. Output is truncated to 100 matches or 50KB (whichever is hit first). Long lines are truncated "
     "to 500 chars.";
 static const char *const s_grep[] = {
-    "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Search pattern "
-    "(regex or literal string)\"},\"path\":{\"type\":\"string\",\"description\":\"Directory or file to "
-    "search (default: current directory)\"},\"glob\":{\"type\":\"string\",\"description\":\"Filter files by "
-    "glob pattern, e.g. '*.ts' or '**/*.spec.ts'\"},",
-    "\"ignoreCase\":{\"type\":\"boolean\",\"description\":"
-    "\"Case-insensitive search (default: false)\"},\"literal\":{\"type\":\"boolean\",\"description\":\"Treat "
-    "pattern as literal string instead of regex (default: false)\"},\"context\":{\"type\":\"number\","
-    "\"description\":\"Number of lines to show before and after each match (default: 0)\"},\"limit\":"
-    "{\"type\":\"number\",\"description\":\"Maximum number of matches to return (default: 100)\"}},"
-    "\"required\":[\"pattern\"]}",
+    "{\"type\":\"object\",\"required\":[\"pattern\"],\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Search pattern (regex or literal string)\"}"
+    ",\"path\":{\"type\":\"string\",\"description\":\"Directory or file to search (default: current directory)\"},\"glob\":"
+    "{\"type\":\"string\",\"description\":\"Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'\"},\"ignoreCase\":"
+    "{\"type\":\"boolean\",\"description\":\"Case-insensitive search (default: false)\"},\"literal\":{\"type\":\"boolean\",",
+    "\"description\":\"Treat pattern as literal string instead of regex (default: false)\"},\"context\":{\"type\":"
+    "\"number\",\"description\":\"Number of lines to show before and after each match (default: 0)\"},\"limit\":{"
+    "\"type\":\"number\",\"description\":\"Maximum number of matches to return (default: 100)\"}}}",
     0
 };
 
@@ -89,18 +80,17 @@ static const char d_find[] =
     "Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects "
     ".gitignore. Output is truncated to 1000 results or 50KB (whichever is hit first).";
 static const char s_find[] =
-    "{\"type\":\"object\",\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Glob pattern to "
-    "match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'\"},\"path\":{\"type\":\"string\","
-    "\"description\":\"Directory to search in (default: current directory)\"},\"limit\":{\"type\":\"number\","
-    "\"description\":\"Maximum number of results (default: 1000)\"}},\"required\":[\"pattern\"]}";
+    "{\"type\":\"object\",\"required\":[\"pattern\"],\"properties\":{\"pattern\":{\"type\":\"string\",\"description\":\"Glob pattern to match files,"
+    " e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'\"},\"path\":{\"type\":\"string\",\"description\":\"Directory to search in (default:"
+    " current directory)\"},\"limit\":{\"type\":\"number\",\"description\":\"Maximum number of results (default: 1000)\"}"
+    "}}";
 
 static const char d_ls[] =
     "List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes "
     "dotfiles. Output is truncated to 500 entries or 50KB (whichever is hit first).";
 static const char s_ls[] =
-    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Directory to list "
-    "(default: current directory)\"},\"limit\":{\"type\":\"number\",\"description\":\"Maximum number of "
-    "entries to return (default: 500)\"}}}";
+    "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Directory to list (default: current directory)\"}"
+    ",\"limit\":{\"type\":\"number\",\"description\":\"Maximum number of entries to return (default: 500)\"}}}";
 
 long pi_tool_runs[PT_COUNT];
 
@@ -840,6 +830,10 @@ int pi_tools_init(pi_tools *p, cl_sys *sys, const char *root, const char *tmp, i
         p->tool[i].u = &p->slot[i];
         p->tool[i].run = run;
         p->tool[i].guide = guides[i];
+        /* pi's read, bash, edit and write declare constrainedSampling json_schema "prefer" (pi's dist/core/tools: read, bash, edit, write); grep,
+         * find and ls do not */
+        if (i == PT_READ || i == PT_BASH || i == PT_EDIT || i == PT_WRITE)
+            p->tool[i].constrained = "{\"type\":\"json_schema\",\"strict\":\"prefer\"}";
     }
     return tools_init(&p->t);
 }

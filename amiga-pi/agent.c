@@ -4,6 +4,7 @@
 #include "agent.h"
 #include "llm/transform.h"
 #include "llm/handoff.h"
+#include "llm/estimate.h"
 #include "claude/util.h"
 #include "claude/repl.h"        /* cl_key_clean */
 
@@ -238,6 +239,10 @@ void pi_tools_json(const pi_session *s, jw *w)
         jw_strz(w, t->description ? t->description : "");
         jw_rawz(w, ",\"parameters\":");
         jw_rawz(w, t->parameters ? t->parameters : "{\"type\":\"object\",\"properties\":{}}");
+        if (t->constrained) {
+            jw_rawz(w, ",\"constrainedSampling\":");
+            jw_rawz(w, t->constrained);
+        }
         jw_rawz(w, "}");
     }
     jw_rawz(w, "]");
@@ -278,11 +283,16 @@ static int answer(pi_session *s, stream *t)
     int pc = s->nmsg;
     const char **tm = 0;
     long *tn = 0;
-    if (llm_ant_mid_system(&s->model)) {
-        /* the transcript's system messages in place (the backend reads the first as the initial one) */
-        int k, j = 0, o = 0;
+    long est;
+    int o = 0;
+    {
+        /* pi's agent-loop declareToolChanges runs before every request, whatever the model: the tool changes become a
+         * system message of the transcript (the session file); a model that takes no system messages in the
+         * conversation gets the collapsed prompt and tool list in the request, the same either way */
+        int k, j = 0;
         if (s->declare)
             s->declare(s->declare_u, s);
+        /* the transcript's system messages in place (the backend reads the first as the initial one) */
         tm = (const char **)malloc((size_t)(s->nmsg + s->nsys + 1) * sizeof(*tm));
         tn = (long *)malloc((size_t)(s->nmsg + s->nsys + 1) * sizeof(*tn));
         if (!tm || !tn) {
@@ -301,6 +311,10 @@ static int answer(pi_session *s, stream *t)
                 tn[o++] = s->msg_n[k];
             }
         }
+    }
+    /* pi's buildBaseOptions: the output cap is clamped by the estimate over this transcript, as it stands */
+    est = llm_estimate_context(tm, tn, o);
+    if (llm_mid_system(&s->model)) {
         pm = tm;
         pn = tn;
         pc = o;
@@ -320,6 +334,7 @@ static int answer(pi_session *s, stream *t)
     c.model = &s->model;
     c.system = s->system;
     c.session_id = s->session_id;
+    c.est_tokens = est;
     c.msgs = v.m;
     c.msg_n = v.n;
     c.nmsg = v.count;

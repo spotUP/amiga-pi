@@ -400,6 +400,188 @@ static void test_declare(void)
     s3_free(&st);
 }
 
+/* PX2: the first request to a model whose context window is the output cap (gpt-4: 8192 and 8192) carries the cap pi's
+ * buildBaseOptions clamps it to, from the estimate over the transcript pi_app sends (tests/pi/model/clamp_first.json,
+ * pi-ai's request for the same prompt and tools). Through pi_app: the estimate is computed by the agent */
+static void test_clamp_first(void)
+{
+    char *a[] = { "amiga-pi", "--model", "openai/gpt-4", 0 };
+    static const char *const sse[] = { "../pi/responses/plain.sse" };
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq < 1)
+        return;
+    CHECK(strstr(ps.body[0], "\"max_output_tokens\":8192") == 0);          /* not the model's own cap */
+    CHECK(strstr(ps.body[0], "\"max_output_tokens\":") != 0);
+    {
+        /* pi's body is the golden, but for the session id (random per run): its prompt_cache_key must be the session's id */
+        static const char key[] = "\"prompt_cache_key\":\"";
+        static const char fixed[] = "00000000-0000-4000-8000-000000000000";
+        char path[600], body[40000], *k;
+        pi_s3 st;
+        CHECK_INT(newest(path, sizeof(path)), 0);
+        s3_init(&st, &sys, adv_now, 0, 1, 7);
+        CHECK_INT(s3_open(&st, path), 0);
+        CHECK(strlen(ps.body[0]) < sizeof(body));
+        strncpy(body, ps.body[0], sizeof(body) - 1);
+        body[sizeof(body) - 1] = 0;
+        k = strstr(body, key);
+        CHECK(k != 0);
+        if (k) {
+            k += sizeof(key) - 1;
+            CHECK(!strncmp(k, st.id, strlen(st.id)) && strlen(st.id) == strlen(fixed));
+            memcpy(k, fixed, strlen(fixed));
+        }
+        s3_free(&st);
+        pi_golden("pi/model/clamp_first.json", body);
+    }
+}
+
+/* PX3: pi's declareToolChanges runs before every request whatever the model. A tool added during the run on a model
+ * without mid-conversation system messages (gpt-4.1): the session file gets the declaring system message after the
+ * tool result, as pi's agent loop writes it (tests/pi/model/declare_{roles.txt,message.json}, made by
+ * tools/pi_oracle/gen_declare.mjs from pi-agent-core runAgentLoop), and the second request lists the tool as pi's does */
+static int slurp_line(const char *name, char *o, long cap)
+{
+    char path[700];
+    FILE *f;
+    long n;
+    strcpy(path, PI_TESTS "/pi/model/");
+    strcat(path, name);
+    f = fopen(path, "rb");
+    o[0] = 0;
+    if (!f)
+        return -1;
+    n = (long)fread(o, 1, (size_t)cap - 1, f);
+    fclose(f);
+    o[n] = 0;
+    while (n > 0 && (o[n - 1] == '\n' || o[n - 1] == '\r'))
+        o[--n] = 0;
+    return 0;
+}
+
+static void test_declare_every_model(void)
+{
+    char *a[] = { "amiga-pi", "--model", "openai/gpt-4.1", 0 };
+    static const char *const sse[] = { "../pi/responses/adder.sse", "../pi/responses/plain.sse" };
+    char path[600], sh[600], want[8000], got[8000], roles[200];
+    pi_s3 st;
+    int i, found = 0;
+    jv tools;
+    ready_hook = ready_adder;
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 2), 0);
+    ready_hook = 0;
+    CHECK_INT(ps.nreq, 2);
+    if (ps.nreq < 2)
+        return;
+    /* the requests' tools: pi's, strict (the four built-in tools carry constrainedSampling), the new one on the second */
+    CHECK_INT(slurp_line("declare_first_tools.json", want, sizeof(want)), 0);
+    CHECK(json_parse(ps.body[0], (long)strlen(ps.body[0]), &tools) == 0 && json_get(tools, "tools", &tools));
+    if (tools.n != (long)strlen(want) || strncmp(tools.p, want, (size_t)tools.n)) {
+        printf("    first request tools\n      got  %.*s\n      want %s\n", (int)tools.n, tools.p, want);
+        CHECK(0);
+    }
+    CHECK_INT(slurp_line("declare_second_tools.json", want, sizeof(want)), 0);
+    CHECK(json_parse(ps.body[1], (long)strlen(ps.body[1]), &tools) == 0 && json_get(tools, "tools", &tools));
+    if (tools.n != (long)strlen(want) || strncmp(tools.p, want, (size_t)tools.n)) {
+        printf("    second request tools\n      got  %.*s\n      want %s\n", (int)tools.n, tools.p, want);
+        CHECK(0);
+    }
+    /* the session file: user, assistant, tool result, the declaration, assistant */
+    CHECK_INT(newest(path, sizeof(path)), 0);
+    s3_init(&st, &sys, adv_now, 0, 1, 7);
+    CHECK_INT(s3_open(&st, path), 0);
+    shape(&st, sh, sizeof(sh));
+    CHECK_INT(slurp_line("declare_roles.txt", roles, sizeof(roles)), 0);
+    {
+        /* pi's roles in message_end order, after the entries that are not messages and the initial system message */
+        char exp[600];
+        strcpy(exp, "model_change thinking_level_change message/system");
+        for (i = 0; roles[i];) {
+            char w[40];
+            int k = 0;
+            while (roles[i] && roles[i] != ' ' && k < 39)
+                w[k++] = roles[i++];
+            w[k] = 0;
+            while (roles[i] == ' ')
+                i++;
+            strcat(exp, " message/");
+            strcat(exp, w);
+        }
+        CHECK_STR(sh, exp);
+    }
+    CHECK_INT(slurp_line("declare_message.json", want, sizeof(want)), 0);
+    for (i = 0; i < st.n; i++) {
+        long n;
+        const char *t = s3_text(&st, i, &n);
+        jv eo, mo;
+        if (t && !json_parse(t, n, &eo) && json_get(eo, "message", &mo) && memchr(mo.p, 'l', (size_t)mo.n) &&
+            strstr(t, "\"role\":\"system\"") && strstr(t, "\"toolsAdded\":[{\"name\":\"late\"")) {
+            /* the message as pi wrote it, its clock aside */
+            const char *ts = strstr(mo.p, "\"timestamp\":");
+            const char *te = ts ? ts + 12 : 0;
+            while (te && *te >= '0' && *te <= '9')
+                te++;
+            CHECK(ts != 0);
+            if (ts && (long)(ts - mo.p) + 13 + (mo.p + mo.n - te) < (long)sizeof(got)) {
+                long pre = ts - mo.p, post = mo.p + mo.n - te;
+                memcpy(got, mo.p, (size_t)pre);
+                memcpy(got + pre, "\"timestamp\":0", 13);
+                memcpy(got + pre + 13, te, (size_t)post);
+                got[pre + 13 + post] = 0;
+                if (strcmp(got, want)) {
+                    printf("    declaration\n      got  %s\n      want %s\n", got, want);
+                    CHECK(0);
+                }
+            }
+            found++;
+        }
+    }
+    CHECK_INT(found, 1);
+    s3_free(&st);
+}
+
+/* PX5: gpt-5.5 takes system messages in the conversation and tool additions (supportsMidConvoSystemMessages,
+ * supportsAdditionalTools). A tool added during the run: the second request keeps the initial tools at the top and
+ * carries the late one as an additional_tools item of its input after the tool result; both requests' "input" and
+ * "tools" are pi's (tests/pi/model/declare55_*.json, made by tools/pi_oracle/gen_declare.mjs from pi-agent-core
+ * runAgentLoop and pi-ai's openai-responses). Through pi_app: the agent decides to send the transcript's system messages */
+static void test_declare_mid_responses(void)
+{
+    char *a[] = { "amiga-pi", "--model", "openai/gpt-5.5", 0 };
+    static const char *const sse[] = { "../pi/responses/adder.sse", "../pi/responses/plain.sse" };
+    static const char *const gold[] = { "declare55_first.json", "declare55_second.json" };
+    char want[12000], got[12000], roles[200];
+    int i;
+    ready_hook = ready_adder;
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 2), 0);
+    ready_hook = 0;
+    CHECK_INT(ps.nreq, 2);
+    if (ps.nreq < 2)
+        return;
+    for (i = 0; i < 2; i++) {
+        jv b, in, tl;
+        CHECK_INT(slurp_line(gold[i], want, sizeof(want)), 0);
+        CHECK(json_parse(ps.body[i], (long)strlen(ps.body[i]), &b) == 0 && json_get(b, "input", &in) && json_get(b, "tools", &tl));
+        if (in.n + tl.n + 30 < (long)sizeof(got)) {
+            sprintf(got, "{\"input\":%.*s,\"tools\":%.*s}", (int)in.n, in.p, (int)tl.n, tl.p);
+            if (strcmp(got, want)) {
+                printf("    request %d\n      got  %s\n      want %s\n", i + 1, got, want);
+                CHECK(0);
+            }
+        } else
+            CHECK(0);
+    }
+    CHECK_INT(slurp_line("declare55_roles.txt", roles, sizeof(roles)), 0);
+    CHECK(strstr(ps.body[1], "\"type\":\"additional_tools\"") != 0);
+}
+
 /* resume: pi restores the thinking level (and the model) from the session path (sdk.ts :253); E7 restored only the model */
 static void test_resume(void)
 {
@@ -511,6 +693,19 @@ static void test_command_once(void)
     }
     CHECK_INT(n, 1);                    /* the command ran once for three requests */
     CHECK(strstr(ps.body[2], "\"model\":\"m1\"") != 0);
+    /* PX4: pi's supportsStore (openai-completions detectCompat): a host not listed as non-standard gets "store":false */
+    CHECK(strstr(ps.body[2], ",\"store\":false,") != 0);
+    /* and models.json's compat.supportsStore false overrides it (pi's getCompat): no store member */
+    strcpy(text, "{\"providers\":{\"keyed\":{\"baseUrl\":\"https://public.example/v1\",\"api\":\"openai-completions\","
+                 "\"apiKey\":\"!");
+    strcat(text, cmd);
+    strcat(text, "\",\"headers\":{\"X-Team\":\"amiga\"},\"models\":[{\"id\":\"m1\",\"contextWindow\":50000,"
+                 "\"compat\":{\"supportsStore\":false}}]}}}");
+    write_file(agent, "models.json", text);
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    CHECK_INT(ps.nreq, 1);
+    CHECK(ps.nreq == 1 && strstr(ps.body[0], "\"store\"") == 0);
     remove(marker);
     remove(strcat(strcpy(cmd, agent), "/models.json"));
 }
@@ -591,6 +786,9 @@ void suite_pi_model_reach(void)
     test_switch_back();
     test_levels();
     test_declare();
+    test_declare_every_model();
+    test_declare_mid_responses();
+    test_clamp_first();
     test_resume();
     test_commands();
     test_command_once();
