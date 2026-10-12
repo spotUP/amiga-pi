@@ -1,0 +1,50 @@
+
+
+ [compaction]
+
+ Compacted from 12,345 tokens (ctrl+o to expand)
+
+
+
+ second question
+
+
+ second answer
+
+
+ third question
+
+
+ third answer
+
+
+ [note]
+
+ Injected note for the model.
+
+
+
+ [branch]
+
+ Branch summary (ctrl+o to expand)
+
+
+
+ fourth question
+
+
+ fourth answer
+
+ Tool output: collapsed
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑40 ↓20 0.0%/200k (auto)                                              fake-model

@@ -252,6 +252,18 @@ SCENARIOS = {
     # Q8: a resumed session with a compaction summary, a custom message (display true) and a branch summary: pi 1.1.0's
     # CompactionSummaryMessageComponent, CustomMessageComponent, BranchSummaryMessageComponent (customMessageBg, outputPad)
     'resume_summaries': dict(steps=[('sleep', 1.0)], answers=[], session='summaries_session.jsonl', rows=50),
+    # R4: ctrl+o (app.tools.expand) over the same session: toolOutputExpanded on, the summaries show their Markdown
+    # (compaction-summary-message.ts:49-54, branch-summary-message.ts:43-48) and "Tool output: expanded" is shown
+    'resume_summaries_expanded': dict(steps=[('sleep', 1.0), ('key', 'C-o'), ('sleep', 1.0)], answers=[],
+                                      session='summaries_session.jsonl', rows=64),
+    'dark_resume_summaries_expanded': dict(steps=[('sleep', 1.0), ('key', 'C-o'), ('sleep', 1.0)], answers=[],
+                                           session='summaries_session.jsonl', rows=64, theme='dark'),
+    'dark_pad0_resume_summaries_expanded': dict(steps=[('sleep', 1.0), ('key', 'C-o'), ('sleep', 1.0)], answers=[],
+                                                session='summaries_session.jsonl', rows=64, theme='dark',
+                                                settings={'outputPad': 0}),
+    # ctrl+o twice: collapsed again, "Tool output: collapsed"
+    'resume_summaries_toggled': dict(steps=[('sleep', 1.0), ('key', 'C-o'), ('sleep', 0.5), ('key', 'C-o'), ('sleep', 1.0)],
+                                     answers=[], session='summaries_session.jsonl', rows=50),
     # Q17: live /compact on a resumed session: pi clears the chat, redraws it and appends the summary box
     # (interactive-mode.ts compaction_end); the second answer is the summarization request
     'compact': dict(steps=[('sleep', 0.5), ('type', '/compact'), ('enter',), ('wait', 'Compacted from'), ('sleep', 1.0)],

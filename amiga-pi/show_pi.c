@@ -95,6 +95,26 @@ static long sgr_reset_len(const char *p, long n)
     return i < n && p[i] == 'm' ? i + 1 : 0;
 }
 
+/* whether an SGR sequence (ESC[...m, as sgr_reset_len found it) sets a foreground colour: 30-37, 38, 90-97 */
+static int sgr_sets_color(const char *p, long n)
+{
+    long i = 2;
+    while (i < n - 1) {
+        long v = 0;
+        int any = 0;
+        for (; i < n - 1 && p[i] >= '0' && p[i] <= '9'; i++) {
+            v = v * 10 + (p[i] - '0');
+            any = 1;
+        }
+        if (any && ((v >= 30 && v <= 38) || (v >= 90 && v <= 97)))
+            return 1;
+        if (any && v == 38)
+            return 1;
+        i++;                        /* the ';' */
+    }
+    return 0;
+}
+
 /* the rows of the batch from `from` on become a panel, pi's Box: the background of role bg behind every row over
  * the whole width, put back after each reset inside the row. Nothing changes when the theme draws no background
  * there (pi's system theme). The ONE place the panels' backgrounds are drawn; the colours are the theme's tokens. */
@@ -907,23 +927,49 @@ static void box_collapsed(pi_show *s, const char *before, const char *after)
     raw(s, "\n");
 }
 
-void pshow_compaction_summary(pi_show *s, long tokens_before)
+static void mdbox_text(pi_show *s, const char *text, long n);
+
+/* the expanded body: Markdown(header + summary, ...) in customMessageText (compaction-summary-message.ts:49-54,
+ * branch-summary-message.ts:43-48) */
+static void box_expanded(pi_show *s, const char *header, const char *summary, long n)
 {
-    char n[32], t[80];
+    jw t;
+    jw_init(&t);
+    jw_rawz(&t, header);
+    jw_raw(&t, summary, n);
+    mdbox_text(s, t.p ? t.p : "", t.n);
+    jw_free(&t);
+}
+
+/* `summary` is the message's summary text; shown only when pi's toolOutputExpanded is on (ctrl+o, s->expanded) */
+void pshow_compaction_summary(pi_show *s, long tokens_before, const char *summary, long n)
+{
+    char num[32], t[80];
     long from;
-    grouped(tokens_before, n);
-    cl_copy(t, "Compacted from ", sizeof(t));
-    cl_cat(t, n, sizeof(t));
-    cl_cat(t, " tokens (", sizeof(t));
+    grouped(tokens_before, num);
     from = box_begin(s, "compaction");
-    box_collapsed(s, t, " to expand)");
+    if (s->expanded) {
+        char h[80];
+        cl_copy(h, "**Compacted from ", sizeof(h));
+        cl_cat(h, num, sizeof(h));
+        cl_cat(h, " tokens**\n\n", sizeof(h));
+        box_expanded(s, h, summary ? summary : "", summary ? n : 0);
+    } else {
+        cl_copy(t, "Compacted from ", sizeof(t));
+        cl_cat(t, num, sizeof(t));
+        cl_cat(t, " tokens (", sizeof(t));
+        box_collapsed(s, t, " to expand)");
+    }
     box_end(s, from);
 }
 
-void pshow_branch_summary(pi_show *s)
+void pshow_branch_summary(pi_show *s, const char *summary, long n)
 {
     long from = box_begin(s, "branch");
-    box_collapsed(s, "Branch summary (", " to expand)");
+    if (s->expanded)
+        box_expanded(s, "**Branch Summary**\n\n", summary ? summary : "", summary ? n : 0);
+    else
+        box_collapsed(s, "Branch summary (", " to expand)");
     box_end(s, from);
 }
 
@@ -968,7 +1014,10 @@ static void mdbox_text(pi_show *s, const char *text, long n)
             long rl = sgr_reset_len(md.p + j, i - j);
             if (rl) {
                 jw_raw(&s->batch, md.p + j, rl);
-                raw(s, base);
+                /* a style of its own colour (a heading, a list bullet: pi styles them without the box's text colour)
+                 * keeps its look; the plain resets and the styles without a colour (bold, italic) get the text colour back */
+                if (!sgr_sets_color(md.p + j, rl))
+                    raw(s, base);
                 j += rl - 1;
             } else
                 jw_raw(&s->batch, md.p + j, 1);
@@ -1086,10 +1135,15 @@ void pshow_replay_msgs(pi_show *s, char *const *msg, const long *msg_n, int nmsg
                 }
             }
         } else if (!strcmp(role, "compactionSummary")) {
-            long tb = json_get(m, "tokensBefore", &v) && json_type(v) == J_NUM ? json_long(v, 0) : 0;
-            pshow_compaction_summary(s, tb);
+            long tb = json_get(m, "tokensBefore", &v) && json_type(v) == J_NUM ? json_long(v, 0) : 0, sn = 0;
+            char *sum = json_get(m, "summary", &v) && json_type(v) == J_STR ? json_strdup(v, &sn) : 0;
+            pshow_compaction_summary(s, tb, sum, sn);
+            free(sum);
         } else if (!strcmp(role, "branchSummary")) {
-            pshow_branch_summary(s);
+            long sn = 0;
+            char *sum = json_get(m, "summary", &v) && json_type(v) == J_STR ? json_strdup(v, &sn) : 0;
+            pshow_branch_summary(s, sum, sn);
+            free(sum);
         } else if (!strcmp(role, "custom")) {
             /* interactive-mode.ts:3889: only a message with display true is drawn */
             if (json_get(m, "display", &v) && v.n >= 4 && !memcmp(v.p, "true", 4)) {

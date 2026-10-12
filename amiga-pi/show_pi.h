@@ -36,6 +36,7 @@ typedef struct pi_show {
     int any;                    /* something is in the transcript: the next block starts a blank line below it */
     long n_text, n_blocks, n_tools;
     int pad;                    /* outputPad: 1 (pi's default) or 0 */
+    int expanded;               /* pi's toolOutputExpanded (ctrl+o): the summaries show their text; drawn from here on, redraw_chat redraws the rest */
     int replay;                 /* tool results of an earlier run: no duration */
     /* the tool boxes still waiting for their result (pi's ToolExecutionComponents in pendingTools), oldest first. The
      * transcript is lines already on the screen, so a box that is not the last thing there is drawn again from a copy
@@ -78,10 +79,10 @@ long pshow_result_text(const char *json, long n, jw *out);
 /* a command of the user's (! and !!, pi's BashExecutionComponent): between two rules in the bash colour (faint when
  * the output stays out of the context), the command, the last twenty rows of the output, how it ended */
 void pshow_bash(pi_show *s, const char *command, const char *output, int exit_code, int cancelled, int excluded);
-/* pi 1.1.0's CompactionSummaryMessageComponent, BranchSummaryMessageComponent (collapsed, as ctrl+o expand is not wired)
+/* pi 1.1.0's CompactionSummaryMessageComponent, BranchSummaryMessageComponent (collapsed, or with the summary text as Markdown when s->expanded: ctrl+o)
  * and CustomMessageComponent (display true; the text as Markdown): a Box over customMessageBg, outputPad wide */
-void pshow_compaction_summary(pi_show *s, long tokens_before);
-void pshow_branch_summary(pi_show *s);
+void pshow_compaction_summary(pi_show *s, long tokens_before, const char *summary, long n);
+void pshow_branch_summary(pi_show *s, const char *summary, long n);
 void pshow_custom(pi_show *s, const char *type, const char *text, long n);
 /* the conversation of ses drawn again from its messages (a branch left for another, a session resumed) */
 struct pi_session;
