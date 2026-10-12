@@ -551,6 +551,24 @@ static void test_steer_ui(void)
 }
 
 
+/* the directory name in the title: Unix and Amiga paths, a trailing '/', a volume root (an Amiga path is not cut at '/'
+ * only: "DH0:proj" names proj, "Ram Disk:" names the volume) */
+static void test_title_dir_name(void)
+{
+    static const char *const cases[][2] = {
+        { "/Users/spot/project", "project" }, { "/Users/spot/project/", "project" }, { "DH0:Work/proj", "proj" },
+        { "DH0:proj", "proj" }, { "Ram Disk:", "Ram Disk" }, { "proj", "proj" }, { "/", "" }, { 0, 0 }
+    };
+    char out[64];
+    int i;
+    for (i = 0; cases[i][0]; i++) {
+        pi_dir_name(cases[i][0], out, sizeof(out));
+        CHECK_STR(out, cases[i][1]);
+    }
+    pi_dir_name("/a/abcdefgh", out, 4);
+    CHECK_STR(out, "abc");
+}
+
 /* the window title is pi's -- "pi - <directory name>", the letter pi first -- set once at the start and left alone while
  * the agent works and after (TM2; pi 1.0.4 updateTerminalTitle): never C:Claude's "Claude", "Claude - working" */
 static void test_window_title(void)
@@ -1429,6 +1447,7 @@ void suite_pi_tui(void)
     unsigned i;
     test_queue_agent();
     test_steer_ui();
+    test_title_dir_name();
     test_window_title();
     app_sandbox();
     test_cycle();

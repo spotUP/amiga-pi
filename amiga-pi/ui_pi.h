@@ -16,6 +16,9 @@
 
 /* the directory the footer shows (the working directory as the program has it) */
 void pi_ui_set_cwd(const char *cwd);
+/* the directory name for pi's window title, as node's path.basename gives it: the last part after '/' or, on the
+ * Amiga, after the volume's ':' (trailing '/' ignored); a volume root ("Ram Disk:") gives the volume's name */
+void pi_dir_name(const char *path, char *out, int n);
 /* settings.json's quietStartup: the screen starts without the header */
 void pi_ui_set_quiet(int quiet);
 /* the colours (claude/theme.h) and the keybindings.json text (pi's shape, 0: pi's defaults) the screen starts with;

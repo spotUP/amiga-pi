@@ -453,14 +453,28 @@ static void totals(pi_ui *p, long *in, long *out, long *cr, long *cw, long *cost
 
 /* the window title as pi's updateTerminalTitle sets it: "pi - <session name> - <directory name>", or
  * "pi - <directory name>" with no name (APP_TITLE is the letter pi). Set at the start and with every status. */
+void pi_dir_name(const char *path, char *out, int n)
+{
+    int end = (int)strlen(path), start;
+    while (end > 1 && path[end - 1] == '/')
+        end--;
+    if (end > 1 && path[end - 1] == ':')
+        end--;
+    for (start = end; start > 0 && path[start - 1] != '/' && path[start - 1] != ':'; start--)
+        ;
+    if (n <= 0)
+        return;
+    if (end - start > n - 1)
+        end = start + n - 1;
+    memcpy(out, path + start, (size_t)(end - start));
+    out[end - start] = 0;
+}
+
 static void window_title(pi_ui *p, cl_tui *t)
 {
     pi_store *st = (pi_store *)p->s->command_u;
-    char nm[128];
-    const char *base = ui_cwd, *c;
-    for (c = ui_cwd; *c; c++)
-        if (*c == '/' && c[1])
-            base = c + 1;
+    char nm[128], base[128];
+    pi_dir_name(ui_cwd, base, sizeof(base));
     cl_copy(t->pi_title, "\317\200 - ", sizeof(t->pi_title));
     if (st && p->s->command && s3_name(&st->s3, nm, sizeof(nm))) {
         cl_cat(t->pi_title, nm, sizeof(t->pi_title));
