@@ -94,6 +94,9 @@ SCENARIOS = {
     'queued': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'Working'), ('type', 'steer me'), ('enter',),
                           ('type', 'and then this'), ('key', 'M-Enter'), ('sleep', 0.5), ('capture_now',)],
                    answers=[('slow', 6, text_answer('msg_q', 'late answer', 20))]),
+    # a second prompt after an answer: the blank lines between messages
+    'twice': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('type', 'second'), ('enter',), ('wait', 'two')],
+                  answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))]),
     # a tool call block (read of a file in the cwd) and the answer after it
     'tool': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading')],
                  answers=[('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),
@@ -201,8 +204,10 @@ def run(name, sc, cols, rows, keep):
               'models': [{'id': MODEL, 'name': MODEL, 'reasoning': False, 'input': ['text'], 'contextWindow': 200000,
                           'maxTokens': 8192, 'cost': {'input': 3, 'output': 15, 'cacheRead': 0.3, 'cacheWrite': 3.75}}]}}},
               open(os.path.join(agent, 'models.json'), 'w'))
+    # quietStartup hides the header: only the scenarios about the header show it (the rest would scroll by its height)
     json.dump({'defaultProvider': 'fake', 'defaultModel': MODEL, 'defaultThinkingLevel': 'off',
-               'retry': {'enabled': False}}, open(os.path.join(agent, 'settings.json'), 'w'))
+               'retry': {'enabled': False}, 'quietStartup': name not in ('start',)},
+              open(os.path.join(agent, 'settings.json'), 'w'))
     sess = 'pitui-' + name
     tmux('kill-session', '-t', sess)
     env = ('env -i HOME=%s PATH=%s TERM=xterm-256color LANG=en_US.UTF-8 PI_CODING_AGENT_DIR=%s PI_OFFLINE=1 '

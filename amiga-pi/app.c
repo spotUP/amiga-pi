@@ -71,6 +71,21 @@ static void trust_setting(const pi_platform *pl, char *out, long cap)
     CL_FREE(b);
 }
 
+/* settings.json's quietStartup: true hides the start header ("header" keeps it: it has no resource listing to hide) */
+static int quiet_setting(const pi_platform *pl)
+{
+    char *b, path[300];
+    long n;
+    jv o, v;
+    int quiet = 0;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return 0;
+    if (!json_parse(b, n, &o) && json_get(o, "quietStartup", &v) && json_type(v) == J_TRUE)
+        quiet = 1;
+    CL_FREE(b);
+    return quiet;
+}
+
 /* pi's trust question on the console: the title, the answers numbered, a number typed (0 or none: no answer) */
 static int trust_ask(void *u, const char *title, const char *const *labels, int n)
 {
@@ -430,6 +445,8 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
     if (a.print)
         rc = pi_ui_print(&s, pl->io, a.prompt);
     else
+        pi_ui_set_cwd(pl->cwd);
+        pi_ui_set_quiet(quiet_setting(pl));
         rc = pi_ui_run(&s, pl->io, a.prompt[0] ? a.prompt : 0);
     pi_store_free(&store);
     pi_session_free(&s);

@@ -55,6 +55,7 @@ typedef struct pi_session {
     int thinking;               /* the thinking level, LT_*, as the model supports it */
     long ctx_tokens;            /* tokens the last answer reported (its input, output and cache): the context in use */
     long cost_micro;            /* what the answers of this run cost, micro-dollars, from the model's price */
+    long tok_in, tok_out, tok_cr, tok_cw;   /* the answers' tokens summed (the footer's usage line) */
     char keybuf[512];           /* the credential of the request being made */
     const char *user_agent;
     llm_pool *pool;

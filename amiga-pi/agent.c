@@ -151,6 +151,10 @@ static int keep(pi_session *s, jw *w)
             if (u.input + u.output + u.cache_read + u.cache_write > 0)
                 s->ctx_tokens = u.input + u.output + u.cache_read + u.cache_write;
             s->cost_micro += u.cost[0] + u.cost[1] + u.cost[2] + u.cost[3];
+            s->tok_in += u.input;
+            s->tok_out += u.output;
+            s->tok_cr += u.cache_read;
+            s->tok_cw += u.cache_write;
         }
     }
     s->msg[s->nmsg] = w->p;

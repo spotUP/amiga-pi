@@ -5,6 +5,9 @@
 #include "claude/tui.h"
 #include "claude/show.h"
 #include "claude/util.h"
+#include "show_pi.h"
+#include "claude/tools.h"
+#include "compact.h"
 
 typedef struct pi_ui {
     cl_ui ui;
@@ -12,7 +15,50 @@ typedef struct pi_ui {
     pi_session *s;
     long text_index;            /* the streaming answer's text block, -1 none */
     int print;                  /* -p: nothing shown while it runs */
+    int look;                   /* the screen runs in pi's look (show_pi.c writes the transcript) */
+    pi_show ps;
+    cl_pitheme theme;
 } pi_ui;
+
+/* the slash commands the menu offers: pi's own names and descriptions (core/slash-commands.js, in its order) of
+ * the ones amiga-pi has; pi_ui_set_commands replaces the list (the tests give it pi's whole list) */
+static const cl_cmd default_cmds[] = {
+    { "/model", "<provider/model> \342\200\224 Select model (opens selector UI)" },
+    { "/tree", "Navigate session tree (switch branches)" },
+    { "/thinking", "<level> \342\200\224 Set thinking level" },
+    { "/export", "Export session (HTML default, or specify path: .html/.jsonl)" },
+    { "/name", "Set session display name" },
+    { "/session", "Show session info and stats" },
+    { "/fork", "Create a new fork from a previous user message" },
+    { "/clone", "Duplicate the current session at the current position" },
+    { "/trust", "Save project trust decision for future sessions" },
+    { "/quit", "Quit amiga-pi" }
+};
+static const cl_cmd *ui_cmds = default_cmds;
+static int ui_ncmds = (int)(sizeof(default_cmds) / sizeof(default_cmds[0]));
+
+void pi_ui_set_commands(const cl_cmd *cmds, int n)
+{
+    ui_cmds = cmds ? cmds : default_cmds;
+    ui_ncmds = cmds ? n : (int)(sizeof(default_cmds) / sizeof(default_cmds[0]));
+}
+
+/* what the footer shows of the program (pi_ui_set_cwd): the working directory */
+static char ui_cwd[300];
+static char ui_version[40] = "";
+static int ui_quiet;
+
+void pi_ui_set_quiet(int quiet)
+{
+    ui_quiet = quiet;
+}
+
+void pi_ui_set_cwd(const char *cwd)
+{
+    cl_copy(ui_cwd, cwd ? cwd : "", sizeof(ui_cwd));
+}
+
+static void status(pi_ui *p);
 
 static int u_poll(void *u)
 {
@@ -26,9 +72,13 @@ static void on_event(void *u, const pi_event *e)
         return;                 /* print mode shows the answer, and a compaction that failed */
     switch (e->type) {
     case PE_AGENT_START:
+        if (p->look)
+            cl_copy(p->ui.tui->pi_work, "Working", sizeof(p->ui.tui->pi_work));
         ui_busy(&p->ui, 1);
         break;
     case PE_AGENT_END:
+        if (p->look)
+            p->ui.tui->pi_work[0] = 0;
         ui_busy(&p->ui, 0);
         break;
     case PE_MESSAGE_START:
@@ -51,11 +101,26 @@ static void on_event(void *u, const pi_event *e)
             p->render.end(p->render.u);
             p->text_index = -1;
         }
+        if (e->role == LR_ASSISTANT && p->look)
+            status(p);
         break;
     case PE_COMPACTION_START:
+        if (p->look) {
+            cl_copy(p->ui.tui->pi_work, e->stop ? "Auto-compacting... (esc to cancel)" : "Compacting context... (esc to cancel)",
+                    sizeof(p->ui.tui->pi_work));
+            tui_frame(p->ui.tui);
+            break;
+        }
         ui_line(&p->ui, "* compacting the conversation");
         break;
     case PE_COMPACTION_END:
+        if (p->look) {
+            p->ui.tui->pi_work[0] = 0;
+            if (p->s->em.count[PE_AGENT_START] > p->s->em.count[PE_AGENT_END])
+                cl_copy(p->ui.tui->pi_work, "Working", sizeof(p->ui.tui->pi_work));
+            pshow_note(&p->ps, e->is_error ? PR_ERROR : PR_MUTED, e->msg ? e->msg : "");
+            break;
+        }
         {
             char line[300];
             cl_copy(line, e->is_error ? "  [ERROR] " : "* ", sizeof(line));
@@ -64,6 +129,10 @@ static void on_event(void *u, const pi_event *e)
         }
         break;
     case PE_TOOL_START:
+        if (p->look) {
+            pshow_tool_start(&p->ps, e->tool_name, e->args, e->args_n);
+            break;
+        }
         {
             char line[200];
             cl_copy(line, "* ", sizeof(line));
@@ -75,6 +144,10 @@ static void on_event(void *u, const pi_event *e)
         }
         break;
     case PE_TOOL_END:
+        if (p->look) {
+            pshow_tool_end(&p->ps, e->result, e->result_n, e->is_error);
+            break;
+        }
         if (e->is_error) {
             jv c, b, t;
             jit it;
@@ -93,11 +166,41 @@ static void on_event(void *u, const pi_event *e)
     }
 }
 
-/* the gate's question (ext_gate.h) as C:Claude asks it */
+/* the gate's question (ext_gate.h): C:Claude's, in C:Claude's screen; in pi's look the same options as pi's selector */
 static int u_ask(void *u, int tool, const char *name, const char *what, int outside)
 {
     pi_ui *p = (pi_ui *)u;
     char line[360];
+    if (p->look && p->ui.tui) {
+        const char *opt[4];
+        char title[400], yes2[80];
+        int n, c;
+        cl_copy(title, name, sizeof(title));
+        cl_cat(title, " ", sizeof(title));
+        cl_cat(title, what, sizeof(title));
+        if (outside)
+            cl_cat(title, "\n\nThis is outside the start directory.", sizeof(title));
+        cl_copy(yes2, "Yes, and don't ask again this session", sizeof(yes2));
+        opt[0] = "Yes";
+        if (outside) {
+            opt[1] = "No";
+            n = 2;
+        } else {
+            opt[1] = yes2;
+            opt[2] = "Yes, and don't ask again in this project";
+            opt[3] = "No";
+            n = 4;
+        }
+        (void)tool;
+        c = tui_menu(p->ui.tui, title, 0, opt, n, 0, n - 1);
+        if (c < 0)
+            return ASK_NO;
+        if (c == 0)
+            return ASK_ONCE;
+        if (c == n - 1)
+            return ASK_NO;
+        return n == 4 && c == 2 ? ASK_PROJECT : ASK_SESSION;
+    }
     cl_copy(line, "* ", sizeof(line));
     cl_cat(line, name, sizeof(line));
     cl_cat(line, " ", sizeof(line));
@@ -124,6 +227,113 @@ static void attach(pi_ui *p, pi_session *s, cl_io *io, int print)
         s->ask = 0;             /* print mode: nobody answers the gate */
 }
 
+/* pi's formatTokens */
+static void fmt_tokens(long v, char *out)
+{
+    char n[16];
+    if (v < 1000) {
+        cl_ltoa(v, out);
+    } else if (v < 10000) {
+        cl_ltoa(v / 1000, out);
+        cl_cat(out, ".", 16);
+        cl_ltoa((v % 1000 + 50) / 100 % 10, n);
+        /* toFixed(1) rounds 9.95k to 10.0k: carry */
+        if ((v % 1000 + 50) / 100 >= 10) {
+            cl_ltoa(v / 1000 + 1, out);
+            cl_cat(out, ".0", 16);
+        } else
+            cl_cat(out, n, 16);
+        cl_cat(out, "k", 16);
+    } else if (v < 1000000) {
+        cl_ltoa((v + 500) / 1000, out);
+        cl_cat(out, "k", 16);
+    } else if (v < 10000000) {
+        cl_ltoa(v / 1000000, out);
+        cl_cat(out, ".", 16);
+        cl_ltoa((v % 1000000 + 50000) / 100000 % 10, n);
+        cl_cat(out, n, 16);
+        cl_cat(out, "M", 16);
+    } else {
+        cl_ltoa((v + 500000) / 1000000, out);
+        cl_cat(out, "M", 16);
+    }
+}
+
+/* the footer (pi footer.js): the directory, the usage of the session so far, the context figure, the model */
+static void footer(pi_ui *p)
+{
+    cl_tui *t = p->ui.tui;
+    pi_session *s = p->s;
+    char n[24], *l = t->pi_left;
+    long tenths;
+    int level = s->model.reasoning ? s->thinking : 0;
+    cl_copy(t->pi_cwd, ui_cwd, sizeof(t->pi_cwd));
+    l[0] = 0;
+    if (s->tok_in) {
+        cl_cat(l, "\342\206\221", sizeof(t->pi_left));
+        fmt_tokens(s->tok_in, n);
+        cl_cat(l, n, sizeof(t->pi_left));
+    }
+    if (s->tok_out) {
+        cl_cat(l, l[0] ? " \342\206\223" : "\342\206\223", sizeof(t->pi_left));
+        fmt_tokens(s->tok_out, n);
+        cl_cat(l, n, sizeof(t->pi_left));
+    }
+    if (s->tok_cr) {
+        cl_cat(l, l[0] ? " R" : "R", sizeof(t->pi_left));
+        fmt_tokens(s->tok_cr, n);
+        cl_cat(l, n, sizeof(t->pi_left));
+    }
+    if (s->tok_cw) {
+        cl_cat(l, l[0] ? " W" : "W", sizeof(t->pi_left));
+        fmt_tokens(s->tok_cw, n);
+        cl_cat(l, n, sizeof(t->pi_left));
+    }
+    if (s->cost_micro > 0) {
+        /* toFixed(3) on a sum of floats: a tie (exactly half a thousandth) goes to the even digit */
+        long milli = s->cost_micro / 1000, rest = s->cost_micro % 1000;
+        if (rest > 500 || (rest == 500 && (milli & 1)))
+            milli++;
+        cl_cat(l, l[0] ? " $" : "$", sizeof(t->pi_left));
+        cl_ltoa(milli / 1000, n);
+        cl_cat(l, n, sizeof(t->pi_left));
+        cl_cat(l, ".", sizeof(t->pi_left));
+        cl_ltoa(milli % 1000 / 100, n);
+        cl_cat(l, n, sizeof(t->pi_left));
+        cl_ltoa(milli % 100 / 10, n);
+        cl_cat(l, n, sizeof(t->pi_left));
+        cl_ltoa(milli % 10, n);
+        cl_cat(l, n, sizeof(t->pi_left));
+    }
+    t->pi_ctx_role = 0;
+    if (s->model.context_window > 0) {
+        /* pi's getContextUsage: the last answer's usage plus an estimate of what came after it */
+        int last;
+        long ctx = s->nmsg ? cp_estimate_context(s->msg, s->msg_n, s->nmsg, &last) : 0;
+        tenths = (ctx * 1000 + s->model.context_window / 2) / s->model.context_window;
+        cl_ltoa(tenths / 10, t->pi_ctx);
+        cl_cat(t->pi_ctx, ".", sizeof(t->pi_ctx));
+        cl_ltoa(tenths % 10, n);
+        cl_cat(t->pi_ctx, n, sizeof(t->pi_ctx));
+        cl_cat(t->pi_ctx, "%/", sizeof(t->pi_ctx));
+        fmt_tokens(s->model.context_window, n);
+        cl_cat(t->pi_ctx, n, sizeof(t->pi_ctx));
+        cl_cat(t->pi_ctx, " (auto)", sizeof(t->pi_ctx));
+        if (tenths > 900)
+            t->pi_ctx_role = PR_ERROR + 1;
+        else if (tenths > 700)
+            t->pi_ctx_role = PR_WARNING + 1;
+    } else {
+        cl_copy(t->pi_ctx, "?/0 (auto)", sizeof(t->pi_ctx));
+    }
+    cl_copy(t->pi_right, s->model.id, sizeof(t->pi_right));
+    if (s->model.reasoning) {
+        cl_cat(t->pi_right, " \342\200\242 ", sizeof(t->pi_right));
+        cl_cat(t->pi_right, level == LT_OFF ? "thinking off" : llm_think_name(level), sizeof(t->pi_right));
+    }
+    t->pi_rule = PR_THINKING_OFF + level;
+}
+
 /* the status line: the model, the thinking level, the context left of the model's window (the last answer's tokens) */
 static void status(pi_ui *p)
 {
@@ -138,6 +348,8 @@ static void status(pi_ui *p)
         t->ctx_left = used >= 100 ? 0 : (int)(100 - used);
     } else
         t->ctx_left = -1;
+    if (p->look)
+        footer(p);
     tui_frame(t);
 }
 
@@ -147,6 +359,16 @@ static void say_end(pi_ui *p)
     status(p);
     if (p->s->stop != LS_ERROR && p->s->stop != LS_ABORTED)
         return;
+    if (p->look) {
+        if (p->s->stop == LS_ABORTED)
+            pshow_error(&p->ps, "Operation aborted");
+        else {
+            cl_copy(line, "Error: ", sizeof(line));
+            cl_cat(line, p->s->err[0] ? p->s->err : "the request failed", sizeof(line));
+            pshow_error(&p->ps, line);
+        }
+        return;
+    }
     cl_copy(line, p->s->stop == LS_ABORTED ? "[INFO] Stopped." : "[ERROR] ", sizeof(line));
     if (p->s->stop == LS_ERROR)
         cl_cat(line, p->s->err[0] ? p->s->err : "the request failed", sizeof(line));
@@ -173,7 +395,7 @@ int pi_ui_print(pi_session *s, cl_io *io, const char *prompt)
     return stop == LS_STOP ? 0 : 1;
 }
 
-/* C:Claude's screen without its REPL (claude/repl.c repl_screen's part that is the screen's) */
+/* C:Claude's screen without its REPL (claude/repl.c repl_screen's part that is the screen's), in pi's look */
 static cl_tui *screen(pi_ui *p, cl_io *io)
 {
     cl_tui *t;
@@ -191,17 +413,26 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     }
     t->model = p->s->model.id;
     t->effort = p->s->model.reasoning ? llm_think_name(p->s->thinking) : 0;
+    pitheme_system(&p->theme);
+    t->look = TUI_LOOK_PI;
+    t->pith = &p->theme;
+    t->cmds = ui_cmds;
+    t->ncmds = ui_ncmds;
+    p->look = 1;
     show_init(sh, t);
     if (tui_start(t)) {
         show_free(sh);
         tui_free(t);
         free(t);
         free(sh);
+        p->look = 0;
         return 0;
     }
     p->ui.tui = t;
     p->ui.show = sh;
-    show_render(sh, &p->render);
+    pshow_init(&p->ps, t, &p->theme);
+    pshow_render(&p->ps, &p->render);
+    footer(p);
     tui_frame(t);
     return t;
 }
@@ -209,6 +440,14 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
 /* a slash command the store knows: its lines shown, a message taken back kept for the next input.
  * 1 when handled */
 static char prefill[4096];
+
+static void note(pi_ui *p, const char *a)
+{
+    if (p->look)
+        pshow_note(&p->ps, PR_MUTED, a);
+    else
+        ui_line(&p->ui, a);
+}
 
 static int run_command(pi_ui *p, cl_tui *t, const char *line)
 {
@@ -225,7 +464,7 @@ static int run_command(pi_ui *p, cl_tui *t, const char *line)
             nl = strchr(a, '\n');
             if (nl)
                 *nl = 0;
-            ui_line(&p->ui, a);
+            note(p, a);
             if (!nl)
                 break;
             a = nl + 1;
@@ -251,6 +490,14 @@ static int is_exit(const char *line)
     return !strcmp(line, "/exit") || !strcmp(line, "/quit");
 }
 
+static void user_echo(pi_ui *p, const char *line)
+{
+    if (p->look)
+        pshow_user(&p->ps, line);
+    else
+        ui_user(&p->ui, line);
+}
+
 int pi_ui_run(pi_session *s, cl_io *io, const char *first)
 {
     static pi_ui p;
@@ -261,14 +508,18 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         return 0;
     attach(&p, s, io, 0);
     t = screen(&p, io);
-    cl_copy(hello, "amiga-pi in UP-Term. Model ", sizeof(hello));
-    cl_cat(hello, s->model.provider, sizeof(hello));
-    cl_cat(hello, "/", sizeof(hello));
-    cl_cat(hello, s->model.id, sizeof(hello));
-    cl_cat(hello, ". Type /exit to leave.", sizeof(hello));
-    ui_line(&p.ui, hello);
+    if (p.look && !ui_quiet)
+        pshow_header(&p.ps, "amiga-pi", ui_version[0] ? ui_version : "(pi 1.0.4)");
+    else if (!p.look) {
+        cl_copy(hello, "amiga-pi in UP-Term. Model ", sizeof(hello));
+        cl_cat(hello, s->model.provider, sizeof(hello));
+        cl_cat(hello, "/", sizeof(hello));
+        cl_cat(hello, s->model.id, sizeof(hello));
+        cl_cat(hello, ". Type /exit to leave.", sizeof(hello));
+        ui_line(&p.ui, hello);
+    }
     if (first && *first) {
-        ui_user(&p.ui, first);
+        user_echo(&p, first);
         pi_prompt(s, first);
         say_end(&p);
     }
@@ -292,12 +543,14 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
             continue;
         if (run_command(&p, t, line))
             continue;
-        ui_user(&p.ui, line);
+        user_echo(&p, line);
         pi_prompt(s, line);
         say_end(&p);
     }
     if (t) {
         tui_stop(t);
+        if (p.look)
+            pshow_free(&p.ps);
         show_free(p.ui.show);
         tui_free(t);
         free(t);

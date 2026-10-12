@@ -10,8 +10,15 @@
 #define PI_UI_H
 
 #include "claude/ui.h"
+#include "claude/tui.h"
 #include "agent.h"
 
+/* the directory the footer shows (the working directory as the program has it) */
+void pi_ui_set_cwd(const char *cwd);
+/* settings.json's quietStartup: the screen starts without the header */
+void pi_ui_set_quiet(int quiet);
+/* the slash commands the menu offers (claude/tui.h cl_cmd: "/name", the description); 0: amiga-pi's own */
+void pi_ui_set_commands(const cl_cmd *cmds, int n);
 /* -p: 0 when the answer completed (stop), 1 otherwise (the error on io) */
 int pi_ui_print(pi_session *s, cl_io *io, const char *prompt);
 /* the conversation until /exit, /quit or the end of input; first: a prompt

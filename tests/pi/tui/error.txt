@@ -1,13 +1,4 @@
 
- ▀▀█  v1.0.4
- █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash ·
- ctrl+o more
- Press ctrl+o to show full startup help and loaded resources.
-
- Pi can explain its own features and look up its docs. Ask it how to use or
- extend Pi.
-
-
  hello
 
 
@@ -15,6 +6,15 @@
  {"type":"error","error":{"type":"invalid_request_error","message":"model:
  fake-model is not available"}}
  If this looks like a pi bug, /bug sends a report to the developers.
+
+
+
+
+
+
+
+
+
 
 
 
