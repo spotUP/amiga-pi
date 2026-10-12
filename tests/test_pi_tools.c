@@ -23,6 +23,8 @@
 #include "../amiga-pi/ext_gate.h"
 #include "../amiga-pi/args.h"
 #include "../amiga-pi/app.h"
+#include "../amiga-pi/ansi.h"
+#include "../amiga-pi/store.h"
 
 static char dir[400], tmpd[410];
 static sys_posix sp;
@@ -890,6 +892,8 @@ static void test_select(void)
     pi_args a;
     char *argv[] = { "amiga-pi", "--tools", "read,grep", "--no-gate", "x", 0 };
     char *argv2[] = { "amiga-pi", "--no-tools", "--gate", "x", 0 };
+    char *argv3[] = { "amiga-pi", "-t", "read,-write", "x", 0 };
+    char *argv4[] = { "amiga-pi", "--tools", "-write,+ls", "x", 0 };
     memset(&ses, 0, sizeof(ses));
     CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
     names_of(got);
@@ -903,20 +907,142 @@ static void test_select(void)
     names_of(got);
     CHECK_STR(got, "read,bash,edit,write,ls");
     memset(&ses, 0, sizeof(ses));
-    CHECK_INT(pi_tools_add(&pt, &ses, "-", err, sizeof(err)), 0);
+    pi_tools_defaults(&pt, 0, 1);                    /* --no-tools */
+    CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
     CHECK_INT(ses.ntools, 0);
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "+ls,+read", err, sizeof(err)), 0);       /* modifiers on the empty defaults */
+    names_of(got);
+    CHECK_STR(got, "read,ls");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "grep", err, sizeof(err)), 0);            /* an allowlist beats --no-tools */
+    names_of(got);
+    CHECK_STR(got, "grep");
+    pi_tools_defaults(&pt, 0, 0);
     memset(&ses, 0, sizeof(ses));
     CHECK_INT(pi_tools_add(&pt, &ses, "*", err, sizeof(err)), 0);
     CHECK_INT(ses.ntools, PT_COUNT);
     memset(&ses, 0, sizeof(ses));
     CHECK_INT(pi_tools_add(&pt, &ses, "read,rm", err, sizeof(err)), -1);
     CHECK_STR(err, "unknown tool in --tools: rm");
+    /* pi 1.1.0 (P11-I7): only +name/-name entries change the default selection; "-write" is read, bash, edit */
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "-write", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,bash,edit");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "-bash,+grep,-nothere", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,edit,write,grep");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, " +ls , -read ,", err, sizeof(err)), 0);        /* entries trimmed, empty ones dropped */
+    names_of(got);
+    CHECK_STR(got, "bash,edit,write,ls");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "read,+ls", err, sizeof(err)), -1);
+    CHECK_STR(err, "tool names cannot be mixed with +name or -name entries");
+    CHECK_INT(pi_tools_add(&pt, &ses, "+l*", err, sizeof(err)), -1);
+    CHECK_STR(err, "+name and -name entries take exact tool names, not patterns: +l*");
+    /* defaultTools (settings.json): the same modifiers on the defaults; plain names replace them; [] is none; --tools
+     * modifiers apply on top of the setting */
+    pi_tools_defaults(&pt, "-write,+ls", 0);
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,bash,edit,ls");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "-ls,+grep", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,bash,edit,grep");
+    pi_tools_defaults(&pt, "read,grep", 0);
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,grep");
+    pi_tools_defaults(&pt, "", 0);
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
+    CHECK_INT(ses.ntools, 0);
+    pi_tools_defaults(&pt, 0, 0);
     CHECK_INT(pi_args_parse(&a, 5, argv), 0);
     CHECK_STR(a.tools, "read,grep");
     CHECK_INT(a.gate, 0);
     CHECK_INT(pi_args_parse(&a, 4, argv2), 0);
-    CHECK_STR(a.tools, "-");
+    CHECK_INT(a.no_tools, 1);
+    CHECK_STR(a.tools, "");
     CHECK_INT(a.gate, 1);
+    CHECK_INT(pi_args_parse(&a, 4, argv3), -1);
+    CHECK_STR(a.err, "-t: tool names cannot be mixed with +name or -name entries");
+    CHECK_INT(pi_args_parse(&a, 4, argv4), 0);
+    CHECK_STR(a.tools, "-write,+ls");
+    memset(&ses, 0, sizeof(ses));
+    ses.call_id = "call_t1";
+}
+
+/* ---- P11-I12: the escape sequences of a user command's output (pi 1.1.0 utils/ansi.ts, core/bash-executor.ts:73-115) ---- */
+
+/* the output as pi's executor builds it from chunks: a chunk's unfinished sequence waits for the next one */
+static void ansi_chunked(const char *const *chunks, jw *out)
+{
+    jw pend, buf;
+    int i;
+    jw_init(&pend);
+    for (i = 0; chunks[i]; i++) {
+        long keep;
+        jw_init(&buf);
+        jw_raw(&buf, pend.p ? pend.p : "", pend.n);
+        jw_raw(&buf, chunks[i], (long)strlen(chunks[i]));
+        keep = pi_ansi_split(buf.p, buf.n);
+        jw_reset(&pend);
+        jw_raw(&pend, buf.p + keep, buf.n - keep);
+        pi_ansi_clean(buf.p, keep, out);
+        jw_free(&buf);
+    }
+    pi_ansi_clean(pend.p ? pend.p : "", pend.n, out);
+    jw_free(&pend);
+}
+
+static void test_user_bash_ansi(void)
+{
+    static const char *const split1[] = { "ab\033[3", "1mred\033[0", "m!\n", 0 };         /* a CSI split three times */
+    static const char *const split2[] = { "x\033", "[31mred", 0 };                         /* ESC alone at a chunk end */
+    static const char *const split3[] = { "a\033]0;ti", "tle\007b", 0 };                   /* an OSC split before its BEL */
+    static const char *const split4[] = { "a\033]0;title\033", "\\b", 0 };                 /* ... before its ESC \ */
+    jw o;
+    char *t;
+    int code = 0, stopped = 0;
+    jw_init(&o);
+    CHECK_INT(pi_ansi_split("plain", 5), 5);
+    CHECK_INT(pi_ansi_split("ab\033[31m", 7), 7);                  /* complete */
+    CHECK_INT(pi_ansi_split("ab\033[31", 6), 2);                   /* CSI without its final byte */
+    CHECK_INT(pi_ansi_split("ab\033", 3), 2);
+    CHECK_INT(pi_ansi_split("a\033]0;title", 10), 1);              /* OSC without its terminator */
+    CHECK_INT(pi_ansi_split("a\033]0;title\007", 11), 11);
+    ansi_chunked(split1, &o);
+    CHECK_STR(o.p, "abred!\n");                                     /* no stray "m" nor "1m" */
+    jw_reset(&o);
+    ansi_chunked(split2, &o);
+    CHECK_STR(o.p, "xred");
+    jw_reset(&o);
+    ansi_chunked(split3, &o);
+    CHECK_STR(o.p, "ab");
+    jw_reset(&o);
+    ansi_chunked(split4, &o);
+    CHECK_STR(o.p, "ab");
+    jw_reset(&o);
+    pi_ansi_clean("a\r\nb\001\033[1;32mc\033[0m\033[K\xef\xbf\xb9z", 24, &o);      /* CR, binary, SGR, EL, U+FFF9 */
+    CHECK_STR(o.p, "a\nbcz");
+    jw_free(&o);
+    /* the user's command (`!cmd`, RPC bash) goes through it: the whole path, pi_bash_exec on the real bash tool */
+    memset(&ses, 0, sizeof(ses));
+    ses.call_id = "call_t1";
+    CHECK_INT(pi_tool_add(&ses, &pt.tool[PT_BASH]), 0);
+    jw_init(&o);
+    CHECK_INT(pi_bash_exec(&ses, "printf '\\033[31mred\\033[0m \\033]0;title\\007ok\\r\\n'", &o, &code, &stopped), 0);
+    t = o.p;
+    CHECK_STR(t, "red ok\n");
+    CHECK_INT(code, 0);
+    jw_free(&o);
     memset(&ses, 0, sizeof(ses));
     ses.call_id = "call_t1";
 }
@@ -1393,6 +1519,7 @@ void suite_pi_tools(void)
     test_ls_order();
     test_images();
     test_bash();
+    test_user_bash_ansi();
     test_search();
     test_select();
     test_truncate();

@@ -45,6 +45,9 @@ struct pi_tools {
     int shell;                  /* PI_SH_* */
     char bash_desc[600];        /* the bash tool's description, for that shell */
     char edit_schema[1100], grep_schema[1100];  /* the two schemas over C90's string length, joined */
+    char defaults[256];         /* settings.json's defaultTools, joined by commas */
+    int defaults_set;           /* the setting is there (an empty list is no tools) */
+    int no_tools;               /* --no-tools: the default selection is empty */
     pi_tool tool[PT_COUNT];
     pi_tslot slot[PT_COUNT];
 };
@@ -57,9 +60,16 @@ extern long pi_tool_runs[PT_COUNT];
  * be), cut output kept in tmp ("T:", "/tmp/"): 0, -1 out of memory */
 int pi_tools_init(pi_tools *p, cl_sys *sys, const char *root, const char *tmp, int shell);
 void pi_tools_free(pi_tools *p);
-/* The tools a --tools list names ("read,grep", "+ls" adds to the
- * defaults, "*" all; 0 or "" the defaults; none when "-" (--no-tools))
- * added to the session: 0, -1 with an unknown name in err. */
+/* The default selection, before pi_tools_add: settings.json's defaultTools as a comma-separated list (0: the setting is
+ * absent: read, bash, edit, write; plain names replace the defaults, +name/-name entries change them; an empty list is
+ * no tools) and --no-tools (the defaults are empty). pi 1.1.0 core/settings-manager.ts resolveDefaultTools. */
+void pi_tools_defaults(pi_tools *p, const char *entries, int no_tools);
+/* pi's getToolListError for a --tools list: 0 when it is valid, else the problem (a literal, or buf for the one that
+ * names an entry). A list is an allowlist of plain names ("*" all) or only +name/-name entries with exact names. */
+const char *pi_tool_list_error(const char *list, char *buf, long cap);
+/* The tools a --tools list selects added to the session: no list the default selection; plain names an allowlist
+ * ("read,grep"); only +name/-name entries applyToolModifiers on the default selection ("-write" is read, bash, edit).
+ * 0, -1 with the problem in err. */
 int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long cap);
 /* PT_*, -1 not one of these */
 int pi_tools_kind(const char *name);

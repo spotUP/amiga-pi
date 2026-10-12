@@ -10,8 +10,9 @@
  * --session opens a file or the session whose id starts with the argument,
  * -r lists the sessions to pick one, --no-session keeps the conversation in RAM,
  * -n names the session (a session_info entry).
- * --tools: pi's allowlist of tools ("read,grep,find,ls"; "+ls" adds to the
- * defaults read, bash, edit, write); --no-tools: none. --gate / --no-gate
+ * --tools: pi's allowlist of tools ("read,grep,find,ls") or, as a list of only +name/-name entries, changes to the
+ * defaults read, bash, edit, write ("+ls", "-write"; mixing the two or a * in a modifier is an error, pi 1.1.0);
+ * --no-tools: the defaults are empty. --gate / --no-gate
  * switch the permission gate (ext_gate.h) over settings.json's
  * permissionGate.
  * The model (--model takes pi's pattern: provider/id, an id, or part of one, with an optional :thinking level;
@@ -36,7 +37,8 @@ typedef struct pi_args {
     int mode;                   /* --mode: PI_MODE_* (pi's text, json, rpc) */
     const char *msg[PI_ARG_MSGS];   /* the messages, one prompt each (pi: [messages...]); pointers into argv */
     int nmsg;
-    char tools[256];            /* --tools as given, "-" for --no-tools, "" the defaults */
+    char tools[256];            /* --tools as given, "" none given */
+    int no_tools;               /* --no-tools: the default selection is empty (a --tools list still applies) */
     int gate;                   /* --gate 1, --no-gate 0, -1 settings.json decides */
     int cont, resume, no_session;
     int approve;                /* -a / --approve 1 trusts the project's .pi/ resources, -na / --no-approve 0, -1 ask */

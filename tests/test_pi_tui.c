@@ -19,6 +19,7 @@
 #include "../amiga-pi/session3.h"
 #include "../amiga-pi/context.h"
 #include "../amiga-pi/compact.h"
+#include "../amiga-pi/pstatus.h"
 #include "claude/sys_posix.h"
 #include "claude/theme.h"
 #include "view/hl_style.h"
@@ -46,6 +47,7 @@ typedef struct scen {
 #define SC_REGULAR(sc) (!strncmp((sc)->name, "reg_", 4) || !strcmp((sc)->name, "exit_regular"))
 #define SC_BAR(sc) (strstr((sc)->name, "_bar") != 0)
 #define SC_HINT(sc) (strstr((sc)->name, "exit_hint") != 0)     /* fullscreenExitOutput "resume-hint" */
+#define SC_PAD0(sc) (strstr((sc)->name, "pad0") != 0)          /* settings.json outputPad 0 (pi 1.1.0) */
 #define SC_THEME(sc) (!strncmp((sc)->name, "dark_", 5) ? 1 : !strncmp((sc)->name, "light_", 6) ? 2 : 0)
 static int cmp_shift;           /* the capture's row r is on our screen at row r + cmp_shift (a selector drawn at the bottom) */
 
@@ -362,6 +364,7 @@ static void run(const scen *sc)
     pi_ui_set_theme(0);                 /* the system theme and pi's keys, whatever an earlier test left */
     pi_ui_set_keybindings(0, 0);
     pi_ui_set_tui(SC_REGULAR(sc), SC_HINT(sc), SC_BAR(sc));
+    pi_ui_set_output_pad(!SC_PAD0(sc));
     pi_ui_set_resume(sc->when == 3 ? test_resume : 0, 0);
     if (SC_THEME(sc)) {
         static cl_pitheme th;
@@ -737,6 +740,7 @@ static llm_ts adv_now(void *u)
     return t;
 }
 
+static const char *app_pstatus;         /* PI_PROGRAM_STATUS in the test's environment (0: unset) */
 static const char *app_colorterm;       /* what the test's terminal says in COLORTERM (0: unset) */
 
 static long app_env(const char *name, char *o, long cap)
@@ -746,6 +750,8 @@ static long app_env(const char *name, char *o, long cap)
         v = app_colorterm;
     else if (!strcmp(name, "TERM"))
         v = "vtcon";
+    else if (!strcmp(name, "PI_PROGRAM_STATUS"))
+        v = app_pstatus;
     if (!strcmp(name, "OPENAI_API_KEY"))
         v = "sk-test-openai";
     else if (!strcmp(name, "ANTHROPIC_API_KEY"))
@@ -974,22 +980,20 @@ static void tree_rest(void)
     compare();
 }
 
-static void test_tree(void)
+/* a session fixture of tests/pi (relative to tests/pi/tui) written to <aroot>/<name>, its project directory moved to the
+ * sandbox's: path gets the file's name. 0 when the fixture is missing */
+static int put_session(const char *fixture, const char *name, char *path)
 {
-    static const char *keys[] = { "/tree\r", "\004", 0 };
-    static scen sc = { "tree", { 0 }, { 0 }, 0, 1, 0, { { 1, 6, 0, 79, "the transcript above the selector" },
-                                                        { 9, 10, 0, 79, "tree help keys" },
-                                                        { 24, 25, 0, 79, "the folder and the model of the capture" } } };
-    char src[600], *txt, path[600], *fix;
+    char *txt, *fix;
     long n;
     FILE *f;
-    int i;
     strcpy(path, aroot);
-    strcat(path, "/tree_session.jsonl");
-    txt = slurp("../sessions/doc_branch.jsonl", &n);
+    strcat(path, "/");
+    strcat(path, name);
+    txt = slurp(fixture, &n);
     CHECK(txt != 0);
     if (!txt)
-        return;
+        return 0;
     fix = (char *)malloc((size_t)n * 2 + 200);
     {
         const char *from = txt, *at;
@@ -1010,7 +1014,19 @@ static void test_tree(void)
     }
     free(txt);
     free(fix);
-    (void)src;
+    return 1;
+}
+
+static void test_tree(void)
+{
+    static const char *keys[] = { "/tree\r", "\004", 0 };
+    static scen sc = { "tree", { 0 }, { 0 }, 0, 1, 0, { { 1, 6, 0, 79, "the transcript above the selector" },
+                                                        { 9, 10, 0, 79, "tree help keys" },
+                                                        { 24, 25, 0, 79, "the folder and the model of the capture" } } };
+    char path[600];
+    int i;
+    if (!put_session("../sessions/doc_branch.jsonl", "tree_session.jsonl", path))
+        return;
     app_write("settings.json", "{\"quietStartup\":true}\n");
     cur = &sc;
     taken = 0;
@@ -1040,6 +1056,49 @@ static void test_tree(void)
 }
 
 
+/* P11-I9: a resumed session draws `Took` from the toolResult's recorded durationMs (pi 1.1.0 tool-execution.ts:137,
+ * renderers/bash.ts:104-106): 2300 ms is "Took 2.3s", a result recorded without one shows no Took row. The golden is pi's
+ * own screen for the same session file. */
+static void resume_rest(void)
+{
+    compare();
+}
+
+static void test_resume_took(void)
+{
+    static const char *keys[] = { "\004", 0 };
+    static scen sc = { "resume_took", { 0 }, { 0 }, 0, 0, 0, { { 21, 25, 0, 79, "the editor border (the thinking level of the model) and the footer: the capture's model is the fake one" } } };
+    char path[600];
+    int i;
+    if (!put_session("took_session.jsonl", "took_session.jsonl", path))
+        return;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    cur = &sc;
+    taken = 0;
+    diffs = 0;
+    memset(rowdiff, 0, sizeof(rowdiff));
+    first_diff[0] = 0;
+    load_golden("resume_took");
+    CHECK(want != 0);
+    if (!want)
+        return;
+    app_session = path;
+    CHECK_INT(app_run(80, want_rows, keys, 0, 0, resume_rest), 0);
+    app_session = 0;
+    CHECK(taken);
+    if (diffs) {
+        printf("  resume_took: %d cells differ from pi's capture\n%s", diffs, first_diff);
+        if (getenv("PI_TUI_ROWS"))
+            for (i = 0; i < want_rows; i++)
+                if (rowdiff[i]) {
+                    printf("    row %2d pi       |%s\n", i + 1, h_row(want, i));
+                    printf("           amiga-pi |%s   (%d cells)\n", snap[i], rowdiff[i]);
+                }
+    }
+    CHECK_INT(diffs, 0);
+    vt_free(want);
+}
+
 /* Enter in the selector moves the leaf (a user message goes back to the editor) and the conversation is drawn again */
 static void test_tree_nav(void)
 {
@@ -1049,7 +1108,7 @@ static void test_tree_nav(void)
     strcpy(path, aroot);
     strcat(path, "/tree_session.jsonl");
     app_session = path;
-    CHECK_INT(app_run(80, 25, keys, 0, 0, take_shot), 0);
+    CHECK_INT(app_run(80, 40, keys, 0, 0, take_shot), 0);
     app_session = 0;
     CHECK(shot_has("root answer"));
     CHECK(!shot_has("B answer"));
@@ -1244,6 +1303,175 @@ static void test_bang(void)
     s3_free(&st);
     CHECK(found_hi);
     CHECK(found_secret);
+}
+
+/* P11-I11: pi 1.1.0 writes `\033]7501;state=...:app=pi\033\\` reports when PI_PROGRAM_STATUS=1 (tests/pi/tui/status_bytes.bytes, the
+ * bytes of pi's pty for one turn): idle at the start, working while the turn runs, done when it settles. amiga-pi writes the
+ * same with its own app name, and `clear` when the screen stops. Without the variable it writes none, and no query for
+ * the terminal to answer either (pi's start_bytes.bytes holds its kitty query, the OSC 7501 query and device attributes). */
+static int osc7501(const char *b, long n, char out[][80], int max)
+{
+    int k = 0;
+    long i;
+    for (i = 0; i + 6 < n && k < max; i++)
+        if (!memcmp(b + i, "\033]7501;", 6)) {
+            long e = i;
+            while (e + 1 < n && !(b[e] == '\033' && b[e + 1] == '\\'))
+                e++;
+            if (e - i < 79) {
+                memcpy(out[k], b + i, (size_t)(e - i));
+                out[k][e - i] = 0;
+                k++;
+            }
+        }
+    return k;
+}
+
+static void test_program_status(void)
+{
+    static const char *keys[] = { "hello\r", "\004", 0 };
+    static const char *const sse[] = { "turn_raw.1.sse" };
+    char pi[8][80], ours[8][80];
+    long n = 0;
+    char *g = slurp("status_bytes.bytes", &n);
+    int np = 0, no, i;
+    CHECK(g != 0);
+    if (g) {
+        np = osc7501(g, n, pi, 8);
+        free(g);
+    }
+    CHECK_INT(np, 3);                                   /* idle, working, done: pi never clears (tmux killed it) */
+    CHECK(np == 3 && !strcmp(pi[0], "\033]7501;state=idle:app=pi"));
+    g = slurp("start_bytes.bytes", &n);
+    CHECK(g != 0);
+    if (g) {
+        CHECK(memcmp(g, "", 0) == 0 && strstr(g, "\033[>7u\033[?u\033]7501;?\033\\\033[c") != 0);      /* pi's startup queries */
+        CHECK_INT(osc7501(g, n, ours, 8), 1);           /* only the query: no report without support */
+        free(g);
+    }
+    app_pstatus = "1";
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 25, keys, sse, 1, take_shot), 0);
+    app_pstatus = 0;
+    no = app_out ? osc7501(app_out, (long)strlen(app_out), ours, 8) : 0;
+    CHECK_INT(no, 4);                                   /* the same three, then clear when the screen stops */
+    for (i = 0; i < 3 && i < no && np == 3; i++) {
+        /* pi's app name is pi; ours amiga-pi */
+        char want[100];
+        const char *eq = strstr(pi[i], ":app=pi");
+        long head = eq ? (long)(eq - pi[i]) : 0;
+        memcpy(want, pi[i], (size_t)head);
+        strcpy(want + head, ":app=amiga-pi");
+        CHECK_STR(ours[i], want);
+    }
+    CHECK(no == 4 && !strcmp(ours[3], "\033]7501;state=clear"));
+    CHECK(app_out && strstr(app_out, "\033]7501;?") == 0);      /* no query is written */
+    CHECK_INT(app_run(80, 25, keys, sse, 1, take_shot), 0);      /* unset: nothing */
+    CHECK_INT(app_out ? osc7501(app_out, (long)strlen(app_out), ours, 8) : -1, 0);
+}
+
+/* the reporter's mapping of events to states (program-status-reporter.ts handleEvent) and pi's formatProgramStatus */
+static char pst_out[2000];
+static void pst_sink(void *u, const char *z, long n)
+{
+    (void)u;
+    if ((size_t)n + strlen(pst_out) < sizeof(pst_out) - 1)
+        strncat(pst_out, z, (size_t)n);
+}
+
+static void pst_ev(pi_pstatus *p, int type, int role, const char *msg, int aborted, int is_error, int stop)
+{
+    pi_event e;
+    pi_event_init(&e, type);
+    e.role = role;
+    e.msg = msg;
+    e.msg_n = msg ? (long)strlen(msg) : 0;
+    e.aborted = aborted;
+    e.is_error = is_error;
+    e.stop = stop;
+    pi_pstatus_event(p, &e);
+}
+
+static const char *pst_nm(void *u)
+{
+    return (const char *)u;
+}
+
+static void test_pstatus_states(void)
+{
+    pi_pstatus p;
+    jw o;
+    jw_init(&o);
+    pi_pstatus_format(&o, PST_WORKING, "pi", PSK_NONE, "my session");
+    CHECK_STR(o.p, "\033]7501;state=working:app=pi:msg=bXkgc2Vzc2lvbg==\033\\");
+    jw_reset(&o);
+    pi_pstatus_format(&o, PST_BLOCKED, "bad app", PSK_QUESTION, "Pick\none");        /* app dropped, control char a space */
+    CHECK_STR(o.p, "\033]7501;state=blocked:kind=question:msg=UGljayBvbmU=\033\\");
+    jw_reset(&o);
+    pi_pstatus_format(&o, PST_DONE, "pi", PSK_QUESTION, 0);                              /* kind only for blocked */
+    CHECK_STR(o.p, "\033]7501;state=done:app=pi\033\\");
+    jw_free(&o);
+    pst_out[0] = 0;
+    pi_pstatus_init(&p, 1, pst_sink, 0, "pi", pst_nm, (void *)"s1");
+    pi_pstatus_start(&p);
+    pst_ev(&p, PE_AGENT_START, 0, 0, 0, 0, 0);
+    pst_ev(&p, PE_MESSAGE_END, LR_ASSISTANT, "{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"boom\\nsecond\"}", 0, 0, 0);
+    pst_ev(&p, PE_MESSAGE_END, LR_ASSISTANT, "{\"role\":\"assistant\",\"stopReason\":\"error\",\"errorMessage\":\"boom\\nsecond\"}", 0, 0, 0);
+    pst_ev(&p, PE_AGENT_SETTLED, 0, 0, 0, 0, 0);
+    /* idle; working with the session name; (the same again is not repeated); error with the first line only */
+    CHECK_STR(pst_out, "\033]7501;state=idle:app=pi\033\\\033]7501;state=working:app=pi:msg=czE=\033\\"
+                       "\033]7501;state=error:app=pi:msg=Ym9vbQ==\033\\");
+    pst_out[0] = 0;
+    pst_ev(&p, PE_AGENT_START, 0, 0, 0, 0, 0);
+    pst_ev(&p, PE_AGENT_SETTLED, 0, 0, 1, 0, 0);                  /* aborted: idle, whatever the answer was */
+    CHECK_STR(pst_out, "\033]7501;state=working:app=pi:msg=czE=\033\\\033]7501;state=idle:app=pi\033\\");
+    pst_out[0] = 0;
+    pst_ev(&p, PE_COMPACTION_START, 0, 0, 0, 0, 0);               /* "Compacting context" */
+    pst_ev(&p, PE_COMPACTION_END, 0, 0, 0, 0, 0);                 /* manual (stop 0) and fine: done */
+    CHECK_STR(pst_out, "\033]7501;state=working:app=pi:msg=Q29tcGFjdGluZyBjb250ZXh0\033\\\033]7501;state=done:app=pi:msg=czE=\033\\");
+    pi_pstatus_blocked(&p, PSK_AUTH, "Log in");
+    pi_pstatus_stop(&p);
+    CHECK(strstr(pst_out, "state=blocked:app=pi:kind=auth") != 0);
+    CHECK(strstr(pst_out, "state=clear\033\\") != 0);
+}
+
+/* P11-I7 reachability: settings.json's defaultTools reaches the request's tool list through pi_app (the unit cases are in
+ * test_pi_tools.c) */
+static void test_default_tools_setting(void)
+{
+    static const char *keys[] = { "hello\r", "\004", 0 };
+    static const char *const sse[] = { "markdown.1.sse" };
+    app_write("settings.json", "{\"quietStartup\":true,\"defaultTools\":[\"-write\",\"+ls\"]}\n");
+    CHECK_INT(app_run(80, 40, keys, sse, 1, take_shot), 0);
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq >= 1) {
+        CHECK(strstr(ps.body[0], "\"name\":\"ls\"") != 0);
+        CHECK(strstr(ps.body[0], "\"name\":\"read\"") != 0);
+        CHECK(strstr(ps.body[0], "\"name\":\"write\"") == 0);
+    }
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+}
+
+/* P11-I8 reachability: settings.json's outputPad reaches the screen through pi_app (the golden scenarios set it by hand) */
+static int row_starts(const char *text)
+{
+    int r;
+    for (r = 0; r < nshot; r++)
+        if (!strncmp(shot[r], text, strlen(text)))
+            return 1;
+    return 0;
+}
+
+static void test_output_pad_setting(void)
+{
+    static const char *keys[] = { "!!echo hi\r", "\004", 0 };
+    app_write("settings.json", "{\"quietStartup\":true,\"outputPad\":0}\n");
+    CHECK_INT(app_run(80, 40, keys, 0, 0, take_shot), 0);
+    CHECK(row_starts("$ echo hi"));
+    app_write("settings.json", "{\"quietStartup\":true,\"outputPad\":1}\n");
+    CHECK_INT(app_run(80, 40, keys, 0, 0, take_shot), 0);
+    CHECK(row_starts(" $ echo hi"));
+    app_write("settings.json", "{\"quietStartup\":true}\n");
 }
 
 
@@ -1637,6 +1865,13 @@ static const scen scenarios[] = {
     { "dark_toolrun", { "run it\r", 0 }, { "dark_toolrun.1.sse", "dark_toolrun.2.sse", 0 }, 2, 0, 2,
       { { 7, 9, 0, 79, "the live Elapsed row of a running tool" }, { 21, 21, 3, 3, "spinner frame" } } },
     { "dark_bang", { "!!echo hi\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* P11 (pi 1.1.0): `!!` keeps its dim header; outputPad 0 takes the padding off messages, tool boxes and `!` output */
+    { "bang_excluded", { "!!!echo hi\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "pad0_markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
+    { "pad0_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "pad0_toolerr", { "run it\r", 0 }, { "toolerr.1.sse", "toolerr.2.sse", 0 }, 2, 0, 0, { { 13, 13, 0, 8, "elapsed time of the run" } } },
+    { "pad0_bang", { "!!echo hi\r", "!!!echo secret\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_pad0_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "light_twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "light_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
 };
@@ -1652,8 +1887,13 @@ void suite_pi_tui(void)
     test_cycle();
     test_tree();
     test_tree_nav();
+    test_resume_took();
     test_export();
     test_bang();
+    test_output_pad_setting();
+    test_default_tools_setting();
+    test_program_status();
+    test_pstatus_states();
     test_context_figure();
     test_ctrl_d();
     test_themes();

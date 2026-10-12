@@ -11,6 +11,19 @@
 #define BOLD "\033[1m"
 #define DIM  "\033[2m"
 
+/* outputPad (settings.json, pi 1.1.0 settings-manager.ts:173,1511): the horizontal padding of messages, tool boxes and
+ * `!` output, 0 or 1 column each side. The ONE place the padding is read: pd is the padding string, pwid the width
+ * left for text */
+static const char *pd(const pi_show *s)
+{
+    return s->pad ? " " : "";
+}
+
+static long pwid(const pi_show *s)
+{
+    return s->t->cols - 2 * (long)s->pad;
+}
+
 /* the SGR of a role into buf */
 static const char *sg(const pi_show *s, int role, char *buf)
 {
@@ -47,12 +60,18 @@ static void spacer(pi_show *s)
 
 /* text set in a role's colour (plus extra attributes), wrapped to the screen's width less pi's one column of
  * padding each side, each line one space in */
-static void say(pi_show *s, int role, const char *attr, const char *text)
+static void say_pad(pi_show *s, int pad, int role, const char *attr, const char *text)
 {
     char b[48], st[96];
     cl_copy(st, role >= 0 ? sg(s, role, b) : "", sizeof(st));
     cl_cat(st, attr, sizeof(st));
-    show_wrap(&s->batch, " ", " ", st, text, (long)strlen(text), s->t->cols - 2);
+    show_wrap(&s->batch, pad ? " " : "", pad ? " " : "", st, text, (long)strlen(text), s->t->cols - 2 * (long)pad);
+}
+
+/* a block that follows outputPad (messages, tool boxes) */
+static void say(pi_show *s, int role, const char *attr, const char *text)
+{
+    say_pad(s, s->pad, role, attr, text);
 }
 
 /* the rows of the batch from `from` on become a panel, pi's Box: the background of role bg behind every row over
@@ -104,6 +123,7 @@ void pshow_init(pi_show *s, cl_tui *t, const cl_pitheme *th)
 {
     memset(s, 0, sizeof(*s));
     s->t = t;
+    s->pad = 1;
     jw_init(&s->line);
     jw_init(&s->batch);
     jw_init(&s->args);
@@ -140,7 +160,8 @@ static void md_sink(void *u, const char *p, long n)
             s->first = 0;
             s->n_blocks++;
         }
-        raw(s, SGR0 " ");
+        raw(s, SGR0);
+        raw(s, pd(s));
         jw_raw(&s->batch, s->line.p ? s->line.p : "", s->line.n);
         raw(s, SGR0 "\n");
         jw_reset(&s->line);
@@ -155,7 +176,7 @@ static void md_start(pi_show *s)
     if (s->md)
         return;
     vo_init(&s->vo, md_sink, s, VW_UTF8, s->th->depth >= 256 ? s->th->depth : 16, &s->hlt);
-    mo.width = s->t->cols - 2;
+    mo.width = pwid(s);
     mo.urls = 1;
     mo.look = MD_LOOK_PI;
     s->md = md_open(&mo, &s->vo);
@@ -301,7 +322,7 @@ void pshow_user(pi_show *s, const char *text)
 void pshow_note(pi_show *s, int role, const char *text)
 {
     spacer(s);
-    say(s, role, "", text);
+    say_pad(s, 1, role, "", text);     /* pi's status lines are Text(.., 1, 0), not outputPad */
     out(s);
 }
 
@@ -352,7 +373,7 @@ static int arg_str(jv a, const char *key, char *out, long cap)
 static void header_line(pi_show *s, const char *name, jv a)
 {
     char b[48], b2[48], path[300], tmp[300], l[700];
-    cl_copy(l, " ", sizeof(l));
+    cl_copy(l, pd(s), sizeof(l));
     if (!strcmp(name, "bash")) {
         jv v;
         arg_str(a, "command", tmp, sizeof(tmp));
@@ -535,7 +556,7 @@ static void result_lines(pi_show *s, const char *text, int role, int max)
     blank(s);
     for (i = 0; i <= n && shown < max; i++) {
         if (i == n || text[i] == '\n') {
-            show_wrap(&s->batch, " ", " ", sg(s, role, b), text + a, i - a, s->t->cols - 2);
+            show_wrap(&s->batch, pd(s), pd(s), sg(s, role, b), text + a, i - a, pwid(s));
             a = i + 1;
             shown++;
         }
@@ -545,12 +566,12 @@ static void result_lines(pi_show *s, const char *text, int role, int max)
         cl_ltoa(total - max, num);
         cl_cat(m, num, sizeof(m));
         cl_cat(m, " more lines, ctrl+o to expand)", sizeof(m));
-        show_wrap(&s->batch, " ", " ", sg(s, PR_MUTED, b), m, (long)strlen(m), s->t->cols - 2);
+        show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_MUTED, b), m, (long)strlen(m), pwid(s));
     }
 }
 
 /* bash: the last five lines of the output, "... (N earlier lines, ctrl+o to expand)" above when more */
-static void bash_result(pi_show *s, const char *text, unsigned long ms)
+static void bash_result(pi_show *s, const char *text, unsigned long ms, long recorded)
 {
     char b[48], dur[24], m[96], num[16];
     jw all;
@@ -567,7 +588,7 @@ static void bash_result(pi_show *s, const char *text, unsigned long ms)
         jw wrapped;
         long p = 0;
         jw_init(&wrapped);
-        show_wrap(&wrapped, "", "", "", text + a, n - a, s->t->cols - 2);
+        show_wrap(&wrapped, "", "", "", text + a, n - a, pwid(s));
         for (i = 0; i < wrapped.n && nrows < 255; i++)
             if (i == 0 || wrapped.p[i - 1] == '\n') {
                 first_row[nrows++] = i;
@@ -581,12 +602,12 @@ static void bash_result(pi_show *s, const char *text, unsigned long ms)
             cl_ltoa(skip, num);
             cl_cat(m, num, sizeof(m));
             cl_cat(m, " earlier lines, ctrl+o to expand)", sizeof(m));
-            show_wrap(&s->batch, " ", " ", sg(s, PR_MUTED, b), m, (long)strlen(m), s->t->cols - 2);
+            show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_MUTED, b), m, (long)strlen(m), pwid(s));
         }
         for (i = skip; i < nrows; i++) {
             /* each row of wrapped holds its text and SGR0 \n: re-set in the output colour */
             long e = first_row[i + 1] - 1;
-            jw_rawz(&s->batch, " ");
+            jw_rawz(&s->batch, pd(s));
             jw_rawz(&s->batch, sg(s, PR_TOOL_OUTPUT, b));
             jw_raw(&s->batch, wrapped.p + first_row[i], e - first_row[i]);
             jw_rawz(&s->batch, "\n");
@@ -595,17 +616,22 @@ static void bash_result(pi_show *s, const char *text, unsigned long ms)
         jw_free(&wrapped);
     }
     jw_free(&all);
-    if (s->replay)
+    /* pi 1.1.0 renderers/bash.ts:104-111: a final result's recorded durationMs wins (it survives a reload); the clock of
+     * the call is the fallback while the tool runs and for results recorded without one, and a replayed result with
+     * none shows no Took */
+    if (recorded >= 0)
+        ms = (unsigned long)recorded;
+    else if (s->replay)
         return;
     duration(ms, dur);
     blank(s);
     cl_copy(m, "Took ", sizeof(m));
     cl_cat(m, dur, sizeof(m));
-    show_wrap(&s->batch, " ", " ", sg(s, PR_MUTED, b), m, (long)strlen(m), s->t->cols - 2);
+    show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_MUTED, b), m, (long)strlen(m), pwid(s));
     (void)rows;
 }
 
-void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error)
+void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error, long duration_ms)
 {
     jw text;
     jv a;
@@ -622,7 +648,7 @@ void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error)
     pshow_result_text(result, rn, &text);
     jw_rawz(&text, "");
     if (!strcmp(s->name, "bash"))
-        bash_result(s, text.p ? text.p : "", ms);
+        bash_result(s, text.p ? text.p : "", ms, duration_ms);
     else if (is_error && text.n) {
         blank(s);
         say(s, PR_ERROR, "", text.p);
@@ -751,11 +777,14 @@ void pshow_replay(pi_show *s, const struct pi_session *ses)
             for (k = 0; k < ncall; k++)
                 if (!calls[k].shown && !strcmp(calls[k].id, id)) {
                     int err = json_get(m, "isError", &v) && v.n >= 4 && !memcmp(v.p, "true", 4);
+                    long dur = -1;          /* the toolResult's durationMs (pi 1.1.0 ToolResultMessage), -1 none recorded */
+                    if (json_get(m, "durationMs", &v) && json_type(v) == J_NUM)
+                        dur = json_long(v, -1);
                     pshow_tool_start(s, calls[k].name, calls[k].args.p ? calls[k].args.p : "{}", calls[k].args.n);
                     if (json_get(m, "content", &c))
-                        pshow_tool_end(s, c.p, c.n, err);
+                        pshow_tool_end(s, c.p, c.n, err, dur);
                     else
-                        pshow_tool_end(s, "[]", 2, err);
+                        pshow_tool_end(s, "[]", 2, err, dur);
                     calls[k].shown = 1;
                     break;
                 }
@@ -779,8 +808,8 @@ void pshow_bash(pi_show *s, const char *command, const char *output, int exit_co
     for (i = 0; i < w; i++)
         raw(s, "\342\224\200");
     raw(s, SGR0 "\n");
-    cl_copy(line, " ", sizeof(line));
-    cl_cat(line, sg(s, PR_BASH_MODE, b), sizeof(line));
+    cl_copy(line, pd(s), sizeof(line));
+    cl_cat(line, sg(s, role, b), sizeof(line));     /* pi 1.1.0 bash-execution.ts:54,139-141: colorKey, dim for !! */
     cl_cat(line, BOLD "$ ", sizeof(line));
     cl_cat(line, command, sizeof(line));
     cl_cat(line, SGR0, sizeof(line));
@@ -801,7 +830,7 @@ void pshow_bash(pi_show *s, const char *command, const char *output, int exit_co
         hidden = (int)first;
         for (k = first; k < nl; k++) {
             long e = lines_start[k + 1] - 1;
-            show_wrap(&body, " ", " ", sg(s, PR_MUTED, b), output + lines_start[k], e - lines_start[k], w - 2);
+            show_wrap(&body, pd(s), pd(s), sg(s, PR_MUTED, b), output + lines_start[k], e - lines_start[k], pwid(s));
         }
         (void)a;
         (void)rowstart;
@@ -819,17 +848,17 @@ void pshow_bash(pi_show *s, const char *command, const char *output, int exit_co
             cl_ltoa(hidden, num);
             cl_cat(st, num, sizeof(st));
             cl_cat(st, " more lines (ctrl+o to expand)", sizeof(st));
-            show_wrap(&s->batch, " ", " ", sg(s, PR_MUTED, b), st, (long)strlen(st), w - 2);
+            show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_MUTED, b), st, (long)strlen(st), pwid(s));
             any = 1;
         }
         if (cancelled)
-            show_wrap(&s->batch, " ", " ", sg(s, PR_WARNING, b), "(cancelled)", 11, w - 2);
+            show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_WARNING, b), "(cancelled)", 11, pwid(s));
         else if (exit_code != 0) {
             cl_copy(st, "(exit ", sizeof(st));
             cl_ltoa(exit_code, num);
             cl_cat(st, num, sizeof(st));
             cl_cat(st, ")", sizeof(st));
-            show_wrap(&s->batch, " ", " ", sg(s, PR_ERROR, b), st, (long)strlen(st), w - 2);
+            show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_ERROR, b), st, (long)strlen(st), pwid(s));
         }
         (void)any;
     }
@@ -838,4 +867,9 @@ void pshow_bash(pi_show *s, const char *command, const char *output, int exit_co
         raw(s, "\342\224\200");
     raw(s, SGR0 "\n");
     out(s);
+}
+
+void pshow_set_pad(pi_show *s, int pad)
+{
+    s->pad = pad ? 1 : 0;
 }

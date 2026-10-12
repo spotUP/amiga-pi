@@ -25,6 +25,11 @@ void pi_ui_set_quiet(int quiet);
  * main screen, the editor follows the content), 0 its default "fullscreen" (the alternate screen); hint_only 1 is
  * fullscreenExitOutput "resume-hint"; scrollbar_always 1 is fullscreenScrollbar "always" */
 void pi_ui_set_tui(int regular, int hint_only, int scrollbar_always);
+/* settings.json's outputPad (pi 1.1.0): 1 (default) or 0, the horizontal padding of messages, tool boxes and `!` output */
+void pi_ui_set_output_pad(int pad);
+/* PI_PROGRAM_STATUS=1 (pi 1.1.0): write the OSC 7501 program status reports (pstatus.h). 0 (default): none -- pi also
+ * writes them when the terminal answers its query, which amiga-pi does not send */
+void pi_ui_set_program_status(int on);
 /* the command that resumes the session, asked for when the screen is left ("" none: pi prints the line only for a
  * session that has a file) */
 void pi_ui_set_resume(const char *(*fn)(void *u), void *u);

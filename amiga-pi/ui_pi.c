@@ -6,6 +6,7 @@
 #include "claude/show.h"
 #include "claude/util.h"
 #include "show_pi.h"
+#include "pstatus.h"
 #include "claude/tools.h"
 #include "compact.h"
 #include "tree_pi.h"
@@ -20,6 +21,9 @@ typedef struct pi_ui {
     int look;                   /* the screen runs in pi's look (show_pi.c writes the transcript) */
     pi_show ps;
     cl_pitheme theme;
+    pi_pstatus pst;             /* OSC 7501 program status (pstatus.h) */
+    int pst_on;                 /* the screen is up and reports go through pst */
+    char name[160];             /* the session's name, part of the working and done reports */
 } pi_ui;
 
 /* the slash commands the menu offers: pi's own names and descriptions (core/slash-commands.js, in its order) of
@@ -85,6 +89,13 @@ void pi_ui_set_tui(int regular, int hint_only, int scrollbar_always)
     ui_bar = scrollbar_always;
 }
 
+static int ui_pad = 1;
+
+void pi_ui_set_output_pad(int pad)
+{
+    ui_pad = pad ? 1 : 0;
+}
+
 void pi_ui_set_resume(const char *(*fn)(void *u), void *u)
 {
     ui_resume = fn;
@@ -94,6 +105,25 @@ void pi_ui_set_resume(const char *(*fn)(void *u), void *u)
 void pi_ui_set_cwd(const char *cwd)
 {
     cl_copy(ui_cwd, cwd ? cwd : "", sizeof(ui_cwd));
+}
+
+static int ui_pstatus;
+
+void pi_ui_set_program_status(int on)
+{
+    ui_pstatus = on;
+}
+
+static void pst_write(void *u, const char *z, long n)
+{
+    pi_ui *p = (pi_ui *)u;
+    if (p->ui.tui)
+        tui_raw(p->ui.tui, z, n);
+}
+
+static const char *pst_name(void *u)
+{
+    return ((pi_ui *)u)->name;
 }
 
 static void status(pi_ui *p);
@@ -108,6 +138,11 @@ static int u_poll(void *u)
 static void on_event(void *u, const pi_event *e)
 {
     pi_ui *p = (pi_ui *)u;
+    if (p->pst_on) {
+        if (e->type == PE_SESSION_INFO)
+            cl_copy(p->name, e->msg ? e->msg : "", sizeof(p->name));
+        pi_pstatus_event(&p->pst, e);
+    }
     if (p->print && !(e->type == PE_COMPACTION_END && e->is_error))
         return;                 /* print mode shows the answer, and a compaction that failed */
     switch (e->type) {
@@ -196,7 +231,7 @@ static void on_event(void *u, const pi_event *e)
         break;
     case PE_TOOL_END:
         if (p->look) {
-            pshow_tool_end(&p->ps, e->result, e->result_n, e->is_error);
+            pshow_tool_end(&p->ps, e->result, e->result_n, e->is_error, e->duration_ms);    /* pi 1.1.0: the recorded durationMs, -1 the clock */
             break;
         }
         if (e->is_error) {
@@ -243,7 +278,11 @@ static int u_ask(void *u, int tool, const char *name, const char *what, int outs
             n = 4;
         }
         (void)tool;
+        if (p->pst_on)
+            pi_pstatus_blocked(&p->pst, PSK_QUESTION, title);     /* an extension dialog: blocked until it is answered */
         c = tui_menu(p->ui.tui, title, 0, opt, n, 0, n - 1);
+        if (p->pst_on)
+            pi_pstatus_blocked(&p->pst, PSK_NONE, 0);
         if (c < 0)
             return ASK_NO;
         if (c == 0)
@@ -717,6 +756,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     else
         km_init_pi(&t->km);
     pshow_init(&p->ps, t, &p->theme);
+    pshow_set_pad(&p->ps, ui_pad);
     pshow_render(&p->ps, &p->render);
     footer(p);
     tui_frame(t);
@@ -881,6 +921,11 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         return 0;
     attach(&p, s, io, 0);
     t = screen(&p, io);
+    p.pst_on = t && p.look;
+    if (p.pst_on) {
+        pi_pstatus_init(&p.pst, ui_pstatus, pst_write, &p, "amiga-pi", pst_name, &p);
+        pi_pstatus_start(&p.pst);
+    }
     if (p.look && p.ui.tui->km.nwarn) {
         /* the problems of keybindings.json, a line each, as pi tells them at the start */
         char *w = p.ui.tui->km.warn.p ? p.ui.tui->km.warn.p : (char *)"", *nl;
@@ -895,7 +940,7 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         }
     }
     if (p.look && !ui_quiet)
-        pshow_header(&p.ps, "amiga-pi", ui_version[0] ? ui_version : "(pi 1.0.4)");
+        pshow_header(&p.ps, "amiga-pi", ui_version[0] ? ui_version : "(pi 1.1.0)");
     else if (!p.look) {
         cl_copy(hello, "amiga-pi in UP-Term. Model ", sizeof(hello));
         cl_cat(hello, s->model.provider, sizeof(hello));
@@ -946,6 +991,9 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
                 cl_cat(t->exit_hint, cmd, sizeof(t->exit_hint));
             }
         }
+        if (p.pst_on)
+            pi_pstatus_stop(&p.pst);
+        p.pst_on = 0;
         tui_stop(t);
         if (p.look)
             pshow_free(&p.ps);

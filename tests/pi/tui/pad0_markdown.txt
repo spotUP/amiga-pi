@@ -1,0 +1,25 @@
+
+show markdown
+
+
+Plan
+
+Here is bold, italic and inline code.
+
+- first item
+- second item with a link (https://example.org)
+
+│ a quoted line
+
+```c
+  int main(void)
+  {
+      return 0;
+  }
+```
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑1.2k ↓180 $0.006 0.7%/200k (auto)                                    fake-model

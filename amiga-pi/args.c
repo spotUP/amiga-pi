@@ -1,6 +1,7 @@
 /* see args.h */
 #include <string.h>
 #include "args.h"
+#include "tools_pi.h"       /* pi_tool_list_error: pi's getToolListError */
 #include "llm/registry.h"
 #include "claude/util.h"
 #include "claude/repl.h"        /* CL_DEFAULT_MODEL: C:Claude's default model */
@@ -69,12 +70,23 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
         } else if (!strcmp(s, "--gate") || !strcmp(s, "--no-gate"))
             a->gate = !strcmp(s, "--gate");
         else if (!strcmp(s, "--no-tools") || !strcmp(s, "-nt"))
-            cl_copy(a->tools, "-", sizeof(a->tools));
+            a->no_tools = 1;
         else if (!strcmp(s, "--tools") || !strcmp(s, "-t")) {
             if (i + 1 >= argc) {
                 cl_copy(a->err, s, sizeof(a->err));
                 cl_cat(a->err, " needs a value", sizeof(a->err));
                 return -1;
+            }
+            {
+                /* pi 1.1.0 cli/args.ts:151-161: an invalid list is an error naming the flag as typed */
+                char pb[160];
+                const char *why = pi_tool_list_error(argv[i + 1], pb, sizeof(pb));
+                if (why) {
+                    cl_copy(a->err, s, sizeof(a->err));
+                    cl_cat(a->err, ": ", sizeof(a->err));
+                    cl_cat(a->err, why, sizeof(a->err));
+                    return -1;
+                }
             }
             cl_copy(a->tools, argv[++i], sizeof(a->tools));
         } else if (!strcmp(s, "--list-models")) {
