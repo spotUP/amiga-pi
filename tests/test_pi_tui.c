@@ -1074,7 +1074,7 @@ static void resume_rest(void)
     compare();
 }
 
-static void resume_case(const char *name, const char *file)
+static void resume_case(const char *name, const char *file, const char *settings)
 {
     static const char *keys[] = { "\004", 0 };
     static scen sc = { "", { 0 }, { 0 }, 0, 0, 0, { { 21, 25, 0, 79, "the editor border (the thinking level of the model) and the footer: the capture's model is the fake one" } } };
@@ -1083,7 +1083,7 @@ static void resume_case(const char *name, const char *file)
     sc.name = name;
     if (!put_session(file, file, path))
         return;
-    app_write("settings.json", "{\"quietStartup\":true}\n");
+    app_write("settings.json", settings);
     cur = &sc;
     taken = 0;
     diffs = 0;
@@ -1093,6 +1093,8 @@ static void resume_case(const char *name, const char *file)
     CHECK(want != 0);
     if (!want)
         return;
+    sc.masks[0].r0 = want_rows - 5;     /* the editor border and the footer, at the bottom of whatever the capture's height */
+    sc.masks[0].r1 = want_rows;
     app_session = path;
     CHECK_INT(app_run(80, want_rows, keys, 0, 0, resume_rest), 0);
     app_session = 0;
@@ -1112,7 +1114,7 @@ static void resume_case(const char *name, const char *file)
 
 static void test_resume_took(void)
 {
-    resume_case("resume_took", "took_session.jsonl");
+    resume_case("resume_took", "took_session.jsonl", "{\"quietStartup\":true}\n");
 }
 
 /* Q2: pi 1.1.0 getTextOutput (core/tools/render-utils.ts:39-48, used by renderers/bash.ts:52) strips escape sequences,
@@ -1120,7 +1122,19 @@ static void test_resume_took(void)
  * result with SGR, EL and an OSC title in its text; the golden is pi's own screen for it ("red plain tail"). */
 static void test_resume_ansi(void)
 {
-    resume_case("resume_ansi", "ansi_session.jsonl");
+    resume_case("resume_ansi", "ansi_session.jsonl", "{\"quietStartup\":true}\n");
+}
+
+/* Q8: a resumed session with a compaction summary, a custom message (display true) and a branch summary: pi 1.1.0's
+ * three components over customMessageBg (components/compaction-summary-message.ts, custom-message.ts,
+ * branch-summary-message.ts), in the system, dark and light themes and with outputPad 0 */
+static void test_resume_summaries(void)
+{
+    resume_case("resume_summaries", "summaries_session.jsonl", "{\"quietStartup\":true}\n");
+    resume_case("dark_resume_summaries", "summaries_session.jsonl", "{\"quietStartup\":true,\"theme\":\"dark\"}\n");
+    resume_case("light_resume_summaries", "summaries_session.jsonl", "{\"quietStartup\":true,\"theme\":\"light\"}\n");
+    resume_case("dark_pad0_resume_summaries", "summaries_session.jsonl",
+                "{\"quietStartup\":true,\"theme\":\"dark\",\"outputPad\":0}\n");
 }
 
 /* Enter in the selector moves the leaf (a user message goes back to the editor) and the conversation is drawn again */
@@ -1977,6 +1991,7 @@ void suite_pi_tui(void)
     test_tree_nav();
     test_resume_took();
     test_resume_ansi();
+    test_resume_summaries();
     test_export();
     test_bang();
     test_output_pad_setting();

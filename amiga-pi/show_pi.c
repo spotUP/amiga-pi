@@ -75,6 +75,22 @@ static void say(pi_show *s, int role, const char *attr, const char *text)
     say_pad(s, s->pad, role, attr, text);
 }
 
+/* the length of an SGR sequence at p that starts from a reset (ESC[0m, ESC[m, ESC[0;..m: hl_sgr writes a style that way),
+ * else 0 */
+static long sgr_reset_len(const char *p, long n)
+{
+    long i = 2;
+    if (n < 3 || p[0] != '\033' || p[1] != '[')
+        return 0;
+    if (p[i] == 'm')
+        return 3;
+    if (p[i] != '0' || i + 1 >= n || (p[i + 1] != 'm' && p[i + 1] != ';'))
+        return 0;
+    for (i = 3; i < n && ((p[i] >= '0' && p[i] <= '9') || p[i] == ';'); i++)
+        ;
+    return i < n && p[i] == 'm' ? i + 1 : 0;
+}
+
 /* the rows of the batch from `from` on become a panel, pi's Box: the background of role bg behind every row over
  * the whole width, put back after each reset inside the row. Nothing changes when the theme draws no background
  * there (pi's system theme). The ONE place the panels' backgrounds are drawn; the colours are the theme's tokens. */
@@ -99,10 +115,11 @@ static void panel(pi_show *s, long from, int bgrole)
         w = tui_width(tmp + a, i - a);
         jw_rawz(&s->batch, bg);
         for (j = a; j < i; j++) {
-            if (tmp[j] == '\033' && j + 3 < i && tmp[j + 1] == '[' && tmp[j + 2] == '0' && tmp[j + 3] == 'm') {
-                jw_rawz(&s->batch, SGR0);
+            long rl = sgr_reset_len(tmp + j, i - j);
+            if (rl) {
+                jw_raw(&s->batch, tmp + j, rl);
                 jw_rawz(&s->batch, bg);
-                j += 3;
+                j += rl - 1;
             } else
                 jw_raw(&s->batch, tmp + j, 1);
         }
@@ -681,6 +698,153 @@ void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error, long 
     s->box_end = s->box_mark = 0;
 }
 
+/* ---- custom, compaction-summary and branch-summary messages ---- */
+
+/* pi 1.1.0 components/{custom-message,compaction-summary-message,branch-summary-message}.ts: a Box(outputPad, 1) over
+ * customMessageBg holding a bold label in customMessageLabel, a blank row and the text in customMessageText. The blank
+ * row above the box is a Spacer(1) that interactive-mode.ts:3903,3914 (summaries) and custom-message.ts:34 (custom)
+ * add whether or not the chat has anything above. The box's rows are collected from `from` and drawn by panel(). */
+static long box_begin(pi_show *s, const char *label)
+{
+    char b[48], l[200];
+    long from;
+    blank(s);
+    s->any = 1;
+    from = s->batch.n;
+    blank(s);                       /* the box's top padding row */
+    cl_copy(l, pd(s), sizeof(l));
+    cl_cat(l, BOLD, sizeof(l));
+    cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_LABEL, b), sizeof(l));
+    cl_cat(l, "[", sizeof(l));
+    cl_cat(l, label, sizeof(l));
+    cl_cat(l, "]" SGR0, sizeof(l));
+    raw(s, l);
+    raw(s, "\n");
+    blank(s);                       /* Spacer(1) under the label */
+    return from;
+}
+
+static void box_end(pi_show *s, long from)
+{
+    blank(s);                       /* the bottom padding row */
+    panel(s, from, PR_CUSTOM_MESSAGE_BG);
+    out(s);
+}
+
+/* tokensBefore.toLocaleString(): groups of three digits split by commas */
+static void grouped(long v, char *o)
+{
+    char d[24];
+    int n, i, k = 0;
+    cl_ltoa(v < 0 ? -v : v, d);
+    n = (int)strlen(d);
+    if (v < 0)
+        o[k++] = '-';
+    for (i = 0; i < n; i++) {
+        if (i && (n - i) % 3 == 0)
+            o[k++] = ',';
+        o[k++] = d[i];
+    }
+    o[k] = 0;
+}
+
+/* the collapsed line: customMessageText around the dim key hint */
+static void box_collapsed(pi_show *s, const char *before, const char *after)
+{
+    char b[48], l[300];
+    cl_copy(l, pd(s), sizeof(l));
+    cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_TEXT, b), sizeof(l));
+    cl_cat(l, before, sizeof(l));
+    cl_cat(l, sg(s, PR_DIM, b), sizeof(l));
+    cl_cat(l, "ctrl+o", sizeof(l));
+    cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_TEXT, b), sizeof(l));
+    cl_cat(l, after, sizeof(l));
+    cl_cat(l, SGR0, sizeof(l));
+    raw(s, l);
+    raw(s, "\n");
+}
+
+void pshow_compaction_summary(pi_show *s, long tokens_before)
+{
+    char n[32], t[80];
+    long from;
+    grouped(tokens_before, n);
+    cl_copy(t, "Compacted from ", sizeof(t));
+    cl_cat(t, n, sizeof(t));
+    cl_cat(t, " tokens (", sizeof(t));
+    from = box_begin(s, "compaction");
+    box_collapsed(s, t, " to expand)");
+    box_end(s, from);
+}
+
+void pshow_branch_summary(pi_show *s)
+{
+    long from = box_begin(s, "branch");
+    box_collapsed(s, "Branch summary (", " to expand)");
+    box_end(s, from);
+}
+
+static void mdbox_sink(void *u, const char *p, long n)
+{
+    jw_raw((jw *)u, p, n);
+}
+
+/* Markdown(text, 0, 0, theme, {color: customMessageText}): the Markdown at the box's width, every row in the base
+ * colour put back after each reset; the blank rows before and after the text are not kept */
+static void mdbox_text(pi_show *s, const char *text, long n)
+{
+    jw md;
+    vw_out vo;
+    md_opts mo;
+    char base[48];
+    long a = 0, i, start = 0, stop = 0;
+    jw_init(&md);
+    vo_init(&vo, mdbox_sink, &md, VW_UTF8, s->th->depth >= 256 ? s->th->depth : 16, &s->hlt);
+    mo.width = pwid(s);
+    mo.urls = 1;
+    mo.look = MD_LOOK_PI;
+    md_render(text, n, &mo, &vo);
+    vo_flush(&vo);
+    sg(s, PR_CUSTOM_MESSAGE_TEXT, base);
+    for (i = 0; i < md.n; i++)      /* the first and last rows with something on them */
+        if (md.p[i] == '\n') {
+            if (tui_width(md.p + a, i - a)) {
+                if (!stop)
+                    start = a;
+                stop = i + 1;
+            }
+            a = i + 1;
+        }
+    for (a = start, i = start; i < stop; i++) {
+        long j;
+        if (md.p[i] != '\n')
+            continue;
+        raw(s, pd(s));
+        raw(s, base);
+        for (j = a; j < i; j++) {
+            long rl = sgr_reset_len(md.p + j, i - j);
+            if (rl) {
+                jw_raw(&s->batch, md.p + j, rl);
+                raw(s, base);
+                j += rl - 1;
+            } else
+                jw_raw(&s->batch, md.p + j, 1);
+        }
+        raw(s, SGR0 "\n");
+        a = i + 1;
+    }
+    jw_free(&md);
+}
+
+/* a custom message (a session's custom_message entry) with display true: its customType as the label, its text as
+ * Markdown. Extension message renderers (custom-message.ts:80-98) are not run. */
+void pshow_custom(pi_show *s, const char *type, const char *text, long n)
+{
+    long from = box_begin(s, type);
+    mdbox_text(s, text, n);
+    box_end(s, from);
+}
+
 /* ---- the conversation again ---- */
 
 typedef struct pcall {
@@ -702,17 +866,22 @@ static void flush_calls(pi_show *s, pcall *c, int *n)
 
 void pshow_replay(pi_show *s, const struct pi_session *ses)
 {
+    pshow_replay_msgs(s, ses->msg, ses->msg_n, ses->nmsg);
+}
+
+void pshow_replay_msgs(pi_show *s, char *const *msg, const long *msg_n, int nmsg)
+{
     pcall calls[PI_TOOLS];
     int ncall = 0, i;
     cl_render r;
     s->replay = 1;
     s->any = 0;
     pshow_render(s, &r);
-    for (i = 0; i < ses->nmsg; i++) {
+    for (i = 0; i < nmsg; i++) {
         jv m, v, c, b, t, x;
         jit it;
         char role[24];
-        if (json_parse(ses->msg[i], ses->msg_n[i], &m) || !json_get(m, "role", &v))
+        if (json_parse(msg[i], msg_n[i], &m) || !json_get(m, "role", &v))
             continue;
         json_str(v, role, sizeof(role));
         if (strcmp(role, "toolResult"))
@@ -771,6 +940,47 @@ void pshow_replay(pi_show *s, const struct pi_session *ses)
                     jw_rawz(&pc->args, "");
                     ncall++;
                 }
+            }
+        } else if (!strcmp(role, "compactionSummary")) {
+            long tb = json_get(m, "tokensBefore", &v) && json_type(v) == J_NUM ? json_long(v, 0) : 0;
+            pshow_compaction_summary(s, tb);
+        } else if (!strcmp(role, "branchSummary")) {
+            pshow_branch_summary(s);
+        } else if (!strcmp(role, "custom")) {
+            /* interactive-mode.ts:3889: only a message with display true is drawn */
+            if (json_get(m, "display", &v) && v.n >= 4 && !memcmp(v.p, "true", 4)) {
+                char ty[80];
+                jw w;
+                ty[0] = 0;
+                if (json_get(m, "customType", &v))
+                    json_str(v, ty, sizeof(ty));
+                jw_init(&w);
+                if (json_get(m, "content", &c)) {
+                    if (json_type(c) == J_STR) {
+                        long n;
+                        char *z = json_strdup(c, &n);
+                        if (z)
+                            jw_raw(&w, z, n);
+                        free(z);
+                    } else if (json_type(c) == J_ARR) {
+                        int any = 0;
+                        json_iter(c, &it);
+                        while (json_next(&it, 0, &b))
+                            if (json_get(b, "type", &t) && json_streq(t, "text") && json_get(b, "text", &x)) {
+                                long n;
+                                char *z = json_strdup(x, &n);
+                                if (z) {
+                                    if (any)
+                                        jw_raw(&w, "\n", 1);
+                                    jw_raw(&w, z, n);
+                                    any = 1;
+                                }
+                                free(z);
+                            }
+                    }
+                }
+                pshow_custom(s, ty, w.p ? w.p : "", w.n);
+                jw_free(&w);
             }
         } else if (!strcmp(role, "toolResult")) {
             char id[80];

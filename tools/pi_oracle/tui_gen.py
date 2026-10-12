@@ -110,7 +110,7 @@ SCENARIOS = {
     # the project trust question: the one approval prompt pi has at start (a tool call is never asked)
     'approval': dict(steps=[('wait', 'rust')], answers=[], files={'.pi/SYSTEM.md': 'Be brief.\n'}),
     'markdown2': dict(steps=[('type', 'more markdown'), ('enter',), ('wait', 'Closing line')],
-                      answers=[('sse', text_answer('msg_md2', MARKDOWN2, 150))], rows=40),
+                      answers=[('sse', text_answer('msg_md2', MARKDOWN2, 150))], rows=50),
     # the spinner row while the answer is awaited (the captured frame is a moment of it)
     'working': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'Working'), ('capture_now',)],
                     answers=[('slow', 6, text_answer('msg_w', 'late answer', 20))]),
@@ -223,6 +223,13 @@ SCENARIOS = {
     # Q2: a bash tool result with escape sequences in a resumed session: pi's getTextOutput (render-utils.ts) strips them
     'resume_ansi': dict(steps=[('sleep', 1.0)], answers=[], session='ansi_session.jsonl'),
     'resume_took': dict(steps=[('sleep', 1.0)], answers=[], session='took_session.jsonl'),
+    # Q8: a resumed session with a compaction summary, a custom message (display true) and a branch summary: pi 1.1.0's
+    # CompactionSummaryMessageComponent, CustomMessageComponent, BranchSummaryMessageComponent (customMessageBg, outputPad)
+    'resume_summaries': dict(steps=[('sleep', 1.0)], answers=[], session='summaries_session.jsonl', rows=50),
+    'dark_resume_summaries': dict(steps=[('sleep', 1.0)], answers=[], session='summaries_session.jsonl', rows=50, theme='dark'),
+    'light_resume_summaries': dict(steps=[('sleep', 1.0)], answers=[], session='summaries_session.jsonl', rows=50, theme='light'),
+    'dark_pad0_resume_summaries': dict(steps=[('sleep', 1.0)], answers=[], session='summaries_session.jsonl', rows=50, theme='dark',
+                                       settings={'outputPad': 0}),
     'light_twice': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('type', 'second'), ('enter',), ('wait', 'two')],
                         answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))],
                         theme='light'),

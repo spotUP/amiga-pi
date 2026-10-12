@@ -58,8 +58,16 @@ long pshow_result_text(const char *json, long n, jw *out);
 /* a command of the user's (! and !!, pi's BashExecutionComponent): between two rules in the bash colour (faint when
  * the output stays out of the context), the command, the last twenty rows of the output, how it ended */
 void pshow_bash(pi_show *s, const char *command, const char *output, int exit_code, int cancelled, int excluded);
+/* pi 1.1.0's CompactionSummaryMessageComponent, BranchSummaryMessageComponent (collapsed, as ctrl+o expand is not wired)
+ * and CustomMessageComponent (display true; the text as Markdown): a Box over customMessageBg, outputPad wide */
+void pshow_compaction_summary(pi_show *s, long tokens_before);
+void pshow_branch_summary(pi_show *s);
+void pshow_custom(pi_show *s, const char *type, const char *text, long n);
 /* the conversation of ses drawn again from its messages (a branch left for another, a session resumed) */
 struct pi_session;
 void pshow_replay(pi_show *s, const struct pi_session *ses);
+/* the same from AgentMessages (context.h: custom, compactionSummary and branchSummary still as pi keeps them; pi pushes
+ * only the converted user messages to the model, ses->msg) */
+void pshow_replay_msgs(pi_show *s, char *const *msg, const long *msg_n, int nmsg);
 
 #endif
