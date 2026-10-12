@@ -1,7 +1,7 @@
 // Goldens for tests/test_pi_model_reach.c test_switch and test_switch_back: the request pi's own providers send
 // after a model switch, from pi-ai's streamSimple (anthropic-messages and openai-responses) with a fake fetch that
 // answers with a recorded stream. Inputs (tests/pi/model/switch_inputs.json): the system prompt and tool
-// declarations the app sends, and the session id its store makes. Writes tests/pi/model/switch_second.json
+// declarations the app sends (the tools are pi's real ones, $VTCON_DIR/tests/pi/pi_tools.json), and the session id its store makes. Writes tests/pi/model/switch_second.json
 // (Anthropic answer, then gpt-4.1) and switch_back_second.json (gpt-4.1 answer, then Anthropic at the level the
 // switch clamps off to).
 //   VTCON_DIR=<vtcon> [PI_NPM=<pi install>] node tools/pi_oracle/gen_switch.mjs
@@ -22,6 +22,11 @@ const resp = await imp("api/openai-responses.js");
 const { normalizeContext } = await imp("utils/transcript.js");
 const here = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "tests", "pi", "model");
 const inputs = JSON.parse(readFileSync(join(here, "switch_inputs.json"), "utf8"));
+// pi's real tool declarations (constrainedSampling included), made by vtcon's tools/gen_pi_tools.mjs: the requests
+// are made from them, never from plain tools
+// except the bash description, which amiga-pi words for its shell (COMPATIBILITY.md): inputs.bashDescription
+inputs.tools = JSON.parse(readFileSync(join(vt, "tests", "pi", "pi_tools.json"), "utf8"));
+for (const t of inputs.tools) if (t.name === "bash") t.description = inputs.bashDescription;
 const textSse = readFileSync(join(vt, "tests", "claude", "text.sse"), "utf8");
 const anthSse = readFileSync(join(vt, "tests", "pi", "switch_anthropic.sse"), "utf8");
 const plainSse = readFileSync(join(vt, "tests", "pi", "responses", "plain.sse"), "utf8");

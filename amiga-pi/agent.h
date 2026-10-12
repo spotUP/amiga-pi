@@ -46,6 +46,7 @@ typedef struct pi_tool {
     int (*run)(void *u, struct pi_session *s, const char *args, long an, jw *content, int *is_error);
     long calls;                 /* the tests' sentinel */
     const char *const *guide;   /* its lines for the system prompt's rules (pi's promptGuidelines), 0 none */
+    const char *constrained;    /* pi's constrainedSampling of the declaration, JSON text ({"type":"json_schema","strict":"prefer"}), 0 none */
 } pi_tool;
 
 typedef struct pi_session {
