@@ -953,6 +953,73 @@ static void test_reach(void)
     CHECK_INT(pi_agent_rounds - before, 2);
 }
 
+/* H6: the C SDK. tests/pi/sdk_example.c is a program on piapi.h; here it runs over the stub: two prompts, a subscriber, a
+ * steering message queued from it */
+int sdk_example(const pi_platform *pl, int argc, char **argv, char *answer, long cap, long counts[3]);
+
+static void test_sdk(void)
+{
+    static const char *const files[] = { "prompt_tool.1.sse", "prompt_tool.2.sse", "prompt.1.sse", 0 };
+    char *argv[6], answer[200], cfgt[] = "{\"model\":\"fake-model\",\"thinking\":\"off\",\"retry\":false,\"settings\":{},\"files\":{}}";
+    char session_arg[8];
+    long counts[3], r0 = pi_agent_rounds;
+    pi_platform pl;
+    cl_io io;
+    jv cfg;
+    int i, rc;
+    sandbox();
+    CHECK(!json_parse(cfgt, (long)strlen(cfgt), &cfg));
+    CHECK_INT(setup_files(cfg, session_arg, sizeof(session_arg)), 0);
+    ps_reset();
+    ps_pool_up(LLM_POOL);
+    for (i = 0; files[i]; i++) {
+        long bn;
+        char *b = slurp_rpc(files[i], "", &bn);
+        CHECK(b != 0);
+        if (b)
+            ps_sse_text(b, bn, 0);
+        free(b);
+    }
+    memset(&fd, 0, sizeof(fd));
+    jw_init(&fd.out);
+    memset(&io, 0, sizeof(io));
+    io.write = io_write;
+    io.ms = io_ms;
+    memset(&pl, 0, sizeof(pl));
+    pl.io = &io;
+    pl.pool = &ps_pool;
+    pl.h.poll = ps_poll;
+    pl.h.sleep = ps_sleep;
+    pl.h.ms = ps_ms;
+    pl.h.resolve = ps_resolve;
+    pl.now = adv_now;
+    pl.getenv = no_env;
+    pl.cwd = proj;
+    pl.sys = &sys_;
+    pl.tmp = root;
+    pl.shell = PI_SH_HOST;
+    pl.utc = 1;
+    pl.agent_dir = agent;
+    pl.data_dir = data;
+    argv[0] = (char *)"sdk";
+    argv[1] = (char *)"--model";
+    argv[2] = (char *)"fake/fake-model";
+    argv[3] = (char *)"--no-session";
+    argv[4] = 0;
+    rc = sdk_example(&pl, 4, argv, answer, sizeof(answer), counts);
+    CHECK_INT(rc, 0);
+    CHECK(counts[0] > 20);
+    CHECK_INT(counts[2], 1);
+    CHECK(counts[1] >= 6);
+    CHECK_STR(answer, "Hello from the fixture.");
+    CHECK_INT(pi_agent_rounds - r0, 3);
+    CHECK(ps.nreq > 1 && strstr(ps.body[1], "and keep it short") != 0);
+    CHECK(ps.nreq > 0 && strstr(ps.body[0], "and keep it short") == 0);
+    CHECK(fd.out.n == 0);       /* a library prints nothing of its own */
+    jw_free(&fd.out);
+    sandbox_clear();
+}
+
 /* the retry classifier (pi-ai isRetryableAssistantError) */
 static void test_retryable(void)
 {
@@ -982,4 +1049,5 @@ void suite_pi_modes(void)
     test_sessions();
     test_ui();
     test_reach();
+    test_sdk();
 }
