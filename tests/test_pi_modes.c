@@ -663,6 +663,7 @@ static int setup_files(jv cfg, char *session_arg, long cap)
 typedef struct run_opts {
     void (*ready)(pi_session *s);   /* the session once made (a test extension) */
     const char *more_args;          /* one more argument */
+    const char *more_argv[4];       /* further arguments after more_args, 0 ends the list */
     const char *inline_in;          /* commands from here instead of the golden's .in */
     long rounds;                    /* out: pi_agent_rounds the run made */
     int rc;
@@ -891,6 +892,8 @@ static int scenario(const char *name, run_opts *ro)
     }
     if (ro && ro->more_args)
         argv[argc++] = (char *)ro->more_args;
+    for (i = 0; ro && i < 4 && ro->more_argv[i]; i++)
+        argv[argc++] = (char *)ro->more_argv[i];
     argv[argc] = 0;
     (void)tool;
 
@@ -1325,6 +1328,38 @@ static void test_arg_error_on_diag(void)
     }
 }
 
+/* --thinking with a level pi does not know is a WARNING: pi prints "Warning: Invalid thinking level "bad". Valid values:
+ * off, minimal, low, medium, high, xhigh, max" on stderr (cli/args.ts:169-176, main.ts:621-625) and goes on; the level
+ * stays what it was (oracle run, pi 1.1.0: `--thinking bad -v` -> that line on stderr, "1.1.0" on stdout, rc 0;
+ * `--thinking bad --bogus --thinking worse -v` -> one Warning line per bad level, version, rc 0) */
+static void test_thinking_warning(void)
+{
+    static const char w1[] = "Warning: Invalid thinking level \"bad\". Valid values: off, minimal, low, medium, high, xhigh, max";
+    run_opts ro;
+    char *a[] = { "x", "--thinking", "high", "--thinking", "bad", "-v" };
+    char *b[] = { "x", "--thinking", "bad", "--thinking", "worse", "-v" };
+    char *c[] = { "x", "--thinking", "bad", "--bogus" };
+    pi_args pa;
+    CHECK_INT(pi_args_parse(&pa, 6, a), 0);
+    CHECK_STR(pa.warn, w1);
+    CHECK_INT(pa.thinking, LT_HIGH);                /* a bad level does not reset the earlier good one */
+    CHECK_INT(pi_args_parse(&pa, 6, b), 0);
+    CHECK(strstr(pa.warn, "\nWarning: Invalid thinking level \"worse\"") != 0);
+    CHECK_INT(pi_args_parse(&pa, 4, c), -1);        /* the error stays an error, the warning before it is kept */
+    CHECK_STR(pa.warn, w1);
+    memset(&ro, 0, sizeof(ro));
+    ro.nocmp = 1;
+    ro.diag = 1;
+    ro.more_args = "--thinking";
+    ro.more_argv[0] = "bad";
+    ro.more_argv[1] = "-v";
+    scenario("json_text", &ro);
+    CHECK(ro.out && !strcmp(ro.out, "1.1.0\n"));
+    CHECK_STR(diag_log, w1);
+    CHECK_INT(ro.rc, 0);
+    free(ro.out);
+}
+
 /* --version / -v prints exactly what pi prints, the pi version amiga-pi matches, and exits 0, in every mode and over an
  * unknown option or -p without a prompt (oracle run, pi 1.1.0: `pi -v` -> "1.1.0\n" rc 0; `-v --bogus`, `--bogus -v`,
  * `-p -v`, `--mode json -v` the same; `--mode xx -v` is still the mode error, rc 1) */
@@ -1531,4 +1566,5 @@ void suite_pi_modes(void)
     test_diag_one_line();
     test_arg_error_on_diag();
     test_version_flag();
+    test_thinking_warning();
 }
