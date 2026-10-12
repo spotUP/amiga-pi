@@ -511,7 +511,9 @@ static void app_write(const char *name, const char *text)
 
 static void rest_hook(void)
 {
-    if (rested || !strstr(cs_row(cs.rows - 1), "claude-") || cs.read_ms <= 0 || !cs.script[cs.next] ||
+    if (getenv("PI_TUI_HOOK"))
+        printf("  hook: next=%d chunk=%s ms=%ld bottom=[%s]\n", cs.next, cs.script[cs.next] ? cs.script[cs.next] : "(end)", cs.read_ms, cs_row(cs.rows - 1));
+    if (rested || (!strstr(cs_row(cs.rows - 1), "-model") && !strstr(cs_row(cs.rows - 1), "claude-")) || cs.read_ms <= 0 || !cs.script[cs.next] ||
         strcmp(cs.script[cs.next], "\004"))
         return;
     rested = 1;
@@ -520,12 +522,19 @@ static void rest_hook(void)
 }
 
 /* pi_app with the keys typed on a screen of cols x rows; the answers streamed in order. The exit code. */
+static const char *app_session;     /* --session <file> for the next app_run, 0 none */
+
 static int app_run(int cols, int rows, const char **keys, const char *const *sse, int nsse, void (*rest)(void))
 {
     cl_io io;
     pi_platform pl;
-    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0 };
-    int i, rc;
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0, 0, 0 };
+    int i, rc, argc = 3;
+    if (app_session) {
+        a[3] = "--session";
+        a[4] = (char *)app_session;
+        argc = 5;
+    }
     ps_reset();
     ps_pool_up(LLM_POOL);
     for (i = 0; i < nsse; i++) {
@@ -555,7 +564,7 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pl.utc = 1;
     pl.data_dir = adata;
     pl.agent_dir = aagent;
-    rc = pi_app(3, a, &pl);
+    rc = pi_app(argc, a, &pl);
     cs_close();
     return rc;
 }
@@ -683,6 +692,108 @@ static void test_cycle(void)
     }
 }
 
+
+/* ---- N3: /tree as pi's selector, over a session with a branch (the capture is tests/pi/tui/tree.golden) ---- */
+
+static void tree_rest(void)
+{
+    compare();
+}
+
+static void test_tree(void)
+{
+    static const char *keys[] = { "/tree\r", "\004", 0 };
+    static scen sc = { "tree", { 0 }, { 0 }, 0, 1, 0, { { 1, 6, 0, 79, "the transcript above the selector" },
+                                                        { 9, 10, 0, 79, "tree help keys" },
+                                                        { 24, 25, 0, 79, "the folder and the model of the capture" } } };
+    char src[600], *txt, path[600], *fix;
+    long n;
+    FILE *f;
+    int i;
+    strcpy(path, aroot);
+    strcat(path, "/tree_session.jsonl");
+    txt = slurp("../sessions/doc_branch.jsonl", &n);
+    CHECK(txt != 0);
+    if (!txt)
+        return;
+    fix = (char *)malloc((size_t)n * 2 + 200);
+    {
+        const char *from = txt, *at;
+        char *o = fix;
+        while ((at = strstr(from, "/path/to/project")) != 0) {
+            memcpy(o, from, (size_t)(at - from));
+            o += at - from;
+            strcpy(o, "/work/proj");
+            o += strlen("/work/proj");
+            from = at + strlen("/path/to/project");
+        }
+        strcpy(o, from);
+    }
+    f = fopen(path, "wb");
+    if (f) {
+        fputs(fix, f);
+        fclose(f);
+    }
+    free(txt);
+    free(fix);
+    (void)src;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    cur = &sc;
+    taken = 0;
+    diffs = 0;
+    memset(rowdiff, 0, sizeof(rowdiff));
+    first_diff[0] = 0;
+    load_golden("tree");
+    CHECK(want != 0);
+    if (!want)
+        return;
+    app_session = path;
+    CHECK_INT(app_run(80, want_rows, keys, 0, 0, tree_rest), 0);
+    app_session = 0;
+    CHECK(taken);
+    CHECK(strstr(snap[24], "\342\206\22130 \342\206\22315 $0.900") != 0);   /* the totals of every entry, the other branch too */
+    if (diffs) {
+        printf("  tree: %d cells differ from pi's capture\n%s", diffs, first_diff);
+        if (getenv("PI_TUI_ROWS"))
+            for (i = 0; i < want_rows; i++)
+                if (rowdiff[i]) {
+                    printf("    row %2d pi       |%s\n", i + 1, h_row(want, i));
+                    printf("           amiga-pi |%s   (%d cells)\n", snap[i], rowdiff[i]);
+                }
+    }
+    CHECK_INT(diffs, 0);
+    vt_free(want);
+}
+
+
+/* Enter in the selector moves the leaf (a user message goes back to the editor) and the conversation is drawn again */
+static void test_tree_nav(void)
+{
+    static const char *keys[] = { "/tree\r", "\033[B", "\r", "\r", "\004", 0 };
+    char path[600];
+    app_session = 0;
+    strcpy(path, aroot);
+    strcat(path, "/tree_session.jsonl");
+    app_session = path;
+    CHECK_INT(app_run(80, 25, keys, 0, 0, take_shot), 0);
+    app_session = 0;
+    CHECK(shot_has("root answer"));
+    CHECK(!shot_has("B answer"));
+    CHECK(shot_has("Navigated to selected point"));
+    if (getenv("PI_TUI_DUMP")) {
+        int r;
+        for (r = 0; r < nshot; r++)
+            printf("    %2d|%s\n", r + 1, shot[r]);
+    }
+    {
+        int r, in_editor = 0;
+        for (r = 16; r < nshot; r++)
+            if (!strcmp(shot[r], "approach A"))
+                in_editor = 1;
+        CHECK(in_editor);               /* the user message is back in the editor, as pi's navigateTree gives it */
+    }
+}
+
 /* the start header: the program's own name for pi's version, no startup-help panel and no pi tips */
 #define HDR_VER { 2, 2, 5, 79, "start header" }
 #define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
@@ -710,6 +821,8 @@ void suite_pi_tui(void)
     test_steer_ui();
     app_sandbox();
     test_cycle();
+    test_tree();
+    test_tree_nav();
     app_cleanup();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))

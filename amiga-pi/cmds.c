@@ -405,6 +405,11 @@ done:
     jw_free(&usage);
 }
 
+void pi_tree_navigate(pi_store *st, int idx, int summarize, const char *instr, int replace, jw *reply, jw *editor)
+{
+    navigate(st, idx, summarize, instr, replace, 0, reply, editor);
+}
+
 static const char *skip_ws(const char *p)
 {
     while (*p == ' ' || *p == '\t')

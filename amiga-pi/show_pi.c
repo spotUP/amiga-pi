@@ -5,6 +5,7 @@
 #include "claude/util.h"
 #include "claude/json.h"
 #include "claude/show.h"
+#include "agent.h"
 
 #define SGR0 "\033[0m"
 #define BOLD "\033[1m"
@@ -515,6 +516,8 @@ static void bash_result(pi_show *s, const char *text, unsigned long ms)
         jw_free(&wrapped);
     }
     jw_free(&all);
+    if (s->replay)
+        return;
     duration(ms, dur);
     blank(s);
     cl_copy(m, "Took ", sizeof(m));
@@ -542,4 +545,118 @@ void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error)
     blank(s);                       /* the block's bottom padding */
     jw_free(&text);
     out(s);
+}
+
+/* ---- the conversation again ---- */
+
+typedef struct pcall {
+    char id[80], name[24];
+    jw args;
+    int shown;
+} pcall;
+
+static void flush_calls(pi_show *s, pcall *c, int *n)
+{
+    int i;
+    for (i = 0; i < *n; i++) {
+        if (!c[i].shown)
+            pshow_tool_start(s, c[i].name, c[i].args.p ? c[i].args.p : "{}", c[i].args.n);
+        jw_free(&c[i].args);
+    }
+    *n = 0;
+}
+
+void pshow_replay(pi_show *s, const struct pi_session *ses)
+{
+    pcall calls[PI_TOOLS];
+    int ncall = 0, i;
+    cl_render r;
+    s->replay = 1;
+    s->any = 0;
+    pshow_render(s, &r);
+    for (i = 0; i < ses->nmsg; i++) {
+        jv m, v, c, b, t, x;
+        jit it;
+        char role[24];
+        if (json_parse(ses->msg[i], ses->msg_n[i], &m) || !json_get(m, "role", &v))
+            continue;
+        json_str(v, role, sizeof(role));
+        if (strcmp(role, "toolResult"))
+            flush_calls(s, calls, &ncall);
+        if (!strcmp(role, "user")) {
+            jw w;
+            jw_init(&w);
+            if (json_get(m, "content", &c)) {
+                if (json_type(c) == J_STR) {
+                    long n;
+                    char *z = json_strdup(c, &n);
+                    if (z)
+                        jw_raw(&w, z, n);
+                    free(z);
+                } else if (json_type(c) == J_ARR) {
+                    json_iter(c, &it);
+                    while (json_next(&it, 0, &b))
+                        if (json_get(b, "type", &t) && json_streq(t, "text") && json_get(b, "text", &x)) {
+                            long n;
+                            char *z = json_strdup(x, &n);
+                            if (z)
+                                jw_raw(&w, z, n);
+                            free(z);
+                        }
+                }
+            }
+            jw_rawz(&w, "");
+            pshow_user(s, w.p);
+            jw_free(&w);
+        } else if (!strcmp(role, "assistant") && json_get(m, "content", &c) && json_type(c) == J_ARR) {
+            json_iter(c, &it);
+            while (json_next(&it, 0, &b)) {
+                if (!json_get(b, "type", &t))
+                    continue;
+                if (json_streq(t, "text") && json_get(b, "text", &x) && json_type(x) == J_STR) {
+                    long n;
+                    char *z = json_strdup(x, &n);
+                    if (z) {
+                        r.text(r.u, z, n);
+                        r.end(r.u);
+                    }
+                    free(z);
+                } else if (json_streq(t, "toolCall") && ncall < PI_TOOLS) {
+                    pcall *pc = &calls[ncall];
+                    jv id, nm, ar;
+                    pc->id[0] = 0;
+                    pc->name[0] = 0;
+                    pc->shown = 0;
+                    jw_init(&pc->args);
+                    if (json_get(b, "id", &id))
+                        json_str(id, pc->id, sizeof(pc->id));
+                    if (json_get(b, "name", &nm))
+                        json_str(nm, pc->name, sizeof(pc->name));
+                    if (json_get(b, "arguments", &ar))
+                        jw_raw(&pc->args, ar.p, ar.n);
+                    jw_rawz(&pc->args, "");
+                    ncall++;
+                }
+            }
+        } else if (!strcmp(role, "toolResult")) {
+            char id[80];
+            int k;
+            id[0] = 0;
+            if (json_get(m, "toolCallId", &v))
+                json_str(v, id, sizeof(id));
+            for (k = 0; k < ncall; k++)
+                if (!calls[k].shown && !strcmp(calls[k].id, id)) {
+                    int err = json_get(m, "isError", &v) && v.n >= 4 && !memcmp(v.p, "true", 4);
+                    pshow_tool_start(s, calls[k].name, calls[k].args.p ? calls[k].args.p : "{}", calls[k].args.n);
+                    if (json_get(m, "content", &c))
+                        pshow_tool_end(s, c.p, c.n, err);
+                    else
+                        pshow_tool_end(s, "[]", 2, err);
+                    calls[k].shown = 1;
+                    break;
+                }
+        }
+    }
+    flush_calls(s, calls, &ncall);
+    s->replay = 0;
 }

@@ -1,0 +1,25 @@
+ B answer
+
+ Warning: Could not restore model anthropic/claude-sonnet-4-5. Using
+ fake/fake-model
+
+
+────────────────────────────────────────────────────────────────────────────────
+   Session Tree
+  ↑/↓ move · ←/→ page · option+←/→ branch · ctrl+x copy · shift+l label
+  shift+t label time · filters ctrl+d/t/u/l/a · cycle ctrl+o/shift+ctrl+o
+  Type to search:
+────────────────────────────────────────────────────────────────────────────────
+
+  • user: root question
+  • assistant: root answer
+  ├⊟ • [branch summary]: Branch explored approach A...
+  │     • user: approach B
+› │     • assistant: B answer
+  └⊟ [try-A-again] user: approach A
+        assistant: A answer
+  (5/7)
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑30 ↓15 $0.900 0.0%/200k (auto)                                       fake-model

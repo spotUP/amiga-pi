@@ -8,6 +8,8 @@
 #include "show_pi.h"
 #include "claude/tools.h"
 #include "compact.h"
+#include "tree_pi.h"
+#include "store.h"
 
 typedef struct pi_ui {
     cl_ui ui;
@@ -389,38 +391,79 @@ static void fmt_tokens(long v, char *out)
 }
 
 /* the footer (pi footer.js): the directory, the usage of the session so far, the context figure, the model */
+/* pi's usage totals: every entry of the session file, other branches too (footer.js getSessionStats) */
+static void totals(pi_ui *p, long *in, long *out, long *cr, long *cw, long *cost)
+{
+    pi_store *st = (pi_store *)p->s->command_u;
+    int i;
+    *in = p->s->tok_in;
+    *out = p->s->tok_out;
+    *cr = p->s->tok_cr;
+    *cw = p->s->tok_cw;
+    *cost = p->s->cost_micro;
+    if (!st || !p->s->command)
+        return;
+    *in = *out = *cr = *cw = *cost = 0;
+    for (i = 0; i < st->s3.n; i++) {
+        long n;
+        const char *tx;
+        jv o, m, u;
+        llm_usage us;
+        int ty = st->s3.e[i].type;
+        if (ty != S3_MESSAGE && ty != S3_USAGE && ty != S3_COMPACTION && ty != S3_BRANCH_SUMMARY)
+            continue;
+        if (ty == S3_MESSAGE && st->s3.e[i].role != S3R_ASSISTANT)
+            continue;
+        tx = s3_text(&st->s3, i, &n);
+        if (!tx || json_parse(tx, n, &o))
+            continue;
+        if (ty == S3_MESSAGE) {
+            if (!json_get(o, "message", &m) || !json_get(m, "usage", &u))
+                continue;
+        } else if (!json_get(o, "usage", &u))
+            continue;
+        llm_r_usage(u, &us);
+        *in += us.input;
+        *out += us.output;
+        *cr += us.cache_read;
+        *cw += us.cache_write;
+        *cost += us.cost[0] + us.cost[1] + us.cost[2] + us.cost[3];
+    }
+}
+
 static void footer(pi_ui *p)
 {
     cl_tui *t = p->ui.tui;
     pi_session *s = p->s;
     char n[24], *l = t->pi_left;
-    long tenths;
+    long tenths, t_in, t_out, t_cr, t_cw, t_cost;
     int level = s->model.reasoning ? s->thinking : 0;
+    totals(p, &t_in, &t_out, &t_cr, &t_cw, &t_cost);
     cl_copy(t->pi_cwd, ui_cwd, sizeof(t->pi_cwd));
     l[0] = 0;
-    if (s->tok_in) {
+    if (t_in) {
         cl_cat(l, "\342\206\221", sizeof(t->pi_left));
-        fmt_tokens(s->tok_in, n);
+        fmt_tokens(t_in, n);
         cl_cat(l, n, sizeof(t->pi_left));
     }
-    if (s->tok_out) {
+    if (t_out) {
         cl_cat(l, l[0] ? " \342\206\223" : "\342\206\223", sizeof(t->pi_left));
-        fmt_tokens(s->tok_out, n);
+        fmt_tokens(t_out, n);
         cl_cat(l, n, sizeof(t->pi_left));
     }
-    if (s->tok_cr) {
+    if (t_cr) {
         cl_cat(l, l[0] ? " R" : "R", sizeof(t->pi_left));
-        fmt_tokens(s->tok_cr, n);
+        fmt_tokens(t_cr, n);
         cl_cat(l, n, sizeof(t->pi_left));
     }
-    if (s->tok_cw) {
+    if (t_cw) {
         cl_cat(l, l[0] ? " W" : "W", sizeof(t->pi_left));
-        fmt_tokens(s->tok_cw, n);
+        fmt_tokens(t_cw, n);
         cl_cat(l, n, sizeof(t->pi_left));
     }
-    if (s->cost_micro > 0) {
+    if (t_cost > 0) {
         /* toFixed(3) on a sum of floats: a tie (exactly half a thousandth) goes to the even digit */
-        long milli = s->cost_micro / 1000, rest = s->cost_micro % 1000;
+        long milli = t_cost / 1000, rest = t_cost % 1000;
         if (rest > 500 || (rest == 500 && (milli & 1)))
             milli++;
         cl_cat(l, l[0] ? " $" : "$", sizeof(t->pi_left));
@@ -593,11 +636,75 @@ static void note(pi_ui *p, const char *a)
         ui_line(&p->ui, a);
 }
 
+static int tree_filter;
+
+/* /tree in pi's look: the selector, pi's "Summarize branch?" question, the move, the conversation drawn again */
+static void tree_command(pi_ui *p, cl_tui *t)
+{
+    pi_store *st = (pi_store *)p->s->command_u;
+    int sel = -1;
+    if (!st->s3.n) {
+        pshow_note(&p->ps, PR_DIM, "No entries in session");
+        return;
+    }
+    for (;;) {
+        static const char *const opt[3] = { "No summary", "Summarize", "Summarize with custom prompt" };
+        int idx = pi_tree_pick(st, t, sel, &tree_filter), choice = 0, back = 0;
+        char instr[300];
+        jw reply, editor;
+        instr[0] = 0;
+        if (idx < 0)
+            break;
+        if (idx == st->s3.leaf) {
+            pshow_note(&p->ps, PR_DIM, "Already at this point");
+            break;
+        }
+        for (;;) {
+            choice = tui_menu(t, "Summarize branch?", 0, opt, 3, 0, -1);
+            if (choice < 0) {
+                back = 1;
+                break;
+            }
+            if (choice == 2) {
+                int r = tui_line_input(t, " Custom summarization instructions", instr, sizeof(instr));
+                if (r != 1)
+                    continue;
+            }
+            break;
+        }
+        if (back) {
+            sel = idx;
+            continue;
+        }
+        jw_init(&reply);
+        jw_init(&editor);
+        pi_tree_navigate(st, idx, choice > 0, instr[0] ? instr : 0, choice == 2, &reply, &editor);
+        if (reply.p && strstr(reply.p, "[ERROR]"))
+            pshow_error(&p->ps, reply.p + 8);
+        else {
+            tui_clear(t);
+            p->ps.any = 0;
+            pshow_replay(&p->ps, p->s);
+            if (editor.n && !t->ed.n)
+                tui_set_text(t, editor.p);
+            pshow_note(&p->ps, PR_DIM, "Navigated to selected point");
+        }
+        jw_free(&reply);
+        jw_free(&editor);
+        break;
+    }
+    status(p);
+}
+
 static int run_command(pi_ui *p, cl_tui *t, const char *line)
 {
     jw reply, editor;
     int rc;
     char *a, *nl;
+    if (p->look && t && !strcmp(line, "/tree") && p->s->command) {
+        tree_command(p, t);
+        return 1;
+    }
     if (line[0] != '/' || !p->s->command)
         return 0;
     jw_init(&reply);
@@ -660,6 +767,8 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         cl_cat(hello, ". Type /exit to leave.", sizeof(hello));
         ui_line(&p.ui, hello);
     }
+    if (p.look && s->nmsg)
+        pshow_replay(&p.ps, s);        /* a resumed session shows its conversation, as pi's renderInitialMessages */
     if (first && *first) {
         user_echo(&p, first);
         pi_prompt(s, first);

@@ -97,6 +97,8 @@ SCENARIOS = {
     # a second prompt after an answer: the blank lines between messages
     'twice': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('type', 'second'), ('enter',), ('wait', 'two')],
                   answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))]),
+    # /tree over a session with a branch (tests/pi/sessions/doc_branch.jsonl): the selector and its keys
+    'tree': dict(steps=[('type', '/tree'), ('sleep', 0.8), ('enter',), ('sleep', 1.5)], answers=[], session='doc_branch.jsonl'),
     # a tool call block (read of a file in the cwd) and the answer after it
     'tool': dict(steps=[('type', 'read the file'), ('enter',), ('wait', 'Done reading')],
                  answers=[('sse', tool_answer('msg_t1', 'toolu_1', 'read', {'path': 'notes.txt'}, 'I will read it.')),
@@ -192,6 +194,9 @@ def run(name, sc, cols, rows, keep):
     os.makedirs(proj)
     with open(os.path.join(proj, 'notes.txt'), 'w') as f:
         f.write('one\ntwo\nthree\n')
+    if sc.get('session'):       # a session file to open (the tree view needs a conversation with branches)
+        txt = open(os.path.join(HERE, '..', '..', 'tests', 'pi', 'sessions', sc['session'])).read()
+        open(os.path.join(proj, 'session.jsonl'), 'w').write(txt.replace('/path/to/project', proj))   # else pi asks about the folder
     for rel, text in sc.get('files', {}).items():
         os.makedirs(os.path.dirname(os.path.join(proj, rel)), exist_ok=True)
         open(os.path.join(proj, rel), 'w').write(text)
@@ -213,9 +218,10 @@ def run(name, sc, cols, rows, keep):
     env = ('env -i HOME=%s PATH=%s TERM=xterm-256color LANG=en_US.UTF-8 PI_CODING_AGENT_DIR=%s PI_OFFLINE=1 '
            'PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0 ' % (work, os.environ['PATH'], agent))
     tmux('new-session', '-d', '-s', sess, '-x', str(cols), '-y', str(rows), '-c', proj,
-         env + 'pi --no-session')
+         env + ('pi --session session.jsonl' if sc.get('session') else 'pi --no-session'))
     try:
-        time.sleep(2.0)
+        wait_text(sess, MODEL, 30)       # the footer names the model once pi is up
+        time.sleep(4.0 if sc.get('session') else 1.0)     # a session is loaded after that
         shots = {}
         for st in sc['steps']:
             if st[0] == 'type':

@@ -26,6 +26,7 @@ typedef struct pi_show {
     jw args;
     unsigned long t0;
     long n_text, n_blocks, n_tools;
+    int replay;                 /* tool results of an earlier run: no duration */
 } pi_show;
 
 void pshow_init(pi_show *s, cl_tui *t, const cl_pitheme *th);
@@ -47,5 +48,9 @@ void pshow_tool_start(pi_show *s, const char *name, const char *args, long an);
 void pshow_tool_end(pi_show *s, const char *result, long rn, int is_error);
 /* a result's JSON blocks ([{"type":"text","text":...}]) as the text of their text blocks, joined by newlines */
 long pshow_result_text(const char *json, long n, jw *out);
+
+/* the conversation of ses drawn again from its messages (a branch left for another, a session resumed) */
+struct pi_session;
+void pshow_replay(pi_show *s, const struct pi_session *ses);
 
 #endif
