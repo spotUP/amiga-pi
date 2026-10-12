@@ -86,6 +86,23 @@ static int quiet_setting(const pi_platform *pl)
     return quiet;
 }
 
+/* settings.json's steeringMode / followUpMode: 1 for "all", 0 for "one-at-a-time" (the default) */
+static int queue_mode_all(const pi_platform *pl, const char *key)
+{
+    char *b, path[300], v[32];
+    long n;
+    jv o, x;
+    int all = 0;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return 0;
+    if (!json_parse(b, n, &o) && json_get(o, key, &x) && json_type(x) == J_STR) {
+        json_str(x, v, sizeof(v));
+        all = !strcmp(v, "all");
+    }
+    CL_FREE(b);
+    return all;
+}
+
 /* pi's trust question on the console: the title, the answers numbered, a number typed (0 or none: no answer) */
 static int trust_ask(void *u, const char *title, const char *const *labels, int n)
 {
@@ -354,6 +371,8 @@ int pi_app(int argc, char **argv, const pi_platform *pl)
         level0 = pi_models_start_level(&m, want);
     }
     pi_session_init(&s, &m, 0, pl->pool, &pl->h);
+    s.steer_all = queue_mode_all(pl, "steeringMode");
+    s.follow_all = queue_mode_all(pl, "followUpMode");
     s.thinking = level0;
     if (a.api_key[0]) {
         cl_copy(models.cfg.runtime_key, a.api_key, sizeof(models.cfg.runtime_key));

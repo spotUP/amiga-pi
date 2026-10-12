@@ -59,6 +59,8 @@ void pi_ui_set_cwd(const char *cwd)
 }
 
 static void status(pi_ui *p);
+static void user_text(const char *json, long n, jw *out);
+static void sync_queue(pi_ui *p);
 
 static int u_poll(void *u)
 {
@@ -97,6 +99,16 @@ static void on_event(void *u, const pi_event *e)
         }
         break;
     case PE_MESSAGE_END:
+        if (e->role == LR_USER && p->look) {
+            /* the user's message is in the conversation now (a typed prompt, or a queued one delivered): it
+             * leaves the waiting list and shows in the transcript */
+            jw txt;
+            jw_init(&txt);
+            user_text(e->msg, e->msg_n, &txt);
+            sync_queue(p);
+            pshow_user(&p->ps, txt.p ? txt.p : "");
+            jw_free(&txt);
+        }
         if (e->role == LR_ASSISTANT && p->text_index >= 0) {
             p->render.end(p->render.u);
             p->text_index = -1;
@@ -207,6 +219,106 @@ static int u_ask(void *u, int tool, const char *name, const char *what, int outs
     cl_cat(line, what, sizeof(line));
     ui_line(&p->ui, line);
     return ui_ask(&p->ui, tool, name, what, outside);
+}
+
+/* a user message's text blocks, joined */
+static void user_text(const char *json, long n, jw *out)
+{
+    jv m, c, b, t, x;
+    jit it;
+    int any = 0;
+    if (json_parse(json, n, &m) || !json_get(m, "content", &c))
+        return;
+    if (json_type(c) == J_STR) {
+        long l;
+        char *z = json_strdup(c, &l);
+        if (z)
+            jw_raw(out, z, l);
+        free(z);
+        return;
+    }
+    if (json_type(c) != J_ARR)
+        return;
+    json_iter(c, &it);
+    while (json_next(&it, 0, &b))
+        if (json_get(b, "type", &t) && json_streq(t, "text") && json_get(b, "text", &x)) {
+            long l;
+            char *z = json_strdup(x, &l);
+            if (z) {
+                if (any)
+                    jw_raw(out, "\n", 1);
+                jw_raw(out, z, l);
+                any = 1;
+            }
+            free(z);
+        }
+    jw_rawz(out, "");
+}
+
+/* the screen's waiting list mirrors the session's queues (the strings stay the session's) */
+static void sync_queue(pi_ui *p)
+{
+    cl_tui *t = p->ui.tui;
+    int i;
+    if (!t)
+        return;
+    t->n_steer = p->s->nsteer;
+    t->n_follow = p->s->nfollow;
+    for (i = 0; i < p->s->nsteer && i < TUI_QUEUE; i++)
+        t->pi_steer[i] = p->s->steer[i];
+    for (i = 0; i < p->s->nfollow && i < TUI_QUEUE; i++)
+        t->pi_follow[i] = p->s->follow[i];
+}
+
+/* Enter (steering) and Alt+Enter (follow-up) while the agent works */
+static int cb_queue(void *u, const char *text, int follow)
+{
+    pi_ui *p = (pi_ui *)u;
+    if (follow ? pi_follow_up(p->s, text) : pi_steer(p->s, text))
+        return 0;
+    sync_queue(p);
+    tui_frame(p->ui.tui);
+    return 1;
+}
+
+/* Alt+Up, and Esc while the agent works: the queued messages back to the editor (steering first) */
+static char *cb_dequeue(void *u, int *count, int quiet)
+{
+    pi_ui *p = (pi_ui *)u;
+    char *q[2 * PI_QUEUE], *r;
+    int n = pi_queue_take(p->s, q, 2 * PI_QUEUE), i;
+    jw w;
+    jw_init(&w);
+    for (i = 0; i < n; i++) {
+        if (i)
+            jw_rawz(&w, "\n\n");
+        jw_rawz(&w, q[i]);
+        free(q[i]);
+    }
+    *count = n;
+    sync_queue(p);
+    if (!quiet) {
+        if (!n)
+            pshow_note(&p->ps, PR_DIM, "No queued messages to restore");
+        else {
+            char m[80], num[16];
+            cl_copy(m, "Restored ", sizeof(m));
+            cl_ltoa(n, num);
+            cl_cat(m, num, sizeof(m));
+            cl_cat(m, n > 1 ? " queued messages to editor" : " queued message to editor", sizeof(m));
+            pshow_note(&p->ps, PR_DIM, m);
+        }
+    }
+    if (!n) {
+        jw_free(&w);
+        return 0;
+    }
+    jw_rawz(&w, "");
+    r = (char *)malloc((size_t)w.n + 1);
+    if (r)
+        memcpy(r, w.p, (size_t)w.n + 1);
+    jw_free(&w);
+    return r;
 }
 
 static void attach(pi_ui *p, pi_session *s, cl_io *io, int print)
@@ -356,6 +468,15 @@ static void status(pi_ui *p)
 static void say_end(pi_ui *p)
 {
     char line[300];
+    if (p->look && (p->s->nsteer || p->s->nfollow)) {
+        /* the run ended (aborted, an error) with messages still waiting: they go back to the editor */
+        int n;
+        char *q = cb_dequeue(p, &n, 1);
+        if (q) {
+            tui_set_text(p->ui.tui, q);
+            free(q);
+        }
+    }
     status(p);
     if (p->s->stop != LS_ERROR && p->s->stop != LS_ABORTED)
         return;
@@ -430,6 +551,11 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     }
     p->ui.tui = t;
     p->ui.show = sh;
+    t->on_queue = cb_queue;
+    t->on_dequeue = cb_dequeue;
+    t->qu = p;
+    km_free(&t->km);
+    km_init_pi(&t->km);
     pshow_init(&p->ps, t, &p->theme);
     pshow_render(&p->ps, &p->render);
     footer(p);
@@ -492,9 +618,7 @@ static int is_exit(const char *line)
 
 static void user_echo(pi_ui *p, const char *line)
 {
-    if (p->look)
-        pshow_user(&p->ps, line);
-    else
+    if (!p->look)               /* in pi's look the message shows when the conversation takes it (message_end) */
         ui_user(&p->ui, line);
 }
 

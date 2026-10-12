@@ -81,7 +81,13 @@ int pi_session_push_system(pi_session *s, const char *json, long n)
 
 void pi_session_free(pi_session *s)
 {
+    int i;
     pi_session_clear(s);
+    for (i = 0; i < s->nsteer; i++)
+        free(s->steer[i]);
+    for (i = 0; i < s->nfollow; i++)
+        free(s->follow[i]);
+    s->nsteer = s->nfollow = 0;
     free(s->sys);
     free(s->sys_n);
     free(s->sys_at);
@@ -471,17 +477,12 @@ static int run_end(pi_session *s, int answered)
     return s->stop;
 }
 
-int pi_prompt(pi_session *s, const char *text)
+/* a user message (pi: a prompt's content is an array of blocks, the text first -- agent-session.js prompt) kept
+ * and announced: its index, -1 out of memory */
+static int add_user(pi_session *s, const char *text)
 {
     jw w, c;
-    int i, round;
-    s->err[0] = 0;
-    /* the context against the window before the user message is kept */
-    if (s->compact)
-        s->compact(s->compact_u, s, PI_CP_PROMPT);
-    emit_simple(s, PE_AGENT_START);
-    emit_simple(s, PE_TURN_START);
-    /* pi: a prompt's content is an array of blocks, the text first (agent-session.js prompt) */
+    int i;
     jw_init(&c);
     jw_rawz(&c, "[");
     llm_b_text(&c, text, (long)strlen(text), 0);
@@ -491,14 +492,82 @@ int pi_prompt(pi_session *s, const char *text)
     jw_free(&c);
     i = keep(s, &w);
     jw_free(&w);
+    if (i >= 0) {
+        emit_msg(s, PE_MESSAGE_START, i, LR_USER);
+        emit_msg(s, PE_MESSAGE_END, i, LR_USER);
+    }
+    return i;
+}
+
+static int queue_add(char **q, int *n, const char *text)
+{
+    char *c = (char *)malloc(strlen(text) + 1);
+    if (!c || *n == PI_QUEUE) {
+        free(c);
+        return -1;
+    }
+    strcpy(c, text);
+    q[(*n)++] = c;
+    return 0;
+}
+
+int pi_steer(pi_session *s, const char *text)
+{
+    return queue_add(s->steer, &s->nsteer, text);
+}
+
+int pi_follow_up(pi_session *s, const char *text)
+{
+    return queue_add(s->follow, &s->nfollow, text);
+}
+
+int pi_queue_take(pi_session *s, char **out, int max)
+{
+    int n = 0, i;
+    for (i = 0; i < s->nsteer && n < max; i++)
+        out[n++] = s->steer[i];
+    s->nsteer = 0;
+    for (i = 0; i < s->nfollow && n < max; i++)
+        out[n++] = s->follow[i];
+    s->nfollow = 0;
+    return n;
+}
+
+/* agent-loop.js getSteeringMessages / getFollowUpMessages: the next queued message (all of them in "all" mode)
+ * delivered as user messages; how many */
+static int deliver(pi_session *s, char **q, int *n, int all)
+{
+    int take = all ? *n : (*n ? 1 : 0), i, got = 0;
+    char *t[PI_QUEUE];
+    for (i = 0; i < take; i++)
+        t[i] = q[i];
+    memmove(q, q + take, sizeof(q[0]) * (size_t)(*n - take));
+    *n -= take;
+    for (i = 0; i < take; i++) {
+        if (add_user(s, t[i]) >= 0)
+            got++;
+        free(t[i]);
+    }
+    return got;
+}
+
+int pi_prompt(pi_session *s, const char *text)
+{
+    int i, round;
+    s->err[0] = 0;
+    /* the context against the window before the user message is kept */
+    if (s->compact)
+        s->compact(s->compact_u, s, PI_CP_PROMPT);
+    emit_simple(s, PE_AGENT_START);
+    emit_simple(s, PE_TURN_START);
+    i = add_user(s, text);
     if (i < 0) {
         s->stop = LS_ERROR;
         cl_copy(s->err, "out of memory", sizeof(s->err));
         emit_simple(s, PE_AGENT_END);
         return s->stop;
     }
-    emit_msg(s, PE_MESSAGE_START, i, LR_USER);
-    emit_msg(s, PE_MESSAGE_END, i, LR_USER);
+    deliver(s, s->steer, &s->nsteer, s->steer_all);     /* typed before the first request (pi polls at the start) */
     for (round = 0; round < PI_ROUNDS; round++) {
         stream t;
         llm_info inf;
@@ -540,8 +609,15 @@ int pi_prompt(pi_session *s, const char *text)
             cl_copy(s->err, "Operation aborted", sizeof(s->err));
         }
         emit_simple(s, PE_TURN_END);
-        if (!n || stopped)
-            return run_end(s, !stopped);        /* pi does not check a run the user stopped */
+        if (stopped)
+            return run_end(s, 0);               /* pi does not check a run the user stopped */
+        /* steering goes in after the turn's tool calls, before the next request; the run goes on for it even
+         * when the answer called no tool. At the end of the run, a follow-up does the same. */
+        if (deliver(s, s->steer, &s->nsteer, s->steer_all) || n)
+            continue;
+        if (deliver(s, s->follow, &s->nfollow, s->follow_all))
+            continue;
+        return run_end(s, 1);
     }
     cl_copy(s->err, "stopped after 64 rounds", sizeof(s->err));
     return run_end(s, 1);

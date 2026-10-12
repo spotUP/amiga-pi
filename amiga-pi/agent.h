@@ -25,6 +25,7 @@
 
 #define PI_ROUNDS 64
 #define PI_TOOLS 64
+#define PI_QUEUE 16             /* steering and follow-up messages kept at most, each */
 
 /* where pi checks the context against the window (agent-session.ts f10993bc): before a prompt's user
  * message is kept (prompt(), the last answer's usage), before each turn after the first (agent-loop's
@@ -102,6 +103,13 @@ typedef struct pi_session {
      * of the store's (the line goes to the model) */
     int (*command)(void *u, struct pi_session *s, const char *line, jw *reply, jw *editor);
     void *command_u;
+    /* steering and follow-up messages (pi-agent-core's steer / followUp, agent.ts PendingMessageQueue): typed
+     * while a prompt runs; steering is taken after the tool calls of the turn that is running (before the next
+     * request), follow-ups when the run would stop. Each queue gives one message a turn or all of them
+     * (settings steeringMode / followUpMode "one-at-a-time", "all") */
+    char *steer[PI_QUEUE], *follow[PI_QUEUE];
+    int nsteer, nfollow;
+    int steer_all, follow_all;
     char err[256];              /* its errorMessage, or why the prompt stopped */
 } pi_session;
 
@@ -126,6 +134,13 @@ int pi_req_auth(pi_session *s, llm_req *q, jw *hdr);
 /* the prompt to the end: the last answer's stop reason (LS_STOP, LS_LENGTH,
  * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it) */
 int pi_prompt(pi_session *s, const char *text);
+/* queue a message while a prompt runs (copied): 0, -1 when the queue is full or memory is out. The run takes it
+ * at pi's points (see pi_session.steer) */
+int pi_steer(pi_session *s, const char *text);
+int pi_follow_up(pi_session *s, const char *text);
+/* every queued message (steering first) taken out of the queues: the texts malloc'ed into out (at most max),
+ * their count; the caller frees them */
+int pi_queue_take(pi_session *s, char **out, int max);
 /* the text blocks of the last assistant message, joined (print mode): its length, out terminated */
 long pi_last_text(const pi_session *s, jw *out);
 

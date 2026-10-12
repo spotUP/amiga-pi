@@ -55,16 +55,18 @@ static char *slurp(const char *name, long *n)
 }
 
 static long echo_calls;
+static void (*tool_hook)(pi_session *s);     /* what the read tool does besides answering (the tests type meanwhile) */
 
 /* the tools under pi's names: read answers with the file, bash fails like cat of a missing file */
 static int tool_run(void *u, pi_session *s, const char *args, long an, jw *content, int *is_error)
 {
     const char *text;
     int err = 0;
-    (void)s;
     (void)args;
     (void)an;
     echo_calls++;
+    if (tool_hook)
+        tool_hook(s);
     if (u) {
         text = "cat: nothere.txt: No such file or directory\\n\\n\\nCommand exited with code 1";
         err = 1;
@@ -320,6 +322,142 @@ static void run(const scen *sc)
         free(keys[i]);
 }
 
+/* ---- N1: steering and follow-up in the agent loop (pi-agent-core's runLoop) ---- */
+
+static void up_session(pi_session *ses, int tools)
+{
+    llm_hooks h;
+    llm_model model;
+    ps_reset();
+    ps_pool_up(LLM_POOL);
+    memset(&h, 0, sizeof(h));
+    h.poll = ps_poll;
+    h.ms = ps_ms;
+    h.sleep = ps_sleep;
+    h.notice = ps_notice;
+    h.resolve = ps_resolve;
+    h.log = ps_log;
+    model = ps_model_anthropic();
+    model.id = "fake-model";
+    model.context_window = 200000;
+    pi_session_init(ses, &model, "k", &ps_pool, &h);
+    ses->now = fixed_now;
+    ses->system = "You are amiga-pi.";
+    if (tools)
+        pi_tool_add(ses, &t_read);
+}
+
+static void answer(const char *name)
+{
+    long n;
+    char *b = slurp(name, &n);
+    CHECK(b != 0);
+    if (b)
+        ps_sse_text(b, n, 0);
+    free(b);
+}
+
+static pi_session *hooked;
+static void steer_two(pi_session *s)
+{
+    pi_steer(s, "go left");
+    pi_steer(s, "and up");
+    tool_hook = 0;
+}
+
+static void test_queue_agent(void)
+{
+    static pi_session ses;
+    char *out[8];
+    const char *r2;
+    long left, up;
+    int n;
+    /* steering typed while a tool runs: after the turn's tool calls, before the next request; one a turn */
+    up_session(&ses, 1);
+    answer("tool.1.sse");
+    answer("markdown.1.sse");
+    answer("table.1.sse");
+    hooked = &ses;
+    tool_hook = steer_two;
+    CHECK_INT(pi_prompt(&ses, "read the file"), LS_STOP);
+    CHECK_INT(ps.nreq, 3);                      /* the tool turn, then one turn for each steering message */
+    left = ps.nreq > 1 ? (long)(strstr(ps.body[1], "go left") ? 1 : 0) : 0;
+    CHECK_INT(left, 1);
+    CHECK(ps.nreq > 1 && strstr(ps.body[1], "and up") == 0);
+    CHECK(ps.nreq > 2 && strstr(ps.body[2], "and up") != 0);
+    r2 = ps.nreq > 1 ? ps.body[1] : "";
+    CHECK(strstr(r2, "tool_result") != 0 && strstr(r2, "tool_result") < strstr(r2, "go left"));
+    CHECK_INT(ses.nsteer, 0);
+    pi_session_free(&ses);
+    /* followUpMode "all" / steeringMode "all": both in the same turn */
+    up_session(&ses, 1);
+    ses.steer_all = 1;
+    answer("tool.1.sse");
+    answer("markdown.1.sse");
+    tool_hook = steer_two;
+    CHECK_INT(pi_prompt(&ses, "read the file"), LS_STOP);
+    CHECK_INT(ps.nreq, 2);
+    up = ps.nreq > 1 && strstr(ps.body[1], "go left") && strstr(ps.body[1], "and up");
+    CHECK_INT(up, 1);
+    pi_session_free(&ses);
+    /* a follow-up waits until the run would stop */
+    up_session(&ses, 0);
+    answer("markdown.1.sse");
+    answer("table.1.sse");
+    CHECK_INT(pi_follow_up(&ses, "next thing"), 0);
+    CHECK_INT(pi_prompt(&ses, "first"), LS_STOP);
+    CHECK_INT(ps.nreq, 2);
+    CHECK(ps.nreq > 1 && strstr(ps.body[1], "next thing") != 0);
+    CHECK(ps.nreq > 0 && strstr(ps.body[0], "next thing") == 0);
+    CHECK_INT(ses.nfollow, 0);
+    pi_session_free(&ses);
+    /* the queues give their messages back, steering first */
+    up_session(&ses, 0);
+    pi_follow_up(&ses, "later");
+    pi_steer(&ses, "now");
+    n = pi_queue_take(&ses, out, 8);
+    CHECK_INT(n, 2);
+    CHECK(n == 2 && !strcmp(out[0], "now") && !strcmp(out[1], "later"));
+    while (n > 0)
+        free(out[--n]);
+    CHECK_INT(ses.nsteer + ses.nfollow, 0);
+    pi_session_free(&ses);
+    (void)hooked;
+}
+
+/* Enter typed while the agent works steers it: through pi_ui_run, after the tool call, before the next request */
+static void test_steer_ui(void)
+{
+    static pi_session ses;
+    static const char *script[] = { "read the file\r", "!steer me\r", "\004", 0 };
+    cl_io io;
+    int a, b, c, d;
+    up_session(&ses, 1);
+    answer("tool.1.sse");
+    answer("tool.2.sse");
+    cs_open(80, 25, script);
+    cs_io(&io);
+    pi_ui_set_quiet(1);
+    pi_ui_set_cwd("~/project");
+    pi_ui_set_commands(0, 0);
+    cs.before_read = 0;
+    taken = 0;
+    cur = 0;
+    CHECK_INT(pi_ui_run(&ses, &io, 0), 0);
+    CHECK_INT(ps.nreq, 2);
+    CHECK(ps.nreq > 1 && strstr(ps.body[1], "steer me") != 0);
+    CHECK(ps.nreq > 0 && strstr(ps.body[0], "steer me") == 0);
+    /* the transcript as it went: the prompt, the call, the steering message, the answer */
+    a = (int)(strstr((const char *)cs.sent.p, "read the file") - (const char *)cs.sent.p);
+    b = (int)(strstr((const char *)cs.sent.p, "read\033[0m") ? 1 : 1);
+    c = cs.sent.p ? (int)(strstr((const char *)cs.sent.p, "steer me") - (const char *)cs.sent.p) : -1;
+    d = cs.sent.p ? (int)(strstr((const char *)cs.sent.p, "Done reading") - (const char *)cs.sent.p) : -1;
+    CHECK(a > 0 && c > a && d > c);
+    (void)b;
+    cs_close();
+    pi_session_free(&ses);
+}
+
 /* the start header: the program's own name for pi's version, no startup-help panel and no pi tips */
 #define HDR_VER { 2, 2, 5, 79, "start header" }
 #define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
@@ -335,12 +473,16 @@ static const scen scenarios[] = {
     { "toolerr", { "run it\r", 0 }, { "toolerr.1.sse", "toolerr.2.sse", 0 }, 2, 0, 0, { { 13, 13, 6, 8, "elapsed time of the run" } } },
     { "error", { "hello\r", 0 }, { "error.1.http", 0 }, 0, 0, 0, { { 5, 8, 0, 79, "error text" }, { 25, 25, 0, 6, "context estimate" } } },
     { "working", { "hello\r", 0 }, { 0 }, 0, 0, 1, { { 21, 21, 3, 3, "spinner frame" }, { 25, 25, 0, 6, "context estimate" } } },
+    { "queued", { "hello\r", "!steer me\r", "!and then this\033\r", 0 }, { 0 }, 0, 0, 1,
+      { { 21, 21, 3, 3, "spinner frame" }, { 25, 25, 0, 6, "context estimate" } } },
     { "twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
 };
 
 void suite_pi_tui(void)
 {
     unsigned i;
+    test_queue_agent();
+    test_steer_ui();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))
             continue;
