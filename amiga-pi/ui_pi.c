@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui_pi.h"
+#include "args.h"
 #include "claude/tui.h"
 #include "claude/show.h"
 #include "claude/util.h"
@@ -1027,7 +1028,7 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         }
     }
     if (p.look && !ui_quiet)
-        pshow_header(&p.ps, "amiga-pi", ui_version[0] ? ui_version : "(pi 1.1.0)");
+        pshow_header(&p.ps, "amiga-pi", ui_version[0] ? ui_version : "(pi " PI_VERSION ")");
     else if (!p.look) {
         cl_copy(hello, "amiga-pi in UP-Term. Model ", sizeof(hello));
         cl_cat(hello, s->model.provider, sizeof(hello));

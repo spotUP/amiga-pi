@@ -624,6 +624,10 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     pl = &rt->pl;
     if (pi_args_parse(&a, argc, argv))
         return usage(pl, &a);
+    if (a.version) {
+        say(pl->io, PI_VERSION, 0);     /* pi main.ts:632: console.log(VERSION), exit 0, before any mode or session */
+        return -1;
+    }
     rt->mode = a.mode;
     if (a.mode != PI_MODE_TEXT) {
         rt->diag.u = rt;

@@ -9,7 +9,9 @@
 int pi_args_parse(pi_args *a, int argc, char **argv)
 {
     int i;
+    char unknown[160];
     memset(a, 0, sizeof(*a));
+    unknown[0] = 0;
     a->gate = -1;
     a->thinking = -1;
     a->approve = -1;
@@ -17,6 +19,8 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
         const char *s = argv[i];
         if (!strcmp(s, "-p") || !strcmp(s, "--print"))
             a->print = 1;
+        else if (!strcmp(s, "--version") || !strcmp(s, "-v"))
+            a->version = 1;
         else if (!strcmp(s, "--continue") || !strcmp(s, "-c"))
             a->cont = 1;
         else if (!strcmp(s, "--resume") || !strcmp(s, "-r"))
@@ -126,9 +130,12 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
                 }
             }
         } else if (s[0] == '-' && s[1]) {
-            cl_copy(a->err, "Unknown option: ", sizeof(a->err));
-            cl_cat(a->err, s, sizeof(a->err));
-            return -1;
+            /* pi reports an unknown option only after --version has had its say (oracle: `-v --bogus` prints the
+             * version, exit 0); the first one is kept, other errors still end the parse at once */
+            if (!unknown[0]) {
+                cl_copy(unknown, "Unknown option: ", sizeof(unknown));
+                cl_cat(unknown, s, sizeof(unknown));
+            }
         } else {
             if (a->prompt[0])
                 cl_cat(a->prompt, " ", sizeof(a->prompt));
@@ -136,6 +143,12 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             if (a->nmsg < PI_ARG_MSGS)
                 a->msg[a->nmsg++] = s;
         }
+    }
+    if (a->version)
+        return 0;
+    if (unknown[0]) {
+        cl_copy(a->err, unknown, sizeof(a->err));
+        return -1;
     }
     if (a->no_session && (a->cont || a->resume || a->session[0])) {
         cl_copy(a->err, "--no-session cannot be combined with --continue, --resume or --session", sizeof(a->err));
