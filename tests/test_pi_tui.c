@@ -318,9 +318,55 @@ static void turn_quiet_check(void)
 
 static void compare_in_tool(pi_session *s)
 {
-    (void)s;
-    if (!taken)
+    if (!taken) {
+        if (strstr(cur->name, "toolrun")) {
+            /* Q9: pi's Elapsed row of a running bash call changes once a second (renderers/bash.ts:131); the golden was
+             * taken a second into `sleep 4` ("Elapsed 1.0s"): the pinned clock goes a second on and the poll ticks
+             * (every read of this clock is 10 ms on: 960 here, the reads since the start and this one make up the rest) */
+            if (strstr(cur->name, "toolrun_out")) {
+                /* the bash tool's update with the output so far (Q6: tool_execution_update per chunk) */
+                pi_event e;
+                pi_event_init(&e, PE_TOOL_UPDATE);
+                e.tool_id = s->call_id;
+                e.tool_name = "bash";
+                e.args = "{}";
+                e.args_n = 2;
+                e.result = "[{\"type\":\"text\",\"text\":\"hi\\n\"}]";
+                e.result_n = (long)strlen(e.result);
+                pi_emit(&s->em, &e);
+            }
+            cs.clock += 960;
+            s->h.poll(s->h.u);
+        }
         compare();
+    }
+    tool_hook = 0;
+}
+
+/* Q10: pi runs the tool calls of one message in parallel, and a box takes the colour of its own result whenever that
+ * arrives. amiga-pi's agent runs them one by one, so the second call's events are made here: it starts and ends while
+ * the first one runs, and the agent's end of the first comes after, with the first box no longer the last thing on
+ * the screen. The golden is pi's screen for both calls (dark_tools2; tools/pi_oracle/tui_gen.py). */
+static void nested_tools(pi_session *s)
+{
+    static const char args[] = "{\"command\":\"echo hi\"}";
+    static const char res[] = "[{\"type\":\"text\",\"text\":\"hi\\n\"}]";
+    pi_event e;
+    pi_event_init(&e, PE_TOOL_START);
+    e.tool_id = "toolu_p2";
+    e.tool_name = "bash";
+    e.args = args;
+    e.args_n = (long)strlen(args);
+    pi_emit(&s->em, &e);
+    pi_event_init(&e, PE_TOOL_END);
+    e.tool_id = "toolu_p2";
+    e.tool_name = "bash";
+    e.args = args;
+    e.args_n = (long)strlen(args);
+    e.result = res;
+    e.result_n = (long)strlen(res);
+    e.duration_ms = 0;
+    pi_emit(&s->em, &e);
     tool_hook = 0;
 }
 
@@ -435,7 +481,7 @@ static void run(const scen *sc)
     pi_ui_set_commands(pi_cmds, (int)(sizeof(pi_cmds) / sizeof(pi_cmds[0])));
     if (sc->when == 1)
         ps.silent = 1;
-    tool_hook = sc->when == 2 ? compare_in_tool : 0;
+    tool_hook = sc->when == 2 ? compare_in_tool : !strcmp(sc->name, "dark_tools2") ? nested_tools : 0;
     CHECK_INT(pi_ui_run(&ses, &io, 0), 0);
     if (sc->when == 3) {
         exit_check(sc);
@@ -1074,7 +1120,7 @@ static void resume_rest(void)
     compare();
 }
 
-static void resume_case(const char *name, const char *file)
+static void resume_case(const char *name, const char *file, const char *settings)
 {
     static const char *keys[] = { "\004", 0 };
     static scen sc = { "", { 0 }, { 0 }, 0, 0, 0, { { 21, 25, 0, 79, "the editor border (the thinking level of the model) and the footer: the capture's model is the fake one" } } };
@@ -1083,7 +1129,7 @@ static void resume_case(const char *name, const char *file)
     sc.name = name;
     if (!put_session(file, file, path))
         return;
-    app_write("settings.json", "{\"quietStartup\":true}\n");
+    app_write("settings.json", settings);
     cur = &sc;
     taken = 0;
     diffs = 0;
@@ -1093,6 +1139,8 @@ static void resume_case(const char *name, const char *file)
     CHECK(want != 0);
     if (!want)
         return;
+    sc.masks[0].r0 = want_rows - 5;     /* the editor border and the footer, at the bottom of whatever the capture's height */
+    sc.masks[0].r1 = want_rows;
     app_session = path;
     CHECK_INT(app_run(80, want_rows, keys, 0, 0, resume_rest), 0);
     app_session = 0;
@@ -1112,7 +1160,7 @@ static void resume_case(const char *name, const char *file)
 
 static void test_resume_took(void)
 {
-    resume_case("resume_took", "took_session.jsonl");
+    resume_case("resume_took", "took_session.jsonl", "{\"quietStartup\":true}\n");
 }
 
 /* Q2: pi 1.1.0 getTextOutput (core/tools/render-utils.ts:39-48, used by renderers/bash.ts:52) strips escape sequences,
@@ -1120,7 +1168,19 @@ static void test_resume_took(void)
  * result with SGR, EL and an OSC title in its text; the golden is pi's own screen for it ("red plain tail"). */
 static void test_resume_ansi(void)
 {
-    resume_case("resume_ansi", "ansi_session.jsonl");
+    resume_case("resume_ansi", "ansi_session.jsonl", "{\"quietStartup\":true}\n");
+}
+
+/* Q8: a resumed session with a compaction summary, a custom message (display true) and a branch summary: pi 1.1.0's
+ * three components over customMessageBg (components/compaction-summary-message.ts, custom-message.ts,
+ * branch-summary-message.ts), in the system, dark and light themes and with outputPad 0 */
+static void test_resume_summaries(void)
+{
+    resume_case("resume_summaries", "summaries_session.jsonl", "{\"quietStartup\":true}\n");
+    resume_case("dark_resume_summaries", "summaries_session.jsonl", "{\"quietStartup\":true,\"theme\":\"dark\"}\n");
+    resume_case("light_resume_summaries", "summaries_session.jsonl", "{\"quietStartup\":true,\"theme\":\"light\"}\n");
+    resume_case("dark_pad0_resume_summaries", "summaries_session.jsonl",
+                "{\"quietStartup\":true,\"theme\":\"dark\",\"outputPad\":0}\n");
 }
 
 /* Enter in the selector moves the leaf (a user message goes back to the editor) and the conversation is drawn again */
@@ -1949,9 +2009,13 @@ static const scen scenarios[] = {
     { "dark_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "dark_toolerr", { "run it\r", 0 }, { "toolerr.1.sse", "toolerr.2.sse", 0 }, 2, 0, 0,
       { { 13, 13, 6, 8, "elapsed time of the run" } } },
-    /* the box while the tool runs (toolPendingBg); pi's live "Elapsed" rows are not drawn */
+    /* the box while the tool runs (toolPendingBg) with its live "Elapsed" row */
     { "dark_toolrun", { "run it\r", 0 }, { "dark_toolrun.1.sse", "dark_toolrun.2.sse", 0 }, 2, 0, 2,
-      { { 7, 9, 0, 79, "the live Elapsed row of a running tool" }, { 21, 21, 3, 3, "spinner frame" } } },
+      { { 21, 21, 3, 3, "spinner frame" } } },
+    { "dark_toolrun_out", { "run it\r", 0 }, { "dark_toolrun_out.1.sse", "dark_toolrun_out.2.sse", 0 }, 2, 0, 2,
+      { { 21, 21, 3, 3, "spinner frame" } } },
+    { "dark_tools2", { "run both\r", 0 }, { "dark_tools2.host.1.sse", "dark_tools2.host.2.sse", 0 }, 2, 0, 0,
+      { { 13, 13, 0, 9, "elapsed time of the first call" } } },
     { "dark_bang", { "!!echo hi\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
     /* P11 (pi 1.1.0): `!!` keeps its dim header; outputPad 0 takes the padding off messages, tool boxes and `!` output */
     { "bang_excluded", { "!!!echo hi\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
@@ -1977,6 +2041,7 @@ void suite_pi_tui(void)
     test_tree_nav();
     test_resume_took();
     test_resume_ansi();
+    test_resume_summaries();
     test_export();
     test_bang();
     test_output_pad_setting();

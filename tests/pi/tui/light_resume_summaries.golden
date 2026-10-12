@@ -1,0 +1,50 @@
+
+[48;5;189m                                                                                
+ [1m[38;5;97m[compaction][0m[48;5;189m                                                                   
+                                                                                
+ [38;5;60mCompacted from 12,345 tokens ([38;5;102mctrl+o[38;5;60m to expand)[39m                                
+                                                                                
+
+                                                                                
+ [38;5;237msecond question[39m                                                                
+                                                                                
+
+[49m second answer      
+
+[48;5;189m                                                                                
+ [38;5;237mthird question[39m                                                                 
+                                                                                
+
+[49m third answer       
+
+[48;5;189m                                                                                
+ [1m[38;5;97m[note][0m[48;5;189m                                                                         
+                                                                                
+ [38;5;60mInjected [1mnote[0m[38;5;60m[48;5;189m for the model.[39m                                                   
+                                                                                
+
+                                                                                
+ [1m[38;5;97m[branch][0m[48;5;189m                                                                       
+                                                                                
+ [38;5;60mBranch summary ([38;5;102mctrl+o[38;5;60m to expand)[39m                                              
+                                                                                
+
+                                                                                
+ [38;5;237mfourth question[39m                                                                
+                                                                                
+
+[49m fourth answer      
+
+ [38;5;102mSession compacted 1 time[39m               
+
+
+
+
+
+
+
+[38;5;251m────────────────────────────────────────────────────────────────────────────────
+[7m[39m [0m                   
+[38;5;251m────────────────────────────────────────────────────────────────────────────────
+[38;5;102m~/project[39m           
+[38;5;102m↑40 ↓20 0.0%/200k (auto)                                              fake-model
