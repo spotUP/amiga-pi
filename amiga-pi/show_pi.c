@@ -644,7 +644,11 @@ void pshow_tool_start(pi_show *s, const char *id, const char *name, const char *
 {
     ps_box nb, *b = 0;
     s->n_tools++;
-    spacer(s);                      /* the block is a blank line below what is above it, with one of its own inside */
+    /* the block is a blank line below what is above it, with one of its own inside; pi's ToolExecutionComponent opens with
+     * its Spacer(1) (tool-execution.ts:85) even at the top of a redrawn chat, where an assistant message with only tool
+     * calls (no Spacer of its own, assistant-message.ts:103) is all that is above it */
+    blank(s);
+    s->any = 1;
     out(s);
     memset(&nb, 0, sizeof(nb));
     cl_copy(nb.id, id ? id : "", sizeof(nb.id));

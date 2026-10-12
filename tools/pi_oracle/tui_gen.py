@@ -252,6 +252,17 @@ SCENARIOS = {
     # Q8: a resumed session with a compaction summary, a custom message (display true) and a branch summary: pi 1.1.0's
     # CompactionSummaryMessageComponent, CustomMessageComponent, BranchSummaryMessageComponent (customMessageBg, outputPad)
     'resume_summaries': dict(steps=[('sleep', 1.0)], answers=[], session='summaries_session.jsonl', rows=50),
+    # Q17: live /compact on a resumed session: pi clears the chat, redraws it and appends the summary box
+    # (interactive-mode.ts compaction_end); the second answer is the summarization request
+    'compact': dict(steps=[('sleep', 0.5), ('type', '/compact'), ('enter',), ('wait', 'Compacted from'), ('sleep', 1.0)],
+                    answers=[('sse', text_answer('msg_sum', '## Goal\nRun two commands.\n\n## Progress\nBoth ran.', 120))],
+                    session='took_session.jsonl', rows=50, settings={'compaction': {'keepRecentTokens': 10}}),
+    # Q17: automatic compaction after a turn (usage 1260 tokens against a window of 200000 less reserveTokens 199000)
+    'compact_auto': dict(steps=[('sleep', 0.5), ('type', 'and then?'), ('enter',), ('wait', 'Compacted from'), ('sleep', 1.0)],
+                         answers=[('sse', text_answer('msg_next', 'Nothing more.', 20)),
+                                  ('sse', text_answer('msg_sum2', '## Goal\nRun two commands.\n\n## Progress\nBoth ran.', 120))],
+                         session='took_session.jsonl', rows=50,
+                         settings={'compaction': {'keepRecentTokens': 10, 'reserveTokens': 199000}}),
     'dark_resume_summaries': dict(steps=[('sleep', 1.0)], answers=[], session='summaries_session.jsonl', rows=50, theme='dark'),
     'light_resume_summaries': dict(steps=[('sleep', 1.0)], answers=[], session='summaries_session.jsonl', rows=50, theme='light'),
     'dark_pad0_resume_summaries': dict(steps=[('sleep', 1.0)], answers=[], session='summaries_session.jsonl', rows=50, theme='dark',
