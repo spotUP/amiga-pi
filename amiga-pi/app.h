@@ -57,6 +57,7 @@ typedef struct pi_rt {
     pi_store *store;
     mcp *mc;
     pi_res *res;
+    struct pi_tmpls *tmpls;     /* prompt templates (templates.h) */
 } pi_rt;
 
 /* the runtime from the command line: 0, -1 when there is nothing to run (--list-models: done), else an exit code

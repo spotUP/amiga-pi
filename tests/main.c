@@ -12,6 +12,7 @@ void suite_pi_model(void);
 void suite_pi_mcp(void);
 void suite_pi_resources(void);
 void suite_pi_tui(void);
+void suite_pi_templates(void);
 void suite_pi_modes(void);
 
 static const h_suite suites[] = {
@@ -23,6 +24,7 @@ static const h_suite suites[] = {
     { "pi_mcp", suite_pi_mcp },
     { "pi_resources", suite_pi_resources },
     { "pi_tui", suite_pi_tui },
+    { "pi_templates", suite_pi_templates },
     { "pi_modes", suite_pi_modes }
 };
 

@@ -4,7 +4,7 @@ Sources: pi 1.0.4 (tag v1.0.4, commit 7c10bd4337495ee613f2224843ecdf349b80d1df, 
 
 Decision D3: the pi `bash` tool is named `bash` and runs `vsh -c` (AmigaDOS Shell fallback). `shell` in older plan text is superseded.
 
-Rows per group (207 total, counted from the tables: the lines starting with `|` minus each table's header and `|---` separator, 235 - 2 x 15 = 205, plus the two rows added for Q3 and Q11): pi-ai 32; pi-agent-core 6; pi-coding-agent 15; pi-tui 32; sessions 27; tools 7; extensions 20; skills 4; prompt templates 2; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 28; pi-modes 17.
+Rows per group (211 total, counted from the tables: the lines starting with `|` minus each table's header and `|---` separator, 235 - 2 x 15 = 205, plus the two rows added for Q3 and Q11 and the four added for J): pi-ai 32; pi-agent-core 6; pi-coding-agent 15; pi-tui 32; sessions 27; tools 7; extensions 20; skills 4; prompt templates 6; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 28; pi-modes 17.
 
 
 ## pi-ai
@@ -12,7 +12,7 @@ Rows per group (207 total, counted from the tables: the lines starting with `|` 
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
 | API: anthropic-messages | llm/be_anthropic.c from claude/http.c, stream.c | partial (exists in C:Claude) | B5 |
-| API: openai-completions | llm/be_openai_chat.c with compat flags | planned | B6 |
+| API: openai-completions | llm/be_openai_chat.c with compat flags; usage as parseChunkUsage (openai-completions.ts:1531-1546): cache read from prompt_tokens_details.cached_tokens, else prompt_cache_hit_tokens (DeepSeek), else cached_tokens (Kimi); cache write from prompt_tokens_details.cache_write_tokens; the usage of choices[0] when the chunk has none (Moonshot, :575-579) | planned | B6 |
 | API: openai-responses | llm/be_openai_responses.c, pi-ai's api/openai-responses.js ported; body, SSE, handoff, session id (prompt_cache_key, session_id headers) byte-tested against pi (vtcon tests/pi/responses, switch goldens); gpt-5.5 and gpt-4.1 use it, reachable through pi_app (llm_feeds_responses) | done (FA4) | FA4 |
 | API: azure-openai-responses | Responses adapter with Azure's URL and api-version | planned | M |
 | Model switch and settings (FA6) | A switch uses settings.json defaultThinkingLevel before the session's level (pi's _getThinkingLevelForModelSwitch) and leaves the session's model and level unchanged when the session file cannot take the entries. pi's `/model <term>` calls setModel with persist:false (interactive-mode.js:4301), so amiga-pi's /model never writes defaultProvider/defaultModel either; pi persists them only from the selector's set-default action and after /login (:4429, :5063), which amiga-pi has neither of | done | FA6 |
@@ -197,8 +197,12 @@ Phase E (2026-10-11). Every row below was compared with pi's own code: `tools/pi
 
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
-| prompts/*.md as /name, frontmatter description and argument-hint | loader | planned | J |
-| Argument substitution $1 $@ $ARGUMENTS ${1:-d} ${@:N} ${@:N:L}, shell-like quoting | one pure function | planned | J |
+| prompts/*.md as /name, frontmatter description and argument-hint (core/prompt-templates.ts) | amiga-pi/templates.c: `<agent dir>/prompts` and, for a trusted project, `<cwd>/.pi/prompts` (not recursive, hidden files and node_modules left out), the project's first so its name wins (resource-loader dedupePrompts keeps the first); frontmatter through claude/commands.c defs_parse (description, argument-hint), else the first non-empty line cut at 60 characters and "..."; the body trimmed after a frontmatter, taken as it is without one; CRLF and a BOM handled. get_commands lists them (source prompt, sourceInfo auto/user or project, baseDir) against pi 1.1.0's record (tests/pi/rpc/prompt_templates) | done (J) | J1, J2 |
+| Argument substitution $1 $@ $ARGUMENTS ${N:-d} ${@:-d} ${ARGUMENTS:-d} ${@:N} ${@:N:L}, shell-like quoting (pi 1.1.0 adds the `${...:-default}` forms and `${@:-default}` to the plan's list) | `pi_tmpl_args` and `pi_tmpl_subst`, two pure functions, one pass (an argument holding `$1` is not substituted again), quotes ' and " group and are dropped, JavaScript's whitespace splits; 73 cases and 20 expansions equal pi's own parseCommandArgs, substituteArgs and expandPromptTemplate (tests/pi/templates/cases.json, tools/pi_oracle/gen_templates.mjs). Not shared with claude/commands.c: its syntax differs ($0 is the first argument, `$ARGUMENTS[N]`, `\$`, named arguments, a 16-word split) | done (J) | J1 |
+| /name args reaches the model expanded | pi_prompt expands for every front end (agent-session.ts prompt(): UI, RPC, JSON mode, the SDK); the typed line is not sent. Tested through pi_app and in RPC mode against pi's record (tests/pi/rpc/prompt_templates) | done (J) | J3 |
+| --prompt-template <file or directory> (repeatable), --no-prompt-templates / -np (cli/args.ts) | pi_args; the paths first (a directory is read whole, hidden files too, as loadTemplatesFromDir), then the defaults; sourceInfo local/temporary, menu tag [t]; tests/pi/rpc/prompt_template_path | done (J) | J2 |
+| /name in the slash menu with description and argument-hint | pi_tmpl_menu rows after the built-in ones: "hint -- [u|p|t] description" (interactive-mode.ts createBaseAutocompleteProvider, prefixAutocompleteDescription); screen compared with pi's capture (tests/pi/tui/slash_prompts) | done (J) | J2 |
+| Gaps of prompt templates (not done) | (1) .gitignore, .ignore and .fdignore files inside the prompts directory are not honoured (pi's collectAutoPromptEntries uses the `ignore` package). (2) settings.json `prompts` arrays and packages are not read. (3) A YAML error in the frontmatter does not drop the file (pi warns and skips it; the reader is claude/commands.c's subset, so block scalars and a non-string description differ). (4) Name collisions produce no diagnostic. (5) Files within a directory are sorted by name (pi: the system's order). (6) An absolute host path in --prompt-template is read as an Amiga path (claude/path.c). (7) `/reload` does not exist, so templates are read once at start | open gap | J |
 
 ## themes
 
@@ -292,7 +296,7 @@ Goldens: tests/pi/rpc, made by tools/pi_oracle/rpc_gen.py from pi 1.1.0 (abe508e
 | get_state / get_session_stats numbers | percent is decimal with up to 10 digits (pi: a binary float); sessionFile and ids are masked (file naming differs, see sessions) | difference | H3 |
 | compact: estimatedTokensAfter, and tokensBefore of an overflow compaction that asks again | counts the system message of the compacted context; its text is amiga-pi's prompt, so the number differs. tokensBefore after an omitted answer is the same estimate (pi's estimateProjectedContextTokens ignores usage once a context_edit follows it; overflow: both 273 apart); every other tokensBefore is usage-based and compared | difference | H3 |
 | get_available_models | lists the catalog's providers on plain-http endpoints (no key needed, as /model); the golden compares the fixture provider's entries | difference | H3 |
-| get_commands | no extension host, no skills or prompt templates yet: `[]` (pi lists its built-in `mcp` and `llama` extension commands; the golden is made with --no-extensions) | gap until Phase L | H3 |
+| get_commands | the prompt templates (J, golden prompt_templates); no extension host and no skills yet, so no `extension` or `skill` entries (pi lists its built-in `mcp` and `llama` extension commands; the golden is made with --no-extensions) | gap until Phase L | H3 |
 | prompt/steer/follow_up `images` | the field is ignored | gap | H3 |
 | Parse failure text | `Failed to parse command: Invalid JSON` (pi: V8's message) | difference | H2 |
 | bash command | runs to the end, then one bash_execution_update with the whole output (pi: a record per chunk); abort_bash stops a command in flight only through the poll hook | difference | H3 |

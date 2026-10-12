@@ -1,0 +1,757 @@
+{
+ "subst": [
+  {
+   "c": "$1",
+   "a": "a b c",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": "a"
+  },
+  {
+   "c": "$2",
+   "a": "a b c",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": "b"
+  },
+  {
+   "c": "$3 $2 $1",
+   "a": "a b c",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": "c b a"
+  },
+  {
+   "c": "$4",
+   "a": "a b c",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": ""
+  },
+  {
+   "c": "$0",
+   "a": "a b c",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": ""
+  },
+  {
+   "c": "$10",
+   "a": "1 2 3 4 5 6 7 8 9 10 11",
+   "args": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "10",
+    "11"
+   ],
+   "out": "10"
+  },
+  {
+   "c": "$1",
+   "a": "",
+   "args": [],
+   "out": ""
+  },
+  {
+   "c": "x$1y",
+   "a": "",
+   "args": [],
+   "out": "xy"
+  },
+  {
+   "c": "$@",
+   "a": "a b c",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": "a b c"
+  },
+  {
+   "c": "$@",
+   "a": "",
+   "args": [],
+   "out": ""
+  },
+  {
+   "c": "$ARGUMENTS",
+   "a": "a b c",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": "a b c"
+  },
+  {
+   "c": "$ARGUMENTS",
+   "a": "",
+   "args": [],
+   "out": ""
+  },
+  {
+   "c": "$ARGUMENTSX",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": "aX"
+  },
+  {
+   "c": "${1:-default}",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": "a"
+  },
+  {
+   "c": "${1:-default}",
+   "a": "",
+   "args": [],
+   "out": "default"
+  },
+  {
+   "c": "${2:-default}",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": "default"
+  },
+  {
+   "c": "${0:-d}",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": "d"
+  },
+  {
+   "c": "${1:-}",
+   "a": "",
+   "args": [],
+   "out": ""
+  },
+  {
+   "c": "${1:-a b c}",
+   "a": "",
+   "args": [],
+   "out": "a b c"
+  },
+  {
+   "c": "${@:-none}",
+   "a": "",
+   "args": [],
+   "out": "none"
+  },
+  {
+   "c": "${@:-none}",
+   "a": "x y",
+   "args": [
+    "x",
+    "y"
+   ],
+   "out": "x y"
+  },
+  {
+   "c": "${ARGUMENTS:-none}",
+   "a": "",
+   "args": [],
+   "out": "none"
+  },
+  {
+   "c": "${ARGUMENTS:-none}",
+   "a": "x",
+   "args": [
+    "x"
+   ],
+   "out": "x"
+  },
+  {
+   "c": "${1:-no}}",
+   "a": "",
+   "args": [],
+   "out": "no}"
+  },
+  {
+   "c": "${@:2}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": "b c d"
+  },
+  {
+   "c": "${@:1}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": "a b c d"
+  },
+  {
+   "c": "${@:0}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": "a b c d"
+  },
+  {
+   "c": "${@:5}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": ""
+  },
+  {
+   "c": "${@:4}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": "d"
+  },
+  {
+   "c": "${@:2:2}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": "b c"
+  },
+  {
+   "c": "${@:2:0}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": ""
+  },
+  {
+   "c": "${@:1:1}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": "a"
+  },
+  {
+   "c": "${@:3:10}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": "c d"
+  },
+  {
+   "c": "${@:0:2}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": "a b"
+  },
+  {
+   "c": "${@:2:}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": "${@:2:}"
+  },
+  {
+   "c": "${@:}",
+   "a": "a b c d",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "out": "${@:}"
+  },
+  {
+   "c": "${@}",
+   "a": "a b",
+   "args": [
+    "a",
+    "b"
+   ],
+   "out": "${@}"
+  },
+  {
+   "c": "${1}",
+   "a": "a b",
+   "args": [
+    "a",
+    "b"
+   ],
+   "out": "${1}"
+  },
+  {
+   "c": "${1:-x",
+   "a": "",
+   "args": [],
+   "out": "${1:-x"
+  },
+  {
+   "c": "${1:x}",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": "${1:x}"
+  },
+  {
+   "c": "$",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": "$"
+  },
+  {
+   "c": "$$1",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": "$a"
+  },
+  {
+   "c": "$a",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": "$a"
+  },
+  {
+   "c": "costs $5 or $ARGUMENTS.",
+   "a": "7",
+   "args": [
+    "7"
+   ],
+   "out": "costs  or 7."
+  },
+  {
+   "c": "$1",
+   "a": "'two words' 'it''s'",
+   "args": [
+    "two words",
+    "its"
+   ],
+   "out": "two words"
+  },
+  {
+   "c": "$1|$2",
+   "a": "\"two words\" \"three  spaces here\"",
+   "args": [
+    "two words",
+    "three  spaces here"
+   ],
+   "out": "two words|three  spaces here"
+  },
+  {
+   "c": "$1",
+   "a": "a\"b c\"d",
+   "args": [
+    "ab cd"
+   ],
+   "out": "ab cd"
+  },
+  {
+   "c": "$1",
+   "a": "\"unterminated quote",
+   "args": [
+    "unterminated quote"
+   ],
+   "out": "unterminated quote"
+  },
+  {
+   "c": "$1|$2",
+   "a": "'a \"b\" c' d",
+   "args": [
+    "a \"b\" c",
+    "d"
+   ],
+   "out": "a \"b\" c|d"
+  },
+  {
+   "c": "$@",
+   "a": "'x y'  z",
+   "args": [
+    "x y",
+    "z"
+   ],
+   "out": "x y z"
+  },
+  {
+   "c": "$1",
+   "a": "\"\" a",
+   "args": [
+    "a"
+   ],
+   "out": "a"
+  },
+  {
+   "c": "$1|$2",
+   "a": "a '' b",
+   "args": [
+    "a",
+    "b"
+   ],
+   "out": "a|b"
+  },
+  {
+   "c": "$ARGUMENTS",
+   "a": "  lead  and   trail  ",
+   "args": [
+    "lead",
+    "and",
+    "trail"
+   ],
+   "out": "lead and trail"
+  },
+  {
+   "c": "$1|$2|$3",
+   "a": "a\tb\nc",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": "a|b|c"
+  },
+  {
+   "c": "$1",
+   "a": "café über",
+   "args": [
+    "café",
+    "über"
+   ],
+   "out": "café"
+  },
+  {
+   "c": "$1|$2",
+   "a": "a b c",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": "a|b"
+  },
+  {
+   "c": "$1|$2",
+   "a": "a　b",
+   "args": [
+    "a",
+    "b"
+   ],
+   "out": "a|b"
+  },
+  {
+   "c": "$1 $1 $1",
+   "a": "r",
+   "args": [
+    "r"
+   ],
+   "out": "r r r"
+  },
+  {
+   "c": "$1",
+   "a": "$2 $@",
+   "args": [
+    "$2",
+    "$@"
+   ],
+   "out": "$2"
+  },
+  {
+   "c": "$@ and ${1:-$2}",
+   "a": "$1",
+   "args": [
+    "$1"
+   ],
+   "out": "$1 and $1"
+  },
+  {
+   "c": "${1:-$@}",
+   "a": "",
+   "args": [],
+   "out": "$@"
+  },
+  {
+   "c": "${1:-\\$1}",
+   "a": "",
+   "args": [],
+   "out": "\\$1"
+  },
+  {
+   "c": "line1\n$1\nline3 ${@:2}\n",
+   "a": "a b c",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": "line1\na\nline3 b c\n"
+  },
+  {
+   "c": "no placeholders",
+   "a": "a b",
+   "args": [
+    "a",
+    "b"
+   ],
+   "out": "no placeholders"
+  },
+  {
+   "c": "",
+   "a": "a b",
+   "args": [
+    "a",
+    "b"
+   ],
+   "out": ""
+  },
+  {
+   "c": "$1$2$3",
+   "a": "a b c",
+   "args": [
+    "a",
+    "b",
+    "c"
+   ],
+   "out": "abc"
+  },
+  {
+   "c": "$@$@",
+   "a": "a b",
+   "args": [
+    "a",
+    "b"
+   ],
+   "out": "a ba b"
+  },
+  {
+   "c": "${@:1:2} / ${@:3}",
+   "a": "a b c d e",
+   "args": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e"
+   ],
+   "out": "a b / c d e"
+  },
+  {
+   "c": "${3:-x}${2:-y}${1:-z}",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": "xya"
+  },
+  {
+   "c": "${10:-ten}",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": "ten"
+  },
+  {
+   "c": "$99999999999",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": ""
+  },
+  {
+   "c": "${@:99999999999}",
+   "a": "a",
+   "args": [
+    "a"
+   ],
+   "out": ""
+  },
+  {
+   "c": "${@:1:99999999999}",
+   "a": "a b",
+   "args": [
+    "a",
+    "b"
+   ],
+   "out": "a b"
+  }
+ ],
+ "expand": {
+  "templates": [
+   {
+    "name": "review",
+    "content": "Review $1 focusing on ${2:-quality}. All: $@"
+   },
+   {
+    "name": "plain",
+    "content": "plain body\n"
+   },
+   {
+    "name": "ns:sub",
+    "content": "[$ARGUMENTS]"
+   },
+   {
+    "name": "dup",
+    "content": "first"
+   },
+   {
+    "name": "dup",
+    "content": "second"
+   }
+  ],
+  "cases": [
+   {
+    "text": "/review src",
+    "out": "Review src focusing on quality. All: src"
+   },
+   {
+    "text": "/review",
+    "out": "Review  focusing on quality. All: "
+   },
+   {
+    "text": "/review src  tests\nmore",
+    "out": "Review src focusing on tests. All: src tests more"
+   },
+   {
+    "text": "/review   ",
+    "out": "Review  focusing on quality. All: "
+   },
+   {
+    "text": "/review\n",
+    "out": "Review  focusing on quality. All: "
+   },
+   {
+    "text": "/review\tsrc",
+    "out": "Review src focusing on quality. All: src"
+   },
+   {
+    "text": "/plain",
+    "out": "plain body\n"
+   },
+   {
+    "text": "/plain x y",
+    "out": "plain body\n"
+   },
+   {
+    "text": "/ns:sub a b",
+    "out": "[a b]"
+   },
+   {
+    "text": "/dup",
+    "out": "first"
+   },
+   {
+    "text": "/nosuch x",
+    "out": "/nosuch x"
+   },
+   {
+    "text": "/Review src",
+    "out": "/Review src"
+   },
+   {
+    "text": "review src",
+    "out": "review src"
+   },
+   {
+    "text": " /review src",
+    "out": " /review src"
+   },
+   {
+    "text": "/",
+    "out": "/"
+   },
+   {
+    "text": "//review",
+    "out": "//review"
+   },
+   {
+    "text": "/review src",
+    "out": "Review src focusing on quality. All: src"
+   },
+   {
+    "text": "/review src \"a b\" 'c d'",
+    "out": "Review src focusing on a b. All: src a b c d"
+   },
+   {
+    "text": "/plain\n\nx",
+    "out": "plain body\n"
+   },
+   {
+    "text": "/review src\n\n",
+    "out": "Review src focusing on quality. All: src"
+   }
+  ]
+ }
+}

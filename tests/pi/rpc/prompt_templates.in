@@ -1,0 +1,12 @@
+{"id":"1","type":"get_commands"}
+{"id":"2","type":"prompt","message":"/review src \"two words\""}
+#after agent_settled
+{"id":"3","type":"prompt","message":"/fix a.c"}
+#after agent_settled
+{"id":"4","type":"prompt","message":"/sum  x   \"y z\" w"}
+#after agent_settled
+{"id":"5","type":"prompt","message":"/sum"}
+#after agent_settled
+{"id":"6","type":"prompt","message":"/nosuch q"}
+#after agent_settled
+{"id":"7","type":"get_messages"}

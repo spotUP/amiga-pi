@@ -5,6 +5,7 @@
 #include "mode_json.h"
 #include "export.h"
 #include "compact.h"
+#include "templates.h"
 #include "claude/util.h"
 #include "claude/tools.h"       /* ASK_* */
 #include "claude/path.h"
@@ -809,6 +810,43 @@ static void cmd_clear_queue(const cmd *c)
     jw_free(&d);
 }
 
+/* rpc-mode.ts get_commands: the prompt templates (the extension commands and skills come with their phases) */
+static void cmd_get_commands(const cmd *c)
+{
+    const pi_tmpls *ts = c->r->rt ? c->r->rt->tmpls : 0;
+    jw d;
+    int i;
+    jw_init(&d);
+    jw_rawz(&d, "{\"commands\":[");
+    for (i = 0; ts && i < ts->n; i++) {
+        const pi_tmpl *t = &ts->t[i];
+        const char *base = t->scope == PI_TMPL_PROJECT ? ts->base_project : t->scope == PI_TMPL_USER ? ts->base_user : t->base;
+        if (i)
+            jw_raw(&d, ",", 1);
+        jw_rawz(&d, "{\"name\":");
+        jw_strz(&d, t->name);
+        jw_rawz(&d, ",\"description\":");
+        jw_strz(&d, t->description);
+        jw_rawz(&d, ",\"source\":\"prompt\",\"sourceInfo\":{\"path\":");
+        jw_strz(&d, t->path);
+        /* the sourceInfo: the default directories' templates are "auto" of their scope, a --prompt-template path "local"
+         * and temporary, its baseDir the directory (or the file's directory) */
+        if (t->scope == PI_TMPL_PATH)
+            jw_rawz(&d, ",\"source\":\"local\",\"scope\":\"temporary\"");
+        else
+            jw_rawz(&d, t->scope == PI_TMPL_PROJECT ? ",\"source\":\"auto\",\"scope\":\"project\"" : ",\"source\":\"auto\",\"scope\":\"user\"");
+        jw_rawz(&d, ",\"origin\":\"top-level\"");
+        if (base[0]) {
+            jw_rawz(&d, ",\"baseDir\":");
+            jw_strz(&d, base);
+        }
+        jw_rawz(&d, "}}");
+    }
+    jw_rawz(&d, "]}");
+    okw(c, &d);
+    jw_free(&d);
+}
+
 static void cmd_new_session(const cmd *c)
 {
     pi_rpc *r = c->r;
@@ -1364,7 +1402,7 @@ static void handle_cmd(const cmd *c)
     else if (!strcmp(t, "set_session_name"))
         cmd_set_session_name(c);
     else if (!strcmp(t, "get_commands"))
-        ok(c, "{\"commands\":[]}");
+        cmd_get_commands(c);
     else {
         char err[200];
         cl_copy(err, "Unknown command: ", sizeof(err));

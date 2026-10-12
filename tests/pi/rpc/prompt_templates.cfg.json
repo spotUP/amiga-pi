@@ -1,0 +1,28 @@
+{
+ "mode": "rpc",
+ "args": [
+  "--no-extensions"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "defaultProjectTrust": "always"
+ },
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/prompts/review.md": "---\ndescription: Review code\nargument-hint: \"<path> [focus]\"\n---\nReview $1 focusing on ${2:-general quality}. All: $@. Rest: ${@:2}.\n",
+  "project/.pi/prompts/review.md": "---\ndescription: Project review\n---\nProject review of $ARGUMENTS\n",
+  "project/.pi/prompts/fix.md": "Fix the failing test in $1 and explain what was wrong with the code in detail so that it never returns\nsecond line\n",
+  "agent/prompts/sum.md": "---\ndescription: Sum\n---\n${@:2:1}|${1:-none}|$ARGUMENTS|$9|${ARGUMENTS:-empty}|$1$2\n"
+ },
+ "answers": [
+  "sse",
+  "sse",
+  "sse",
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write"
+}

@@ -29,6 +29,8 @@
 
 #define DIR_RPC PI_TESTS "/pi/rpc/"
 #define GOLD_CWD "/private/tmp/pirpc/project"
+#define GOLD_AGENT "/private/tmp/pirpc/agent"
+static const char *mask_agent = "";   /* this run's agent directory (a path in a record: get_commands' sourceInfo) */
 
 static char *slurp(const char *path, long *n)
 {
@@ -60,6 +62,20 @@ static char *slurp_rpc(const char *name, const char *ext, long *n)
     strcat(path, name);
     strcat(path, ext);
     return slurp(path, n);
+}
+
+static void mkdirs(const char *path)
+{
+    char b[600];
+    char *p;
+    cl_copy(b, path, sizeof(b));
+    for (p = b + 1; *p; p++)
+        if (*p == '/') {
+            *p = 0;
+            mkdir(b, 0777);
+            *p = '/';
+        }
+    mkdir(b, 0777);
 }
 
 static void put_file(const char *path, const char *text, long n)
@@ -202,6 +218,12 @@ static void m_str(jv v, jw *o, const char *cwd)
         } else if (i + (long)strlen(GOLD_CWD) <= n && !memcmp(z + i, GOLD_CWD, strlen(GOLD_CWD))) {
             jw_rawz(&t, "<cwd>");
             i += (long)strlen(GOLD_CWD);
+        } else if (mask_agent[0] && i + (long)strlen(mask_agent) <= n && !memcmp(z + i, mask_agent, strlen(mask_agent))) {
+            jw_rawz(&t, "<agent>");
+            i += (long)strlen(mask_agent);
+        } else if (i + (long)strlen(GOLD_AGENT) <= n && !memcmp(z + i, GOLD_AGENT, strlen(GOLD_AGENT))) {
+            jw_rawz(&t, "<agent>");
+            i += (long)strlen(GOLD_AGENT);
         } else
             jw_raw(&t, z + i++, 1);
     }
@@ -625,6 +647,30 @@ static int setup_files(jv cfg, char *session_arg, long cap)
         if ((long)strlen(path) < cap)
             strcpy(session_arg, path);
     }
+    if (json_get(cfg, "text_files", &v) && json_type(v) == J_OBJ) {
+        /* J: prompt templates; the name is under agent/ or project/, the value the file's text */
+        json_iter(v, &fi);
+        while (json_next(&fi, &s, &e)) {
+            char name[100], *body;
+            long bn;
+            json_str(s, name, sizeof(name));
+            body = json_strdup(e, &bn);
+            if (!body)
+                return -1;
+            strcpy(path, !strncmp(name, "agent/", 6) ? agent : proj);
+            strcat(path, "/");
+            strcat(path, strchr(name, '/') + 1);
+            {
+                char dir[600], *sl;
+                strcpy(dir, path);
+                sl = strrchr(dir, '/');
+                *sl = 0;
+                mkdirs(dir);
+            }
+            put_file(path, body, bn);
+            free(body);
+        }
+    }
     if (json_get(cfg, "files", &v) && json_type(v) == J_OBJ) {
         json_iter(v, &fi);
         while (json_next(&fi, &s, &e)) {
@@ -978,6 +1024,7 @@ static int scenario(const char *name, run_opts *ro)
 
     jw_init(&wmask);
     jw_init(&gmask);
+    mask_agent = agent;
     masked_text(want_t, mcwd, &wmask);
     masked_text(fd.out.p ? fd.out.p : "", mcwd, &gmask);
     ok = wmask.p && gmask.p && !strcmp(wmask.p, gmask.p);
@@ -1293,6 +1340,18 @@ static void test_tool_update(void)
     CHECK(scenario("prompt_bash_chunks", &ro));
 }
 
+/* J3: prompt templates through RPC mode against pi 1.1.0's records: get_commands lists them (the project's first, its
+ * name wins, descriptions from the frontmatter or the first line cut at 60, sourceInfo user/project), "/name args"
+ * becomes the template's body in the user message (the request carries the same), an unknown /name goes as typed;
+ * prompt_template_path: --no-prompt-templates --prompt-template extra (a directory read whole, source cli) */
+static void test_templates_rpc(void)
+{
+    run_opts ro;
+    memset(&ro, 0, sizeof(ro));
+    CHECK(scenario("prompt_templates", &ro));
+    CHECK(scenario("prompt_template_path", &ro));
+}
+
 /* Q16: pi writes a diagnostic as one line; amiga-pi's say() wrote "amiga-pi: " and the message in two writes, which json
  * and rpc mode send to the diagnostic stream as two lines. A
  * models.json that is not JSON is the diagnostic. (pi 1.1.0 prints nothing for an unknown --tools name: test_select) */
@@ -1565,6 +1624,7 @@ void suite_pi_modes(void)
     test_retry_overflow();
     test_gate();
     test_tool_update();
+    test_templates_rpc();
     test_diag_one_line();
     test_arg_error_on_diag();
     test_version_flag();

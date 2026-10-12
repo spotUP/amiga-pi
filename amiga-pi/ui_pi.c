@@ -51,6 +51,39 @@ void pi_ui_set_commands(const cl_cmd *cmds, int n)
     ui_ncmds = cmds ? n : (int)(sizeof(default_cmds) / sizeof(default_cmds[0]));
 }
 
+/* the rows after the built-in ones: prompt templates (templates.h pi_tmpl_menu), in pi's order (built-in, templates,
+ * extensions, skills); the arrays belong to the caller and stay until the run ends */
+#define UI_EXTRA_MAX 128
+static const cl_cmd *ui_extra[4];
+static int ui_nextra[4];
+
+void pi_ui_set_extra_commands(int slot, const cl_cmd *cmds, int n)
+{
+    if (slot >= 0 && slot < 4) {
+        ui_extra[slot] = cmds;
+        ui_nextra[slot] = cmds ? n : 0;
+    }
+}
+
+/* the menu: the built-in list, then each slot's rows */
+static const cl_cmd *ui_menu(int *n)
+{
+    static cl_cmd menu[UI_EXTRA_MAX];
+    int i, k, m = ui_ncmds;
+    if (!ui_nextra[0] && !ui_nextra[1] && !ui_nextra[2] && !ui_nextra[3]) {
+        *n = ui_ncmds;
+        return ui_cmds;
+    }
+    for (i = 0; i < ui_ncmds && i < UI_EXTRA_MAX; i++)
+        menu[i] = ui_cmds[i];
+    m = i;
+    for (k = 0; k < 4; k++)
+        for (i = 0; i < ui_nextra[k] && m < UI_EXTRA_MAX; i++)
+            menu[m++] = ui_extra[k][i];
+    *n = m;
+    return menu;
+}
+
 /* what the footer shows of the program (pi_ui_set_cwd): the working directory */
 static char ui_cwd[300];
 static char ui_version[40] = "";
@@ -843,8 +876,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     t->exit_hint_only = ui_hint_only;
     t->scrollbar = ui_bar;
     t->pith = &p->theme;
-    t->cmds = ui_cmds;
-    t->ncmds = ui_ncmds;
+    t->cmds = ui_menu(&t->ncmds);
     p->look = 1;
     show_init(sh, t);
     window_title(p, t);         /* before the start, which writes it */
