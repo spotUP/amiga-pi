@@ -454,6 +454,8 @@ static void sandbox_clear(void)
 }
 
 /* the scenario's files: models.json, settings.json from its cfg, the session and the extra files */
+static const char *extra_settings;
+
 static int setup_files(jv cfg, char *session_arg, long cap)
 {
     char path[600], *models, *txt;
@@ -495,6 +497,10 @@ static int setup_files(jv cfg, char *session_arg, long cap)
             jw_rawz(&st, ":");
             jw_raw(&st, e.p, e.n);
         }
+    }
+    if (extra_settings) {
+        jw_rawz(&st, ",");
+        jw_rawz(&st, extra_settings);
     }
     jw_rawz(&st, "}");
     strcpy(path, agent);
@@ -573,6 +579,10 @@ typedef struct run_opts {
     const char *inline_in;          /* commands from here instead of the golden's .in */
     long rounds;                    /* out: pi_agent_rounds the run made */
     int rc;
+    const char *force_mode;         /* run the scenario's answers in this mode (rpc) whatever its cfg says */
+    const char *extra_settings;     /* members added to settings.json ("\"permissionGate\":true") */
+    int nocmp;                      /* do not compare with the golden: the caller reads the output */
+    char *out;                      /* out with nocmp: the records, malloc'ed */
 } run_opts;
 
 static void run_diff(const char *name, const char *want, const char *got)
@@ -655,6 +665,7 @@ static int scenario(const char *name, run_opts *ro)
         return 0;
     }
     sandbox();
+    extra_settings = ro ? ro->extra_settings : 0;
     if (setup_files(cfg, session_arg, sizeof(session_arg))) {
         printf("  %s: sandbox failed\n", name);
         CHECK(0);
@@ -666,6 +677,8 @@ static int scenario(const char *name, run_opts *ro)
     strcpy(mode, "rpc");
     if (json_get(cfg, "mode", &v))
         json_str(v, mode, sizeof(mode));
+    if (ro && ro->force_mode)
+        strcpy(mode, ro->force_mode);
     memset(&fd, 0, sizeof(fd));
     jw_init(&fd.out);
     if (ro && ro->inline_in)
@@ -771,7 +784,11 @@ static int scenario(const char *name, run_opts *ro)
     masked_text(want_t, proj, &wmask);
     masked_text(fd.out.p ? fd.out.p : "", proj, &gmask);
     ok = wmask.p && gmask.p && !strcmp(wmask.p, gmask.p);
-    CHECK(ok);
+    if (ro && ro->nocmp) {
+        ro->out = dup_text(fd.out.p ? fd.out.p : "");
+        ok = 1;
+    } else
+        CHECK(ok);
     if (!ok)
         run_diff(name, wmask.p ? wmask.p : "", gmask.p ? gmask.p : "");
     if (ro)
@@ -940,6 +957,57 @@ static void test_ui(void)
     CHECK(ui_ready_calls >= 2);
 }
 
+static int has(const char *text, const char *needle)
+{
+    return text && strstr(text, needle) != 0;
+}
+
+/* abort_retry while the agent waits to retry: the retry ends cancelled, the run settles, the second answer is not asked for.
+ * (The golden of abort_retry is the command with nothing to abort.) */
+static void test_retry_cancel(void)
+{
+    run_opts ro;
+    memset(&ro, 0, sizeof(ro));
+    ro.force_mode = "rpc";
+    ro.nocmp = 1;
+    ro.inline_in = "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello\"}\n#after auto_retry_start\n"
+                   "{\"id\":\"2\",\"type\":\"abort_retry\"}\n";
+    scenario("json_retry", &ro);
+    CHECK(has(ro.out, "\"type\":\"auto_retry_start\",\"attempt\":1"));
+    CHECK(has(ro.out, "\"type\":\"auto_retry_end\",\"success\":false,\"attempt\":1,\"finalError\":\"Retry cancelled\""));
+    CHECK(has(ro.out, "\"command\":\"abort_retry\",\"success\":true"));
+    CHECK(has(ro.out, "\"type\":\"agent_settled\""));
+    CHECK(!has(ro.out, "Recovered."));
+    CHECK_INT(ps.nreq, 1);
+    free(ro.out);
+}
+
+/* the permission gate over RPC: its question is a select; No blocks the call, Yes runs it */
+static void test_gate(void)
+{
+    static const char *const answer[] = { "No", "Yes" };
+    int i;
+    for (i = 0; i < 2; i++) {
+        run_opts ro;
+        char in[600];
+        memset(&ro, 0, sizeof(ro));
+        ro.nocmp = 1;
+        ro.more_args = "--gate";
+        ro.extra_settings = "\"permissions\":{\"ask\":[\"Read\"]}";
+        strcpy(in, "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"read the file\"}\n#after extension_ui_request\n"
+                   "{\"type\":\"extension_ui_response\",\"id\":\"$ui:1\",\"value\":\"");
+        strcat(in, answer[i]);
+        strcat(in, "\"}\n");
+        ro.inline_in = in;
+        scenario("prompt_tool", &ro);
+        CHECK(has(ro.out, "\"method\":\"select\",\"title\":\"Allow read"));
+        CHECK(has(ro.out, "\"options\":[\"Yes\",\"Yes, for this session\""));
+        CHECK(has(ro.out, "\"type\":\"agent_settled\""));
+        CHECK(i ? has(ro.out, "one\\ntwo\\nthree") : !has(ro.out, "one\\ntwo\\nthree"));
+        free(ro.out);
+    }
+}
+
 /* H7: the reachability test. An RPC `prompt` line on the input of pi_app() drives pi_prompt() -- two rounds of the loop
  * (the read call, then the answer) are the sentinel -- and the stream written equals the golden's */
 static void test_reach(void)
@@ -1050,4 +1118,6 @@ void suite_pi_modes(void)
     test_ui();
     test_reach();
     test_sdk();
+    test_retry_cancel();
+    test_gate();
 }
