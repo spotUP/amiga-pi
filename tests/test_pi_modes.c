@@ -3,22 +3,11 @@
  * (<name>.in) fed on the console's input, and every line written compared with the line pi wrote (<name>.out). The
  * goldens and the environment of each scenario (<name>.cfg.json) come from tools/pi_oracle/rpc_gen.py.
  *
- * A line is compared after the masks below; each one is a difference that has a reason (and a COMPATIBILITY.md row, group
- * pi-modes), never a way to hide one:
- *   - timestamps, ids and session paths: they are made per run (pi: uuidv7 and ISO names; ours: the session file's own naming);
- *   - system message `sections`: the system prompt is compared where it lives (test_pi_store, test_pi_resources);
- *   - assistant message_start `usage`: pi serializes the shared partial message when its consumer runs, so whether the
- *     provider's first counts are in already varies between runs of pi itself;
- *   - cost objects (with a total): pi sums binary floating point (0.0036149999999999997), ours decimal micro-dollars;
- *   - pi 1.0.4's additions to the messages (cacheWrite1h, responseId, rawStopReason, thinkingLevel, structuredContent):
- *     the messages are those of pi f10993bc (llm/);
- *   - errorMessage of an assistant message and of auto_retry_start, finalError: pi puts the status and the raw body, ours
- *     the status and the error's message;
- *   - the text of a parse failure: V8's; the base URL (the fixture's port); wall_time_seconds;
- *   - estimatedTokensAfter: pi counts the compacted context with its system message, whose text is the prompt of pi
- *     (ours is amiga-pi's); tokensBefore is compared;
- *   - get_available_models lists the fixture's provider only (the catalog's plain-http providers are available here
- *     without a key, as /model has it).
+ * A line is compared after the masks of tests/pi/rpc/masks.json (the one list of this test and of vtcon's rig
+ * tools/rig/amigapi_rig.py), each with its reason there and a COMPATIBILITY.md row (group pi-modes), never a way to
+ * hide one: keys starred (made per run, or compared where they live), fresh ids starred, pi 1.0.4's message fields
+ * dropped (PH-S), and the rules: cost `total`, the text of an HTTP errorMessage, message_start usage, baseUrl, the
+ * parse error text, get_available_models for the fixture's provider.
  * A command that arrives while the agent works is held by its `#after <event>` line until pi's run had that event in its
  * output, as the golden was made. */
 #include <stdlib.h>
@@ -106,20 +95,93 @@ static int fresh_id(const char *s)
     return 0;
 }
 
-static int in_list(const char *k, const char *const *list)
+/* the mask lists, from tests/pi/rpc/masks.json (the one list of this test and of vtcon's rig, with the reasons) */
+#define MASK_MAX 24
+typedef struct {
+    char k[MASK_MAX][32];
+    int n;
+} key_list;
+static key_list star_keys, id_keys, drop_keys;
+static char fixture_provider[32];
+static int masks_loaded;
+
+static int in_list(const char *k, const key_list *l)
 {
     int i;
-    for (i = 0; list[i]; i++)
-        if (!strcmp(k, list[i]))
+    for (i = 0; i < l->n; i++)
+        if (!strcmp(k, l->k[i]))
             return 1;
     return 0;
 }
 
-static const char *const id_keys[] = { "id", "parentId", "sessionId", "leafId", "firstKeptEntryId", "targetId", "fromId", 0 };
-static const char *const star_keys[] = { "timestamp", "labelTimestamp", "sections", "sessionFile", "path", "wall_time_seconds", "estimatedTokensAfter", 0 };
-static const char *const drop_keys[] = { "cacheWrite1h", "responseId", "rawStopReason", "thinkingLevel", "providerThinkingLevel",
-                                         "structuredContent", "responseModel", "finalError", 0 };
+static void keys_of(jv v, key_list *l)
+{
+    jit it;
+    jv k, e;
+    json_iter(v, &it);
+    if (json_type(v) == J_OBJ)
+        while (json_next(&it, &k, &e) && l->n < MASK_MAX)
+            json_str(k, l->k[l->n++], sizeof(l->k[0]));
+    else
+        while (json_next(&it, 0, &e) && l->n < MASK_MAX)
+            json_str(e, l->k[l->n++], sizeof(l->k[0]));
+}
+
+static int load_masks(void)
+{
+    long n;
+    char *t;
+    jv v, x, y;
+    if (masks_loaded)
+        return 1;
+    t = slurp_rpc("masks", ".json", &n);
+    if (!t || json_parse(t, n, &v) || !json_get(v, "star", &x) || !json_get(v, "drop", &y)) {
+        free(t);
+        return 0;
+    }
+    keys_of(x, &star_keys);
+    keys_of(y, &drop_keys);
+    if (!json_get(v, "ids", &x) || !json_get(x, "keys", &y) || !json_get(v, "fixtureProvider", &x)) {
+        free(t);
+        return 0;
+    }
+    keys_of(y, &id_keys);
+    json_str(x, fixture_provider, sizeof(fixture_provider));
+    free(t);
+    masks_loaded = 1;
+    return 1;
+}
+
+/* a cost number as whole micro-dollars: pi computes in binary floating point (0.0006000000000000001,
+ * 0.0036149999999999997), ours in decimal micro-dollars (0.0006, 0.003615); equal to the micro-dollar */
+static void micro_dollars(jv v, jw *o)
+{
+    char t[48], num[24];
+    double d;
+    long n = v.n < (long)sizeof(t) - 1 ? v.n : (long)sizeof(t) - 1;
+    memcpy(t, v.p, (size_t)n);
+    t[n] = 0;
+    d = strtod(t, 0) * 1e6;
+    cl_ltoa((long)(d < 0 ? d - 0.5 : d + 0.5), num);
+    jw_rawz(o, "\"u$");
+    jw_rawz(o, num);
+    jw_rawz(o, "\"");
+}
+
+/* an HTTP error's text: pi's `400 {...}` (the SDK's APIError) or ours `HTTP 400: ...` */
+static int http_error_text(jv v)
+{
+    char t[16];
+    if (json_type(v) != J_STR)
+        return 0;
+    json_str(v, t, sizeof(t));
+    if (!strncmp(t, "HTTP ", 5))
+        memmove(t, t + 5, strlen(t + 5) + 1);
+    return t[0] >= '1' && t[0] <= '5' && t[1] >= '0' && t[1] <= '9' && t[2] >= '0' && t[2] <= '9' && (t[3] == ' ' || t[3] == ':');
+}
+
 #define F_STARTMSG 1
+#define F_COST 2
 
 static void m_val(jv v, int flags, jw *o, const char *cwd);
 
@@ -169,16 +231,20 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
     while (json_next(&it, &k, &val)) {
         jv t;
         json_str(k, key, sizeof(key));
-        if (in_list(key, drop_keys) || (!strcmp(key, "errorMessage") && (assistant || retry_start)))
+        if (in_list(key, &drop_keys))
             continue;
         if (!first)
             jw_rawz(o, ",");
         first = 0;
         jw_strz(o, key);
         jw_rawz(o, ":");
-        if (in_list(key, star_keys) && !(!strcmp(key, "path") && json_type(val) != J_STR))
+        if (in_list(key, &star_keys))
             jw_rawz(o, "\"*\"");
-        else if (in_list(key, id_keys) && json_type(val) == J_STR) {
+        else if ((flags & F_COST) && json_type(val) == J_NUM)
+            micro_dollars(val, o);
+        else if (!strcmp(key, "errorMessage") && (assistant || retry_start) && http_error_text(val))
+            jw_rawz(o, "\"<http error>\"");
+        else if (in_list(key, &id_keys) && json_type(val) == J_STR) {
             char id[64];
             json_str(val, id, sizeof(id));
             if (fresh_id(id))
@@ -186,7 +252,7 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
             else
                 m_val(val, 0, o, cwd);
         } else if (!strcmp(key, "cost") && json_type(val) == J_OBJ && json_get(val, "total", &t))
-            jw_rawz(o, "\"*\"");
+            m_obj(val, F_COST, o, cwd);
         else if (!strcmp(key, "baseUrl") && json_type(val) == J_STR)
             jw_rawz(o, "\"<base>\"");
         else if (!strcmp(key, "error") && parse_err)
@@ -202,7 +268,7 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
             jw_rawz(o, "[");
             json_iter(val, &ai);
             while (json_next(&ai, 0, &e))
-                if (json_type(e) == J_OBJ && str_is(e, "provider", "fake")) {
+                if (json_type(e) == J_OBJ && str_is(e, "provider", fixture_provider)) {
                     if (!f2)
                         jw_rawz(o, ",");
                     f2 = 0;
@@ -1106,6 +1172,7 @@ static void test_retryable(void)
 
 void suite_pi_modes(void)
 {
+    CHECK(load_masks());
     test_retryable();
     test_command_set();
     test_json();

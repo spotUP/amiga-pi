@@ -1,0 +1,31 @@
+{
+ "about": "The masks a record of pi's --mode json / --mode rpc output passes before it is compared with amiga-pi's: read by tests/test_pi_modes.c and by vtcon's tools/rig/amigapi_rig.py (mask_rpc), the one list of both. Each mask has its reason here and a COMPATIBILITY.md row (group pi-modes).",
+ "star": {
+  "timestamp": "made per run",
+  "labelTimestamp": "made per run",
+  "sessionFile": "pi names session files by time and uuid, ours by the session's own naming",
+  "sections": "the system prompt is compared where it lives (test_pi_store, test_pi_resources); its text is amiga-pi's",
+  "wall_time_seconds": "made per run",
+  "estimatedTokensAfter": "counts the compacted context with its system message, whose text is amiga-pi's prompt"
+ },
+ "ids": {
+  "keys": ["id", "parentId", "sessionId", "leafId", "firstKeptEntryId", "targetId", "fromId"],
+  "why": "a uuid or an 8-hex entry id is made per run; the fixed ids of the session fixtures start d000 and are compared"
+ },
+ "drop": {
+  "cacheWrite1h": "PH-S: pi 1.0.4 message field, llm/ writes pi f10993bc's shape",
+  "responseId": "PH-S: pi 1.0.4 message field",
+  "rawStopReason": "PH-S: pi 1.0.4 message field",
+  "thinkingLevel": "PH-S: pi 1.0.4 message field",
+  "structuredContent": "PH-S: pi 1.0.4 tool_execution_end field"
+ },
+ "rules": {
+  "cost.total": "the sum: pi adds binary floats (0.0036149999999999997), ours prints decimal micro-dollars; the four parts are compared",
+  "errorMessage of an HTTP error": "pi: status and the raw body (`400 {...}`, the SDK's APIError text), ours `HTTP 400: <message>`; the value is masked, the key and its place are compared",
+  "message_start usage": "pi serializes the shared partial message when its consumer runs: the first counts are in or not from run to run of pi itself",
+  "baseUrl": "the fixture's port",
+  "parse error text": "V8's JSON.parse message",
+  "get_available_models": "compared for the fixture's provider only (the catalog's plain-http providers are available here without a key)"
+ },
+ "fixtureProvider": "fake"
+}

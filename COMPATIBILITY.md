@@ -259,14 +259,14 @@ Phase F (2026-10-11). Models and the switch: `/model` is a numbered list (provid
 
 ## pi-modes (Phase H, 2026-10-12)
 
-Goldens: tests/pi/rpc, made by tools/pi_oracle/rpc_gen.py from pi 1.0.4 (`--mode json`, `--mode rpc`) against a scripted Messages API; compared by tests/test_pi_modes.c after the masks listed in its header. Each row below is a mask or a gap, with its reason.
+Goldens: tests/pi/rpc, made by tools/pi_oracle/rpc_gen.py from pi 1.0.4 (`--mode json`, `--mode rpc`) against a scripted Messages API; compared by tests/test_pi_modes.c after the masks of tests/pi/rpc/masks.json (also read by vtcon's rig step 14). Each row below is a mask or a gap, with its reason.
 
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
 | JSON mode, RPC mode: events and the 33 commands | mode_json.c is the one serializer (events.h events to pi's records), mode_rpc.c the 33 `case` labels of rpc-mode.js; extension UI (select, confirm, input, notify) through pi_rpc_ui(); `-p` unchanged | done; 33 of 33 and 5 JSON goldens equal | H1-H5 |
 | Message shape | amiga-pi's messages are those of pi f10993bc (llm/): pi 1.0.4 adds usage.cacheWrite1h, responseId, rawStopReason, thinkingLevel (ours: providerThinkingLevel only for managed-effort requests) and tool_execution_end `structuredContent`; the goldens are compared without them | difference (upstream drift, owner decision whether to follow) | H1 |
-| errorMessage of a failed answer | pi: status and raw body (`529 {"type":"error",...}`); ours: `HTTP 529: Overloaded`. Both match pi's retry patterns | difference | H1 |
-| Cost numbers | pi sums binary floats (`0.0036149999999999997`); ours prints decimal micro-dollars (`0.003615`); objects with a `total` are masked | difference | H1 |
+| errorMessage of a failed answer | an HTTP error: pi has the status and the raw body (`529 {"type":"error",...}`, the SDK's APIError text), ours `HTTP 529: Overloaded`; both match pi's retry patterns; only that text is masked, the key's place (last, after timestamp) and every other error text are compared (a stopped request: `Request aborted`, as pi-ai) | difference | H1, H10 |
+| Cost numbers | pi computes in binary floating point (`0.0006000000000000001`, `0.0036149999999999997`); ours in decimal micro-dollars (`0.0006`, `0.003615`); every cost number is compared to the micro-dollar; message_update carries the cost so far, as pi-ai's calculateCost keeps it | difference | H1, H10 |
 | tool_execution_update, edit `details`, bash structuredContent | amiga-pi's tools return their result at the end: no update records, no edit diff in `details`, no `exit_code`/`wall_time_seconds` | gap (not in a golden: read only) | H1 |
 | Assistant message_start usage | pi serializes the shared partial message when its consumer runs, so the provider's first counts are in or not from run to run; masked | difference in pi itself | H1 |
 | Automatic retry (auto_retry_start/end, set_auto_retry, abort_retry) | agent.c pi_prompt: pi's retry patterns and backoff (settings.json retry), the failed answer kept out of the context by a context_edit entry (entry_appended); the request-level retry of llm_request is off in sessions (retries -1) | done | H1 |
