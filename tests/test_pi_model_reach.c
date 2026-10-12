@@ -693,6 +693,19 @@ static void test_command_once(void)
     }
     CHECK_INT(n, 1);                    /* the command ran once for three requests */
     CHECK(strstr(ps.body[2], "\"model\":\"m1\"") != 0);
+    /* PX4: pi's supportsStore (openai-completions detectCompat): a host not listed as non-standard gets "store":false */
+    CHECK(strstr(ps.body[2], ",\"store\":false,") != 0);
+    /* and models.json's compat.supportsStore false overrides it (pi's getCompat): no store member */
+    strcpy(text, "{\"providers\":{\"keyed\":{\"baseUrl\":\"https://public.example/v1\",\"api\":\"openai-completions\","
+                 "\"apiKey\":\"!");
+    strcat(text, cmd);
+    strcat(text, "\",\"headers\":{\"X-Team\":\"amiga\"},\"models\":[{\"id\":\"m1\",\"contextWindow\":50000,"
+                 "\"compat\":{\"supportsStore\":false}}]}}}");
+    write_file(agent, "models.json", text);
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    CHECK_INT(ps.nreq, 1);
+    CHECK(ps.nreq == 1 && strstr(ps.body[0], "\"store\"") == 0);
     remove(marker);
     remove(strcat(strcpy(cmd, agent), "/models.json"));
 }
