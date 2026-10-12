@@ -1325,6 +1325,40 @@ static void test_arg_error_on_diag(void)
     }
 }
 
+/* --version / -v prints exactly what pi prints, the pi version amiga-pi matches, and exits 0, in every mode and over an
+ * unknown option or -p without a prompt (oracle run, pi 1.1.0: `pi -v` -> "1.1.0\n" rc 0; `-v --bogus`, `--bogus -v`,
+ * `-p -v`, `--mode json -v` the same; `--mode xx -v` is still the mode error, rc 1) */
+static void test_version_flag(void)
+{
+    static const char *const flag[] = { "--version", "-v" };
+    int i;
+    for (i = 0; i < 2; i++) {
+        run_opts ro;
+        memset(&ro, 0, sizeof(ro));
+        ro.nocmp = 1;
+        ro.diag = 1;
+        ro.more_args = flag[i];
+        scenario("json_text", &ro);
+        CHECK(ro.out && !strcmp(ro.out, "1.1.0\n"));
+        CHECK_INT(ro.rc, 0);
+        CHECK(diag_log[0] == 0);
+        free(ro.out);
+    }
+    {
+        char *one[] = { "x", "-v", "--bogus" }, *two[] = { "x", "--bogus", "-v" }, *three[] = { "x", "-p", "-v" };
+        char *bad[] = { "x", "--mode", "xx", "-v" };
+        pi_args a;
+        CHECK_INT(pi_args_parse(&a, 3, one), 0);
+        CHECK_INT(a.version, 1);
+        CHECK_INT(pi_args_parse(&a, 3, two), 0);
+        CHECK_INT(a.version, 1);
+        CHECK_INT(pi_args_parse(&a, 3, three), 0);
+        CHECK_INT(a.version, 1);
+        CHECK_INT(pi_args_parse(&a, 4, bad), -1);
+        CHECK_STR(a.err, "Invalid mode \"xx\". Valid values: text, json, rpc");
+    }
+}
+
 /* the permission gate over RPC: its question is a select; No blocks the call, Yes runs it */
 static void test_gate(void)
 {
@@ -1496,4 +1530,5 @@ void suite_pi_modes(void)
     test_tool_update();
     test_diag_one_line();
     test_arg_error_on_diag();
+    test_version_flag();
 }

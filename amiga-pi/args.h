@@ -3,7 +3,7 @@
  *            [--provider name] [--thinking level] [--api-key key] [--list-models [search]]
  *            [--tools|-t list] [--no-tools|-nt] [--gate|--no-gate] [--no-mcp]
  *            [--continue|-c] [--session path-or-id] [--resume|-r] [--no-session]
- *            [--name|-n name] [--approve|-a|--no-approve|-na] [prompt ...]
+ *            [--name|-n name] [--approve|-a|--no-approve|-na] [--version|-v] [prompt ...]
  * Project trust (resources.h): -a trusts this run's project .pi/ resources, -na does not, over every saved
  * decision and settings.json's defaultProjectTrust.
  * Sessions (store.h): -c continues the newest session of the working directory,
@@ -30,6 +30,9 @@
 
 #define PI_ARG_MSGS 16
 
+/* the pi release amiga-pi matches (tag v1.1.0): the start header and --version both print it */
+#define PI_VERSION "1.1.0"
+
 enum { PI_MODE_TEXT, PI_MODE_JSON, PI_MODE_RPC };
 
 typedef struct pi_args {
@@ -42,6 +45,7 @@ typedef struct pi_args {
     int gate;                   /* --gate 1, --no-gate 0, -1 settings.json decides */
     int cont, resume, no_session;
     int approve;                /* -a / --approve 1 trusts the project's .pi/ resources, -na / --no-approve 0, -1 ask */
+    int version;                /* --version / -v: print PI_VERSION and exit 0, over every later check (pi main.ts:632) */
     int no_mcp;                 /* --no-mcp: no MCP servers this run (pi's flag) */
     char session[300];          /* --session's argument, "" none */
     char session_dir[300];      /* --session-dir: where the sessions are stored and looked up, "" the default */
