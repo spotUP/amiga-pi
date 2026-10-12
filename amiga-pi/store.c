@@ -424,12 +424,13 @@ static int load_messages(pi_store *st)
 
 /* ---- compaction ---- */
 
-static void cp_event(pi_store *st, int type, int reason, int is_error, const char *text)
+static void cp_event(pi_store *st, int type, int reason, int is_error, const char *text, int will_retry)
 {
     pi_event e;
     pi_event_init(&e, type);
     e.stop = reason;
     e.is_error = is_error;
+    e.retry = will_retry;
     e.msg = text;
     e.msg_n = text ? (long)strlen(text) : 0;
     if (type == PE_COMPACTION_END) {
@@ -578,7 +579,10 @@ int pi_store_reload(pi_store *st)
     return 0;
 }
 
-static int run_compaction(pi_store *st, const char *instr, int reason)
+/* reason: 0 manual, 1 threshold, 2 overflow; will_retry: the run asks again after it (compaction_end's willRetry).
+ * Automatic compaction with nothing to cut is silent, as pi's _runAutoCompaction (prepareCompaction undefined: false before
+ * compaction_start); /compact tells why it could not. 0 compacted, -1 not */
+static int run_compaction(pi_store *st, const char *instr, int reason, int will_retry)
 {
     pi_session *s = st->s;
     pi_prep p;
@@ -588,9 +592,14 @@ static int run_compaction(pi_store *st, const char *instr, int reason)
     int rc, ok = -1, i;
     long after = 0;
     jw_reset(&st->cp_result);
-    cp_event(st, PE_COMPACTION_START, reason, 0, 0);
     st->err[0] = 0;
+    if (!reason)
+        cp_event(st, PE_COMPACTION_START, reason, 0, 0, 0);
     rc = cp_prepare(&st->s3, st->s3.leaf, st->keep, &p);
+    if (reason && rc == 0)
+        return -1;
+    if (reason)
+        cp_event(st, PE_COMPACTION_START, reason, 0, 0, 0);
     if (rc < 0) {
         cl_copy(st->err, "out of memory", sizeof(st->err));
     } else if (rc == 0) {
@@ -657,7 +666,7 @@ static int run_compaction(pi_store *st, const char *instr, int reason)
                     jw_rawz(&info, " tokens before, ");
                     jw_long(&info, after);
                     jw_rawz(&info, " after");
-                    cp_event(st, PE_COMPACTION_END, reason, 0, info.p);
+                    cp_event(st, PE_COMPACTION_END, reason, 0, info.p, will_retry);
                     jw_free(&info);
                 }
             }
@@ -666,7 +675,7 @@ static int run_compaction(pi_store *st, const char *instr, int reason)
         cp_prep_free(&p);
     }
     if (st->err[0] && ok) {
-        cp_event(st, PE_COMPACTION_END, reason, 1, st->err);
+        cp_event(st, PE_COMPACTION_END, reason, 1, st->err, 0);
         return -1;
     }
     return ok ? -1 : 0;
@@ -674,7 +683,7 @@ static int run_compaction(pi_store *st, const char *instr, int reason)
 
 int pi_store_compact(pi_store *st, const char *instructions)
 {
-    return run_compaction(st, instructions, 0);
+    return run_compaction(st, instructions, 0, 0);
 }
 
 void pi_store_settings(pi_store *st, const char *text, long n)
@@ -751,26 +760,142 @@ static long answer_tokens(pi_store *st, pi_session *s, int when)
     return tokens;
 }
 
+/* pi's context_edit with no replacement for the entry j, announced as entry_appended: -1 when it was not made */
+static int omit_entry(pi_store *st, pi_session *s, int j)
+{
+    pi_s3 *t = &st->s3;
+    int idx;
+    long n;
+    const char *line;
+    pi_event e;
+    idx = s3_context_edit(t, j, 0);
+    if (idx < 0)
+        return -1;
+    line = s3_text(t, idx, &n);
+    if (line) {
+        pi_event_init(&e, PE_ENTRY_APPENDED);
+        e.msg = line;
+        e.msg_n = n;
+        pi_emit(&s->em, &e);
+    }
+    return 0;
+}
+
+/* pi's _omitRecoveryAttempt(message, toolResults): the last answer of the branch and the tool results of its turn leave the
+ * context, in that order */
+static int omit_recovery(pi_store *st, pi_session *s)
+{
+    pi_s3 *t = &st->s3;
+    int j, a = -1, res[32], nr = 0, i, rc = 0;
+    for (j = t->leaf; j >= 0; j = t->e[j].parent) {
+        if (t->e[j].type == S3_MESSAGE && t->e[j].role == S3R_ASSISTANT) {
+            a = j;
+            break;
+        }
+        if (t->e[j].type == S3_MESSAGE && t->e[j].role == S3R_TOOLRESULT && nr < 32)
+            res[nr++] = j;
+    }
+    if (a < 0)
+        return -1;
+    rc = omit_entry(st, s, a);
+    for (i = nr - 1; i >= 0; i--)
+        rc |= omit_entry(st, s, res[i]);
+    return rc;
+}
+
+enum { OV_NONE = -1, OV_DONE = 0, OV_RETRY = 1 };
+
+/* pi's _checkCompaction, the overflow cases, for the last answer after a run (agent-session.js): a context-overflow
+ * error, a successful answer whose input already exceeds the window, a length stop that left no room for output or
+ * ended below the model's output limit. A failed or truncated answer is left out of the context, the conversation
+ * compacted (reason overflow) and the answer asked again -- once: the second overflow before the next prompt ends the
+ * run with compaction_end's error. A successful answer is kept and compacted without a retry.
+ * OV_NONE: not an overflow, the threshold check follows; OV_DONE: handled; OV_RETRY: ask again */
+static int overflow_check(pi_store *st, pi_session *s)
+{
+    llm_info inf;
+    llm_ts ct;
+    llm_usage u;
+    jv m, v;
+    char prov[64], model[128], err[300];
+    long window = s->model.context_window, input;
+    int a, deep, recoverable;
+    for (a = s->nmsg - 1; a >= 0; a--)
+        if (llm_msg_info(s->msg[a], s->msg_n[a], &inf) >= 0 && inf.role == LR_ASSISTANT)
+            break;
+    if (a < 0)
+        return OV_NONE;
+    if (inf.stop != LS_ERROR && inf.stop != LS_LENGTH)
+        st->recovered = 0;      /* pi clears it at every answer that is neither an error nor a truncation */
+    if (inf.stop == LS_ABORTED || (compaction_time(st, &ct) && ts_le(inf.ts, ct)))
+        return OV_NONE;
+    prov[0] = model[0] = err[0] = 0;
+    memset(&u, 0, sizeof(u));
+    if (json_parse(s->msg[a], s->msg_n[a], &m)) {
+        return OV_NONE;
+    }
+    if (json_get(m, "provider", &v) && json_type(v) == J_STR)
+        json_str(v, prov, sizeof(prov));
+    if (json_get(m, "model", &v) && json_type(v) == J_STR)
+        json_str(v, model, sizeof(model));
+    if (json_get(m, "errorMessage", &v) && json_type(v) == J_STR)
+        json_str(v, err, sizeof(err));
+    if (json_get(m, "usage", &v))
+        llm_r_usage(v, &u);
+    /* a message of another model (the user switched since) is not this model's overflow */
+    if (strcmp(prov, s->model.provider ? s->model.provider : "") || strcmp(model, s->model.id ? s->model.id : ""))
+        return OV_NONE;
+    input = u.input + u.cache_read;
+    deep = (inf.stop == LS_ERROR && pi_context_overflow(err)) ||
+           (window > 0 && inf.stop == LS_STOP && input > window) ||
+           (window > 0 && inf.stop == LS_LENGTH && u.output == 0 && input * 100 >= window * 99);
+    recoverable = inf.stop == LS_LENGTH && s->model.max_tokens > 0 && u.output < s->model.max_tokens;
+    if (!deep && !recoverable)
+        return OV_NONE;
+    if (inf.stop == LS_STOP) {
+        run_compaction(st, 0, 2, 0);
+        return OV_DONE;
+    }
+    if (st->recovered) {
+        cp_event(st, PE_COMPACTION_END, 2, 1,
+                 deep ? "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model."
+                      : "Truncated response recovery failed after one compact-and-retry attempt.", 0);
+        return OV_DONE;
+    }
+    st->recovered = 1;
+    omit_recovery(st, s);
+    return run_compaction(st, 0, 2, 1) == 0 ? OV_RETRY : OV_DONE;
+}
+
 /* threshold compaction at pi's points (PI_CP_*): before a prompt and after a run on the last answer's usage,
- * between turns on the projected estimate; a window of 0 (unknown) never compacts by itself. Overflow recovery
- * (compact and retry) is not built. A failure is shown by its event; the prompt goes on */
-static void compact_check(void *u, pi_session *s, int when)
+ * between turns on the projected estimate; a window of 0 (unknown) never compacts by its threshold. After a run it
+ * first takes the overflow cases (overflow_check: compact and ask again, once). A failure is shown by its event; the
+ * prompt goes on */
+static int compact_check(void *u, pi_session *s, int when)
 {
     pi_store *st = (pi_store *)u;
     pi_ctx c;
     long tokens;
-    if (!st->cp_enabled || s->model.context_window <= 0)
-        return;
+    int ov;
+    if (when == PI_CP_PROMPT)
+        st->recovered = 0;      /* pi: a user message starts a new recovery allowance */
+    if (!st->cp_enabled)
+        return 0;
+    if (when == PI_CP_END && (ov = overflow_check(st, s)) != OV_NONE)
+        return ov == OV_RETRY;
+    if (s->model.context_window <= 0)
+        return 0;
     if (when == PI_CP_TURN) {
         ctx_init(&c);
         if (ctx_build(&st->s3, st->s3.leaf, &c))
-            return;
+            return 0;
         tokens = cp_context_tokens(&st->s3, st->s3.leaf, &c);
         ctx_free(&c);
     } else
         tokens = answer_tokens(st, s, when);
     if (tokens >= 0 && cp_should(tokens, s->model.context_window, st->reserve))
-        run_compaction(st, 0, 1);
+        run_compaction(st, 0, 1, 0);
+    return 0;
 }
 
 /* ---- slash commands ---- */
@@ -783,7 +908,7 @@ static int command(void *u, pi_session *s, const char *line, jw *reply, jw *edit
         const char *instr = line + 8;
         while (*instr == ' ')
             instr++;
-        run_compaction(st, *instr ? instr : 0, 0);      /* its events tell how it went */
+        run_compaction(st, *instr ? instr : 0, 0, 0);      /* its events tell how it went */
         (void)reply;
         return 1;
     }
@@ -949,28 +1074,12 @@ int pi_store_bash_run(pi_store *st, const char *cmd, int exclude, jw *text, int 
 static int omit_answer(void *u, pi_session *s, int i)
 {
     pi_store *st = (pi_store *)u;
-    pi_s3 *t = &st->s3;
-    int j, idx;
-    long n;
-    const char *line;
-    pi_event e;
+    int j;
     (void)i;
-    for (j = t->leaf; j >= 0; j = t->e[j].parent)
-        if (t->e[j].type == S3_MESSAGE && t->e[j].role == S3R_ASSISTANT)
+    for (j = st->s3.leaf; j >= 0; j = st->s3.e[j].parent)
+        if (st->s3.e[j].type == S3_MESSAGE && st->s3.e[j].role == S3R_ASSISTANT)
             break;
-    if (j < 0)
-        return -1;
-    idx = s3_context_edit(t, j, 0);
-    if (idx < 0)
-        return -1;
-    line = s3_text(t, idx, &n);
-    if (line) {
-        pi_event_init(&e, PE_ENTRY_APPENDED);
-        e.msg = line;
-        e.msg_n = n;
-        pi_emit(&s->em, &e);
-    }
-    return 0;
+    return j < 0 ? -1 : omit_entry(st, s, j);
 }
 
 static int cycle(void *u, pi_session *s, int what, int dir, char *msg, long cap)

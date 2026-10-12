@@ -140,6 +140,39 @@ sc('compact', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('cmd', {'typ
    answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), A('## Goal\nSay hello.\n\n## Progress\nDone.', 40)],
    session=True, settings={'compaction': {'keepRecentTokens': 10}})
 sc('compact_empty', steps=[('cmd', {'type': 'compact'})], answers=[])
+# HF6 context-overflow recovery (agent-session.ts _checkCompaction): the third answer's request outgrew the window --
+# pi omits the failed answer, compacts (reason overflow) and retries once; the second overflow ends it with an error
+OVERFLOW = ('http', 400, json.dumps({'type': 'error', 'error': {'type': 'invalid_request_error',
+                                                                 'message': 'prompt is too long: 213462 tokens > 200000 maximum'}}))
+SUMMARY = A('## Goal\nSay hello.\n\n## Progress\nDone.', 40)
+sc('overflow', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('prompt', 'and a third')],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), OVERFLOW, SUMMARY, A('Recovered after compaction.', 20)],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}})
+sc('overflow_twice', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('prompt', 'and a third')],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), OVERFLOW, SUMMARY, OVERFLOW],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}})
+
+
+def BIG(text, input_tokens, stop='end_turn', out=20):
+    """an answer whose usage says the request filled the window (silent overflow) or that stopped on the output limit"""
+    ev = [T.msg_start('msg_big'), {'type': 'content_block_start', 'index': 0, 'content_block': {'type': 'text', 'text': ''}},
+          {'type': 'content_block_delta', 'index': 0, 'delta': {'type': 'text_delta', 'text': text}},
+          {'type': 'content_block_stop', 'index': 0},
+          {'type': 'message_delta', 'delta': {'stop_reason': stop, 'stop_sequence': None}, 'usage': {'output_tokens': out}},
+          {'type': 'message_stop'}]
+    ev[0]['message']['usage']['input_tokens'] = input_tokens
+    return ('sse', T.sse(ev))
+
+
+# a successful answer whose input already exceeded the window is kept and compacted, not asked again (case 2); a length stop
+# below the model's output limit is omitted, compacted and asked again (recoverableLength)
+sc('overflow_silent', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('prompt', 'and a third')],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), BIG('Too big but fine.', 250000), SUMMARY, SUMMARY],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}})
+sc('overflow_length', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('prompt', 'and a third')],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), BIG('Cut short', 1200, 'max_tokens', 5), SUMMARY,
+            A('Recovered after compaction.', 20)],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}})
 sc('set_auto_compaction', steps=[('cmd', {'type': 'set_auto_compaction', 'enabled': False}), ('cmd', {'type': 'get_state'})], answers=[])
 sc('set_auto_retry', steps=[('cmd', {'type': 'set_auto_retry', 'enabled': False})], answers=[])
 sc('abort_retry', steps=[('cmd', {'type': 'abort_retry'})], answers=[])

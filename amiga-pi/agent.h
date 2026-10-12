@@ -92,8 +92,10 @@ typedef struct pi_session {
     int (*ask)(void *u, int tool, const char *name, const char *what, int outside);
     void *ask_u;
     /* the session store's automatic compaction (store.h), at pi's points (PI_CP_*); it may rewrite the
-     * conversation, a failure is told by its own events and the prompt goes on */
-    void (*compact)(void *u, struct pi_session *s, int when);
+     * conversation, a failure is told by its own events and the prompt goes on. At PI_CP_END it answers 1 when it
+     * compacted to recover from a context overflow and the answer is to be asked again, once (pi's _checkCompaction
+     * returning true: the post-run loop calls agent.continue()); 0 otherwise */
+    int (*compact)(void *u, struct pi_session *s, int when);
     void *compact_u;
     /* before a request to a model that takes tool changes in the transcript: the store declares the executable
      * tools' difference to the transcript as a system message (pi's agent-loop declareToolChanges) */
@@ -125,6 +127,7 @@ typedef struct pi_session {
     int retry_on, retry_max;
     long retry_base, retry_max_delay;
     int attempt, retry_stop;
+    int recover;                /* the run ended on a context overflow the store compacted: ask again (pi_prompt) */
     /* the failed answer, message index i, kept out of the context for the retry (the store appends pi's context_edit
      * entry); 0, -1 */
     int (*omit)(void *u, struct pi_session *s, int i);

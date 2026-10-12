@@ -767,7 +767,7 @@ static int run_end(pi_session *s, int answered)
     if (!will && s->attempt && s->stop == LS_ERROR)
         emit_retry_end(s, 0, s->err[0] ? s->err : "Unknown error");
     if (!will && answered && s->compact)
-        s->compact(s->compact_u, s, PI_CP_END);
+        s->recover = s->compact(s->compact_u, s, PI_CP_END) == 1;
     return s->stop;
 }
 
@@ -985,14 +985,27 @@ int pi_prompt(pi_session *s, const char *text)
     s->active = 1;
     s->attempt = 0;
     s->retry_stop = 0;
+    s->recover = 0;
     /* the context against the window before the user message is kept */
     if (s->compact)
         s->compact(s->compact_u, s, PI_CP_PROMPT);
     rc = run(s, text);
-    while (retry_will(s)) {
+    /* a failed answer pi retries after its delay; a context overflow the store compacted is asked again at once, and
+     * only once (the store keeps count: its second overflow ends the run, as pi's _overflowRecoveryAttempted) */
+    for (;;) {
         pi_event e;
-        long delay = s->retry_base, cap = s->retry_max_delay;
-        int k, last = s->nmsg - 1;
+        long delay, cap;
+        int k, last;
+        if (!retry_will(s)) {
+            if (!s->recover)
+                break;
+            s->recover = 0;
+            rc = run(s, 0);
+            continue;
+        }
+        delay = s->retry_base;
+        cap = s->retry_max_delay;
+        last = s->nmsg - 1;
         s->attempt++;
         for (k = 1; k < s->attempt && delay < cap; k++)
             delay *= 2;
