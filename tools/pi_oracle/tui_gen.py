@@ -164,6 +164,10 @@ SCENARIOS = {
     'exit_hint': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('sleep', 1.5), ('exit',)],
                       answers=[('sse', text_answer('msg_a', 'answer one', 20))], persist=True, raw=True,
                       settings={'fullscreenExitOutput': 'resume-hint'}),
+    # Q11: --session-dir with a space in the path: the resume line carries it, quoted (formatResumeCommand, quoteIfNeeded)
+    'exit_sdir': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('sleep', 1.5), ('exit',)],
+                      answers=[('sse', text_answer('msg_a', 'answer one', 20))], persist=True, raw=True,
+                      sdir='my sessions'),
     'exit_regular': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('sleep', 1.5), ('exit',)],
                          answers=[('sse', text_answer('msg_a', 'answer one', 20))], persist=True, raw=True, tui='regular'),
     # TM4: what pi's output stream holds when a turn finishes (no bell, no notification)
@@ -216,6 +220,8 @@ SCENARIOS = {
                          answers=[('sse', text_answer('msg_n', 'late answer', 20))], pipe=True, env='PI_PROGRAM_STATUS=1'),
     # P11: a resumed session shows `Took` from the recorded durationMs of the toolResult (2300 ms: "Took 2.3s"); the
     # second call has none recorded and shows no Took (tool-execution.ts:137, renderers/bash.ts:104)
+    # Q2: a bash tool result with escape sequences in a resumed session: pi's getTextOutput (render-utils.ts) strips them
+    'resume_ansi': dict(steps=[('sleep', 1.0)], answers=[], session='ansi_session.jsonl'),
     'resume_took': dict(steps=[('sleep', 1.0)], answers=[], session='took_session.jsonl'),
     'light_twice': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('type', 'second'), ('enter',), ('wait', 'two')],
                         answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))],
@@ -354,7 +360,7 @@ def run(name, sc, cols, rows, keep):
         env = env.replace('env -i ', 'env -i %s ' % sc['env'])
     pipelog = os.path.join(work, 'pty.bytes')
     tmux('new-session', '-d', '-s', sess, '-x', str(cols), '-y', str(rows), '-c', proj,
-         env + (PI + (' --session session.jsonl' if sc.get('session') else '' if sc.get('persist') else ' --no-session')))
+         env + (PI + (" --session-dir '%s'" % os.path.join(work, sc['sdir']) if sc.get('sdir') else '') + (' --session session.jsonl' if sc.get('session') else '' if sc.get('persist') else ' --no-session')))
     tmux('set-option', '-t', sess, 'remain-on-exit', 'on')
     if sc.get('pipe'):
         tmux('pipe-pane', '-t', sess, 'cat > %s' % pipelog)

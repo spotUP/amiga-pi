@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "show_pi.h"
+#include "ansi.h"
 #include "claude/util.h"
 #include "claude/json.h"
 #include "claude/show.h"
@@ -335,6 +336,9 @@ void pshow_error(pi_show *s, const char *text)
 
 /* ---- tool calls ---- */
 
+/* pi's getTextOutput (core/tools/render-utils.ts:39-48): the text blocks of a result, each cleaned of its escape sequences, binary
+ * garbage and carriage returns (stripAnsi, sanitizeBinaryOutput; ansi.c), joined by newlines. The bash, read, ls, find and
+ * grep renderers all show this, and executeBash (!cmd) keeps the same text. */
 long pshow_result_text(const char *json, long n, jw *o)
 {
     jv c, b, t, x;
@@ -352,7 +356,7 @@ long pshow_result_text(const char *json, long n, jw *o)
             if (z) {
                 if (any)
                     jw_raw(o, "\n", 1);
-                jw_raw(o, z, l);
+                pi_ansi_clean(z, l, o);
                 any = 1;
             }
             free(z);

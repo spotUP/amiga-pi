@@ -38,6 +38,7 @@ typedef struct pi_store {
     char data_dir[200];
     char agent_dir[200];        /* where trust.json is (/trust), "" none */
     char cwd[256];
+    char sdir[300];             /* --session-dir, "" the default directory of the working directory */
     int mode;
     int resumed;                /* an existing file was opened */
     jw system;                  /* the replayed system prompt: what the next request carries */
