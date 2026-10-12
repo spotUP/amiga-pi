@@ -1102,6 +1102,8 @@ int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long c
             }
         }
     }
+    /* user bash runs the backend whatever the list (agent-session.ts:3841-3858 createLocalBashOperations) */
+    s->user_bash = &p->tool[PT_BASH];
     /* pi's order: read, bash, edit, write, grep, find, ls */
     {
         static const int order[PT_COUNT] = { PT_READ, PT_BASH, PT_EDIT, PT_WRITE, PT_GREP, PT_FIND, PT_LS };

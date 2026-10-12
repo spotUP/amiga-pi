@@ -1027,7 +1027,7 @@ static void test_modes(void)
 static void test_misc(void)
 {
     static const char *const names[] = { "bash", "abort_bash", "get_session_stats", "export_html", "get_last_assistant_text",
-                                         "get_commands", 0 };
+                                         "get_commands", "bash_no_tools", 0 };
     group(names);
 }
 

@@ -925,6 +925,21 @@ static void test_select(void)
     memset(&ses, 0, sizeof(ses));
     CHECK_INT(pi_tools_add(&pt, &ses, "read,rm", err, sizeof(err)), -1);
     CHECK_STR(err, "unknown tool in --tools: rm");
+    /* Q15: user bash (!cmd, RPC bash) runs the backend whatever the list: pi's executeBash (agent-session.ts:3841-3858)
+     * uses createLocalBashOperations, not the active tool */
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "grep", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "grep");
+    {
+        jw out;
+        int code = -1, stopped = -1;
+        jw_init(&out);
+        CHECK_INT(pi_bash_exec(&ses, "echo hi", &out, &code, &stopped), 0);
+        CHECK_STR(out.p ? out.p : "", "hi\n");
+        CHECK_INT(code, 0);
+        jw_free(&out);
+    }
     /* pi 1.1.0 (P11-I7): only +name/-name entries change the default selection; "-write" is read, bash, edit */
     memset(&ses, 0, sizeof(ses));
     CHECK_INT(pi_tools_add(&pt, &ses, "-write", err, sizeof(err)), 0);
