@@ -1,0 +1,24 @@
+POST https://auth.kimi.com/api/oauth/device_authorization
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=17e5f671-d194-4dfb-9706-5516cb48c098
+--
+POST https://auth.kimi.com/api/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=17e5f671-d194-4dfb-9706-5516cb48c098&device_code=kd-1&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code
+--
+POST https://auth.kimi.com/api/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=17e5f671-d194-4dfb-9706-5516cb48c098&device_code=kd-1&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code
+--
+POST https://auth.kimi.com/api/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=17e5f671-d194-4dfb-9706-5516cb48c098&device_code=kd-1&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code
+--

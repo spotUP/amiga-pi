@@ -1,0 +1,3 @@
+device_code META-5 https://meta.com/device?c=META-5
+progress Enabling Meta Model API access...
+error Meta session expired (status 401). Run `/login meta` to sign in again.: expired

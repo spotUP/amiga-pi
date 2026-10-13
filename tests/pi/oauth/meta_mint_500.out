@@ -1,0 +1,3 @@
+device_code META-5 https://meta.com/device?c=META-5
+progress Enabling Meta Model API access...
+error Meta API key mint failed with status 500: x

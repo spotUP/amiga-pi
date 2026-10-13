@@ -1,0 +1,8 @@
+POST https://api.meta.ai/muse-code/key
+accept: application/json
+authorization: Bearer mid-identity-1
+content-type: application/json
+x-api-version: 1.0.0
+
+{}
+--

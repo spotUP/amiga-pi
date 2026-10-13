@@ -1,0 +1,2 @@
+prompt select Select OpenAI Codex login method: [Browser login (default) | Device code login (headless)]
+error OpenAI Codex device code request failed with status 500: boom

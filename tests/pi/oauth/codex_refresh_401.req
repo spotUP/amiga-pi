@@ -1,0 +1,5 @@
+POST https://auth.openai.com/oauth/token
+content-type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&refresh_token=cxrt-1&client_id=app_EMoamEEZ73f0CkXaXp7hrann
+--

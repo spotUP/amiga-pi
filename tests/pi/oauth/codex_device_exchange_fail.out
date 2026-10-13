@@ -1,0 +1,3 @@
+prompt select Select OpenAI Codex login method: [Browser login (default) | Device code login (headless)]
+device_code ABCD-1234 https://auth.openai.com/codex/device
+error OpenAI Codex token exchange failed (400): bad code
