@@ -1,0 +1,6 @@
+POST https://auth.x.ai/oauth2/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&client_id=b1a00492-073a-47ea-816f-4c329264a828&refresh_token=xrt-1
+--

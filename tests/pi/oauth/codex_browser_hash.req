@@ -1,0 +1,5 @@
+POST https://auth.openai.com/oauth/token
+content-type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&client_id=app_EMoamEEZ73f0CkXaXp7hrann&code=BC-2&code_verifier=CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback
+--

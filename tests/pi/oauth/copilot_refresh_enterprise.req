@@ -1,0 +1,21 @@
+GET https://api.company.ghe.com/copilot_internal/v2/token
+accept: application/json
+authorization: Bearer gho_githubtoken1
+copilot-integration-id: vscode-chat
+editor-plugin-version: copilot-chat/0.35.0
+editor-version: vscode/1.107.0
+user-agent: GitHubCopilotChat/0.35.0
+
+
+--
+GET https://copilot-api.company.ghe.com/models
+accept: application/json
+authorization: Bearer tid=abc;exp=9999999999;sku=x
+copilot-integration-id: vscode-chat
+editor-plugin-version: copilot-chat/0.35.0
+editor-version: vscode/1.107.0
+user-agent: GitHubCopilotChat/0.35.0
+x-github-api-version: 2026-06-01
+
+
+--

@@ -1,0 +1,5 @@
+POST https://auth.openai.com/api/accounts/deviceauth/usercode
+content-type: application/json
+
+{"client_id":"app_EMoamEEZ73f0CkXaXp7hrann"}
+--

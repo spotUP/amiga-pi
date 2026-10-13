@@ -1,0 +1,3 @@
+prompt text GitHub Enterprise URL/domain (blank for github.com) | company.ghe.com
+device_code WXYZ-9876 https://github.com/login/device
+error Device flow failed: access_denied: nope

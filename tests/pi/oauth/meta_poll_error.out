@@ -1,0 +1,2 @@
+device_code META-5 https://meta.com/device?c=META-5
+error Meta device token request failed with status 400: oops

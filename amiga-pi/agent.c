@@ -398,13 +398,34 @@ void pi_tools_json(const pi_session *s, jw *w)
     jw_rawz(w, "]");
 }
 
+/* the credential of the provider's stored login for the request, and what a login changes about the request: the base
+ * URL (copilot), the Bearer form of the header, copilot's own headers (vtcon llm/creds.h) */
+static void oauth_request(pi_session *s, llm_req *q)
+{
+    llm_oauth_use ou;
+    if (!llm_cfg_oauth(s->cfg, &s->model, &ou))
+        return;
+    q->bearer = ou.bearer;
+    q->copilot = ou.copilot;
+    if (ou.base[0]) {
+        cl_copy(s->oauth_base, ou.base, sizeof(s->oauth_base));
+        s->model.base_url = s->oauth_base;
+    }
+    q->reauth = pi_req_reauth;
+    q->reauth_u = s;
+}
+
 int pi_req_auth(pi_session *s, llm_req *q, jw *hdr)
 {
     q->key = s->key;
     q->xhead = 0;
+    q->bearer = q->copilot = 0;
+    q->reauth = 0;
     llm_set_wall(s->now, s->h.u);       /* google's generated tool-call ids read the wall clock (pi: Date.now()) */
     if (!s->cfg)
         return 0;
+    if (s->auth_hook && s->auth_hook(s->auth_u, s, 0, s->err, sizeof(s->err)))
+        return -1;                      /* an OAuth credential about to expire is renewed first (pi's resolveStoredOAuth) */
     if (llm_cfg_endpoint(s->cfg, &s->model, s->err, sizeof(s->err)))
         return -1;                      /* azure-openai-responses: AZURE_OPENAI_* (pi's resolveAzureConfig) */
     s->keybuf[0] = 0;
@@ -412,6 +433,7 @@ int pi_req_auth(pi_session *s, llm_req *q, jw *hdr)
     if (s->keybuf[0] && cl_key_clean(s->keybuf))
         s->keybuf[0] = 0;           /* not a key (C:Claude's rule) */
     q->key = s->keybuf[0] ? s->keybuf : 0;
+    oauth_request(s, q);
     if (llm_cfg_headers(s->cfg, &s->model, q->key, hdr)) {
         cl_copy(s->err, "a header value of models.json for ", sizeof(s->err));
         cl_cat(s->err, s->model.provider, sizeof(s->err));
@@ -419,6 +441,25 @@ int pi_req_auth(pi_session *s, llm_req *q, jw *hdr)
         return -1;
     }
     q->xhead = hdr->n ? hdr->p : 0;
+    return 0;
+}
+
+/* the API refused the credential (401): the stored login is renewed once and the request goes again with the new one
+ * (llm_request's reauth). -1 for a key that is not a login's, or when the renewal fails (err then holds why) */
+int pi_req_reauth(void *u, llm_req *q, char *err, long cap)
+{
+    pi_session *s = (pi_session *)u;
+    llm_oauth_use ou;
+    err[0] = 0;
+    if (!s->auth_hook || !s->cfg || !llm_cfg_oauth(s->cfg, &s->model, &ou))
+        return -1;
+    if (s->auth_hook(s->auth_u, s, 1, err, cap))
+        return -1;
+    s->keybuf[0] = 0;
+    llm_cfg_key(s->cfg, &s->model, s->keybuf, sizeof(s->keybuf), 0);
+    if (s->keybuf[0] && cl_key_clean(s->keybuf))
+        s->keybuf[0] = 0;
+    q->key = s->keybuf[0] ? s->keybuf : 0;
     return 0;
 }
 

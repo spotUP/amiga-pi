@@ -1,0 +1,6 @@
+POST https://auth.openai.com/api/accounts/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&client_id=app_issued_1&refresh_token=cgrt-refresh-1&resource=https%3A%2F%2Fapi.openai.com%2Fv1
+--

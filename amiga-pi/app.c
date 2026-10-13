@@ -3,6 +3,7 @@
 #include "themes_builtin.h"
 #include <string.h>
 #include "app.h"
+#include "login.h"
 #include "args.h"
 #include "prompt.h"
 #include "ui_pi.h"
@@ -597,6 +598,7 @@ done:
 static pi_args a;
 static pi_session s;
 static pi_models models;
+static pi_auth auth;                /* /login and the OAuth credential of a request (login.h) */
 static pi_tools tools;
 static pi_gate gate;
 
@@ -815,6 +817,11 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     }
     pi_models_attach(&models, &s, &store);
     store.models = &models;
+    memset(&auth, 0, sizeof(auth));
+    auth.random = pl->random;
+    auth.random_u = pl->random_u;
+    auth.url_base = pl->oauth_url_base;
+    pi_auth_init(&auth, &models, &s, pl->sys, pl->agent_dir, pl->getenv);
     s.now = pl->now;
     note_io = pl->io;
     s.h.notice = note;
