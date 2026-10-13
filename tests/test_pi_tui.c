@@ -13,6 +13,8 @@
 #include "llm/transform.h"
 #include "../amiga-pi/agent.h"
 #include "../amiga-pi/ui_pi.h"
+#include "../amiga-pi/show_pi.h"
+#include "../amiga-pi/fuzzy.h"
 #include "../amiga-pi/okcolor.h"
 #include "../amiga-pi/themes_builtin.h"
 #include "../amiga-pi/app.h"
@@ -39,7 +41,7 @@ typedef struct scen {
     const char *name;           /* the golden's name */
     const char *keys[8];        /* typed chunks; a '!' chunk is typed while the agent works */
     const char *answers[4];     /* tests/pi/tui/<file>: .sse streamed, .http whole */
-    int tools;                  /* 1 read answers, 2 bash fails */
+    int tools;                  /* 1 read answers, 2 bash fails, 3 bash echoes, 4 bash counts to 12, 5 ls lists 25 files */
     int header;                 /* the start header is shown (else settings.json has quietStartup)  */
     int when;                   /* 0 at rest after the keys, 1 while the agent works (after the keys), 2 while a tool runs, 4 at rest like 0 with the clock running (a turn long enough for C:Claude's notice),
                                  * 3 the screen pi leaves on the main screen when it ends (the golden's .txt) */
@@ -103,6 +105,23 @@ static int tool_run(void *u, pi_session *s, const char *args, long an, jw *conte
         outb[k++] = 'n';
         outb[k] = 0;
         text = outb;
+    } else if (u == (void *)3) {
+        /* R5: seq 1 12 */
+        text = "1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n9\\n10\\n11\\n12\\n";
+    } else if (u == (void *)4) {
+        /* R5: ls of a directory with 25 files */
+        static char lsb[400];
+        int i;
+        lsb[0] = 0;
+        for (i = 1; i <= 25; i++) {
+            char one[24] = "f00.txt";
+            one[1] = (char)('0' + i / 10);
+            one[2] = (char)('0' + i % 10);
+            strcat(lsb, one);
+            if (i < 25)
+                strcat(lsb, "\\n");
+        }
+        text = lsb;
     } else if (u) {
         text = "cat: nothere.txt: No such file or directory\\n\\n\\nCommand exited with code 1";
         err = 1;
@@ -118,6 +137,8 @@ static int tool_run(void *u, pi_session *s, const char *args, long an, jw *conte
 #define PARAMS "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}}}"
 static pi_tool t_read = { "read", "Read a file", PARAMS, 0, 0, tool_run, 0, 0, 0 };
 static pi_tool t_bash = { "bash", "Run a command", PARAMS, 0, (void *)1, tool_run, 0, 0, 0 };
+static pi_tool t_seq = { "bash", "Run a command", PARAMS, 0, (void *)3, tool_run, 0, 0, 0 };
+static pi_tool t_ls = { "ls", "List a directory", PARAMS, 0, (void *)4, tool_run, 0, 0, 0 };
 static pi_tool t_bang = { "bash", "Run a command", PARAMS, 0, (void *)2, tool_run, 0, 0, 0 };
 
 /* pi's own slash menu (core/slash-commands.js and two more entries: 26 in the capture), so the menu's layout compares */
@@ -335,10 +356,20 @@ static void compare_in_tool(pi_session *s)
                 e.args = "{}";
                 e.args_n = 2;
                 e.result = "[{\"type\":\"text\",\"text\":\"hi\\n\"}]";
+                if (strstr(cur->name, "expanded"))      /* R5: seq 1 12 so far */
+                    e.result = "[{\"type\":\"text\",\"text\":\"1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n9\\n10\\n11\\n12\\n\"}]";
                 e.result_n = (long)strlen(e.result);
                 pi_emit(&s->em, &e);
             }
             cs.clock += 960;
+            if (strstr(cur->name, "expanded")) {
+                /* R5: Ctrl+O is typed while the tool runs (the script would deliver it while the request is awaited); the
+                 * golden was taken right after it, at "Elapsed 2.0s" */
+                static const char *ctrl_o[] = { "!\017", "\004", 0 };           /* ! : typed while the agent works */
+                cs.script = ctrl_o;
+                cs.next = 0;
+                cs.clock += 900;
+            }
             s->h.poll(s->h.u);
         }
         compare();
@@ -451,6 +482,10 @@ static void run(const scen *sc)
         pi_tool_add(&ses, &t_bash);
     if (sc->tools == 3)
         pi_tool_add(&ses, &t_bang);
+    if (sc->tools == 4)
+        pi_tool_add(&ses, &t_seq);
+    if (sc->tools == 5)
+        pi_tool_add(&ses, &t_ls);
     for (i = 0; sc->answers[i]; i++) {
         long n;
         char *b = slurp(sc->answers[i], &n);
@@ -506,6 +541,16 @@ static void run(const scen *sc)
     if (sc->when == 4)
         turn_quiet_check();
     CHECK(taken);
+    if (!strcmp(sc->name, "error_expanded")) {
+        /* R5: the request's error is a line of the chat only (not in the session store): Ctrl+O keeps it and shows the status */
+        int r, err = 0, status = 0;
+        for (r = 0; r < 64; r++) {
+            err |= strstr(snap[r], "Error: HTTP 400") != 0;
+            status |= strstr(snap[r], "Tool output: expanded") != 0;
+        }
+        CHECK(err);
+        CHECK(status);
+    }
     if (diffs) {
         printf("  %s: %d cells differ from pi's capture\n%s", sc->name, diffs, first_diff);
         if (getenv("PI_TUI_DUMP")) {
@@ -2200,6 +2245,161 @@ static long bytes_per_key(int look)
     return total;
 }
 
+/* R5: a bash result of 300 lines: collapsed, the last five rows and "(295 earlier lines, ctrl+o to expand)" (renderers/bash.ts:60-77; a
+ * table of 255 rows once cut the output off there); Ctrl+O draws every line (the transcript holds them all) and no hint */
+static int screen_has(const char *what)
+{
+    int r;
+    for (r = 0; r < cs.rows; r++)
+        if (strstr(cs_row(r), what))
+            return 1;
+    return 0;
+}
+
+static void test_bash_rows_uncapped(void)
+{
+    static const char *script[] = { 0 };
+    cl_io io;
+    cl_tui t;
+    cl_pitheme th;
+    pi_show ps;
+    jw res;
+    int i;
+    cs_open(80, 25, script);
+    cs_io(&io);
+    pitheme_system(&th);
+    CHECK_INT(tui_init(&t, &io), 0);
+    t.look = TUI_LOOK_PI;
+    t.pith = &th;
+    CHECK_INT(tui_start(&t), 0);
+    pshow_init(&ps, &t, &th);
+    jw_init(&res);
+    jw_rawz(&res, "[{\"type\":\"text\",\"text\":\"");
+    for (i = 1; i <= 300; i++) {
+        char one[16];
+        one[0] = 'L';
+        cl_ltoa(i, one + 1);
+        jw_rawz(&res, one);
+        if (i < 300)
+            jw_rawz(&res, "\\n");
+    }
+    jw_rawz(&res, "\"}]");
+    pshow_tool_start(&ps, "t1", "bash", "{\"command\":\"seq\"}", 17);
+    pshow_tool_end(&ps, "t1", res.p, res.n, 0, 100);
+    tui_frame(&t);
+    CHECK(screen_has("L300"));
+    CHECK(screen_has("(295 earlier lines, ctrl+o to expand)"));
+    CHECK(!screen_has("L295"));
+    pshow_expand(&ps, 1, "Tool output: expanded");
+    tui_frame(&t);
+    CHECK(screen_has("L300"));
+    CHECK(screen_has("L296"));
+    CHECK(!screen_has("earlier lines"));
+    CHECK(screen_has("Took 0.1s"));
+    jw_free(&res);
+    pshow_free(&ps);
+    tui_stop(&t);
+    tui_free(&t);
+    cs_close();
+}
+
+/* J6: the slash menu is pi-tui's fuzzy filter in order of score (pi 1.1.0's own CombinedAutocompleteProvider, tools/pi_oracle/gen_fuzzy.mjs):
+ * the order of every one- and two-letter query and some more, from the file */
+static void test_slash_fuzzy(void)
+{
+    long n = 0;
+    char *f = slurp("fuzzy_cases.txt", &n), *line;
+    static cl_cmd cmd[64];
+    static char name[64][40];
+    int ncmd = 0, cases = 0, bad = 0;
+    CHECK(f != 0);
+    if (!f)
+        return;
+    for (line = f; *line; ) {
+        char *eol = strchr(line, '\n'), *tab;
+        if (!eol)
+            break;
+        *eol = 0;
+        if (!ncmd) {
+            /* the first line: the names, in menu order */
+            char *w = line;
+            while (*w) {
+                char *e = strchr(w, ' ');
+                if (e)
+                    *e = 0;
+                name[ncmd][0] = '/';
+                strcpy(name[ncmd] + 1, w);
+                cmd[ncmd].name = name[ncmd];
+                cmd[ncmd].help = "";
+                ncmd++;
+                if (!e)
+                    break;
+                w = e + 1;
+            }
+        } else if ((tab = strchr(line, '\t')) != 0) {
+            int idx[64], got, k = 0, ok = 1;
+            char text[80];
+            char *w = tab + 1;
+            *tab = 0;
+            strcpy(text, "/");
+            strcat(text, line);
+            got = pi_slash_filter(0, cmd, ncmd, text, (long)strlen(text), idx);
+            while (*w) {
+                char *e = strchr(w, ' ');
+                if (e)
+                    *e = 0;
+                if (k >= got || strcmp(cmd[idx[k]].name + 1, w))
+                    ok = 0;
+                k++;
+                if (!e)
+                    break;
+                w = e + 1;
+            }
+            if (k != got)
+                ok = 0;
+            cases++;
+            if (!ok && bad++ < 5)
+                printf("    /%s: pi lists %d, amiga-pi %d\n", line, k, got);
+        }
+        line = eol + 1;
+    }
+    CHECK(cases > 700);
+    CHECK_INT(bad, 0);
+    free(f);
+}
+
+/* I9: no row of the menu is dropped: 700 rows after the built-in ones (a copy once held 512), all of them offered and
+ * found by their name (the menu once showed 64 matches at most) */
+static void test_menu_rows_uncapped(void)
+{
+    static const char *keys[] = { "/", "\004", 0 };
+    static const char *keys_x[] = { "/x699", "\004", 0 };
+    static const char *keys_esc[] = { "/", "\033", "\004", 0 };
+    static cl_cmd rows[700];
+    static char names[700][8];
+    int i;
+    for (i = 0; i < 700; i++) {
+        names[i][0] = '/';
+        names[i][1] = 'x';
+        names[i][2] = (char)('0' + i / 100);
+        names[i][3] = (char)('0' + i / 10 % 10);
+        names[i][4] = (char)('0' + i % 10);
+        names[i][5] = 0;
+        rows[i].name = names[i];
+        rows[i].help = "a row";
+    }
+    pi_ui_set_extra_commands(2, rows, 700);
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 25, keys, 0, 0, take_shot), 0);
+    CHECK(shot_has("(1/710)"));             /* ten built-in rows and 700 more */
+    CHECK_INT(app_run(80, 25, keys_x, 0, 0, take_shot), 0);
+    CHECK(shot_has("a row"));               /* the editor holds "/x699" too: the menu row is what has a description */
+    /* Esc closes a menu of more than eight rows (it once asked for the matches into a table of eight) */
+    CHECK_INT(app_run(80, 25, keys_esc, 0, 0, take_shot), 0);
+    CHECK(!shot_has("(1/710)"));
+    pi_ui_set_extra_commands(2, 0, 0);
+}
+
 static void test_footer_cost(void)
 {
     long claude = bytes_per_key(TUI_LOOK_CLAUDE), pi = bytes_per_key(TUI_LOOK_PI);
@@ -2217,6 +2417,9 @@ static const scen scenarios[] = {
     { "start", { 0 }, { 0 }, 0, 1, 0, { HDR_VER, HDR_HELP } },
     { "editor", { "hello there", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "slash", { "/", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* J6: pi-tui's fuzzy filter and its order of score (autocomplete.ts:343-372); the prefix match listed 3 rows for '/re', pi lists 4+ */
+    { "slash_re", { "/re", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "slash_ct", { "/ct", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "slash_prompts", { "/rev", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
     { "table", { "show a table\r", 0 }, { "table.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
@@ -2269,6 +2472,22 @@ static const scen scenarios[] = {
     { "pad0_toolerr", { "run it\r", 0 }, { "toolerr.1.sse", "toolerr.2.sse", 0 }, 2, 0, 0, { { 13, 13, 0, 8, "elapsed time of the run" } } },
     { "pad0_bang", { "!!echo hi\r", "!!!echo secret\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "dark_pad0_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* R5: Ctrl+O over tool boxes (renderers/{read,bash,ls}.ts), the request's error (not in the session store) and a running bash call */
+    { "tool_expanded", { "read the file\r", "\017", 0 }, { "tool_expanded.1.sse", "tool_expanded.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_tool_expanded", { "read the file\r", "\017", 0 }, { "dark_tool_expanded.1.sse", "dark_tool_expanded.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_bash_long", { "count\r", 0 }, { "dark_bash_long.1.sse", "dark_bash_long.2.sse", 0 }, 4, 0, 0,
+      { { 15, 15, 6, 8, "elapsed time of the run" } } },
+    { "dark_bash_long_expanded", { "count\r", "\017", 0 }, { "dark_bash_long_expanded.1.sse", "dark_bash_long_expanded.2.sse", 0 }, 4, 0, 0,
+      { { 19, 19, 6, 8, "elapsed time of the run" } } },
+    { "dark_ls_long", { "list\r", 0 }, { "dark_ls_long.1.sse", "dark_ls_long.2.sse", 0 }, 5, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_ls_long_expanded", { "list\r", "\017", 0 }, { "dark_ls_long_expanded.1.sse", "dark_ls_long_expanded.2.sse", 0 }, 5, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "error_expanded", { "hello\r", "\017", 0 }, { "error_expanded.1.http", 0 }, 0, 0, 0,
+      { { 5, 12, 0, 79, "error text: pi prints the response body and a hint row; the status is checked in expanded_checks" },
+        { 25, 25, 0, 6, "context estimate" } } },
+    { "bang_expanded", { "!!echo hi\r", "\017", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* a running bash call: Ctrl+O while it runs draws the chat again, the box live (the clock goes on 2.0 s: the capture) */
+    { "dark_toolrun_out_expanded", { "run it\r", 0 }, { "dark_toolrun_out_expanded.1.sse", "dark_toolrun_out_expanded.2.sse", 0 }, 2, 0, 2,
+      { { 28, 28, 3, 3, "spinner frame" } } },
     { "light_twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "light_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
 };
@@ -2305,6 +2524,9 @@ void suite_pi_tui(void)
     test_tui_mode_app();
     test_approval();
     test_footer_cost();
+    test_bash_rows_uncapped();
+    test_slash_fuzzy();
+    test_menu_rows_uncapped();
     app_cleanup();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))

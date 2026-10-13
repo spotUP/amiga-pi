@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui_pi.h"
+#include "fuzzy.h"
 #include "args.h"
 #include "claude/tui.h"
 #include "claude/show.h"
@@ -29,6 +30,7 @@ typedef struct pi_ui {
     char name[160];             /* the session's name as pst_name last read it from the store */
     cl_cmd *menu;               /* the slash menu: the commands, then /skill:name for each skill (settings.json enableSkillCommands) */
     char *menu_text;            /* its strings */
+    cl_cmd *all;                /* the slash menu as the screen gets it: the built-in rows, then each slot's (ui_menu) */
 } pi_ui;
 
 /* the slash commands the menu offers: pi's own names and descriptions (core/slash-commands.js, in its order) of
@@ -56,7 +58,6 @@ void pi_ui_set_commands(const cl_cmd *cmds, int n)
 
 /* the rows after the built-in ones: prompt templates (templates.h pi_tmpl_menu), in pi's order (built-in, templates,
  * extensions, skills); the arrays belong to the caller and stay until the run ends */
-#define UI_EXTRA_MAX 512
 static const cl_cmd *ui_extra[4];
 static int ui_nextra[4];
 
@@ -68,23 +69,29 @@ void pi_ui_set_extra_commands(int slot, const cl_cmd *cmds, int n)
     }
 }
 
-/* the menu: the built-in list, then each slot's rows */
-static const cl_cmd *ui_menu(int *n)
+/* the menu: the built-in list, then each slot's rows, every one of them (a copy sized to the rows, owned by p->all) */
+static const cl_cmd *ui_menu(pi_ui *p, int *n)
 {
-    static cl_cmd menu[UI_EXTRA_MAX];
-    int i, k, m = ui_ncmds;
+    int i, k, m = 0, total = ui_ncmds;
     if (!ui_nextra[0] && !ui_nextra[1] && !ui_nextra[2] && !ui_nextra[3]) {
         *n = ui_ncmds;
         return ui_cmds;
     }
-    for (i = 0; i < ui_ncmds && i < UI_EXTRA_MAX; i++)
-        menu[i] = ui_cmds[i];
-    m = i;
     for (k = 0; k < 4; k++)
-        for (i = 0; i < ui_nextra[k] && m < UI_EXTRA_MAX; i++)
-            menu[m++] = ui_extra[k][i];
+        total += ui_nextra[k];
+    free(p->all);
+    p->all = (cl_cmd *)malloc(sizeof(cl_cmd) * (size_t)total);
+    if (!p->all) {
+        *n = ui_ncmds;              /* out of memory: the built-in rows alone */
+        return ui_cmds;
+    }
+    for (i = 0; i < ui_ncmds; i++)
+        p->all[m++] = ui_cmds[i];
+    for (k = 0; k < 4; k++)
+        for (i = 0; i < ui_nextra[k]; i++)
+            p->all[m++] = ui_extra[k][i];
     *n = m;
-    return menu;
+    return p->all;
 }
 
 /* what the footer shows of the program (pi_ui_set_cwd): the working directory */
@@ -174,9 +181,8 @@ static const char *pst_name(void *u)
 /* pi's renderInitialMessages (interactive-mode.ts:4208-4222): the context's AgentMessages drawn (a stored session: the
  * custom, compaction-summary and branch-summary messages as their own components; ses->msg holds only what the model
  * is sent), then "Session compacted N time(s)" when the file holds any compaction entry */
-/* redraw_chat's modes: renderInitialMessages (with its "Session compacted" note), compaction_end's, and a redraw that
- * only flips the expansion of the components (ctrl+o: no note) */
-enum { REDRAW_INITIAL, REDRAW_COMPACTED, REDRAW_EXPAND };
+/* redraw_chat's modes: renderInitialMessages (with its "Session compacted" note) and compaction_end's */
+enum { REDRAW_INITIAL, REDRAW_COMPACTED };
 static void redraw_chat(pi_ui *p, int mode);
 
 static void redraw_session(pi_ui *p)
@@ -189,8 +195,7 @@ static void redraw_session(pi_ui *p)
  * and no "Session compacted" note (that is renderInitialMessages' alone) */
 static void redraw_compacted(pi_ui *p, long tokens_before, const char *summary, long summary_n)
 {
-    tui_clear(p->ui.tui);
-    p->ps.any = 0;
+    pshow_clear(&p->ps);
     redraw_chat(p, REDRAW_COMPACTED);
     pshow_compaction_summary(&p->ps, tokens_before, summary, summary_n);
 }
@@ -548,19 +553,12 @@ static void cb_cycle(void *u, int what, int dir)
 }
 
 /* app.tools.expand (Ctrl+O): pi's toggleToolOutputExpansion (interactive-mode.ts:4557-4574) flips toolOutputExpanded, sets it
- * on every expandable component and shows "Tool output: expanded|collapsed". The screen is lines already written, so the
- * chat is drawn again from the context with the new setting (while a turn runs only the setting changes: the turn's own
- * lines are not in the store yet). Only the compaction and branch summaries have an expanded form here. */
+ * on every expandable child of the chat and shows "Tool output: expanded|collapsed". The chat's items (show_pi.h) are drawn again
+ * with the new setting, so what is not in the session store (an error, a command's output) stays and a tool that runs stays live. */
 static void cb_expand(void *u)
 {
     pi_ui *p = (pi_ui *)u;
-    p->ps.expanded = !p->ps.expanded;
-    if (p->s->em.count[PE_AGENT_START] <= p->s->em.count[PE_AGENT_END]) {
-        tui_clear(p->ui.tui);
-        p->ps.any = 0;
-        redraw_chat(p, REDRAW_EXPAND);
-    }
-    pshow_note(&p->ps, PR_DIM, p->ps.expanded ? "Tool output: expanded" : "Tool output: collapsed");
+    pshow_expand(&p->ps, !p->ps.expanded, p->ps.expanded ? "Tool output: collapsed" : "Tool output: expanded");
     status(p);
 }
 
@@ -918,7 +916,8 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     t->scrollbar = ui_bar;
     t->pith = &p->theme;
     build_skill_rows(p);
-    t->cmds = ui_menu(&t->ncmds);
+    t->cmds = ui_menu(p, &t->ncmds);
+    t->slash_filter = pi_slash_filter;      /* pi-tui's fuzzy filter and order, not C:Claude's prefix match (autocomplete.ts:343-372) */
     p->look = 1;
     show_init(sh, t);
     window_title(p, t);         /* before the start, which writes it */
@@ -1008,8 +1007,7 @@ static void tree_command(pi_ui *p, cl_tui *t)
         if (reply.p && strstr(reply.p, "[ERROR]"))
             pshow_error(&p->ps, reply.p + 8);
         else {
-            tui_clear(t);
-            p->ps.any = 0;
+            pshow_clear(&p->ps);
             redraw_session(p);
             if (editor.n && !t->ed.n)
                 tui_set_text(t, editor.p);
@@ -1246,8 +1244,10 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
     free(line);
     free(p.menu);
     free(p.menu_text);
+    free(p.all);
     p.menu = 0;
     p.menu_text = 0;
+    p.all = 0;
     pi_ui_set_extra_commands(3, 0, 0);
     return 0;
 }

@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+/re
+────────────────────────────────────────────────────────────────────────────────
+→ resume      Resume a different session
+  reload      Reload keybindings, extensions, skills, prompts, themes, and con
+  tree        Navigate session tree (switch branches)
+  share       Share session as a secret GitHub gist
+~/project
+0.0%/200k (auto)                                                      fake-model

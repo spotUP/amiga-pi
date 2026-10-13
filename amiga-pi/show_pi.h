@@ -13,16 +13,32 @@
 
 #define PS_BOXES 32
 
-/* a tool box that waits for its result */
+/* a tool box (pi's ToolExecutionComponent): the call, and its result once it ends. It lives in the chat's item list for as
+ * long as the chat does, so that Ctrl+O can draw it again expanded; while it waits for its result it is also in pi_show.box */
 typedef struct ps_box {
     char id[80], name[24];
     jw args;
     unsigned long t0;           /* the clock when the tool started */
-    long off, len;              /* the box's text in pi_show.shadow */
+    long off, len;              /* the box's text in pi_show.shadow (a box that waits for its result) */
     int elapsed;                /* a running bash call: pi's "Elapsed <time>" row, drawn again each second */
     long ticks;                 /* whole seconds the row has shown */
     jw partial;                 /* the output so far (tool_execution_update) */
+    int done;                   /* the result is in: result, is_error, duration_ms */
+    int is_error, replay;       /* replay: the result of an earlier run (no duration unless recorded) */
+    long duration_ms;           /* the recorded durationMs, or the call's own clock when it ended live; -1 none */
+    jw result;
 } ps_box;
+
+/* one thing in the chat, as pi's chatContainer holds a component: what is needed to draw it again (the screen is lines
+ * already written, so Ctrl+O, toolOutputExpanded, draws the items again; interactive-mode.ts:4557-4574 setExpanded on each child) */
+enum { PK_HEADER, PK_USER, PK_ANSWER, PK_NOTE, PK_STATUS, PK_ERROR, PK_TOOL, PK_BASH, PK_COMPACT, PK_BRANCH, PK_CUSTOM,
+       PK_RTITLE, PK_RLINE, PK_REND, PK_BLANK, PK_RESET };
+typedef struct ps_item {
+    int kind;
+    long a, b, c;               /* role, kind, token count, exit code, cancelled, excluded; PK_RESET: a conversation drawn again begins */
+    jw x, y;                    /* the texts */
+    ps_box tool;                /* PK_TOOL */
+} ps_item;
 
 typedef struct pi_show {
     cl_tui *t;
@@ -42,14 +58,22 @@ typedef struct pi_show {
      * transcript is lines already on the screen, so a box that is not the last thing there is drawn again from a copy
      * (shadow) of everything written since the oldest of them began: base is the transcript's line count at that
      * point. Tools may start and end in any order. */
-    ps_box box[PS_BOXES];
+    ps_box *box[PS_BOXES];      /* points into the items */
     int nbox;
+    ps_item **item;             /* the chat, oldest first */
+    long nitem, capitem;
+    ps_item *cur;               /* the answer being written (its Markdown block is open) */
     jw shadow;
     long base;
 } pi_show;
 
 void pshow_init(pi_show *s, cl_tui *t, const cl_pitheme *th);
 void pshow_free(pi_show *s);
+/* the chat emptied: the screen cleared and the items dropped (a session drawn again, a branch left, a compaction) */
+void pshow_clear(pi_show *s);
+/* app.tools.expand (Ctrl+O): toolOutputExpanded set, every item drawn again from the item list (live-only lines such as errors stay,
+ * a running tool's box stays live), and `status` shown as pi's showStatus does: it replaces a status that is the last item */
+void pshow_expand(pi_show *s, int expanded, const char *status);
 /* settings.json's outputPad (0 or 1) */
 void pshow_set_pad(pi_show *s, int pad);
 /* the colours changed (a theme chosen): the Markdown theme made again */

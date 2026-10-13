@@ -1,0 +1,737 @@
+settings model tree thinking scoped-models export import share copy name session changelog hotkeys fork clone trust login logout new compact resume reload quit review rewrite refactor re skill:greet skill:terse skill:review skill:data-2 skill:x1y
+	settings model tree thinking scoped-models export import share copy name session changelog hotkeys fork clone trust login logout new compact resume reload quit review rewrite refactor re skill:greet skill:terse skill:review skill:data-2 skill:x1y
+a	name skill:data-2 share changelog refactor compact reload
+b	
+c	copy changelog clone compact scoped-models refactor
+d	skill:data-2 model scoped-models reload
+e	export settings session new resume reload review rewrite refactor re skill:terse skill:review tree skill:greet model name scoped-models share hotkeys clone changelog
+f	fork refactor
+g	skill:greet login logout changelog settings thinking
+h	hotkeys thinking share changelog
+i	import thinking quit login review skill:review settings session rewrite skill:greet skill:terse skill:data-2 skill:x1y
+j	
+k	hotkeys fork thinking skill:greet skill:terse skill:review skill:data-2 skill:x1y
+l	login logout clone reload model changelog scoped-models skill:greet skill:terse skill:review skill:data-2 skill:x1y
+m	model scoped-models import name compact resume
+n	name new thinking changelog clone login settings session
+o	model copy hotkeys fork login logout compact scoped-models clone export import reload session refactor changelog
+p	export import copy scoped-models compact
+q	quit
+r	resume reload review rewrite refactor re skill:review tree trust skill:greet fork skill:terse share export import
+s	settings scoped-models share session resume trust skill:terse hotkeys skill:greet skill:review skill:data-2 skill:x1y
+t	tree thinking trust skill:terse settings hotkeys skill:data-2 quit skill:greet export import logout rewrite refactor compact
+u	quit trust resume logout
+v	review skill:review
+w	new rewrite review skill:review
+x	skill:x1y export
+y	skill:x1y copy hotkeys
+z	
+aa	skill:data-2
+ab	
+ac	refactor compact
+ad	reload
+ae	name share changelog
+af	
+ag	changelog
+ah	
+ai	
+aj	
+ak	
+al	changelog
+am	name
+an	changelog
+ao	refactor changelog
+ap	
+aq	
+ar	share refactor
+as	
+at	skill:data-2 refactor compact
+au	
+av	
+aw	
+ax	
+ay	
+az	
+ba	
+bb	
+bc	
+bd	
+be	
+bf	
+bg	
+bh	
+bi	
+bj	
+bk	
+bl	
+bm	
+bn	
+bo	
+bp	
+bq	
+br	
+bs	
+bt	
+bu	
+bv	
+bw	
+bx	
+by	
+bz	
+ca	changelog compact
+cb	
+cc	compact
+cd	scoped-models
+ce	clone changelog scoped-models
+cf	
+cg	changelog
+ch	changelog
+ci	
+cj	
+ck	
+cl	clone changelog scoped-models
+cm	compact scoped-models
+cn	changelog clone
+co	copy compact clone scoped-models changelog refactor
+cp	copy compact scoped-models
+cq	
+cr	refactor
+cs	scoped-models
+ct	compact refactor
+cu	
+cv	
+cw	
+cx	
+cy	copy
+cz	
+da	skill:data-2
+db	
+dc	
+dd	scoped-models
+de	model scoped-models
+df	
+dg	
+dh	
+di	
+dj	
+dk	
+dl	model scoped-models
+dm	scoped-models
+dn	
+do	scoped-models
+dp	
+dq	
+dr	
+ds	scoped-models
+dt	skill:data-2
+du	
+dv	
+dw	
+dx	
+dy	
+dz	
+ea	refactor reload
+eb	
+ec	refactor
+ed	scoped-models reload
+ee	tree skill:greet review skill:terse skill:review resume rewrite scoped-models
+ef	refactor
+eg	changelog settings
+eh	
+ei	review skill:review settings session rewrite
+ej	
+ek	
+el	reload model changelog scoped-models
+em	scoped-models resume
+en	settings session
+eo	export reload changelog session scoped-models refactor
+ep	export
+eq	
+er	export skill:terse rewrite refactor
+es	session resume skill:terse hotkeys settings scoped-models
+et	export settings skill:greet rewrite refactor
+eu	resume
+ev	review skill:review
+ew	new rewrite review skill:review
+ex	export
+ey	hotkeys
+ez	
+fa	refactor
+fb	
+fc	refactor
+fd	
+fe	
+ff	
+fg	
+fh	
+fi	
+fj	
+fk	fork
+fl	
+fm	
+fn	
+fo	fork refactor
+fp	
+fq	
+fr	fork refactor
+fs	
+ft	refactor
+fu	
+fv	
+fw	
+fx	
+fy	
+fz	
+ga	
+gb	
+gc	
+gd	
+ge	skill:greet changelog
+gf	
+gg	changelog
+gh	
+gi	login
+gj	
+gk	
+gl	changelog
+gm	
+gn	login
+go	logout changelog
+gp	
+gq	
+gr	skill:greet
+gs	settings
+gt	skill:greet logout
+gu	logout
+gv	
+gw	
+gx	
+gy	
+gz	
+ha	share changelog
+hb	
+hc	
+hd	
+he	hotkeys share changelog
+hf	
+hg	changelog thinking
+hh	
+hi	thinking
+hj	
+hk	hotkeys thinking
+hl	changelog
+hm	
+hn	thinking changelog
+ho	hotkeys changelog
+hp	
+hq	
+hr	share
+hs	hotkeys
+ht	hotkeys
+hu	
+hv	
+hw	
+hx	
+hy	hotkeys
+hz	
+ia	skill:data-2
+ib	
+ic	
+id	skill:data-2
+ie	review skill:review rewrite skill:terse skill:greet
+if	
+ig	settings thinking skill:greet
+ih	
+ii	thinking skill:review
+ij	
+ik	thinking
+il	skill:greet skill:terse skill:review skill:data-2 skill:x1y
+im	import
+in	thinking login settings session
+io	import session
+ip	import
+iq	
+ir	import skill:review skill:greet skill:terse
+is	settings skill:terse
+it	import quit rewrite skill:terse skill:data-2 skill:greet
+iu	
+iv	skill:review
+iw	review skill:review
+ix	skill:x1y
+iy	skill:x1y
+iz	
+ja	
+jb	
+jc	
+jd	
+je	
+jf	
+jg	
+jh	
+ji	
+jj	
+jk	
+jl	
+jm	
+jn	
+jo	
+jp	
+jq	
+jr	
+js	
+jt	
+ju	
+jv	
+jw	
+jx	
+jy	
+jz	
+ka	skill:data-2
+kb	
+kc	
+kd	skill:data-2
+ke	hotkeys skill:terse skill:review skill:greet
+kf	
+kg	thinking skill:greet
+kh	
+ki	thinking skill:greet skill:terse skill:review skill:data-2 skill:x1y
+kj	
+kk	
+kl	skill:greet skill:terse skill:review skill:data-2 skill:x1y
+km	
+kn	thinking
+ko	
+kp	
+kq	
+kr	skill:review skill:greet skill:terse
+ks	hotkeys skill:terse
+kt	skill:terse skill:data-2 skill:greet
+ku	
+kv	skill:review
+kw	skill:review
+kx	skill:x1y
+ky	hotkeys skill:x1y
+kz	
+la	reload skill:data-2
+lb	
+lc	
+ld	reload skill:data-2
+le	clone skill:terse skill:review skill:greet
+lf	
+lg	login logout changelog skill:greet
+lh	
+li	login skill:review
+lj	
+lk	
+ll	skill:greet skill:terse skill:review skill:data-2 skill:x1y
+lm	
+ln	login clone
+lo	login logout clone reload changelog
+lp	
+lq	
+lr	skill:review skill:greet skill:terse
+ls	scoped-models skill:terse
+lt	logout skill:terse skill:data-2 skill:greet
+lu	logout
+lv	skill:review
+lw	skill:review
+lx	skill:x1y
+ly	skill:x1y
+lz	
+ma	compact
+mb	
+mc	compact
+md	model scoped-models
+me	model name scoped-models resume
+mf	
+mg	
+mh	
+mi	
+mj	
+mk	
+ml	model scoped-models
+mm	
+mn	
+mo	model scoped-models import
+mp	import compact
+mq	
+mr	import
+ms	scoped-models
+mt	import compact
+mu	
+mv	
+mw	
+mx	
+my	
+mz	
+na	name
+nb	
+nc	
+nd	
+ne	new name clone changelog
+nf	
+ng	changelog settings thinking
+nh	
+ni	thinking
+nj	
+nk	thinking
+nl	changelog
+nm	name
+nn	thinking
+no	changelog
+np	
+nq	
+nr	
+ns	settings
+nt	
+nu	
+nv	
+nw	new
+nx	
+ny	
+nz	
+oa	reload compact
+ob	
+oc	compact
+od	model reload scoped-models
+oe	model scoped-models clone hotkeys
+of	
+og	login logout changelog
+oh	
+oi	login
+oj	
+ok	hotkeys fork
+ol	model scoped-models
+om	compact scoped-models
+on	clone session login
+oo	logout scoped-models
+op	copy scoped-models compact
+oq	
+or	fork export import refactor
+os	hotkeys scoped-models
+ot	hotkeys export import logout compact
+ou	logout
+ov	
+ow	
+ox	
+oy	copy hotkeys
+oz	
+pa	compact
+pb	
+pc	compact
+pd	scoped-models
+pe	scoped-models
+pf	
+pg	
+ph	
+pi	
+pj	
+pk	
+pl	scoped-models
+pm	scoped-models
+pn	
+po	export import scoped-models
+pp	
+pq	
+pr	export import
+ps	scoped-models
+pt	export import compact
+pu	
+pv	
+pw	
+px	
+py	copy
+pz	
+qa	
+qb	
+qc	
+qd	
+qe	
+qf	
+qg	
+qh	
+qi	quit
+qj	
+qk	
+ql	
+qm	
+qn	
+qo	
+qp	
+qq	
+qr	
+qs	
+qt	quit
+qu	quit
+qv	
+qw	
+qx	
+qy	
+qz	
+ra	refactor reload
+rb	
+rc	refactor
+rd	reload
+re	re resume reload review rewrite refactor skill:review tree skill:greet share skill:terse
+rf	refactor
+rg	
+rh	
+ri	review skill:review rewrite
+rj	
+rk	fork
+rl	reload
+rm	resume
+rn	
+ro	reload refactor
+rp	
+rq	
+rr	rewrite refactor
+rs	resume skill:terse trust
+rt	rewrite refactor export import trust skill:greet
+ru	resume trust
+rv	review skill:review
+rw	rewrite review skill:review
+rx	
+ry	
+rz	
+sa	share skill:data-2
+sb	
+sc	scoped-models
+sd	scoped-models skill:data-2
+se	settings session scoped-models share skill:terse resume skill:review skill:greet
+sf	
+sg	settings skill:greet
+sh	share
+si	settings session skill:greet skill:terse skill:review skill:data-2 skill:x1y
+sj	
+sk	skill:greet skill:terse skill:review skill:data-2 skill:x1y
+sl	scoped-models skill:greet skill:terse skill:review skill:data-2 skill:x1y
+sm	scoped-models resume
+sn	settings session
+so	scoped-models session
+sp	scoped-models
+sq	
+sr	share skill:review skill:greet skill:terse
+ss	session settings scoped-models skill:terse
+st	settings trust skill:terse skill:data-2 skill:greet
+su	resume
+sv	skill:review
+sw	skill:review
+sx	skill:x1y
+sy	skill:x1y
+sz	
+ta	skill:data-2
+tb	
+tc	
+td	
+te	skill:terse tree rewrite hotkeys
+tf	
+tg	thinking settings
+th	thinking
+ti	thinking settings
+tj	
+tk	thinking hotkeys
+tl	
+tm	
+tn	thinking settings
+to	refactor
+tp	
+tq	
+tr	tree trust skill:terse refactor
+ts	trust skill:terse hotkeys settings
+tt	trust settings
+tu	trust
+tv	
+tw	
+tx	
+ty	hotkeys
+tz	
+ua	
+ub	
+uc	
+ud	
+ue	resume
+uf	
+ug	
+uh	
+ui	quit
+uj	
+uk	
+ul	
+um	resume
+un	
+uo	
+up	
+uq	
+ur	
+us	trust
+ut	logout quit trust
+uu	
+uv	
+uw	
+ux	
+uy	
+uz	
+va	
+vb	
+vc	
+vd	
+ve	review skill:review
+vf	
+vg	
+vh	
+vi	review skill:review
+vj	
+vk	
+vl	
+vm	
+vn	
+vo	
+vp	
+vq	
+vr	
+vs	
+vt	
+vu	
+vv	
+vw	review skill:review
+vx	
+vy	
+vz	
+wa	
+wb	
+wc	
+wd	
+we	rewrite
+wf	
+wg	
+wh	
+wi	rewrite
+wj	
+wk	
+wl	
+wm	
+wn	
+wo	
+wp	
+wq	
+wr	rewrite
+ws	
+wt	rewrite
+wu	
+wv	
+ww	
+wx	
+wy	
+wz	
+xa	
+xb	
+xc	
+xd	
+xe	
+xf	
+xg	
+xh	
+xi	
+xj	
+xk	
+xl	
+xm	
+xn	
+xo	export
+xp	export
+xq	
+xr	export
+xs	
+xt	export
+xu	
+xv	
+xw	
+xx	
+xy	skill:x1y
+xz	
+ya	
+yb	
+yc	
+yd	
+ye	
+yf	
+yg	
+yh	
+yi	
+yj	
+yk	
+yl	
+ym	
+yn	
+yo	
+yp	
+yq	
+yr	
+ys	hotkeys
+yt	
+yu	
+yv	
+yw	
+yx	
+yy	
+yz	
+za	
+zb	
+zc	
+zd	
+ze	
+zf	
+zg	
+zh	
+zi	
+zj	
+zk	
+zl	
+zm	
+zn	
+zo	
+zp	
+zq	
+zr	
+zs	
+zt	
+zu	
+zv	
+zw	
+zx	
+zy	
+zz	
+skill	skill:greet skill:terse skill:review skill:data-2 skill:x1y
+skill:	skill:greet skill:terse skill:review skill:data-2 skill:x1y
+skill:r	skill:review skill:greet skill:terse
+gr	skill:greet
+greet	skill:greet
+re	re resume reload review rewrite refactor skill:review tree skill:greet share skill:terse
+rev	review skill:review
+res	resume
+mod	model scoped-models
+model	model scoped-models
+m/t	import compact
+x1	skill:x1y
+1x	skill:x1y
+y1	skill:x1y
+data2	skill:data-2
+2data	skill:data-2
+data-2	skill:data-2
+new	new
+quit	quit
+sk	skill:greet skill:terse skill:review skill:data-2 skill:x1y
+ls	scoped-models skill:terse
+tm	
+ctl	
+set	settings skill:greet
+reloa	reload
+reload	reload
+rv	review skill:review
+Re	re resume reload review rewrite refactor skill:review tree skill:greet share skill:terse
+MODEL	model scoped-models
+a-b	
+-	skill:data-2 scoped-models
+scoped	scoped-models
+s-m	scoped-models
