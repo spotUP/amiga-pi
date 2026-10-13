@@ -1,0 +1,14 @@
+
+────────────────────────────────────────────────────────────────────────────────
+
+Resume Session (Current Fold ◉ Current Folder | ○ All  Name: All  Sort: Threaded
+tab scope · re:<pattern> regex · "phrase" exact
+ctrl+s sort · ctrl+n named · ctrl+d delete · ctrl+p path (off)
+
+>
+
+  No sessions in current folder. Press Tab to view all.
+
+────────────────────────────────────────────────────────────────────────────────
+
+No session selected
