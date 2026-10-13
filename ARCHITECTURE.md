@@ -128,9 +128,9 @@ arguments) is written back, key order of a changed object being ext_lua.c's fixe
 list (runner.ts snapshotEventHandlers), so `pi.on`'s unsubscribe function cannot disturb a dispatch under way.
 
 Errors: a file that does not load is told as pi's main.ts:802 and left out; a handler that throws is told as pi's interactive
-showExtensionError and its extension is disabled (its state closed); the loop goes on. The tool_call case blocks with the error's
-message (agent-session.ts:679). Differences from pi 1.1.0 and what is open are the three Lua rows of COMPATIBILITY.md
-("extensions"): 32-bit numbers, `ctx` is cwd, hasUI and isProjectTrusted only, the rest of `pi.*` (exec, sendMessage, ctx.ui)
+showExtensionError and its extension is called again by the next event (pi 1.1.0: runner.ts emitError only reports; L14); the loop goes on.
+The tool_call case blocks with the error's message and tells nobody else (runner.ts emitToolCall has no catch; agent-session.ts:679). Differences from pi 1.1.0 and what is open are the three Lua rows of COMPATIBILITY.md
+("extensions"): `ctx` is cwd, hasUI and isProjectTrusted only, the rest of `pi.*` (exec, sendMessage, ctx.ui)
 comes later; registerTool, registerCommand and appendEntry are the next section. Proof against pi: the ten L1/L2 golden scenarios of pi 1.1.0 rerun with the same
 behaviour as a Lua extension (`tests/pi/rpc/ext_lua_*.cfg.json`, made by `tools/pi_oracle/gen_lua_scenarios.py`; the event
 recorders compare payloads with sorted keys on both sides), the block scenario doubling as the L9-shaped reachability test (the

@@ -5,9 +5,9 @@
  *   block      tool_call { block, reason } and a throwing handler's text
  *   mutate     event.input changed in place reaches the tool and the next extension; untouched input stays byte for byte
  *   result     tool_result's patch; input's transform and handled
- *   errors     a load error and a handler error: pi's texts, the extension disabled, the others go on
+ *   errors     a load error and a handler error: pi's texts, the extension keeps running (L14), the others too
  *   discover   <cwd>/.pi/extensions only when trusted, then the user's, by name; index.lua in a directory
- *   limits     instructions, time, memory; an extension that catches the limit's error is still stopped
+ *   limits     instructions, time, memory; each call is limited anew, the extension keeps running
  *   env        no io / os / require / bytecode; json; ctx; print; unsubscribe
  *   order      one list with C extensions: the order they were added in */
 #define _XOPEN_SOURCE 700
@@ -292,7 +292,8 @@ static void test_errors(void)
         CHECK_INT(pi_lua_load(&lx, missing), -1);
         CHECK(strstr(told[2], "the file cannot be read") != 0);
     }
-    /* a handler that throws: the call is blocked with the message, the extension is disabled, a second one carries on */
+    /* a handler that throws: the call is blocked with the message (runner.ts emitToolCall has no catch), the extension is
+     * called again by the next event (pi has no disabling), a second one carries on */
     CHECK_INT(load("good.lua", "pi.on('tool_call', function(event) if event.toolName == 'edit' then return { block = true, reason = 'good' } end end)"), 0);
     down();
     up(0);
@@ -304,28 +305,32 @@ static void test_errors(void)
         CHECK_INT(pi_exts_tool_call(&ses.ext, "c", "bash", &args, reason, sizeof(reason)), 1);
         CHECK_STR(reason, "kaboom");                    /* pi: the throwing handler blocks with its message */
         CHECK_INT(pi_lua_calls - calls, 1);
+        CHECK_INT(told_n, 0);                           /* the error is the tool result, not a showExtensionError line */
+        CHECK_INT(lx.x[0].L != 0, 1);
+        CHECK_INT(pi_lua_active(&lx), 2);
+        /* not disabled: called again, and blocks again; the other extension is never reached (the throw ends the dispatch) */
+        calls = pi_lua_calls;
+        CHECK_INT(pi_exts_tool_call(&ses.ext, "c", "edit", &args, reason, sizeof(reason)), 1);
+        CHECK_STR(reason, "kaboom");
+        CHECK_INT(pi_lua_calls - calls, 1);
+        /* its input handler throws too: told as showExtensionError, the next handler (the other extension's) still runs */
+        CHECK_STR(run_input("a"), "a+");
         at(path, "throw.lua");
         CHECK(strstr(told[0], "Extension \"") == told[0] && strstr(told[0], path) != 0);
-        CHECK(strstr(told[0], "\" error: kaboom (the extension is disabled)") != 0);
-        CHECK_INT(lx.x[0].L == 0, 1);
-        CHECK_INT(pi_lua_active(&lx), 1);
-        /* disabled: not called again; the other extension still decides */
-        calls = pi_lua_calls;
-        CHECK_INT(pi_exts_tool_call(&ses.ext, "c", "bash", &args, reason, sizeof(reason)), 0);
-        CHECK_INT(pi_exts_tool_call(&ses.ext, "c", "edit", &args, reason, sizeof(reason)), 1);
-        CHECK_STR(reason, "good");
-        CHECK_INT(pi_lua_calls - calls, 2);             /* the good extension's two, none of the disabled one's */
-        CHECK_INT(lx.errors, 1);
-        CHECK_STR(run_input("a"), "a+");                /* its input handler (that would throw) is gone too */
+        CHECK_STR(strstr(told[0], "\" error: ") + 9, "the error value is a table");
+        CHECK_STR(run_input("a"), "a+");                /* and the next input: still called, still told */
+        CHECK_INT(told_n, 2);
+        CHECK_INT(lx.errors, 2);
     }
     down();
     /* an error value that is no string, in an input handler: the text goes on unchanged, the session continues */
     up(0);
     CHECK_INT(load("tbl.lua", "pi.on('input', function() error({}) end)"), 0);
     CHECK_STR(run_input("keep"), "keep");
-    CHECK(strstr(told[0], "error: the error value is a table (the extension is disabled)") != 0);
+    CHECK(strstr(told[0], "error: the error value is a table") != 0 && strstr(told[0], "disabled") == 0);
     CHECK_STR(run_input("keep"), "keep");
-    CHECK_INT(told_n, 1);
+    CHECK_INT(told_n, 2);                               /* called again, told again (runner.ts emitError only reports) */
+    CHECK_INT(pi_lua_active(&lx), 1);
     down();
     /* a result that cannot become JSON (a function in it) is the handler's error */
     up(0);
@@ -412,16 +417,18 @@ static void test_limits(void)
                    "pi.on('input', function() while true do end end)\n"
                    "pi.on('tool_call', function() local n = 0; for i = 1, 1000 do n = n + i end end)"), 0);
     CHECK_STR(run_input("go"), "go");                   /* the runaway handler ended, the session goes on */
-    CHECK(strstr(told[1], "busy.lua\" error: instruction limit exceeded (the extension is disabled)") != 0);
-    CHECK_INT(pi_lua_active(&lx), 0);
+    CHECK(strstr(told[1], "busy.lua\" error: instruction limit exceeded") != 0 && strstr(told[1], "disabled") == 0);
+    CHECK_INT(pi_lua_active(&lx), 1);
+    CHECK_STR(run_input("go"), "go");                   /* the limit is per call: the extension runs again, and ends again */
+    CHECK_INT(told_n, 3);
     down();
-    /* an extension that catches the limit's error and loops on is stopped all the same */
+    /* an extension that catches the limit's error and loops on is ended by the same limit (the hook raises on every instruction) */
     up(0);
     lx.instr_cap = 200000;
     CHECK_INT(load("catch.lua", "pi.on('input', function()\n  while true do pcall(function() while true do end end) end\nend)"), 0);
     CHECK_STR(run_input("go"), "go");
     CHECK(strstr(told[0], "limit exceeded") != 0);
-    CHECK_INT(pi_lua_active(&lx), 0);
+    CHECK_INT(pi_lua_active(&lx), 1);
     down();
     /* the limit is per call: a handler that stays under it runs as often as it is asked */
     up(0);
@@ -446,7 +453,7 @@ static void test_limits(void)
     CHECK_INT(load("mem.lua", "pi.on('input', function() local t = {}; while true do t[#t + 1] = string.rep('x', 100000) end end)"), 0);
     CHECK_STR(run_input("go"), "go");
     CHECK(strstr(told[0], "not enough memory") != 0);
-    CHECK_INT(pi_lua_active(&lx), 0);
+    CHECK_INT(pi_lua_active(&lx), 1);
     down();
     up(0);
     lx.mem_cap = 1024L * 1024;
@@ -728,13 +735,13 @@ static void test_register_tools(void)
     CHECK(tool_named("late") == 0);
     run_input("x");
     CHECK(tool_named("late") != 0);
-    /* an extension that stopped: its tool answers that it is disabled */
+    /* an extension whose handler threw: its tool still runs (pi has no disabling) */
     CHECK_INT(load("t8.lua", "pi.registerTool({ name = 'stops', parameters = { type = 'object' }, execute = function() return { content = {} } end })\n"
                              "pi.on('input', function() error('stop', 0) end)"), 0);
     run_input("x");
     r = run_tool("stops", "{}", &err);
-    CHECK_INT(err, 1);
-    CHECK(strstr(r, "is disabled") != 0);
+    CHECK_INT(err, 0);
+    CHECK(strstr(r, "disabled") == 0);
     down();
 }
 
@@ -767,13 +774,13 @@ static void test_register_commands(void)
     CHECK_INT(pi_exts_run_command(&ses.ext, "/nosuch x"), 0);
     CHECK_INT(pi_exts_run_command(&ses.ext, "plain"), 0);
     CHECK_INT(pi_exts_run_command(&ses.ext, "/"), 0);
-    /* a handler that throws: told as pi tells it (agent-session.ts emitError, extensionPath command:<name>), the extension stops */
+    /* a handler that throws: told as pi tells it (agent-session.ts emitError, extensionPath command:<name>), the extension stays */
     told_n = 0;
     CHECK_INT(pi_exts_run_command(&ses.ext, "/boom"), 1);
-    CHECK_STR(told[0], "Extension \"command:boom\" error: x (the extension is disabled)");
-    CHECK_INT(pi_lua_active(&lx), 2);
+    CHECK_STR(told[0], "Extension \"command:boom\" error: x");
+    CHECK_INT(pi_lua_active(&lx), 3);                   /* the extension stays */
     CHECK_INT(pi_exts_run_command(&ses.ext, "/boom"), 1);
-    CHECK(strstr(told[1], "is disabled") != 0);
+    CHECK_STR(told[1], "Extension \"command:boom\" error: x");    /* and runs again */
     /* definitions pi refuses */
     CHECK_INT(load("c4.lua", "pi.registerCommand('', { handler = function() end })"), -1);
     CHECK(strstr(told[2], "must have a non-empty string name. Use pi.registerCommand(\"name\", { description, handler }).") != 0);
@@ -817,7 +824,7 @@ static void test_append_entry(void)
     CHECK_STR(ent_data[1], "<none>");                       /* undefined data: no "data" key (JSON.stringify drops it) */
     CHECK_STR(ent_data[2], "null");
     CHECK_STR(ent_data[3], "\"text\"");
-    /* a function cannot be written: the handler fails, the extension stops */
+    /* a function cannot be written: the handler fails, the extension stays */
     CHECK_INT(load("e3.lua", "pi.on('input', function() pi.appendEntry('t5', { f = print }) end)"), 0);
     run_input("x");
     CHECK(strstr(told[0], "pi.appendEntry: ") != 0 || strstr(told[1], "pi.appendEntry: ") != 0);
@@ -1004,7 +1011,7 @@ static void test_app(void)
     CHECK_INT(app_run(0), 0);
     CHECK(sent("hello [user]"));
     CHECK(strstr(out.p, "Failed to load extension \"") != 0 && strstr(out.p, "a_bad.lua") != 0);
-    CHECK(strstr(out.p, "b_throw.lua\" error: oops (the extension is disabled)") != 0);
+    CHECK(strstr(out.p, "b_throw.lua\" error: oops") != 0);
     ps_reset();
 }
 
