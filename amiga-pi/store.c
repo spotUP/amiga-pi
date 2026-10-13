@@ -592,6 +592,57 @@ int pi_store_reload(pi_store *st)
 /* reason: 0 manual, 1 threshold, 2 overflow; will_retry: the run asks again after it (compaction_end's willRetry).
  * Automatic compaction with nothing to cut is silent, as pi's _runAutoCompaction (prepareCompaction undefined: false before
  * compaction_start); /compact tells why it could not. 0 compacted, -1 not */
+/* prepareCompaction's result as the session_before_compact event carries it (compaction.ts CompactionPreparation; the file
+ * operation sets serialize as {} in JSON) */
+static void prep_json(pi_store *st, const pi_prep *p, jw *w)
+{
+    int i;
+    jw_rawz(w, "{\"firstKeptEntryId\":");
+    jw_strz(w, s3_id(&st->s3, p->first_kept >= 0 ? p->first_kept : st->s3.leaf));
+    jw_rawz(w, ",\"messagesToSummarize\":[");
+    for (i = 0; i < p->hist.n; i++) {
+        if (i)
+            jw_rawz(w, ",");
+        jw_raw(w, p->hist.msg[i], p->hist.msg_n[i]);
+    }
+    jw_rawz(w, "],\"turnPrefixMessages\":[");
+    for (i = 0; i < p->prefix.n; i++) {
+        if (i)
+            jw_rawz(w, ",");
+        jw_raw(w, p->prefix.msg[i], p->prefix.msg_n[i]);
+    }
+    jw_rawz(w, p->split ? "],\"isSplitTurn\":true,\"tokensBefore\":" : "],\"isSplitTurn\":false,\"tokensBefore\":");
+    jw_long(w, p->tokens_before);
+    if (p->prev_summary) {
+        jw_rawz(w, ",\"previousSummary\":");
+        jw_strz(w, p->prev_summary);
+    }
+    jw_rawz(w, ",\"fileOps\":{\"read\":{},\"written\":{},\"edited\":{}},\"settings\":{\"enabled\":");
+    jw_rawz(w, st->cp_enabled ? "true" : "false");
+    jw_rawz(w, ",\"reserveTokens\":");
+    jw_long(w, st->reserve);
+    jw_rawz(w, ",\"keepRecentTokens\":");
+    jw_long(w, st->keep);
+    jw_rawz(w, "}}");
+}
+
+/* sessionManager.getBranch(): the entries from the root to the leaf */
+static void branch_json(pi_store *st, jw *w)
+{
+    int *path = 0, n, i;
+    n = s3_path(&st->s3, st->s3.leaf, &path);
+    jw_rawz(w, "[");
+    for (i = 0; i < n; i++) {
+        long ln;
+        const char *line = s3_text(&st->s3, path[i], &ln);
+        if (i)
+            jw_rawz(w, ",");
+        jw_raw(w, line ? line : "null", line ? ln : 4);
+    }
+    jw_rawz(w, "]");
+    free(path);
+}
+
 static int run_compaction(pi_store *st, const char *instr, int reason, int will_retry)
 {
     pi_session *s = st->s;
@@ -599,7 +650,7 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
     cp_result res;
     pi_ctx c;
     jw usage, sysm, info;
-    int rc, ok = -1, i;
+    int rc, ok = -1, i, ext_comp = 0;
     long after = 0;
     jw_reset(&st->cp_result);
     st->err[0] = 0;
@@ -620,7 +671,47 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
                sizeof(st->err));
     } else {
         char err[200];
-        if (cp_compact(&p, st->reserve, s->model.max_tokens, instr, pi_store_complete, st, &res, err, sizeof(err))) {
+        int veto = 0;
+        memset(&res, 0, sizeof(res));
+        jw_init(&res.summary);
+        jw_init(&res.details);
+        if (pi_exts_has(&s->ext, "session_before_compact")) {
+            jw pj, bj, cj;
+            jw_init(&pj);
+            jw_init(&bj);
+            jw_init(&cj);
+            prep_json(st, &p, &pj);
+            branch_json(st, &bj);
+            veto = pi_ev_before_compact(s, pj.p, bj.p, instr, reason, will_retry, &cj);
+            if (veto == 2) {
+                /* the extension's own compaction (CompactionResult: summary, firstKeptEntryId, tokensBefore, details, usage) */
+                jv o, v;
+                if (!json_parse(cj.p, cj.n, &o) && json_type(o) == J_OBJ && json_get(o, "summary", &v) && json_type(v) == J_STR) {
+                    long n;
+                    char *z = json_strdup(v, &n);
+                    if (z) {
+                        jw_raw(&res.summary, z, n);
+                        free(z);
+                    }
+                    res.tokens_before = json_get(o, "tokensBefore", &v) ? json_long(v, p.tokens_before) : p.tokens_before;
+                    if (json_get(o, "firstKeptEntryId", &v) && json_type(v) == J_STR) {
+                        char fid[64];
+                        json_str(v, fid, sizeof(fid));
+                        p.first_kept = s3_find(&st->s3, fid);
+                    }
+                    if (json_get(o, "details", &v) && json_type(v) != J_NULL)
+                        jw_raw(&res.details, v.p, v.n);
+                    ext_comp = 1;
+                } else
+                    veto = 0;
+            }
+            jw_free(&pj);
+            jw_free(&bj);
+            jw_free(&cj);
+        }
+        if (veto == 1) {
+            cl_copy(st->err, "Compaction cancelled", sizeof(st->err));
+        } else if (!ext_comp && cp_compact(&p, st->reserve, s->model.max_tokens, instr, pi_store_complete, st, &res, err, sizeof(err))) {
             if (s->h.poll && s->h.poll(s->h.u))
                 cl_copy(st->err, "Compaction cancelled", sizeof(st->err));
             else {
@@ -634,8 +725,8 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
             ctx_init(&c);
             if (!ctx_build(&st->s3, st->s3.leaf, &c)) {
                 ctx_system(&c, &sysm);
-                if (s3_compaction(&st->s3, res.summary.p, p.first_kept, res.tokens_before, res.details.p, usage.p, 0,
-                                  sysm.n ? sysm.p : 0) >= 0)
+                if (s3_compaction(&st->s3, res.summary.p ? res.summary.p : "", p.first_kept, res.tokens_before,
+                                  res.details.n ? res.details.p : 0, usage.p, ext_comp, sysm.n ? sysm.p : 0) >= 0)
                     ok = 0;
                 ctx_free(&c);
             }
@@ -676,6 +767,12 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
                     jw_rawz(&info, " tokens before, ");
                     jw_long(&info, after);
                     jw_rawz(&info, " after");
+                    {
+                        long en;
+                        const char *eline = s3_text(&st->s3, st->s3.leaf, &en);   /* the compaction entry just appended */
+                        if (eline)
+                            pi_ev_compact(s, eline, en, ext_comp, reason, will_retry);
+                    }
                     cp_event(st, PE_COMPACTION_END, reason, 0, info.p, will_retry);
                     jw_free(&info);
                 }
@@ -685,7 +782,9 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
         cp_prep_free(&p);
     }
     if (st->err[0] && ok) {
+        int aborted = !strcmp(st->err, "Compaction cancelled");
         cp_event(st, PE_COMPACTION_END, reason, 1, st->err, 0);
+        pi_ev_compact_failed(s, reason, st->err, aborted, 0, ext_comp);
         return -1;
     }
     return ok ? -1 : 0;
@@ -1300,9 +1399,18 @@ int pi_bash_exec(pi_session *s, const char *cmd, jw *text, int *code, int *stopp
     return 0;
 }
 
+int pi_bash_user(pi_session *s, const char *cmd, int exclude, jw *text, int *code, int *stopped)
+{
+    *code = 0;
+    *stopped = 0;
+    if (pi_ev_user_bash(s, cmd, exclude, text, code, stopped))
+        return 0;               /* an extension ran it (user_bash {result}) */
+    return pi_bash_exec(s, cmd, text, code, stopped);
+}
+
 int pi_store_bash_run(pi_store *st, const char *cmd, int exclude, jw *text, int *code, int *stopped)
 {
-    if (pi_bash_exec(st->s, cmd, text, code, stopped))
+    if (pi_bash_user(st->s, cmd, exclude, text, code, stopped))
         return -1;
     pi_store_bash(st, cmd, text->p ? text->p : "", *code, *stopped, exclude);
     return 0;

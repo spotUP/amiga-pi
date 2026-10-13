@@ -466,3 +466,144 @@ void pi_ev_before_agent_start(pi_session *s, const char *prompt)
         pi_exts_emit(&s->ext, "before_agent_start", &p, 0, bas_apply, s);
     jw_free(&p);
 }
+
+/* ---- user_bash ---- */
+
+typedef struct ub {
+    jw *text;
+    int *code, *cancelled;
+    int got;
+} ub;
+
+static int ub_apply(void *u, jv answer, jv after, jw *payload)
+{
+    ub *b = (ub *)u;
+    jv r, v;
+    (void)after;
+    (void)payload;
+    if (!answer.p || !json_get(answer, "result", &r) || json_type(r) != J_OBJ)
+        return 0;
+    jw_reset(b->text);
+    if (json_get(r, "output", &v) && json_type(v) == J_STR) {
+        long n;
+        char *z = json_strdup(v, &n);
+        if (z) {
+            jw_raw(b->text, z, n);
+            free(z);
+        }
+    }
+    *b->code = json_get(r, "exitCode", &v) && json_type(v) == J_NUM ? (int)json_long(v, 0) : 0;
+    *b->cancelled = json_get(r, "cancelled", &v) && json_type(v) == J_TRUE;
+    b->got = 1;
+    return 1;
+}
+
+int pi_ev_user_bash(pi_session *s, const char *command, int exclude, jw *text, int *code, int *cancelled)
+{
+    jw p;
+    ub b;
+    if (!s || !pi_exts_has(&s->ext, "user_bash"))
+        return 0;
+    b.text = text;
+    b.code = code;
+    b.cancelled = cancelled;
+    b.got = 0;
+    jw_init(&p);
+    pi_ext_payload_user_bash(&p, command, exclude, s->ext.cwd ? s->ext.cwd : "");
+    if (!p.oom)
+        pi_exts_emit(&s->ext, "user_bash", &p, 0, ub_apply, &b);
+    jw_free(&p);
+    return b.got;
+}
+
+/* ---- compaction ---- */
+
+static const char *cp_reason(int r)
+{
+    return r == 0 ? "manual" : r == 1 ? "threshold" : "overflow";
+}
+
+typedef struct cpb {
+    int cancel, comp;
+    jw *out;
+} cpb;
+
+static int cpb_apply(void *u, jv answer, jv after, jw *payload)
+{
+    cpb *b = (cpb *)u;
+    jv v;
+    (void)after;
+    (void)payload;
+    if (!answer.p)
+        return 0;
+    if (pi_ext_decide_cancel(answer)) {
+        b->cancel = 1;
+        return 1;
+    }
+    if (json_get(answer, "compaction", &v) && json_type(v) == J_OBJ) {
+        jw_reset(b->out);
+        jw_raw(b->out, v.p, v.n);
+        b->comp = 1;                    /* the last override wins */
+    }
+    return 0;
+}
+
+int pi_ev_before_compact(pi_session *s, const char *prep, const char *branch, const char *instr, int reason, int will_retry,
+                         jw *comp)
+{
+    jw p;
+    cpb b;
+    if (!s || !pi_exts_has(&s->ext, "session_before_compact"))
+        return 0;
+    b.cancel = b.comp = 0;
+    b.out = comp;
+    jw_init(&p);
+    jw_rawz(&p, "{\"type\":\"session_before_compact\",\"preparation\":");
+    jw_rawz(&p, prep);
+    jw_rawz(&p, ",\"branchEntries\":");
+    jw_rawz(&p, branch);
+    if (instr) {
+        jw_rawz(&p, ",\"customInstructions\":");
+        jw_strz(&p, instr);
+    }
+    jw_rawz(&p, ",\"reason\":");
+    jw_strz(&p, cp_reason(reason));
+    jw_rawz(&p, will_retry ? ",\"willRetry\":true" : ",\"willRetry\":false");
+    jw_rawz(&p, ",\"signal\":{}}");
+    if (!p.oom)
+        pi_exts_emit(&s->ext, "session_before_compact", &p, 0, cpb_apply, &b);
+    jw_free(&p);
+    return b.cancel ? 1 : b.comp ? 2 : 0;
+}
+
+void pi_ev_compact(pi_session *s, const char *entry, long entry_n, int from_ext, int reason, int will_retry)
+{
+    jw p;
+    if (!s || !pi_exts_has(&s->ext, "session_compact"))
+        return;
+    jw_init(&p);
+    jw_rawz(&p, "{\"type\":\"session_compact\",\"compactionEntry\":");
+    jw_raw(&p, entry, entry_n);
+    jw_rawz(&p, from_ext ? ",\"fromExtension\":true,\"reason\":" : ",\"fromExtension\":false,\"reason\":");
+    jw_strz(&p, cp_reason(reason));
+    jw_rawz(&p, will_retry ? ",\"willRetry\":true}" : ",\"willRetry\":false}");
+    plain(s, "session_compact", &p);
+}
+
+void pi_ev_compact_failed(pi_session *s, int reason, const char *error, int aborted, int will_retry, int from_ext)
+{
+    jw p;
+    if (!s || !pi_exts_has(&s->ext, "session_compact_failed"))
+        return;
+    jw_init(&p);
+    jw_rawz(&p, "{\"type\":\"session_compact_failed\",\"reason\":");
+    jw_strz(&p, cp_reason(reason));
+    if (error && !aborted) {
+        jw_rawz(&p, ",\"errorMessage\":");
+        jw_strz(&p, error);
+    }
+    jw_rawz(&p, aborted ? ",\"aborted\":true" : ",\"aborted\":false");
+    jw_rawz(&p, will_retry ? ",\"willRetry\":true" : ",\"willRetry\":false");
+    jw_rawz(&p, from_ext ? ",\"fromExtension\":true}" : ",\"fromExtension\":false}");
+    plain(s, "session_compact_failed", &p);
+}

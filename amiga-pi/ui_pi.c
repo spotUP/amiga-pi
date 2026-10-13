@@ -1231,7 +1231,7 @@ static int bang(pi_ui *p, const char *line)
     if (!*cmd)
         return 0;
     jw_init(&text);
-    if (pi_bash_exec(s, cmd, &text, &code, &stopped)) {
+    if (pi_bash_user(s, cmd, excl, &text, &code, &stopped)) {
         pshow_error(&p->ps, "The bash tool is not available");
         jw_free(&text);
         return 1;

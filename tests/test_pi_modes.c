@@ -1852,7 +1852,7 @@ static void test_hooks_pi(void)
 {
     static const char *const names[] = { "ext_events", "ext_block_plain", "ext_mutate", "ext_matcher", "ext_result",
                                          "ext_input_transform", "ext_input_handled", "ext_rpc_prompt", "ext_rpc_handled",
-                                         "ext_rpc_new", "ext_ev_model", "ext_ev_fork", "ext_ev_run", 0 };
+                                         "ext_rpc_new", "ext_ev_model", "ext_ev_fork", "ext_ev_run", "ext_ev_compact", "ext_ev_bash", 0 };
     group(names);
 }
 
@@ -1875,7 +1875,7 @@ static void test_lua_pi(void)
     static const char *const names[] = { "ext_lua_events", "ext_lua_block_plain", "ext_lua_mutate", "ext_lua_matcher",
                                          "ext_lua_result", "ext_lua_input_transform", "ext_lua_input_handled",
                                          "ext_lua_rpc_prompt", "ext_lua_rpc_handled", "ext_lua_rpc_new", "ext_lua_ev_model",
-                                         "ext_lua_ev_fork", "ext_lua_ev_run", 0 };
+                                         "ext_lua_ev_fork", "ext_lua_ev_run", "ext_lua_ev_compact", "ext_lua_ev_bash", 0 };
     group(names);
 }
 

@@ -41,4 +41,18 @@ int pi_ev_context(pi_session *s, jw *out);
  * (kept in s->next_custom); systemPrompt overrides are not read */
 void pi_ev_before_agent_start(pi_session *s, const char *prompt);
 
+/* user_bash (runner.ts emitUserBash, rpc-mode.ts bash, interactive-mode.ts handleBashCommand): 1 when a handler answered
+ * {result: {output, exitCode, cancelled, truncated}} -- text, code and cancelled then hold it and the command is not run. A
+ * handler's {operations} (custom backends, TypeScript objects) has no meaning here and is ignored */
+int pi_ev_user_bash(pi_session *s, const char *command, int exclude, jw *text, int *code, int *cancelled);
+
+/* session_before_compact (agent-session.ts:2790, :3126): prep is the CompactionPreparation object, branch the JSON array of the
+ * branch's entries, instr the custom instructions (0 none); reason 0 manual, 1 threshold, 2 overflow. 0 go on, 1 an extension
+ * cancelled, 2 an extension made the compaction: comp holds its {summary, firstKeptEntryId, tokensBefore, details?, usage?} */
+int pi_ev_before_compact(pi_session *s, const char *prep, const char *branch, const char *instr, int reason, int will_retry,
+                         jw *comp);
+/* session_compact (entry: the saved compaction entry's line) and session_compact_failed */
+void pi_ev_compact(pi_session *s, const char *entry, long entry_n, int from_ext, int reason, int will_retry);
+void pi_ev_compact_failed(pi_session *s, int reason, const char *error, int aborted, int will_retry, int from_ext);
+
 #endif
