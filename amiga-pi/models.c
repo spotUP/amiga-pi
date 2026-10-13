@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "models.h"
+#include "authstore.h"
 #include "store.h"
 #include "claude/util.h"
 #include "claude/glob.h"
@@ -87,7 +88,7 @@ int pi_models_init(pi_models *m, cl_sys *sys, const char *agent_dir, long (*gete
         }
         free(txt);
     }
-    m->auth = read_text(sys, agent_dir, "auth.json", &n);
+    m->auth = pi_store_read(sys, agent_dir, "auth.json", &n);     /* after an interrupted write the new file or the old one */
     m->cfg.auth = m->auth;
     m->cfg.auth_n = m->auth ? n : 0;
     return 0;
@@ -149,10 +150,11 @@ int pi_thinking_set(pi_models *m, pi_session *s, int level)
 /* checkAuth: a credential for the provider, or an endpoint that wants none (a LAN server on plain http) */
 static int usable(pi_models *m, const llm_model *mo)
 {
-    static char key[512];
+    static char key[4096];      /* an OAuth access token is a JWT of a few KB */
     if (mo->base_url && !strncmp(mo->base_url, "http://", 7))
         return 1;
-    return llm_cfg_key(&m->cfg, mo, key, sizeof(key), 0) > 0;
+    /* github-copilot's login lists the account's models (availableModelIds); the rest of its catalog is not offered */
+    return llm_cfg_key(&m->cfg, mo, key, sizeof(key), 0) > 0 && llm_cfg_model_ok(&m->cfg, mo);
 }
 
 /* pi's setModel (agent-session.js :1942): the level for the new model is the settings default, else the one the session has

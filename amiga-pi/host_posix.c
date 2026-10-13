@@ -119,6 +119,19 @@ static int p_resolve(void *u, const char *host, unsigned char ip[4])
     return 0;
 }
 
+/* /login's PKCE verifier and state: the system's generator */
+static int p_random(void *u, unsigned char *buf, long n)
+{
+    FILE *f = fopen("/dev/urandom", "rb");
+    long got = 0;
+    (void)u;
+    if (f) {
+        got = (long)fread(buf, 1, (size_t)n, f);
+        fclose(f);
+    }
+    return got == n ? 0 : -1;
+}
+
 static long p_getenv(const char *name, char *out, long cap)
 {
     const char *v = getenv(name);
@@ -162,10 +175,12 @@ int pi_host_run(int argc, char **argv, const pi_platform *over)
         pl.pool = over->pool;
         pl.h.resolve = over->h.resolve;
         pl.h.u = over->h.u;
+        pl.oauth_url_base = over->oauth_url_base;       /* the tests' OAuth server */
     }
     pl.now = p_now;
     pl.diag = p_diag;
     pl.getenv = p_getenv;
+    pl.random = p_random;
     pl.cwd = getcwd(cwd, sizeof(cwd)) ? cwd : ".";
     /* the tools over C:Claude's host sys (commands through /bin/sh) */
     sys_posix_init(&sp, &sys);

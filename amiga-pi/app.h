@@ -39,6 +39,11 @@ typedef struct pi_platform {
     /* json and rpc mode keep stdout for their records: the program's own lines (warnings, MCP news) go here, one line
      * without its line feed; 0 drops them */
     void (*diag)(const char *line);
+    /* secure random bytes for /login (PKCE verifier, state, device id): 0, -1 when the system has none; 0 pointer: no login */
+    int (*random)(void *u, unsigned char *buf, long n);
+    void *random_u;
+    /* the tests' OAuth server (login.h pi_auth.url_base); 0 in the programs */
+    const char *oauth_url_base;
 } pi_platform;
 
 /* the runtime of one run: what pi_app builds from the command line. One per process (the pieces it points to are
