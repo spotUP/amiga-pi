@@ -1,0 +1,19 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "\nexport default function (pi) {\n  pi.on(\"tool_call\", async (event, ctx) => {\n    const a = await ctx.ui.select(\"Pick\", [\"One\", \"Two\"], { timeout: 5000 });\n    const b = await ctx.ui.confirm(\"Sure?\", \"It runs a command.\", { timeout: 250 });\n    const c = await ctx.ui.input(\"Why?\", \"a reason\", { timeout: 250 });\n    return { block: true, reason: \"select=\" + a + \" confirm=\" + b + \" input=\" + c + \" hasUI=\" + ctx.hasUI };\n  });\n}\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": []
+}

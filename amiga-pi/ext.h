@@ -25,6 +25,9 @@
  *               templates (agent-session.ts prompt() 1977-1983, _tryExecuteExtensionCommand
  *               2116-2142); get_commands and the slash menu list them, extension by extension
  *               in list order, each name resolved as runner.ts resolveRegisteredCommands.
+ *   ui          pi's ExtensionUIContext dialogs (types.ts:149-160): select, confirm, input, notify. The mode that has a
+ *               user binds them (pi_exts.ui: the TUI, RPC's extension_ui_request); print and json mode bind nothing,
+ *               and the extension's ctx.hasUI is false (pi: noOpUIContext, runner.ts:324).
  * Portable C89. */
 #ifndef PI_EXT_H
 #define PI_EXT_H
@@ -34,6 +37,19 @@
 
 #define PI_EXTS 16
 #define PI_EXT_CMDS 64                  /* extension commands registered at most */
+
+/* the dialogs an extension can open (pi_exts.ui). A dialog waits for the user and the mode keeps its own loop running meanwhile
+ * (the TUI's menu loop, RPC's line reader), so the extension's call returns with the answer. timeout_ms > 0 ends the dialog
+ * by itself (pi's ExtensionUIDialogOptions.timeout); 0 waits. select and input give 1 and the text in value, or 0 for
+ * cancelled and timed out (pi's undefined); confirm gives 1 only for yes (cancelled and timed out: false, pi's default). */
+typedef struct pi_ext_ui {
+    void *u;
+    int (*select)(void *u, const char *title, const char *const *opt, int n, long timeout_ms, char *value, long cap);
+    int (*confirm)(void *u, const char *title, const char *message, long timeout_ms);
+    int (*input)(void *u, const char *title, const char *placeholder, long timeout_ms, char *value, long cap);
+    /* type: "info", "warning", "error", or 0 */
+    void (*notify)(void *u, const char *message, const char *type);
+} pi_ext_ui;
 
 /* pi_ext.rank: where pi_ext_add puts the extension (0: no rank, the end) */
 #define PI_EXT_HOOKS 1
@@ -87,6 +103,7 @@ typedef struct pi_exts {
     /* the running tool's structured content and details, for a tool_result extension that replaces the content
      * (pi: structuredContent is dropped unless the handler returns it too); set by the loop, 0 outside it */
     jw *structured, *details;
+    const pi_ext_ui *ui;        /* the mode's dialogs, 0 none (print, json): ctx.hasUI is ui != 0 */
     int turn;                   /* turn_start's turnIndex: 0 at agent_start, +1 after each turn_end (kept by pi_exts_event) */
     int thrown;                 /* the tool itself failed: its result's details are {} when it has none */
     pi_ext_cmd cmd[PI_EXT_CMDS];

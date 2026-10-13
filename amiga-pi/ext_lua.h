@@ -14,7 +14,7 @@
  * agent_end, agent_settled; any other name is accepted and never fires (COMPATIBILITY.md, extension events). tool_call:
  * mutate event.input in place or return { block = true, reason }; tool_result: return { content, details,
  * structuredContent, isError }; input: return { action = "transform", text } or { action = "handled" }.
- * Also in the extension's environment: `ctx.cwd`, `ctx.hasUI` (false until L5), `ctx.isProjectTrusted()`, `json.encode`
+ * Also in the extension's environment: `ctx.cwd`, `ctx.hasUI` (true when the mode has a user: ext.h pi_ext_ui) and `ctx.ui.select(title, options, {timeout})` / `confirm(title, message, {timeout})` / `input(title, placeholder, {timeout})` / `notify(message, type)` (L5: pi's ExtensionUIContext; the call waits for the answer and returns it -- the chosen string or nil, true or false, the text or nil --, and without a user gives pi's defaults nil, false, nil), `ctx.isProjectTrusted()`, `json.encode`
  * / `json.decode` (JS's JSON; objects encode with the keys in a fixed order -- type, text, data, mimeType, then sorted --, decoded arrays carry the metatable that makes the empty
  * table an array), `print` (a notice). The libraries: base (no dofile / loadfile; load accepts text only), coroutine,
  * table, string, math, utf8. No io, os, package, debug: files and processes come with pi.exec (L4).

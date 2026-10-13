@@ -132,7 +132,7 @@ list (runner.ts snapshotEventHandlers), so `pi.on`'s unsubscribe function cannot
 Errors: a file that does not load is told as pi's main.ts:802 and left out; a handler that throws is told as pi's interactive
 showExtensionError and its extension is called again by the next event (pi 1.1.0: runner.ts emitError only reports; L14); the loop goes on.
 The tool_call case blocks with the error's message and tells nobody else (runner.ts emitToolCall has no catch; agent-session.ts:679). Differences from pi 1.1.0 and what is open are the three Lua rows of COMPATIBILITY.md
-("extensions"): `ctx` is cwd, hasUI and isProjectTrusted only, the rest of `pi.*` (exec, sendMessage, ctx.ui)
+("extensions"): `ctx` is cwd, hasUI, ui (the four dialogs, next section but one) and isProjectTrusted only, the rest of `pi.*` (exec, sendMessage)
 comes later; registerTool, registerCommand and appendEntry are the next section. Proof against pi: the ten L1/L2 golden scenarios of pi 1.1.0 rerun with the same
 behaviour as a Lua extension (`tests/pi/rpc/ext_lua_*.cfg.json`, made by `tools/pi_oracle/gen_lua_scenarios.py`; the event
 recorders compare payloads with sorted keys on both sides), the block scenario doubling as the L9-shaped reachability test (the
@@ -161,6 +161,24 @@ Proof: `tools/pi_oracle/rpc_gen.py` runs the same tools, commands and entries as
 ext_cmd*, ext_entry; the records, `<name>.req.N.json` with the tools and messages of each request, what execute and the handlers were
 handed, the session file), `gen_lua_scenarios.py` holds the Lua twins, `tests/test_pi_modes.c` compares; the reachability test is
 ext_lua_entry (the fake model calls the Lua tool, sentinel `pi_lua_tool_calls`, the result is in the session file).
+
+## Dialogs from Lua: ctx.ui (Phase L5)
+
+pi's `ExtensionUIContext` (core/extensions/types.ts:149-160) is a different object in every mode: the TUI draws selectors, RPC sends
+`extension_ui_request` lines, print and json mode use the no-op context (runner.ts:324) whose answers are `undefined` / `false`.
+amiga-pi keeps that split in one place: `pi_exts.ui` (ext.h `pi_ext_ui`: select, confirm, input, notify), bound by the mode that has a
+user -- `ui_pi.c` (`xu_*`, the TUI; line mode as numbered and y/n lines) and `mode_rpc.c` (`rpc_ui_*`, bound for the run of
+`pi_mode_rpc`) -- and left 0 in print and json mode. Lua's `ctx.hasUI` is `ui != 0`, read when it is asked, and `ctx.ui.select`,
+`confirm`, `input`, `notify` (ext_lua.c) call through it, giving pi's defaults when it is 0. pi's dialogs are Promises; a Lua handler
+is synchronous, so a call returns with the answer and the mode's own loop runs while it waits: the TUI's menu loop (the same way the
+permission gate's question waits: `tui_menu`), RPC's line reader (`dialog_wait`, commands that arrive meanwhile are handled, as
+pi handles them). The wait is taken off the handler's clock limit (ext_lua.c `ui_waited`), so a user who thinks for a minute does not
+end the extension. The TUI look is claude/tui.c's `tui_ext_menu` and `tui_ext_input`, the existing menu and line input with pi's
+ExtensionSelectorComponent / ExtensionInputComponent styling (`m_ext`, `pi_in_ext`) and the dialog timeout (`m_timeout_ms`, the title
+counting seconds down as pi's CountdownTimer); no second widget. Proof: RPC transcripts of pi 1.1.0 with TypeScript twins (rpc_gen.py
+ui_dialogs, ui_cancel, ext_ui_timeout, ext_ui_notify, ext_ui_print) against the Lua extensions of gen_lua_scenarios.py
+(`ext_lua_ui_*`); 12 TUI screens (tui_gen.py `ext_ui_*`) compared cell by cell in tests/test_pi_tui.c; tests/test_pi_lua.c for the
+defaults, the arguments and the clock.
 
 ## Hook commands on pi's events (Phase L1, L2)
 

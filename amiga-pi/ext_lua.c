@@ -493,6 +493,149 @@ static int ctx_trusted(lua_State *L)
     return 1;
 }
 
+/* ---- ctx.hasUI and ctx.ui (L5): pi's ExtensionUIContext dialogs (types.ts:149-160) ---- */
+
+#define UI_VALUE 4096                   /* the longest answer of select and input (cut there) */
+#define UI_OPTIONS 256                  /* options of one select */
+
+/* ctx.hasUI is read when it is asked: the mode binds its dialogs after the extensions load (runner.ts hasUI()) */
+static int ctx_index(lua_State *L)
+{
+    const char *k = lua_type(L, 2) == LUA_TSTRING ? lua_tostring(L, 2) : "";
+    if (!strcmp(k, "hasUI")) {
+        lua_pushboolean(L, self(L)->host->s->ext.ui != 0);
+        return 1;
+    }
+    return 0;
+}
+
+/* the options table's timeout (ExtensionUIDialogOptions.timeout, milliseconds; signal has no meaning here), 0 none */
+static long ui_timeout(lua_State *L, int idx)
+{
+    long ms = 0;
+    if (lua_istable(L, idx)) {
+        lua_getfield(L, idx, "timeout");
+        if (lua_isnumber(L, -1)) {
+            lua_Number n = lua_tonumber(L, -1);
+            ms = n > 0 && n < 2147483647.0 ? (long)n : 0;
+        }
+        lua_pop(L, 1);
+    }
+    return ms;
+}
+
+/* a dialog waits for the user as long as it takes: that time is not the handler's (the clock limit counts the handler) */
+static unsigned long ui_clock(pi_lua_ext *x)
+{
+    pi_session *s = x->host->s;
+    return s->h.ms ? s->h.ms(s->h.u) : 0;
+}
+
+static void ui_waited(pi_lua_ext *x, unsigned long t0)
+{
+    x->t0 += ui_clock(x) - t0;
+}
+
+/* ctx.ui.select(title, options, { timeout }) -> the chosen string, or nil (cancelled, timed out, no UI) */
+static int ui_select(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    const pi_ext_ui *ui = x->host->s->ext.ui;
+    const char *title = luaL_checkstring(L, 1);
+    const char **opt;
+    char *value;
+    long n, i, ms = ui_timeout(L, 3);
+    unsigned long t0;
+    int ok = 0;
+    luaL_checktype(L, 2, LUA_TTABLE);
+    n = (long)lua_rawlen(L, 2);
+    if (n > UI_OPTIONS)
+        n = UI_OPTIONS;
+    if (!ui || !ui->select || n < 1) {
+        lua_pushnil(L);
+        return 1;
+    }
+    luaL_checkstack(L, (int)n + 4, "too many options");
+    opt = (const char **)lua_newuserdatauv(L, (size_t)n * sizeof(char *), 0);      /* collected with the call */
+    for (i = 0; i < n; i++) {
+        lua_rawgeti(L, 2, (lua_Integer)(i + 1));
+        opt[i] = luaL_tolstring(L, -1, 0);                  /* kept on the stack until the call ends */
+        lua_remove(L, -2);
+    }
+    value = (char *)malloc(UI_VALUE);
+    if (!value)
+        return luaL_error(L, "not enough memory");
+    value[0] = 0;
+    t0 = ui_clock(x);
+    ok = ui->select(ui->u, title, opt, (int)n, ms, value, UI_VALUE);
+    ui_waited(x, t0);
+    if (ok)
+        lua_pushstring(L, value);
+    else
+        lua_pushnil(L);
+    free(value);
+    return 1;
+}
+
+/* ctx.ui.confirm(title, message, { timeout }) -> true or false (declined, cancelled, timed out, no UI) */
+static int ui_confirm(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    const pi_ext_ui *ui = x->host->s->ext.ui;
+    const char *title = luaL_checkstring(L, 1), *message = luaL_checkstring(L, 2);
+    long ms = ui_timeout(L, 3);
+    unsigned long t0;
+    int yes = 0;
+    if (ui && ui->confirm) {
+        t0 = ui_clock(x);
+        yes = ui->confirm(ui->u, title, message, ms);
+        ui_waited(x, t0);
+    }
+    lua_pushboolean(L, yes);
+    return 1;
+}
+
+/* ctx.ui.input(title, placeholder, { timeout }) -> the text, or nil */
+static int ui_input(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    const pi_ext_ui *ui = x->host->s->ext.ui;
+    const char *title = luaL_checkstring(L, 1);
+    const char *ph = lua_isnoneornil(L, 2) ? 0 : luaL_checkstring(L, 2);
+    long ms = ui_timeout(L, 3);
+    unsigned long t0;
+    char *value;
+    int ok;
+    if (!ui || !ui->input) {
+        lua_pushnil(L);
+        return 1;
+    }
+    value = (char *)malloc(UI_VALUE);
+    if (!value)
+        return luaL_error(L, "not enough memory");
+    value[0] = 0;
+    t0 = ui_clock(x);
+    ok = ui->input(ui->u, title, ph, ms, value, UI_VALUE);
+    ui_waited(x, t0);
+    if (ok)
+        lua_pushstring(L, value);
+    else
+        lua_pushnil(L);
+    free(value);
+    return 1;
+}
+
+/* ctx.ui.notify(message, type): type "info", "warning" or "error"; nothing happens without a UI */
+static int ui_notify(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *message = luaL_checkstring(L, 1);
+    const char *type = lua_isnoneornil(L, 2) ? 0 : luaL_checkstring(L, 2);
+    if (ui && ui->notify)
+        ui->notify(ui->u, message, type);
+    return 0;
+}
+
 static void ext_error_at(pi_lua_ext *x, const char *shown, const char *msg);
 static void settle(pi_lua_ext *x, int top);
 
@@ -1054,10 +1197,22 @@ static int c_setup(lua_State *L)
     lua_newtable(L);
     lua_pushstring(L, x->host->cwd ? x->host->cwd : "");
     lua_setfield(L, -2, "cwd");
-    lua_pushboolean(L, 0);
-    lua_setfield(L, -2, "hasUI");
     lua_pushcfunction(L, ctx_trusted);
     lua_setfield(L, -2, "isProjectTrusted");
+    lua_newtable(L);
+    lua_pushcfunction(L, ui_select);
+    lua_setfield(L, -2, "select");
+    lua_pushcfunction(L, ui_confirm);
+    lua_setfield(L, -2, "confirm");
+    lua_pushcfunction(L, ui_input);
+    lua_setfield(L, -2, "input");
+    lua_pushcfunction(L, ui_notify);
+    lua_setfield(L, -2, "notify");
+    lua_setfield(L, -2, "ui");
+    lua_newtable(L);                    /* hasUI answers for the mode as it is now */
+    lua_pushcfunction(L, ctx_index);
+    lua_setfield(L, -2, "__index");
+    lua_setmetatable(L, -2);
     lua_setfield(L, LUA_REGISTRYINDEX, K_CTX);
     /* pi */
     lua_newtable(L);

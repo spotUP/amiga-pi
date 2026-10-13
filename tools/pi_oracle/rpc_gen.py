@@ -13,7 +13,8 @@ Per scenario <name>, in tests/pi/rpc:
   <name>.N.sse      the N-th answer the fake served (the host test streams the same bytes to amiga-pi)
   models.json       the agent directory's models.json (the host test writes the same one)
 Scenarios run in a throw-away PI_CODING_AGENT_DIR; environment pinned: PI_OFFLINE=1,
-PI_SKIP_VERSION_CHECK=1, PI_TELEMETRY=0, fixed work directory /private/tmp/pirpc.
+PI_SKIP_VERSION_CHECK=1, PI_TELEMETRY=0, fixed work directory /private/tmp/pirpc (PIRPC_WORK moves it; a path of the
+same length, then the goldens' paths are rewritten back with sed).
 """
 import argparse, http.server, json, os, shutil, subprocess, sys, threading, time
 
@@ -23,7 +24,7 @@ import tui_gen as T                                    # the fake server and the
 
 OUT = os.path.normpath(os.path.join(HERE, '..', '..', 'tests', 'pi', 'rpc'))
 SESSIONS = os.path.normpath(os.path.join(HERE, '..', '..', 'tests', 'pi', 'sessions'))
-WORK = '/private/tmp/pirpc'
+WORK = os.environ.get('PIRPC_WORK', '/private/tmp/pirpc')     # PIRPC_WORK: a private directory when another run shares the machine
 
 MODELS = [
     {'id': 'fake-model', 'name': 'fake-model', 'reasoning': False, 'input': ['text'], 'contextWindow': 200000,
@@ -417,6 +418,52 @@ EXT_ENTRY = '''export default function (pi) {
       return { content: [{ type: "text", text: "noted" }], details: {} };''') + "}\n"
 sc('ext_entry', mode='json', args=['note it'], answers=[TOOL('note', {'text': 'remember'}), A('Noted.')], session=True,
    text_files={'agent/extensions/t.ts': EXT_ENTRY}, requests=True, collect=['session.jsonl'])
+
+
+# ---- L5: ctx.ui from an extension (the Lua twins are in gen_lua_scenarios.py; hasUI is ctx.hasUI) ----
+# a dialog with a timeout: pi answers its default (undefined, false) when the time runs out, with nothing sent to the client; a
+# response that comes after that is ignored (rpc-mode.ts createDialogPromise, pendingExtensionRequests)
+EXT_UI_TIMEOUT = r'''
+export default function (pi) {
+  pi.on("tool_call", async (event, ctx) => {
+    const a = await ctx.ui.select("Pick", ["One", "Two"], { timeout: 5000 });
+    const b = await ctx.ui.confirm("Sure?", "It runs a command.", { timeout: 250 });
+    const c = await ctx.ui.input("Why?", "a reason", { timeout: 250 });
+    return { block: true, reason: "select=" + a + " confirm=" + b + " input=" + c + " hasUI=" + ctx.hasUI };
+  });
+}
+'''
+sc('ext_ui_timeout', steps=[('send', P('run it')), ('gate', 'extension_ui_request'), ('ui', {'value': 'Two'}), ('settle',),
+                            ('ui', {'confirmed': True})],
+   answers=[TOOL('read', {'path': 'notes.txt'}), A('Done.')], text_files={'agent/extensions/t.ts': EXT_UI_TIMEOUT})
+# notify: fire and forget, notifyType only when a type is given
+EXT_UI_NOTIFY = r'''
+export default function (pi) {
+  pi.on("tool_call", async (event, ctx) => {
+    ctx.ui.notify("plain");
+    ctx.ui.notify("one", "info");
+    ctx.ui.notify("two", "warning");
+    ctx.ui.notify("three", "error");
+    return { block: true, reason: "notified" };
+  });
+}
+'''
+sc('ext_ui_notify', steps=[('prompt', 'run it')], answers=[TOOL('read', {'path': 'notes.txt'}), A('Done.')],
+   text_files={'agent/extensions/t.ts': EXT_UI_NOTIFY})
+# print / json mode: ctx.hasUI is false and the dialogs give pi's defaults without asking anyone (noOpUIContext, runner.ts:324)
+EXT_UI_PRINT = r'''
+export default function (pi) {
+  pi.on("tool_call", async (event, ctx) => {
+    const a = await ctx.ui.select("Pick", ["One", "Two"]);
+    const b = await ctx.ui.confirm("Sure?", "It runs a command.");
+    const c = await ctx.ui.input("Why?", "a reason");
+    ctx.ui.notify("lost", "error");
+    return { block: true, reason: "hasUI=" + ctx.hasUI + " select=" + a + " confirm=" + b + " input=" + c };
+  });
+}
+'''
+sc('ext_ui_print', mode='json', args=['run it'], answers=[TOOL('read', {'path': 'notes.txt'}), A('Done.')],
+   text_files={'agent/extensions/t.ts': EXT_UI_PRINT})
 
 
 class Trickle(T.Fake):

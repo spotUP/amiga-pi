@@ -437,6 +437,125 @@ static int u_ask(void *u, int tool, const char *name, const char *what, int outs
     return ui_ask(&p->ui, tool, name, what, outside);
 }
 
+/* ---- ctx.ui for an extension (L5; ext.h pi_ext_ui; pi's ExtensionUIContext in interactive-mode.ts:2690-2970) ---- */
+
+/* an extension dialog is open: the program status says the agent is blocked on it (pi: setBlocked "extension-dialog") */
+static void xu_blocked(pi_ui *p, int kind, const char *title)
+{
+    if (p->pst_on)
+        pi_pstatus_blocked(&p->pst, kind, kind == PSK_NONE ? 0 : title);
+}
+
+/* the screen without pi's look (line mode): the question printed, the answer a line */
+static int xu_line(pi_ui *p, const char *question, char *ans, long cap)
+{
+    long n;
+    ui_puts(&p->ui, "\033[1m");
+    ui_puts(&p->ui, question);
+    ui_puts(&p->ui, "\033[0m ");
+    n = p->ui.io->read_line(p->ui.io->u, ans, cap);
+    p->ui.col0 = 1;
+    return n < 0 ? -1 : (int)n;
+}
+
+static int xu_select(void *u, const char *title, const char *const *opt, int n, long timeout_ms, char *value, long cap)
+{
+    pi_ui *p = (pi_ui *)u;
+    int c;
+    if (p->look && p->ui.tui) {
+        xu_blocked(p, PSK_QUESTION, title);
+        c = tui_ext_menu(p->ui.tui, title, opt, n, timeout_ms);
+        xu_blocked(p, PSK_NONE, 0);
+        if (c < 0)
+            return 0;               /* Escape, Ctrl+C, the end of input, or the timeout: pi's undefined */
+    } else {
+        char ans[40], num[16];
+        int i;
+        ui_line(&p->ui, title);
+        for (i = 0; i < n; i++) {
+            cl_ltoa(i + 1, num);
+            cl_copy(ans, num, sizeof(ans));
+            cl_cat(ans, ") ", sizeof(ans));
+            ui_puts(&p->ui, ans);
+            ui_line(&p->ui, opt[i]);
+        }
+        c = xu_line(p, "Number (empty cancels):", ans, sizeof(ans));
+        if (c <= 0)
+            return 0;
+        c = atoi(ans) - 1;
+        if (c < 0 || c >= n)
+            return 0;
+    }
+    cl_copy(value, opt[c], cap);
+    return 1;
+}
+
+/* confirm is pi's selector over "Yes" and "No" with the message under the title (interactive-mode.ts:2750-2760) */
+static int xu_confirm(void *u, const char *title, const char *message, long timeout_ms)
+{
+    pi_ui *p = (pi_ui *)u;
+    static const char *const yn[] = { "Yes", "No" };
+    char both[800];
+    int c;
+    cl_copy(both, title, sizeof(both));
+    cl_cat(both, "\n", sizeof(both));
+    cl_cat(both, message, sizeof(both));
+    if (p->look && p->ui.tui) {
+        xu_blocked(p, PSK_PERMISSION, title);
+        c = tui_ext_menu(p->ui.tui, both, yn, 2, timeout_ms);
+        xu_blocked(p, PSK_NONE, 0);
+        return c == 0;
+    } else {
+        char ans[16];
+        ui_line(&p->ui, both);
+        return xu_line(p, "Yes (y) or No (n):", ans, sizeof(ans)) > 0 && (ans[0] == 'y' || ans[0] == 'Y');
+    }
+}
+
+static int xu_input(void *u, const char *title, const char *placeholder, long timeout_ms, char *value, long cap)
+{
+    pi_ui *p = (pi_ui *)u;
+    (void)placeholder;              /* ExtensionInputComponent ignores it too (extension-input.ts, _placeholder) */
+    if (p->look && p->ui.tui) {
+        int r;
+        xu_blocked(p, PSK_QUESTION, title);
+        r = tui_ext_input(p->ui.tui, title, value, cap, timeout_ms);
+        xu_blocked(p, PSK_NONE, 0);
+        return r == 1;
+    }
+    ui_line(&p->ui, title);
+    return xu_line(p, ">", value, cap) >= 0;
+}
+
+/* showExtensionNotify: info is showStatus, warning and error their own rows with pi's prefixes */
+static void xu_notify(void *u, const char *message, const char *type)
+{
+    pi_ui *p = (pi_ui *)u;
+    char line[600];
+    int role = PR_DIM;
+    if (type && !strcmp(type, "error")) {
+        cl_copy(line, "Error: ", sizeof(line));
+        cl_cat(line, message, sizeof(line));
+        if (p->look)
+            pshow_error(&p->ps, line);
+        else
+            ui_line(&p->ui, line);
+        return;
+    }
+    if (type && !strcmp(type, "warning")) {
+        cl_copy(line, "Warning: ", sizeof(line));
+        cl_cat(line, message, sizeof(line));
+        message = line;
+        role = PR_WARNING;
+    }
+    if (p->look)
+        pshow_note(&p->ps, role, message);
+    else
+        ui_line(&p->ui, message);
+}
+
+static pi_ext_ui xu_ui = { 0, xu_select, xu_confirm, xu_input, xu_notify };
+
 /* a user message's text blocks, joined */
 static void user_text(const char *json, long n, jw *out)
 {
@@ -578,8 +697,12 @@ static void attach(pi_ui *p, pi_session *s, cl_io *io, int print)
         s->h.poll = u_poll;
         s->ask = u_ask;
         s->ask_u = p;
-    } else
+        xu_ui.u = p;
+        s->ext.ui = &xu_ui;     /* ctx.hasUI is true and ctx.ui reaches this screen (print mode has no user: hasUI false) */
+    } else {
         s->ask = 0;             /* print mode: nobody answers the gate */
+        s->ext.ui = 0;          /* nor an extension's dialogs: ctx.hasUI is false */
+    }
 }
 
 /* pi's formatTokens */
@@ -1328,5 +1451,6 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
     p.all = 0;
     pi_ui_set_extra_commands(1, 0, 0);
     pi_ui_set_extra_commands(3, 0, 0);
+    s->ext.ui = 0;
     return 0;
 }

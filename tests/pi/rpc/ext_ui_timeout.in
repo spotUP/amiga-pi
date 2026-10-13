@@ -1,0 +1,5 @@
+{"id":"1","type":"prompt","message":"run it"}
+#after extension_ui_request
+{"type":"extension_ui_response","id":"$ui:1","value":"Two"}
+#after agent_settled
+{"type":"extension_ui_response","id":"$ui:2","confirmed":true}

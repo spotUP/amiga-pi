@@ -360,6 +360,55 @@ SCENARIOS.update({
 })
 
 
+# L5: ctx.ui.select / confirm / input / notify from an extension's command (pi's showExtensionSelector / Confirm / Input / Notify,
+# interactive-mode.ts:2690-2970). The extension sits in the agent directory; each command asks one question and tells the answer
+# with notify (info, warning or error by what came back), so the screen after the dialog shows pi's status, warning and error rows.
+EXT_UI = r'''export default function (pi) {
+  pi.registerCommand("pick", { handler: async (args, ctx) => {
+    const v = await ctx.ui.select("Pick one", ["Alpha", "Beta", "Gamma"], args ? { timeout: 60000 } : undefined);
+    if (v === undefined) ctx.ui.notify("nothing picked", "warning"); else ctx.ui.notify("picked " + v);
+  } });
+  pi.registerCommand("sure", { handler: async (args, ctx) => {
+    const v = await ctx.ui.confirm("Delete it?", "This cannot be undone.");
+    if (v) ctx.ui.notify("confirmed", "info"); else ctx.ui.notify("declined", "warning");
+  } });
+  pi.registerCommand("ask", { handler: async (args, ctx) => {
+    const v = await ctx.ui.input("Your name", "a name");
+    if (v === undefined) ctx.ui.notify("no name", "error"); else ctx.ui.notify("hello " + v, "info");
+  } });
+  pi.registerCommand("tell", { handler: async (args, ctx) => {
+    ctx.ui.notify("plain note");
+    ctx.ui.notify("a warning", "warning");
+    ctx.ui.notify("an error", "error");
+  } });
+}
+'''
+UI_FILES = {'extensions/t.ts': EXT_UI}
+SCENARIOS.update({
+    'ext_ui_select': dict(steps=[('type', '/pick'), ('enter',), ('wait', 'Alpha')], answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_select_down': dict(steps=[('type', '/pick'), ('enter',), ('wait', 'Alpha'), ('key', 'Down'), ('key', 'Down')],
+                               answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_select_done': dict(steps=[('type', '/pick'), ('enter',), ('wait', 'Alpha'), ('key', 'Down'), ('enter',), ('wait', 'picked')],
+                               answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_select_cancel': dict(steps=[('type', '/pick'), ('enter',), ('wait', 'Alpha'), ('key', 'Escape'), ('wait', 'nothing picked')],
+                                 answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_select_timeout': dict(steps=[('type', '/pick x'), ('enter',), ('wait', 'Pick one (60s)'), ('capture_now',)],
+                                  answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_confirm': dict(steps=[('type', '/sure'), ('enter',), ('wait', 'Delete it')], answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_confirm_yes': dict(steps=[('type', '/sure'), ('enter',), ('wait', 'Delete it'), ('enter',), ('wait', 'confirmed')],
+                               answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_confirm_no': dict(steps=[('type', '/sure'), ('enter',), ('wait', 'Delete it'), ('key', 'Down'), ('enter',), ('wait', 'declined')],
+                              answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_input': dict(steps=[('type', '/ask'), ('enter',), ('wait', 'Your name'), ('type', 'Ada')],
+                         answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_input_done': dict(steps=[('type', '/ask'), ('enter',), ('wait', 'Your name'), ('type', 'Ada'), ('enter',), ('wait', 'hello Ada')],
+                              answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_input_cancel': dict(steps=[('type', '/ask'), ('enter',), ('wait', 'Your name'), ('type', 'Ada'), ('key', 'Escape'), ('wait', 'no name')],
+                                answers=[], agent_files=UI_FILES, rows=30),
+    'ext_ui_notify': dict(steps=[('type', '/tell'), ('enter',), ('wait', 'an error')], answers=[], agent_files=UI_FILES, rows=30),
+})
+
+
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []
     served = []
@@ -442,7 +491,7 @@ def run(name, sc, cols, rows, keep):
     global HIST
     HIST = False
     rows = sc.get('rows', rows)
-    work = '/private/tmp/pitui'      # fixed: the trust prompt and the footer show the path
+    work = os.environ.get('PITUI_WORK', '/private/tmp/pitui')      # fixed: the trust prompt and the footer show the path (PITUI_WORK: a private directory of the same length, the paths rewritten back after)
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
     agent = os.path.join(work, 'agent')
