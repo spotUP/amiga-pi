@@ -133,6 +133,9 @@ int mcp_attach(mcp *m, pi_session *s);
 /* an env or header value of server s as pi resolves it (resolveConfigValueOrThrow, no command cache): kind "env" or
  * "header", key its name. 0 with the value appended to out; -1 with pi's message in s->err ("Failed to resolve MCP
  * server "x" env "K" from environment variable: V"), the server then fails to connect */
+/* a JSON number as JSON.stringify writes the double it reads as: the shortest digits, JS's exponent rule; Infinity is null */
+void pi_js_number(jw *w, jv v);
+void pi_js_double(jw *w, double v);
 int mcp_value(mcp_server *s, const char *kind, const char *key, const char *v, jw *out);
 /* the server or tool by name, 0 none */
 mcp_server *mcp_server_named(mcp *m, const char *name);

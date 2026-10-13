@@ -221,6 +221,25 @@ static void test_mutate(void)
     CHECK_INT(pi_exts_tool_call(&ses.ext, "c", "bash", &args, reason, sizeof(reason)), 0);
     CHECK_STR(args.p, "{\"timeout\": 3,\"command\":\"ls\",  \"z\":[1,2]}");
     down();
+    /* L13: numbers are JS's. A 13-digit millisecond timestamp and 2^53-1 pass through a handler exactly (Lua integers of 64 bits);
+     * the handler's own arithmetic past 2^53 is written as the double JS would hold; a float is JSON.stringify's text */
+    up(0);
+    CHECK_INT(load("m4.lua", "pi.on('tool_call', function(event)\n"
+                   "  local i = event.input\n"
+                   "  i.t2 = i.t + 1\n"
+                   "  i.m2 = i.m\n"
+                   "  i.p = i.m + 1\n"
+                   "  i.q = i.m + 2\n"
+                   "  i.f = i.x * 3\n"
+                   "  i.k = math.type(i.t) .. math.type(i.x) .. math.type(i.big)\n"
+                   "end)"), 0);
+    jw_reset(&args);
+    jw_rawz(&args, "{\"t\":1760000000123,\"m\":9007199254740991,\"x\":0.1,\"big\":18446744073709551616}");
+    CHECK_INT(pi_exts_tool_call(&ses.ext, "c", "bash", &args, reason, sizeof(reason)), 0);
+    CHECK_STR(args.p, "{\"big\":18446744073709552000,\"f\":0.30000000000000004,\"k\":\"integerfloatfloat\",\"m\":9007199254740991,"
+                      "\"m2\":9007199254740991,\"p\":9007199254740992,\"q\":9007199254740992,\"t\":1760000000123,\"t2\":1760000000124,"
+                      "\"x\":0.1}");
+    down();
     jw_free(&args);
 }
 
@@ -502,8 +521,11 @@ static void test_env(void)
     CHECK_STR(eval("json.encode(json.decode('[[],{},[[]]]'))"), "[[],{},[[]]]");
     CHECK_STR(eval("json.encode(2147483647) .. json.encode(-2147483647) .. json.encode(0.5)"), "2147483647-21474836470.5");
     CHECK_STR(eval("math.type(json.decode('2147483647')) .. math.type(json.decode('2147483648')) .. math.type(json.decode('-5')) .. math.type(json.decode('1e2'))"),
-              "integerfloatintegerfloat");
-    CHECK_STR(eval("json.encode(json.decode('1760000000000'))"), "1.76e+12");   /* 32-bit Lua: a float of 24 bits */
+              "integerintegerintegerfloat");
+    CHECK_STR(eval("json.encode(json.decode('1760000000000')) .. json.encode(json.decode('-9007199254740991')) .. json.encode(json.decode('9007199254740993'))"),
+              "1760000000000-90071992547409919007199254740992");
+    CHECK_STR(eval("json.encode(1e21) .. ' ' .. json.encode(2^53) .. ' ' .. json.encode(-0.0) .. ' ' .. json.encode(1e-7) .. ' ' .. json.encode(1/3)"),
+              "1e+21 9007199254740992 0 1e-7 0.3333333333333333");
     CHECK_STR(eval("json.encode(0/0) .. json.encode(1/0)"), "nullnull");
     CHECK_STR(eval("select(2, pcall(json.decode, '{oops'))"), "json.decode: invalid JSON");
     CHECK_STR(eval("select(2, pcall(json.encode, { f = print }))"), "json.encode: cannot encode a function, thread or userdata");

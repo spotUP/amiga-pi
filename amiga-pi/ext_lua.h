@@ -40,8 +40,8 @@
  * Limits per extension (a runaway extension must not hang a 68020 or eat the machine's memory): 4 MB of Lua memory,
  * 5,000,000 VM instructions and 10 seconds per call (the load counts as a call), checked every 1000 instructions; past
  * the limit the call fails with an error that the extension's own pcall cannot swallow (the hook fires on every
- * instruction after it). Lua numbers are 32-bit (LUA_32BITS, A5): a JSON integer outside +-2147483647 becomes a float
- * with 24 bits of precision (turn_start's 13-digit timestamp).
+ * instruction after it; each call is limited anew). Lua numbers are 64-bit integers and doubles (L13): a JSON integer to
+ * 2^53 is a Lua integer, the rest a float, and a number is written as JSON.stringify writes a JS number (mcp.c pi_js_number).
  * Portable C89, host-tested (tests/test_pi_lua.c). */
 #ifndef PI_EXT_LUA_H
 #define PI_EXT_LUA_H

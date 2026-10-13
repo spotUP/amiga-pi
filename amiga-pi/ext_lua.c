@@ -6,6 +6,7 @@
 #include "lualib.h"
 #include "ext_lua.h"
 #include "ext_payload.h"
+#include "mcp.h"
 #include "claude/util.h"
 #include "claude/path.h"
 #include "claude/schema.h"
@@ -106,12 +107,12 @@ static void push_jnum(lua_State *L, jv v)
             digits++;
     }
     t[k] = 0;
-    /* Lua's integers are 32 bits: what fits is an integer, the rest a float (24 bits of it) */
-    if (is_int && v.n < 64 && (digits < 10 || (digits == 10 && strcmp(t + neg, "2147483647") <= 0))) {
-        long n = 0;
+    /* pi's numbers are JS doubles: an integer up to 2^53 is exact in both, so it is a Lua integer; the rest a float */
+    if (is_int && v.n < 64 && (digits < 16 || (digits == 16 && strcmp(t + neg, "9007199254740992") <= 0))) {
+        lua_Integer n = 0;
         for (i = neg; i < k; i++)
             n = n * 10 + (t[i] - '0');
-        lua_pushinteger(L, (lua_Integer)(neg ? -n : n));
+        lua_pushinteger(L, neg ? -n : n);
     } else
         lua_pushnumber(L, (lua_Number)strtod(t, 0));
 }
@@ -302,24 +303,8 @@ static const char *l2j(lua_State *L, int idx, jw *w, int depth)
         }
         return "cannot encode a userdata";
     case LUA_TNUMBER:
-        if (lua_isinteger(L, idx))
-            jw_long(w, (long)lua_tointeger(L, idx));
-        else {
-            lua_Number d = lua_tonumber(L, idx);
-            if (d != d || d > 1e30 || d < -1e30)
-                jw_rawz(w, "null");             /* JSON.stringify: NaN and Infinity are null */
-            else if (d == (lua_Number)(long)d && d > -2147483647.0 && d < 2147483647.0)
-                jw_long(w, (long)d);
-            else {
-                /* Lua's own text of a float ("%.7g", an exponent form for the big ones: valid JSON numbers) */
-                size_t n;
-                const char *t;
-                lua_pushvalue(L, idx);
-                t = lua_tolstring(L, -1, &n);
-                jw_raw(w, t, (long)n);
-                lua_pop(L, 1);
-            }
-        }
+        /* JSON.stringify of a JS number: a Lua integer is the double JS would hold (exact to 2^53), written by mcp.c */
+        pi_js_double(w, lua_isinteger(L, idx) ? (double)lua_tointeger(L, idx) : (double)lua_tonumber(L, idx));
         return 0;
     case LUA_TSTRING: {
         size_t n;
