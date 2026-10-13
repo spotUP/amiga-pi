@@ -183,6 +183,7 @@ void pshow_init(pi_show *s, cl_tui *t, const cl_pitheme *th)
     s->ins = -1;
     s->t = t;
     s->pad = 1;
+    s->details = 1;
     jw_init(&s->line);
     jw_init(&s->batch);
     jw_init(&s->shadow);
@@ -414,7 +415,6 @@ static void d_header(pi_show *s, const char *name, const char *version)
     pitheme_color(&logo, 179, 0, c179);
     sg(s, PR_DIM, dim);
     blank(s);
-    s->any = 1;
     /* pi's logo, two rows of half blocks, and beside it what the program is and the keys */
     cl_copy(l, " ", sizeof(l));
     cl_cat(l, c174, sizeof(l));
@@ -434,62 +434,104 @@ static void d_header(pi_show *s, const char *name, const char *version)
     cl_cat(l, "\342\226\210\033[39m ", sizeof(l));
     raw(s, l);
     {
-        /* the hint continues the logo's row and wraps in the width as pi's text does (one column of padding each
-         * side; the logo and its space take five of the first row). The keys are in the dim colour, what they do and
-         * the dots in the muted one (pi's keyHint): \001 starts a key, \002 what it does */
-        static const char hint[] =
+        /* pi's compactInstructions / expandedInstructions (interactive-mode.ts:1036-1057), one Text of paddingX 1 with the logo's two
+         * rows before it: the hint continues the logo's second row and wraps in the width as pi's text does (one column of padding
+         * each side; the logo and its space take five of the first row), a "\n" ends a row for good. The keys are in the dim colour,
+         * what they do and the dots in the muted one (pi's keyHint): \001 starts a key, \002 what it does */
+        static const char compact[] =
             "\001escape\002 interrupt \302\267 \001ctrl+c/ctrl+d\002 clear/exit \302\267 \001/\002 commands \302\267 "
             "\001!\002 bash \302\267 \001ctrl+o\002 more";
-        char muted[48], key[48];
-        long n = (long)sizeof(hint) - 1, cut = 0, i, k;
-        int w = 0, room = s->t->cols - 2 - 5, row;
+        static const char expanded1[] =
+            "\001escape\002 to interrupt\n\001ctrl+c\002 to clear\n\001ctrl+c twice\002 to exit\n\001ctrl+d\002 to exit (empty)\n"
+            "\001ctrl+z\002 to suspend\n\001ctrl+k\002 to delete to end\n\001shift+tab\002 to cycle thinking level\n"
+            "\001ctrl+p/shift+ctrl+p\002 to cycle models\n\001ctrl+l\002 to select model\n\001ctrl+o\002 to expand tools\n"
+            "\001ctrl+t\002 to expand thinking\n\001ctrl+g\002 for external editor\n\001/\002 for commands\n\001!\002 to run bash\n";
+        static const char expanded2[] =
+            "\001!!\002 to run bash (no context)\n\001alt+enter\002 to queue follow-up\n"
+            "\001alt+up\002 to edit all queued messages\n\001ctrl+v\002 to paste files on macOS, images, or text\n"
+            "\001drop files\002 to attach";
+        char muted[48], key[48], cur[48], both[1024];
+        const char *hint = compact;
+        long n, a = 0, cut, i, k;
+        int first = 1;
+        if (s->expanded) {
+            cl_copy(both, expanded1, sizeof(both));         /* (a C90 literal is 509 characters at most) */
+            cl_cat(both, expanded2, sizeof(both));
+            hint = both;
+        }
+        n = (long)strlen(hint);
         sg(s, PR_MUTED, muted);
         sg(s, PR_DIM, key);
-        for (i = 0; i < n;) {
-            unsigned long cp;
-            int cl, cw;
-            if (hint[i] == 1 || hint[i] == 2) {
-                i++;
-                continue;
-            }
-            cl = vw_char(hint + i, n - i, &cp);
-            cw = vw_cp_width(cp);
-            if (w + cw > room)
-                break;
-            if (cp == ' ')
-                cut = i;
-            w += cw;
-            i += cl;
-        }
-        if (i >= n)
-            cut = n;
-        else if (!cut)
-            cut = i;
-        for (row = 0; row < 2; row++) {
-            long from = row ? cut : 0, to = row ? n : cut;
-            if (row && cut >= n)
-                break;
-            if (row) {
-                while (from < to && hint[from] == ' ')
-                    from++;
-                raw(s, " ");
-                for (k = from - 1; k >= 0; k--)
+        cl_copy(cur, key, sizeof(cur));
+        while (a <= n) {
+            long e = a;
+            while (e < n && hint[e] != '\n')
+                e++;
+            for (i = a; i < e;) {                 /* a paragraph in rows */
+                int w = 0, room = s->t->cols - 2 - (first ? 5 : 0);
+                cut = 0;
+                for (k = i; k < e;) {
+                    unsigned long cp;
+                    int cl, cw;
                     if (hint[k] == 1 || hint[k] == 2) {
-                        raw(s, hint[k] == 1 ? key : muted);
-                        break;
+                        k++;
+                        continue;
                     }
+                    cl = vw_char(hint + k, e - k, &cp);
+                    cw = vw_cp_width(cp);
+                    if (w + cw > room)
+                        break;
+                    if (cp == ' ')
+                        cut = k;
+                    w += cw;
+                    k += cl;
+                }
+                if (k >= e)
+                    cut = e;
+                else if (cut <= i)
+                    cut = k;
+                if (!first) {
+                    raw(s, " ");
+                    raw(s, cur);
+                }
+                for (k = i; k < cut; k++) {
+                    if (hint[k] == 1) {
+                        raw(s, key);
+                        cl_copy(cur, key, sizeof(cur));
+                    } else if (hint[k] == 2) {
+                        raw(s, muted);
+                        cl_copy(cur, muted, sizeof(cur));
+                    } else
+                        jw_raw(&s->batch, hint + k, 1);
+                }
+                raw(s, SGR0 "\n");
+                first = 0;
+                i = cut;
+                while (i < e && hint[i] == ' ')
+                    i++;
             }
-            for (k = from; k < to; k++) {
-                if (hint[k] == 1)
-                    raw(s, key);
-                else if (hint[k] == 2)
-                    raw(s, muted);
-                else
-                    jw_raw(&s->batch, hint + k, 1);
-            }
-            raw(s, SGR0 "\n");
+            if (e >= n)
+                break;
+            a = e + 1;
+            cl_copy(cur, key, sizeof(cur));      /* each hint starts with its key */
+            if (a > n)
+                break;
         }
     }
+    if (!s->expanded) {
+        char t[200];
+        cl_copy(t, "Press ctrl+o to show full startup help", sizeof(t));
+        if (s->details)
+            cl_cat(t, " and loaded resources", sizeof(t));
+        cl_cat(t, ".", sizeof(t));
+        say_pad(s, 1, PR_DIM, "", t);
+        blank(s);
+    } else
+        blank(s);
+    say_pad(s, 1, PR_DIM, "", "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.");
+    blank(s);                       /* the header container's closing Spacer(1) (interactive-mode.ts:1075): the chat's first block follows it */
+    s->any = 0;
+    s->after_block = 1;
     out(s);
 }
 

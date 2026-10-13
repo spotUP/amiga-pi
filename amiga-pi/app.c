@@ -3,6 +3,7 @@
 #include "themes_builtin.h"
 #include <string.h>
 #include "app.h"
+#include "settings_diag.h"
 #include "ext_events.h"
 #include "login.h"
 #include "args.h"
@@ -80,6 +81,50 @@ static int settings_text(const pi_platform *pl, char **b, long *n, char *path, l
     return 0;
 }
 
+/* a settings.json pi cannot read (settings-manager.ts tryLoadFromStorage, settings-diagnostics.ts collectSettingsDiagnostics): one line
+ * "Invalid settings file <path>: <message>" per file, the user's first, then the project's (only a trusted project's is read) */
+static int settings_problems(const pi_platform *pl, int trusted, char (*out)[1024], int max)
+{
+    char path[400];
+    int k = 0, scope;
+    if (!pl->sys)
+        return 0;
+    for (scope = 0; scope < 2 && k < max; scope++) {
+        char *b = 0;
+        long n = 0;
+        jw msg, line;
+        if (scope == 0) {
+            if (!pl->agent_dir || !pl->agent_dir[0])
+                continue;
+            cl_copy(path, pl->agent_dir, sizeof(path));
+        } else {
+            if (!trusted || !pl->cwd || !pl->cwd[0])
+                continue;
+            cl_copy(path, pl->cwd, sizeof(path));
+            if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+                cl_cat(path, "/", sizeof(path));
+            cl_cat(path, ".pi", sizeof(path));
+        }
+        if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+            cl_cat(path, "/", sizeof(path));
+        cl_cat(path, "settings.json", sizeof(path));
+        if (pl->sys->kind(pl->sys->u, path) != 1 || pl->sys->read(pl->sys->u, path, 256L * 1024, &b, &n))
+            continue;
+        jw_init(&msg);
+        jw_init(&line);
+        if (pi_settings_error(b, n, &msg)) {
+            jw_rawz(&msg, "");
+            pi_settings_warning(path, msg.p, &line);
+            jw_rawz(&line, "");
+            cl_copy(out[k++], line.p, 1024);
+        }
+        jw_free(&msg);
+        jw_free(&line);
+        CL_FREE(b);
+    }
+    return k;
+}
+
 /* settings.json's defaultProjectTrust ("ask" | "always" | "never"): into out, "ask" when absent */
 static void trust_setting(const pi_platform *pl, char *out, long cap)
 {
@@ -94,7 +139,8 @@ static void trust_setting(const pi_platform *pl, char *out, long cap)
     CL_FREE(b);
 }
 
-/* settings.json's quietStartup: true hides the start header ("header" keeps it: it has no resource listing to hide) */
+/* settings.json's quietStartup (settings-manager.ts getQuietStartup): true hides the start header and what is loaded, "header" hides
+ * what is loaded only. 0, 1 or 2 as pi_ui_set_quiet takes it */
 static int quiet_setting(const pi_platform *pl)
 {
     char *b, path[300];
@@ -103,8 +149,12 @@ static int quiet_setting(const pi_platform *pl)
     int quiet = 0;
     if (settings_text(pl, &b, &n, path, sizeof(path)))
         return 0;
-    if (!json_parse(b, n, &o) && json_get(o, "quietStartup", &v) && json_type(v) == J_TRUE)
-        quiet = 1;
+    if (!json_parse(b, n, &o) && json_get(o, "quietStartup", &v)) {
+        if (json_type(v) == J_TRUE)
+            quiet = 1;
+        else if (json_type(v) == J_STR && json_streq(v, "header"))
+            quiet = 2;
+    }
     CL_FREE(b);
     return quiet;
 }
@@ -1098,7 +1148,16 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
 int pi_rt_run(pi_rt *rt)
 {
     const pi_platform *pl = &rt->pl;
-    int rc;
+    int rc, i, nw;
+    static char warn[2][1024];
+    nw = settings_problems(pl, rt->trusted, warn, 2);
+    if (rt->mode != PI_MODE_TEXT || a.print)
+        for (i = 0; i < nw; i++) {                      /* main.ts:915-918: every mode but the interactive one prints them on stderr */
+            char line[1100];
+            cl_copy(line, "Warning: ", sizeof(line));
+            cl_cat(line, warn[i], sizeof(line));
+            diag_out(pl, line);
+        }
     if (rt->mode == PI_MODE_JSON)
         return pi_mode_json(&s, &store, rt->io, (const char *const *)a.msg, a.nmsg);
     if (rt->mode == PI_MODE_RPC)
@@ -1118,6 +1177,8 @@ int pi_rt_run(pi_rt *rt)
         }
         pi_ui_set_quiet(quiet_setting(pl));
         pi_ui_set_output_pad(output_pad_setting(pl));
+        for (i = 0; i < nw; i++)
+            pi_ui_add_warning(warn[i]);
         {
             char ps[8];
             ps[0] = 0;

@@ -562,6 +562,24 @@ SCENARIOS.update({
 })
 
 
+# U3 (U1b): an invalid settings.json is reported, not ignored: main.ts:670 collects settingsManager.drainErrors() into startup
+# diagnostics, interactive mode shows each as a warning (interactive-mode.ts:1197-1204) -- "Invalid settings file <path>: <JSON.parse
+# message>" (core/settings-diagnostics.ts); the settings it could not read count as empty. quietStartup stays off (the file is the
+# one that is broken), so the header is up.
+SCENARIOS.update({
+    'settings_bad': dict(steps=[], answers=[], rows=30, settings_raw='"outputPad": 0\n'),
+})
+
+
+# U1b: Ctrl+O at the start shows the header's long form (expandedInstructions, interactive-mode.ts:1036-1057): one key hint a row, and the
+# hint line of the collapsed form ("Press ctrl+o ...") gives way to it; quietStartup "header" keeps the header but not the loaded resources
+SCENARIOS.update({
+    'start_expanded': dict(steps=[('key', 'C-o'), ('sleep', 1.0)], answers=[], rows=40),
+    'start_expanded_w64': dict(steps=[('key', 'C-o'), ('sleep', 1.0)], answers=[], rows=40, cols=64),
+    'start_header_only': dict(steps=[], answers=[], settings={'quietStartup': 'header'}),
+})
+
+
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []
     served = []
@@ -691,10 +709,15 @@ def run(name, sc, cols, rows, keep):
               open(os.path.join(agent, 'models.json'), 'w'))
     # quietStartup hides the header: only the scenarios about the header show it (the rest would scroll by its height)
     settings = {'defaultProvider': 'fake', 'defaultModel': MODEL, 'defaultThinkingLevel': 'off',
-                'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start', 'skills_start', 'start_w64', 'pad0_start_w64'),
+                'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start', 'skills_start', 'start_w64', 'pad0_start_w64', 'settings_bad', 'start_expanded', 'start_header_only', 'start_expanded_w64'),
                 'tuiMode': sc.get('tui', 'fullscreen'), 'theme': sc.get('theme', 'system')}
     settings.update(sc.get('settings', {}))
     json.dump(settings, open(os.path.join(agent, 'settings.json'), 'w'))
+    if 'settings_raw' in sc:        # a settings.json that is no JSON (U3): its text as it is; the project's too ('project_settings_raw')
+        open(os.path.join(agent, 'settings.json'), 'w').write(sc['settings_raw'])
+    if 'project_settings_raw' in sc:
+        os.makedirs(os.path.join(proj, '.pi'), exist_ok=True)
+        open(os.path.join(proj, '.pi', 'settings.json'), 'w').write(sc['project_settings_raw'])
     fixture = None
     if sc.get('oauth'):         # an OAuth server for the login scenarios: claude_fixture.py --oauth, pi's fetch sent there (fetch_shim.mjs)
         odir = os.path.join(work, 'oauth')

@@ -59,6 +59,7 @@ typedef struct pi_show {
     long ins;                   /* >= 0: new items go into the list at this index (the block being written again); -1 at the end */
     long n_text, n_blocks, n_tools;
     int pad;                    /* outputPad: 1 (pi's default) or 0 */
+    int details;                /* the start shows the loaded resources too (quietStartup not "header"): the header says so */
     int expanded;               /* pi's toolOutputExpanded (ctrl+o): the summaries show their text; drawn from here on, redraw_chat redraws the rest */
     int replay;                 /* tool results of an earlier run: no duration */
     /* an extension's renderer for a custom message (ext.h pi_exts_render): 1 when it drew lines into lines, 0 the default box */

@@ -24,6 +24,7 @@
 #include "../amiga-pi/compact.h"
 #include "../amiga-pi/pstatus.h"
 #include "../amiga-pi/templates.h"
+#include "../amiga-pi/settings_diag.h"
 #include "claude/sys_posix.h"
 #include "claude/theme.h"
 #include "view/hl_style.h"
@@ -59,7 +60,7 @@ typedef struct scen {
 /* the window's width: 80, tui_gen.py's default, except the scenarios that name their own (footer: foot_<columns> in its table) */
 static int sc_cols(const scen *sc)
 {
-    return !strcmp(sc->name, "start_w64") || !strcmp(sc->name, "pad0_start_w64") ? 64 :
+    return !strcmp(sc->name, "start_w64") || !strcmp(sc->name, "pad0_start_w64") || !strcmp(sc->name, "start_expanded_w64") ? 64 :
            !strcmp(sc->name, "foot_exact") ? 45 : !strcmp(sc->name, "foot_cut") ? 41 : !strcmp(sc->name, "foot_left") ? 30 : 80;
 }
 #define SC_THEME(sc) (!strncmp((sc)->name, "dark_", 5) ? 1 : !strncmp((sc)->name, "light_", 6) ? 2 : 0)
@@ -529,7 +530,7 @@ static void run(const scen *sc)
     cs.before_read = hook;
     cs_io(&io);
     pi_ui_set_cwd("~/project");
-    pi_ui_set_quiet(!sc->header);
+    pi_ui_set_quiet(!strcmp(sc->name, "start_header_only") ? 2 : !sc->header);
     pi_ui_set_commands(pi_cmds, (int)(sizeof(pi_cmds) / sizeof(pi_cmds[0])));
     if (!strcmp(sc->name, "slash_prompts") || !strcmp(sc->name, "slash_utf")) {
         /* J2: the agent directory's prompts/ (the same files tools/pi_oracle/tui_gen.py gave pi) after the built-in rows */
@@ -1673,11 +1674,11 @@ static void test_skills_screen(void)
     static const char *keys_exp[] = { "\017", "\004", 0 };
     static const char *keys_cmd[] = { "/skill:greet please greet Bob\r", "\004", 0 };
     static const char *const sse_cmd[] = { "skill_cmd.1.sse" };
-    static const int m_start[] = { 1, 9, 22, 40, 0 }, m_quiet[] = { 26, 30, 0 }, m_menu[] = { 23, 23, 25, 25, 29, 30, 0 },
+    static const int m_start[] = { 2, 2, 22, 40, 0 }, m_quiet[] = { 26, 30, 0 }, m_menu[] = { 23, 23, 25, 25, 29, 30, 0 },
                      m_exp[] = { 36, 40, 0 };
     char cmd[460];
     /* the start: header, "[Skills]", "[Skill conflicts]" (the capture's rows 10-21; ours begin four rows higher: pi's help panel and tips are not drawn) */
-    skills_case("skills_start", "{}\n", keys_end, 0, 0, 0, -4, m_start, 1);
+    skills_case("skills_start", "{}\n", keys_end, 0, 0, 0, 0, m_start, 1);
     /* quietStartup: the diagnostics alone, at the top */
     skills_case("skills_quiet", "{\"quietStartup\":true}\n", keys_end, 0, 0, 0, 0, m_quiet, 1);
     skills_case("skills_menu", "{\"quietStartup\":true}\n", keys_menu, 0, 0, 0, 0, m_menu, 1);
@@ -1687,20 +1688,20 @@ static void test_skills_screen(void)
     /* I8: Ctrl+O at the start draws the [Skills] list grouped by scope (pi's header is long when expanded: not drawn here, its rows
      * left out; the block is compared from its title) */
     {
-        static const int m_sexp[] = { 1, 25, 43, 50, 0 };
-        skills_case("skills_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, -20, m_sexp, 1);
+        static const int m_sexp[] = { 2, 2, 18, 19, 43, 50, 0 };
+        skills_case("skills_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, 0, m_sexp, 1);
     }
     /* J5: the [Prompts] list, compact and grouped, and the [Prompt conflicts] block (a name two files have, YAML that is refused) */
     {
-        static const int m_pstart[] = { 1, 9, 22, 40, 0 }, m_pexp[] = { 1, 25, 34, 40, 0 }, m_pconf[] = { 26, 30, 0 };
+        static const int m_pstart[] = { 2, 2, 22, 40, 0 }, m_pexp[] = { 2, 2, 18, 19, 34, 40, 0 }, m_pconf[] = { 26, 30, 0 };
         fresh_agent();
         tree_json = "prompts_files.json";
-        skills_case("prompts_start", "{}\n", keys_end, 0, 0, 0, -4, m_pstart, 1);
-        skills_case("prompts_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, -20, m_pexp, 1);
+        skills_case("prompts_start", "{}\n", keys_end, 0, 0, 0, 0, m_pstart, 1);
+        skills_case("prompts_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, 0, m_pexp, 1);
         {
             static const char *keys_msg[] = { "hello\r", "\004", 0 };
             static const char *const sse_msg[] = { "prompts_start_msg.1.sse" };
-            skills_case("prompts_start_msg", "{\"quietStartup\":false}\n", keys_msg, sse_msg, 1, 0, -4, m_pstart, 1);
+            skills_case("prompts_start_msg", "{\"quietStartup\":false}\n", keys_msg, sse_msg, 1, 0, 0, m_pstart, 1);
         }
         fresh_agent();
         tree_json = "conflict_files.json";
@@ -1710,11 +1711,11 @@ static void test_skills_screen(void)
     /* /reload: files made after the start show in the lists (the same screen pi gives; the status line says what this port reads again) */
     {
         static const char *keys_reload[] = { "/reload\r", "\004", 0 };
-        static const int m_reload[] = { 1, 9, 17, 17, 20, 40, 0 };
+        static const int m_reload[] = { 2, 2, 17, 17, 20, 40, 0 };
         fresh_agent();
         tree_json = "reload_files.json";
         app_ready = reload_writes;
-        skills_case("reload_resources", "{\"quietStartup\":false}\n", keys_reload, 0, 0, 0, -4, m_reload, 1);
+        skills_case("reload_resources", "{\"quietStartup\":false}\n", keys_reload, 0, 0, 0, 0, m_reload, 1);
         app_ready = 0;
         tree_json = "skills_files.json";
     }
@@ -2147,6 +2148,63 @@ static void test_output_pad_setting(void)
     CHECK_INT(app_run(80, 40, keys, 0, 0, take_shot), 0);
     CHECK(row_starts(" $ echo hi"));
     app_write("settings.json", "{\"quietStartup\":true}\n");
+}
+
+
+/* ---- U3: an invalid settings.json is reported (core/settings-diagnostics.ts, settings-manager.ts tryLoadFromStorage). The message
+ * is V8's JSON.parse: tests/pi/settings/cases.json holds 900 texts (the cases of tools/pi_oracle/gen_settings_errors.mjs: the sample
+ * mutated at every position, and hand-made ones) with what Node 24 says of each ---- */
+static void test_settings_errors(void)
+{
+    long n = 0, bad = 0, total = 0, with_msg = 0;
+    char *cases = slurp("../settings/cases.json", &n);
+    jv arr, row;
+    jit it;
+    CHECK(cases != 0);
+    if (!cases)
+        return;
+    CHECK_INT(json_parse(cases, n, &arr), 0);
+    json_iter(arr, &it);
+    while (json_next(&it, 0, &row)) {
+        jit in;
+        jv text, want;
+        char *t, *w;
+        long tn = 0, wn = 0;
+        jw msg;
+        int got;
+        json_iter(row, &in);
+        if (!json_next(&in, 0, &text) || !json_next(&in, 0, &want))
+            continue;
+        t = json_strdup(text, &tn);
+        w = json_type(want) == J_STR ? json_strdup(want, &wn) : 0;
+        jw_init(&msg);
+        got = pi_settings_error(t ? t : "", tn, &msg);
+        jw_rawz(&msg, "");
+        total++;
+        with_msg += w != 0;
+        if (got != (w != 0) || (w && strcmp(msg.p ? msg.p : "", w))) {
+            if (bad++ < 5)
+                printf("  settings text %.60s\n    pi:  %s\n    ours: %s\n", t ? t : "", w ? w : "(loads)", got ? msg.p : "(loads)");
+        }
+        jw_free(&msg);
+        free(t);
+        free(w);
+    }
+    CHECK_INT(bad, 0);
+    CHECK(total > 800 && with_msg > 500);
+    free(cases);
+    {
+        jw m, out;
+        jw_init(&m);
+        jw_init(&out);
+        CHECK_INT(pi_settings_error("\"outputPad\": 0\n", 15, &m), 1);
+        jw_rawz(&m, "");
+        pi_settings_warning("ENVARC:amiga-pi/settings.json", m.p, &out);
+        jw_rawz(&out, "");
+        CHECK_STR(out.p, "Invalid settings file ENVARC:amiga-pi/settings.json: Unexpected non-whitespace character after JSON at position 11 (line 1 column 12)");
+        jw_free(&m);
+        jw_free(&out);
+    }
 }
 
 
@@ -2928,12 +2986,12 @@ static void test_footer_cost(void)
         printf("  six keys: C:Claude's look %ld bytes, pi's look %ld bytes\n", claude, pi);
 }
 
-/* the start header: the program's own name for pi's version, no startup-help panel and no pi tips */
+/* the start header: the program's own name where pi has its version */
 #define HDR_VER { 2, 2, 5, 79, "start header" }
-#define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
+#define HDR_HELP { 0, 0, 0, 0, 0 }
 
 #define HDR_VER64 { 2, 2, 5, 63, "start header" }
-#define HDR_HELP64 { 5, 9, 0, 63, "start header" }
+#define HDR_HELP64 { 0, 0, 0, 0, 0 }
 
 static const scen scenarios[] = {
     { "start", { 0 }, { 0 }, 0, 1, 0, { HDR_VER, HDR_HELP } },
@@ -2960,8 +3018,7 @@ static const scen scenarios[] = {
     { "bang", { "!!echo hi\r", "!!!echo secret\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     /* TM1/TM3: pi's regular mode (the editor follows the content; fullscreen's `twice` above pins it) */
-    { "reg_start", { 0 }, { 0 }, 0, 1, 0,
-      { HDR_VER, { 5, 25, 0, 79, "start header: pi's help panel and tips are not drawn, the footer follows five rows higher" } } },
+    { "reg_start", { 0 }, { 0 }, 0, 1, 0, { HDR_VER } },
     { "reg_empty", { 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "reg_twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "reg_markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
@@ -3021,6 +3078,11 @@ static const scen scenarios[] = {
      * the model cut to the room left, never the usage (41), the usage itself cut with "..." (30) */
     /* G3: the start header at 64 columns, where the hint wraps, whatever outputPad is (BuiltInHeader's own padding of one) */
     { "start_w64", { 0 }, { 0 }, 0, 1, 0, { HDR_VER64, HDR_HELP64 } },
+    /* U1b: Ctrl+O at the start: the header's long form, one hint a row (pi prints Alt as "option" on macOS, where the capture was
+     * made; ours says alt); quietStartup "header" shows the header without the loaded resources, and its line says so */
+    { "start_expanded", { "\017", 0 }, { 0 }, 0, 1, 0, { HDR_VER, { 18, 19, 0, 79, "option is macOS's name for alt" } } },
+    { "start_expanded_w64", { "\017", 0 }, { 0 }, 0, 1, 0, { HDR_VER64, { 18, 19, 0, 63, "option is macOS's name for alt" } } },
+    { "start_header_only", { 0 }, { 0 }, 0, 1, 0, { HDR_VER } },
     { "pad0_start_w64", { 0 }, { 0 }, 0, 1, 0, { HDR_VER64, HDR_HELP64 } },
     /* U1b: showStatus puts a dim status in the place of the last one (interactive-mode.ts:3824-3844): Alt+Up twice with nothing queued
      * says "No queued messages to restore" once, not twice */
@@ -3052,6 +3114,7 @@ void suite_pi_tui(void)
     test_export();
     test_bang();
     test_output_pad_setting();
+    test_settings_errors();
     test_default_tools_setting();
     test_program_status();
     test_pstatus_states();
