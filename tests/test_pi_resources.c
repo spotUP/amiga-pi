@@ -738,7 +738,7 @@ static int diag_type(const char *t)
 /* one layout: the tree made, loaded, and every result compared with NAME.json */
 static void skills_layout(const char *name, jv lay)
 {
-    char agent[400], cwd[400], rel[500], paths[8][300], dir[400];
+    char agent[400], cwd[400], rel[500], paths[8][300], dir[400], home[400];
     const char *pp[8];
     char *g, *cwd_rel;
     long gn;
@@ -779,12 +779,18 @@ static void skills_layout(const char *name, jv lay)
         }
     }
     memset(&o, 0, sizeof(o));
+    o.host = 1;
     o.agent_dir = agent;
     o.cwd = cwd;
     o.trusted = json_get(lay, "trusted", &v) && json_type(v) == J_TRUE;
     o.none = json_get(lay, "noSkills", &v) && json_type(v) == J_TRUE;
     o.paths = pp;
     o.npaths = np;
+    o.host = 1;
+    cl_copy(rel, name, sizeof(rel));
+    cl_cat(rel, "/home", sizeof(rel));
+    at(home, sizeof(home), rel);
+    o.home = home;                              /* the generator sets HOME to the layout's home directory */
     CHECK_INT(pi_skills_load(&sk, &sys, &o), 0);
     cl_copy(rel, name, sizeof(rel));
     cl_cat(rel, ".json", sizeof(rel));
@@ -941,6 +947,7 @@ static void test_skills_data_dir(void)
     at(cwd, sizeof(cwd), "dd/w");
     mkdirs(cwd);
     memset(&o, 0, sizeof(o));
+    o.host = 1;
     o.agent_dir = agent;
     o.data_dir = data;
     o.cwd = cwd;
@@ -975,6 +982,7 @@ static void test_skills_many(void)
     at(cwd, sizeof(cwd), "many/w");
     mkdirs(cwd);
     memset(&o, 0, sizeof(o));
+    o.host = 1;
     o.agent_dir = agent;
     o.cwd = cwd;
     CHECK_INT(pi_skills_load(&k, &sys, &o), 0);

@@ -22,7 +22,7 @@
 #include "claude/json.h"
 
 enum { SKS_USER, SKS_PROJECT, SKS_TEMP };       /* pi's SourceScope: user, project, temporary (--skill) */
-enum { SKO_AUTO, SKO_LOCAL };                   /* pi's SourceInfo.source: "auto" (a default directory), "local" (settings, --skill) */
+enum { SKO_AUTO, SKO_LOCAL, SKO_PACKAGE };      /* pi's SourceInfo.source: "auto" (a default directory), "local" (settings, --skill), a package's source string */
 enum { SKD_WARNING, SKD_ERROR, SKD_COLLISION }; /* pi's ResourceDiagnostic.type */
 
 typedef struct pi_skill {
@@ -31,7 +31,8 @@ typedef struct pi_skill {
     char base[300];             /* baseDir: the skill's directory */
     int hidden;                 /* disable-model-invocation: true */
     int source, scope;          /* SKO_*, SKS_* */
-    char sbase[300];            /* sourceInfo.baseDir: the .pi directory, the agent directory, the .agents directory, or a --skill skill's own; "" none */
+    char sbase[300];            /* sourceInfo.baseDir: the .pi directory, the agent directory, the .agents directory, a package, or a --skill skill's own; "" none */
+    char psrc[300];             /* SKO_PACKAGE: the package's source string, as settings.json has it */
 } pi_skill;
 
 typedef struct pi_skill_diag {
@@ -61,6 +62,8 @@ typedef struct pi_skill_opts {
     const char *cwd;
     int trusted;                /* the project's .pi/ and .agents/skills are used */
     int none;                   /* --no-skills */
+    const char *home;           /* what `~` is in a path (pkgres.h) */
+    int host;                   /* host paths (a leading "/" is the root) rather than AmigaDOS paths */
     const char *const *paths;   /* --skill: files or directories */
     int npaths;
 } pi_skill_opts;

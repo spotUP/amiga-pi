@@ -1,0 +1,78 @@
+{
+ "skills": [
+  {
+   "name": "dup",
+   "description": "From the project's directory (rank 1)",
+   "filePath": "@ROOT@/rank/w/proj/.pi/skills/dup/SKILL.md",
+   "baseDir": "@ROOT@/rank/w/proj/.pi/skills/dup",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] From the project's directory (rank 1)"
+  },
+  {
+   "name": "dup2",
+   "description": "From the project's directory (rank 1)",
+   "filePath": "@ROOT@/rank/w/proj/.pi/skills/dup2/SKILL.md",
+   "baseDir": "@ROOT@/rank/w/proj/.pi/skills/dup2",
+   "disableModelInvocation": false,
+   "label": "auto (project)",
+   "command": "[p] From the project's directory (rank 1)"
+  },
+  {
+   "name": "dup3",
+   "description": "From a user settings entry (rank 2)",
+   "filePath": "@ROOT@/rank/agent/extra/dup3/SKILL.md",
+   "baseDir": "@ROOT@/rank/agent/extra/dup3",
+   "disableModelInvocation": false,
+   "label": "user",
+   "command": "[u] From a user settings entry (rank 2)"
+  },
+  {
+   "name": "solo",
+   "description": "Only here",
+   "filePath": "@ROOT@/rank/agent/extra/solo/SKILL.md",
+   "baseDir": "@ROOT@/rank/agent/extra/solo",
+   "disableModelInvocation": false,
+   "label": "user",
+   "command": "[u] Only here"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "collision",
+   "message": "name \"dup\" collision",
+   "path": "@ROOT@/rank/agent/extra/dup/SKILL.md",
+   "collision": {
+    "name": "dup",
+    "winnerPath": "@ROOT@/rank/w/proj/.pi/skills/dup/SKILL.md",
+    "loserPath": "@ROOT@/rank/agent/extra/dup/SKILL.md"
+   }
+  },
+  {
+   "type": "collision",
+   "message": "name \"dup\" collision",
+   "path": "@ROOT@/rank/agent/skills/dup/SKILL.md",
+   "collision": {
+    "name": "dup",
+    "winnerPath": "@ROOT@/rank/w/proj/.pi/skills/dup/SKILL.md",
+    "loserPath": "@ROOT@/rank/agent/skills/dup/SKILL.md"
+   }
+  },
+  {
+   "type": "collision",
+   "message": "name \"dup3\" collision",
+   "path": "@ROOT@/rank/agent/skills/dup3/SKILL.md",
+   "collision": {
+    "name": "dup3",
+    "winnerPath": "@ROOT@/rank/agent/extra/dup3/SKILL.md",
+    "loserPath": "@ROOT@/rank/agent/skills/dup3/SKILL.md"
+   }
+  }
+ ],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:dup\",\"description\":\"From the project's directory (rank 1)\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/rank/w/proj/.pi/skills/dup/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/rank/w/proj/.pi\"}},{\"name\":\"skill:dup2\",\"description\":\"From the project's directory (rank 1)\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/rank/w/proj/.pi/skills/dup2/SKILL.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/rank/w/proj/.pi\"}},{\"name\":\"skill:dup3\",\"description\":\"From a user settings entry (rank 2)\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/rank/agent/extra/dup3/SKILL.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"skill:solo\",\"description\":\"Only here\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/rank/agent/extra/solo/SKILL.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>dup</name>\n    <description>From the project&apos;s directory (rank 1)</description>\n    <location>@ROOT@/rank/w/proj/.pi/skills/dup/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>dup2</name>\n    <description>From the project&apos;s directory (rank 1)</description>\n    <location>@ROOT@/rank/w/proj/.pi/skills/dup2/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>dup3</name>\n    <description>From a user settings entry (rank 2)</description>\n    <location>@ROOT@/rank/agent/extra/dup3/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>solo</name>\n    <description>Only here</description>\n    <location>@ROOT@/rank/agent/extra/solo/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": []
+}

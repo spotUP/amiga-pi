@@ -29,10 +29,12 @@ function findPkg() {
 	}
 	throw new Error("gen_skills: no pinned pi: npm install --prefix vendor/pi-1.1.0 @earendil-works/pi-coding-agent@1.1.0, or set PI_PKG");
 }
+process.env.PI_OFFLINE = "1"; // a package source npm:/git: is not fetched: pi skips it
 const pkg = findPkg();
 const pi = await import(pathToFileURL(join(pkg, "dist", "index.js")).href);
 const { buildSystemPromptSections } = await import(pathToFileURL(join(pkg, "dist", "core", "system-prompt.js")).href);
 const { AgentSession } = await import(pathToFileURL(join(pkg, "dist", "core", "agent-session.js")).href);
+const { resolvePath: piResolvePath } = await import(pathToFileURL(join(pkg, "dist", "utils", "paths.js")).href);
 const version = JSON.parse((await import("node:fs")).readFileSync(join(pkg, "package.json"), "utf-8")).version;
 if (version !== "1.1.0") throw new Error(`gen_skills: pi ${version}, not 1.1.0`);
 
@@ -260,6 +262,88 @@ L.ignore_case = {
 	expand: [],
 	tools: [["read"]],
 };
+L.rank = {
+	// I8: resources are ranked before they are loaded (resourcePrecedenceRank): a project settings entry, the project's default
+	// directories, a user settings entry, the user's default directories, packages. The first of two skills with one name wins.
+	cwd: "w/proj",
+	trusted: true,
+	files: {
+		"agent/settings.json": JSON.stringify({ skills: ["extra"] }),
+		"agent/extra/dup/SKILL.md": sk("dup", "From a user settings entry (rank 2)"),
+		"agent/skills/dup/SKILL.md": sk("dup", "From the user's directory (rank 3)"),
+		"w/proj/.pi/skills/dup/SKILL.md": sk("dup", "From the project's directory (rank 1)"),
+		"w/proj/.pi/settings.json": JSON.stringify({ skills: ["../more"] }),
+		"w/more/dup2/SKILL.md": sk("dup2", "From a project settings entry (rank 0)"),
+		"w/proj/.pi/skills/dup2/SKILL.md": sk("dup2", "From the project's directory (rank 1)"),
+		"agent/extra/dup3/SKILL.md": sk("dup3", "From a user settings entry (rank 2)"),
+		"agent/skills/dup3/SKILL.md": sk("dup3", "From the user's directory (rank 3)"),
+		"agent/extra/solo/SKILL.md": sk("solo", "Only here"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
+L.tilde = {
+	// I8: `~` in a path of settings.json or --skill is the home directory; the entry is trimmed (resolvePath, utils/paths.ts)
+	cwd: "w/proj",
+	trusted: true,
+	skillPaths: ["~/cli-skills/c1", "  ~/cli-skills/c2/SKILL.md  ", "~/nothing-here"],
+	files: {
+		"agent/settings.json": JSON.stringify({ skills: ["~/shared/s1", "  ~/shared/s2/SKILL.md ", "~"] }),
+		"home/shared/s1/SKILL.md": sk("s1", "From ~/shared/s1"),
+		"home/shared/s2/SKILL.md": sk("s2", "From a trimmed entry"),
+		"home/cli-skills/c1/SKILL.md": sk("c1", "From --skill ~/cli-skills/c1"),
+		"home/cli-skills/c2/SKILL.md": sk("c2", "From a trimmed --skill"),
+		"home/top/SKILL.md": sk("top", "Found because ~ itself is an entry"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
+L.globcase = {
+	// I8: settings.json patterns are minimatch's: the case of letters counts (pi's ignore files do not care, see ignore_case)
+	cwd: "w/proj",
+	trusted: false,
+	files: {
+		"agent/settings.json": JSON.stringify({ skills: ["!Skip-*", "!skip-lower-*", "-Exact", "-exact-lower"] }),
+		"agent/skills/Skip-Upper/SKILL.md": sk("Skip-Upper", "Matched by !Skip-*"),
+		"agent/skills/skip-upper2/SKILL.md": sk("skip-upper2", "Not matched by !Skip-*: case counts"),
+		"agent/skills/skip-lower-1/SKILL.md": sk("skip-lower-1", "Matched by !skip-lower-*"),
+		"agent/skills/Skip-lower-2/SKILL.md": sk("skip-lower-2", "Not matched by !skip-lower-*"),
+		"agent/skills/Exact/SKILL.md": sk("exact-up", "Removed by -Exact"),
+		"agent/skills/exact/SKILL.md": sk("exact-lo", "Not removed by -Exact"),
+		"agent/skills/exact-lower/SKILL.md": sk("exact-lower", "Removed by -exact-lower"),
+		"agent/skills/Exact-Lower/SKILL.md": sk("exact-lower-up", "Not removed by -exact-lower"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
+L.packages = {
+	// I8/J5: local packages of settings.json: a manifest (package.json "pi"), the conventional directories, an object entry that
+	// filters, an entry that is not a local path (npm:, git:) is not fetched
+	cwd: "w/proj",
+	trusted: true,
+	files: {
+		"agent/settings.json": JSON.stringify({
+			packages: ["../pk/manifest", "../pk/conv", { source: "../pk/filter", skills: ["keep-*", "!keep-no"] }, { source: "../pk/off", skills: [] }, "npm:some-package", "git:github.com/x/y"],
+		}),
+		"pk/manifest/package.json": JSON.stringify({ name: "m", pi: { skills: ["./custom", "extra/*.md", "!extra/skip.md"], prompts: ["./pr"] } }),
+		"pk/manifest/custom/c1/SKILL.md": sk("c1", "A manifest entry"),
+		"pk/manifest/extra/e1.md": sk("e1", "Matched by a manifest glob"),
+		"pk/manifest/extra/skip.md": sk("skipped", "Switched off by the manifest"),
+		"pk/manifest/skills/unlisted/SKILL.md": sk("unlisted", "Not in the manifest: not found"),
+		"pk/conv/skills/v1/SKILL.md": sk("v1", "From a conventional directory"),
+		"pk/conv/skills/v2/SKILL.md": sk("v2", "Another"),
+		"pk/filter/skills/keep-a/SKILL.md": sk("keep-a", "Kept by the filter"),
+		"pk/filter/skills/keep-no/SKILL.md": sk("keep-no", "Dropped by the filter"),
+		"pk/filter/skills/other/SKILL.md": sk("other", "Not matched by the filter"),
+		"pk/off/skills/off1/SKILL.md": sk("off1", "An empty list switches the type off"),
+		"agent/skills/own/SKILL.md": sk("own", "Beats the packages"),
+		"pk/conv/skills/own/SKILL.md": sk("own", "Same name, from a package"),
+		"w/proj/.pi/settings.json": JSON.stringify({ packages: ["../../pk/projpkg"] }),
+		"pk/projpkg/skills/pp/SKILL.md": sk("pp", "From a project package"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
 L.cli = {
 	cwd: "w/proj",
 	trusted: true,
@@ -336,7 +420,7 @@ for (const [name, lay] of Object.entries(L)) {
 		noPromptTemplates: true,
 		noThemes: true,
 		noSkills: !!lay.noSkills,
-		additionalSkillPaths: (lay.skillPaths ?? []).map((p) => resolve(cwd, p)),
+		additionalSkillPaths: (lay.skillPaths ?? []).map((p) => piResolvePath(p, cwd)), // main.ts resolveCliPaths
 	});
 	await loader.reload();
 	const { skills, diagnostics } = loader.getSkills();

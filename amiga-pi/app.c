@@ -609,6 +609,16 @@ static pi_lua lua;
 static pi_store store;
 static mcp mc;
 static pi_res res;
+/* host paths ("/" is the root) on a POSIX host, AmigaDOS paths otherwise: C:Claude's cl_sys says what it runs on */
+static int host_paths(const pi_platform *pl)
+{
+    char what[80];
+    what[0] = 0;
+    if (pl->shell == PI_SH_HOST)
+        return 1;
+    return pl->sys && pl->sys->info && pl->sys->info(pl->sys->u, "os", what, sizeof(what)) == 1 && !strncmp(what, "a POSIX host", 12);
+}
+
 static pi_tmpls tmpls;
 
 /* json and rpc mode: stdout is the protocol's, so the program's own messages go to the platform's diagnostic channel */
@@ -805,6 +815,12 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         {
             /* the skills (skills.h): default directories, settings.json, --skill; --no-skills leaves out all but --skill */
             pi_skill_opts so;
+            static char home[300];
+            home[0] = 0;
+            if (pl->getenv)
+                pl->getenv("HOME", home, sizeof(home));        /* what ~ is (C:Claude's ~/ also reads HOME) */
+            so.home = home;
+            so.host = host_paths(pl);
             so.agent_dir = pl->agent_dir;
             so.data_dir = pl->data_dir;
             so.cwd = pl->cwd;

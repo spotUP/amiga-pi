@@ -1,0 +1,67 @@
+{
+ "skills": [
+  {
+   "name": "s1",
+   "description": "From ~/shared/s1",
+   "filePath": "@ROOT@/tilde/home/shared/s1/SKILL.md",
+   "baseDir": "@ROOT@/tilde/home/shared/s1",
+   "disableModelInvocation": false,
+   "label": "user",
+   "command": "[u] From ~/shared/s1"
+  },
+  {
+   "name": "s2",
+   "description": "From a trimmed entry",
+   "filePath": "@ROOT@/tilde/home/shared/s2/SKILL.md",
+   "baseDir": "@ROOT@/tilde/home/shared/s2",
+   "disableModelInvocation": false,
+   "label": "user",
+   "command": "[u] From a trimmed entry"
+  },
+  {
+   "name": "c1",
+   "description": "From --skill ~/cli-skills/c1",
+   "filePath": "@ROOT@/tilde/home/cli-skills/c1/SKILL.md",
+   "baseDir": "@ROOT@/tilde/home/cli-skills/c1",
+   "disableModelInvocation": false,
+   "label": "user",
+   "command": "[u] From --skill ~/cli-skills/c1"
+  },
+  {
+   "name": "c2",
+   "description": "From a trimmed --skill",
+   "filePath": "@ROOT@/tilde/home/cli-skills/c2/SKILL.md",
+   "baseDir": "@ROOT@/tilde/home/cli-skills/c2",
+   "disableModelInvocation": false,
+   "label": "user",
+   "command": "[u] From a trimmed --skill"
+  },
+  {
+   "name": "top",
+   "description": "Found because ~ itself is an entry",
+   "filePath": "@ROOT@/tilde/home/top/SKILL.md",
+   "baseDir": "@ROOT@/tilde/home/top",
+   "disableModelInvocation": false,
+   "label": "user",
+   "command": "[u] Found because ~ itself is an entry"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "warning",
+   "message": "skill path does not exist",
+   "path": "@ROOT@/tilde/w/proj/  ~/cli-skills/c2/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "skill path does not exist",
+   "path": "@ROOT@/tilde/home/nothing-here"
+  }
+ ],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:s1\",\"description\":\"From ~/shared/s1\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/tilde/home/shared/s1/SKILL.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"skill:s2\",\"description\":\"From a trimmed entry\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/tilde/home/shared/s2/SKILL.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"skill:c1\",\"description\":\"From --skill ~/cli-skills/c1\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/tilde/home/cli-skills/c1/SKILL.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"skill:c2\",\"description\":\"From a trimmed --skill\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/tilde/home/cli-skills/c2/SKILL.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"skill:top\",\"description\":\"Found because ~ itself is an entry\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/tilde/home/top/SKILL.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>s1</name>\n    <description>From ~/shared/s1</description>\n    <location>@ROOT@/tilde/home/shared/s1/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>s2</name>\n    <description>From a trimmed entry</description>\n    <location>@ROOT@/tilde/home/shared/s2/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>c1</name>\n    <description>From --skill ~/cli-skills/c1</description>\n    <location>@ROOT@/tilde/home/cli-skills/c1/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>c2</name>\n    <description>From a trimmed --skill</description>\n    <location>@ROOT@/tilde/home/cli-skills/c2/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>top</name>\n    <description>Found because ~ itself is an entry</description>\n    <location>@ROOT@/tilde/home/top/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": []
+}
