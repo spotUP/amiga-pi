@@ -2248,6 +2248,8 @@ static const char *const EXT_UI_LUA[] = {   /* pieces: a string literal is limit
     "end })\n",
     0 };
 
+static const char *const *ext_case_lua = EXT_UI_LUA;       /* the extension the next ext_ui_case writes */
+
 static void ext_ui_rest(void)
 {
     compare();
@@ -2269,8 +2271,8 @@ static void ext_ui_case(const char *name, const char **keys, const char *show, c
     {
         char lua[2000];
         lua[0] = 0;
-        for (i = 0; EXT_UI_LUA[i]; i++)
-            strcat(lua, EXT_UI_LUA[i]);
+        for (i = 0; ext_case_lua[i]; i++)
+            strcat(lua, ext_case_lua[i]);
         app_write("extensions/t.lua", lua);
     }
     app_write("settings.json", "{\"quietStartup\":true}\n");
@@ -2319,6 +2321,40 @@ static void ext_ui_case(const char *name, const char **keys, const char *show, c
         unlink(f);
         rmdir(dir);
     }
+}
+
+/* ---- L11: pi.sendMessage with display true, the default box and an extension's message renderer (the captures are
+ * tests/pi/tui/ext_msg_*.golden; tui_gen.py's EXT_MSG is the TypeScript twin of this extension) ---- */
+
+static const char *const EXT_MSG_LUA[] = {
+    "pi.registerMessageRenderer('note', function(message, options, theme)\n",
+    "  local body = type(message.content) == 'string' and message.content or ''\n",
+    "  return ' ' .. theme.fg('accent', 'Note: ' .. body) .. (options.expanded and ' (expanded)' or '')\n",
+    "end)\n",
+    "pi.registerCommand('note', { handler = function() pi.sendMessage({ customType = 'note', content = 'hello there', display = true }) end })\n",
+    "pi.registerCommand('plain', { handler = function() pi.sendMessage({ customType = 'plain', content = 'some **bold** text', display = true }) end })\n",
+    "pi.registerCommand('quiet', { handler = function() pi.sendMessage({ customType = 'quiet', content = 'hidden', display = false }) end })\n",
+    "pi.registerCommand('multi', { handler = function()\n",
+    "  pi.sendMessage({ customType = 'multi', content = 'one', display = true })\n",
+    "  pi.sendMessage({ customType = 'note', content = 'two', display = true })\n",
+    "end })\n",
+    0 };
+
+static void test_ext_msg_screen(void)
+{
+    static const char *k_note[] = { "/note\r", "\004", 0 };
+    static const char *k_plain[] = { "/plain\r", "\004", 0 };
+    static const char *k_hidden[] = { "/quiet\r", "/note\r", "\004", 0 };
+    static const char *k_expanded[] = { "/note\r", "\017", "\004", 0 };
+    static const char *k_multi[] = { "/multi\r", "\004", 0 };
+    static const int note[] = { 25, 30, 0 };      /* the editor and the footer: other rows, the capture's fake model and directory */
+    ext_case_lua = EXT_MSG_LUA;
+    ext_ui_case("ext_msg_render", k_note, "Note:", note, 0);
+    ext_ui_case("ext_msg_plain", k_plain, "bold", note, 0);
+    ext_ui_case("ext_msg_hidden", k_hidden, "Note:", note, 0);
+    ext_ui_case("ext_msg_expanded", k_expanded, "expanded", note, 0);
+    ext_ui_case("ext_msg_multi", k_multi, "two", note, 0);
+    ext_case_lua = EXT_UI_LUA;
 }
 
 static void test_ext_ui_screen(void)
@@ -2743,6 +2779,7 @@ void suite_pi_tui(void)
     test_tui_mode_app();
     test_approval();
     test_ext_ui_screen();
+    test_ext_msg_screen();
     test_footer_cost();
     test_bash_rows_uncapped();
     test_slash_fuzzy();

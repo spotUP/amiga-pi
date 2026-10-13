@@ -263,6 +263,13 @@ static int u_poll(void *u)
     return ui_poll(&p->ui);
 }
 
+/* an extension's message renderer for pshow (pi_show.render) */
+static int ps_render(void *u, const char *type, const char *msg, long n, const pi_ext_render *r, jw *lines)
+{
+    pi_ui *p = (pi_ui *)u;
+    return pi_exts_render(&p->s->ext, type, msg, n, r, lines);
+}
+
 static void on_event(void *u, const pi_event *e)
 {
     pi_ui *p = (pi_ui *)u;
@@ -298,6 +305,45 @@ static void on_event(void *u, const pi_event *e)
         }
         break;
     case PE_MESSAGE_END:
+        if (e->role == PI_ROLE_CUSTOM && p->look && e->msg) {
+            /* a custom message made in the run (pi.sendMessage, before_agent_start): shown when display is true (interactive-mode.ts
+             * addMessageToChat "custom") */
+            jv m, v, c, b, t, x;
+            jit it;
+            jw txt;
+            char ty[200];
+            ty[0] = 0;
+            if (!json_parse(e->msg, e->msg_n, &m) && json_get(m, "display", &v) && json_type(v) == J_TRUE) {
+                jw_init(&txt);
+                if (json_get(m, "customType", &v))
+                    json_str(v, ty, sizeof(ty));
+                if (json_get(m, "content", &c) && json_type(c) == J_STR) {
+                    long n;
+                    char *z = json_strdup(c, &n);
+                    if (z)
+                        jw_raw(&txt, z, n);
+                    free(z);
+                } else if (json_get(m, "content", &c) && json_type(c) == J_ARR) {
+                    int any = 0;
+                    json_iter(c, &it);
+                    while (json_next(&it, 0, &b))
+                        if (json_get(b, "type", &t) && json_streq(t, "text") && json_get(b, "text", &x)) {
+                            long n;
+                            char *z = json_strdup(x, &n);
+                            if (z) {
+                                if (any)
+                                    jw_raw(&txt, "\n", 1);
+                                jw_raw(&txt, z, n);
+                                any = 1;
+                            }
+                            free(z);
+                        }
+                }
+                pshow_custom(&p->ps, ty, txt.p ? txt.p : "", txt.n, e->msg, e->msg_n);
+                jw_free(&txt);
+                status(p);
+            }
+        }
         if (e->role == LR_USER && p->look) {
             /* the user's message is in the conversation now (a typed prompt, or a queued one delivered): it
              * leaves the waiting list and shows in the transcript */
@@ -1171,6 +1217,8 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     else
         km_init_pi(&t->km);
     pshow_init(&p->ps, t, &p->theme);
+    p->ps.render = ps_render;
+    p->ps.render_u = p;
     pshow_set_pad(&p->ps, ui_pad);
     pshow_render(&p->ps, &p->render);
     footer(p);

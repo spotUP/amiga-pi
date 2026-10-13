@@ -194,3 +194,12 @@ int pi_exts_emit(pi_exts *x, const char *type, jw *payload, int flags, pi_ext_ap
     x->current = 0;
     return stopped;
 }
+
+int pi_exts_render(const pi_exts *x, const char *type, const char *msg, long n, const pi_ext_render *r, jw *lines)
+{
+    int i;
+    for (i = 0; i < x->n; i++)
+        if (x->e[i]->render && x->e[i]->render(x->e[i]->u, type, msg, n, r, lines))
+            return 1;
+    return 0;
+}

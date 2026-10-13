@@ -107,6 +107,14 @@ void pi_session_free(pi_session *s)
     for (i = 0; i < s->nfollow; i++)
         free(s->follow[i]);
     s->nsteer = s->nfollow = 0;
+    for (i = 0; i < s->nnext_custom; i++)
+        free(s->next_custom[i]);
+    s->nnext_custom = 0;
+    for (i = 0; i < s->npend_custom; i++)
+        free(s->pend_custom[i]);
+    s->npend_custom = 0;
+    free(s->deferred_custom);
+    s->deferred_custom = 0;
     for (i = 0; i < s->npend; i++)
         free(s->pend[i]);
     s->npend = 0;
@@ -1287,32 +1295,91 @@ static void deliver(pi_session *s)
     }
 }
 
-/* the custom messages before_agent_start's handlers made (pi pushes them after the user message) */
+/* a custom message from its JSON object ({customType, content, display, details}) made in the conversation */
+static void custom_from_json(pi_session *s, const char *json)
+{
+    jv m, v;
+    char ct[200];
+    jw content, details;
+    if (json_parse(json, (long)strlen(json), &m))
+        return;
+    ct[0] = 0;
+    jw_init(&content);
+    jw_init(&details);
+    if (json_get(m, "customType", &v) && json_type(v) == J_STR)
+        json_str(v, ct, sizeof(ct));
+    if (json_get(m, "content", &v) && json_type(v) != J_NULL)
+        jw_raw(&content, v.p, v.n);
+    if (json_get(m, "details", &v) && json_type(v) != J_NULL)
+        jw_raw(&details, v.p, v.n);
+    pi_session_custom(s, ct, content.p, json_get(m, "display", &v) && json_type(v) == J_TRUE, details.n ? details.p : 0);
+    jw_free(&content);
+    jw_free(&details);
+}
+
+/* the custom messages before_agent_start's handlers made, and pi.sendMessage's nextTurn ones (pi pushes them after the user message) */
 static void flush_next_custom(pi_session *s)
 {
     int i;
     for (i = 0; i < s->nnext_custom; i++) {
-        jv m, v;
-        if (!json_parse(s->next_custom[i], (long)strlen(s->next_custom[i]), &m)) {
-            char ct[200];
-            jw content, details;
-            ct[0] = 0;
-            jw_init(&content);
-            jw_init(&details);
-            if (json_get(m, "customType", &v) && json_type(v) == J_STR)
-                json_str(v, ct, sizeof(ct));
-            if (json_get(m, "content", &v))
-                jw_raw(&content, v.p, v.n);
-            if (json_get(m, "details", &v))
-                jw_raw(&details, v.p, v.n);
-            pi_session_custom(s, ct, content.p, json_get(m, "display", &v) && json_type(v) == J_TRUE, details.n ? details.p : 0);
-            jw_free(&content);
-            jw_free(&details);
-        }
+        custom_from_json(s, s->next_custom[i]);
         free(s->next_custom[i]);
         s->next_custom[i] = 0;
     }
     s->nnext_custom = 0;
+}
+
+/* _flushPendingCustomMessages: what pi.sendMessage queued during the run, appended once a turn is whole */
+static void flush_pending_custom(pi_session *s)
+{
+    int i;
+    for (i = 0; i < s->npend_custom; i++) {
+        custom_from_json(s, s->pend_custom[i]);
+        free(s->pend_custom[i]);
+        s->pend_custom[i] = 0;
+    }
+    s->npend_custom = 0;
+}
+
+static char *dup_z(const char *z)
+{
+    char *c = (char *)malloc(strlen(z) + 1);
+    if (c)
+        strcpy(c, z);
+    return c;
+}
+
+int pi_session_send_custom(pi_session *s, const char *message, int trigger, const char *deliver)
+{
+    char *c;
+    if (deliver && !strcmp(deliver, "nextTurn")) {
+        if (s->nnext_custom >= 8 || !(c = dup_z(message)))
+            return -1;
+        s->next_custom[s->nnext_custom++] = c;
+        return 0;
+    }
+    if (s->active && trigger != 0) {
+        /* a steer or follow-up message of pi's agent: delivered at the next request; the queues here hold text, so it joins the
+         * turn's end like the message that does not trigger */
+        if (s->npend_custom >= 8 || !(c = dup_z(message)))
+            return -1;
+        s->pend_custom[s->npend_custom++] = c;
+        return 0;
+    }
+    if (trigger == 1) {
+        if (s->deferred_custom || !(c = dup_z(message)))
+            return -1;
+        s->deferred_custom = c;
+        return 0;
+    }
+    if (s->active) {
+        if (s->npend_custom >= 8 || !(c = dup_z(message)))
+            return -1;
+        s->pend_custom[s->npend_custom++] = c;
+        return 0;
+    }
+    custom_from_json(s, message);
+    return 0;
 }
 
 /* the run: text the user's message, 0 to go on with the conversation as it is (a retry) */
@@ -1391,6 +1458,7 @@ static int run(pi_session *s, const char *text, const char *images)
             cl_copy(s->err, "Operation aborted", sizeof(s->err));
         }
         go = emit_turn_end(s, i);
+        flush_pending_custom(s);                /* turn_end: the point a context-only message may go in (agent-session.ts:1194) */
         if (stopped)
             return run_end(s, 0);               /* pi does not check a run the user stopped */
         /* steering is polled after the turn's tool calls and goes in at the next turn; the run goes on for it even
@@ -1434,7 +1502,9 @@ static int prompt_run(pi_session *s, const char *typed, const char *images)
 {
     int rc;
     jw ex;
-    const char *text = expand_input(s, typed, &ex);
+    const char *text;
+    jw_init(&ex);
+    text = typed ? expand_input(s, typed, &ex) : 0;       /* typed 0: a turn on a message pi.sendMessage made (_runAgentPrompt) */
     pi_agent_prompts++;
     s->err[0] = 0;
     s->active = 1;
@@ -1443,10 +1513,11 @@ static int prompt_run(pi_session *s, const char *typed, const char *images)
     s->retry_stop = 0;
     s->recover = 0;
     /* the context against the window before the user message is kept */
-    if (s->compact)
+    if (typed && s->compact)
         s->compact(s->compact_u, s, PI_CP_PROMPT);
-    pi_ev_before_agent_start(s, text);          /* after the compaction check, before the run (agent-session.ts:2062) */
-    if (s->started) {
+    if (typed)
+        pi_ev_before_agent_start(s, text);      /* after the compaction check, before the run (agent-session.ts:2062) */
+    if (typed && s->started) {
         void (*f)(void *) = s->started;
         s->started = 0;
         f(s->started_u);
@@ -1500,6 +1571,7 @@ static int prompt_run(pi_session *s, const char *typed, const char *images)
     }
     s->retry_stop = 0;
     s->active = 0;
+    flush_pending_custom(s);                    /* _runAgentPrompt's finally */
     {
         pi_event e;
         pi_event_init(&e, PE_AGENT_SETTLED);
@@ -1527,14 +1599,37 @@ static int prompt_handled(pi_session *s)
 /* agent-session.ts prompt(): a registered extension command runs first (1977-1983), then the extensions' input event (1993)
  * comes before the skill command and the prompt template expand (2005-2010; prompt_run) and before the compaction check;
  * "handled" ends the call with no run, "transform" is the new text */
+int pi_session_drain(pi_session *s)
+{
+    int rc = LS_NONE;
+    while (s->deferred_custom && !s->active) {
+        char *m = s->deferred_custom;
+        s->deferred_custom = 0;
+        if (s->nnext_custom < 8)
+            s->next_custom[s->nnext_custom++] = m;     /* flush_next_custom makes it the run's first message */
+        else {
+            free(m);
+            break;
+        }
+        rc = prompt_run(s, 0, 0);
+    }
+    return rc;
+}
+
 int pi_prompt_images(pi_session *s, const char *text, const char *images)
 {
     jw t, im;
     int rc;
-    if (text && text[0] == '/' && pi_exts_run_command(&s->ext, text))
-        return prompt_handled(s);
-    if (!text || !s->ext.n)
-        return prompt_run(s, text, images);
+    if (text && text[0] == '/' && pi_exts_run_command(&s->ext, text)) {
+        rc = prompt_handled(s);
+        pi_session_drain(s);
+        return rc;
+    }
+    if (!text || !s->ext.n) {
+        rc = prompt_run(s, text, images);
+        pi_session_drain(s);
+        return rc;
+    }
     jw_init(&t);
     jw_init(&im);
     jw_rawz(&t, text);
@@ -1545,12 +1640,15 @@ int pi_prompt_images(pi_session *s, const char *text, const char *images)
         s->ext.images = 0;
         jw_free(&t);
         jw_free(&im);
-        return prompt_handled(s);
+        rc = prompt_handled(s);
+        pi_session_drain(s);
+        return rc;
     }
     s->ext.images = 0;
     rc = prompt_run(s, t.p ? t.p : "", im.n ? im.p : 0);
     jw_free(&t);
     jw_free(&im);
+    pi_session_drain(s);
     return rc;
 }
 

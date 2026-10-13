@@ -454,6 +454,32 @@ SCENARIOS.update({
     'ext_ui_notify': dict(steps=[('type', '/tell'), ('enter',), ('wait', 'an error')], answers=[], agent_files=UI_FILES, rows=30),
 })
 
+# L11: pi.sendMessage with display true, drawn by an extension's registerMessageRenderer or by the default box (custom-message.ts); a
+# message with display false is in the session only. Ctrl+O sets expanded for the renderer.
+EXT_MSG = r'''import { Text } from "@earendil-works/pi-tui";
+export default function (pi) {
+  pi.registerMessageRenderer("note", (message, options, theme) => {
+    const body = typeof message.content === "string" ? message.content : "";
+    return new Text(theme.fg("accent", "Note: " + body) + (options.expanded ? " (expanded)" : ""), 1, 0);
+  });
+  pi.registerCommand("note", { handler: async () => { pi.sendMessage({ customType: "note", content: "hello there", display: true }); } });
+  pi.registerCommand("plain", { handler: async () => { pi.sendMessage({ customType: "plain", content: "some **bold** text", display: true }); } });
+  pi.registerCommand("quiet", { handler: async () => { pi.sendMessage({ customType: "quiet", content: "hidden", display: false }); } });
+  pi.registerCommand("multi", { handler: async () => { pi.sendMessage({ customType: "multi", content: "one", display: true }); pi.sendMessage({ customType: "note", content: "two", display: true }); } });
+}
+'''
+MSG_FILES = {'extensions/t.ts': EXT_MSG}
+SCENARIOS.update({
+    'ext_msg_render': dict(steps=[('type', '/note'), ('enter',), ('wait', 'Note:')], answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_plain': dict(steps=[('type', '/plain'), ('enter',), ('wait', 'bold')], answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_hidden': dict(steps=[('type', '/quiet'), ('enter',), ('sleep', 1.0), ('type', '/note'), ('enter',), ('wait', 'Note:')],
+                           answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_expanded': dict(steps=[('type', '/note'), ('enter',), ('wait', 'Note:'), ('key', 'C-o'), ('sleep', 1.0)],
+                             answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_multi': dict(steps=[('type', '/multi'), ('enter',), ('wait', 'two')], answers=[], agent_files=MSG_FILES, rows=30),
+})
+
+
 
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []

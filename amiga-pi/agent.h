@@ -176,6 +176,11 @@ typedef struct pi_session {
      * run starts; JSON objects {"customType","content","display","details"} */
     char *next_custom[8];
     int nnext_custom;
+    /* pi.sendMessage while a run is going on (pi's _pendingCustomMessages): appended after the turn that is running; and the message
+     * an idle session is to run a turn on (triggerTurn), started by the mode once the handler that sent it has returned */
+    char *pend_custom[8];
+    int npend_custom;
+    char *deferred_custom;
     int result_error;           /* the tool running now returned a result with isError set, which is no thrown error (an extension's
                                  * tool; its details stay as it gave them): reset by the loop before each call */
     int active;                 /* a prompt is running (pi's isStreaming) */
@@ -207,6 +212,13 @@ int pi_session_push_system(pi_session *s, const char *json, long n);
  * value or 0) saved in the session, put in the conversation as the user message convertToLlm makes of it, and announced as
  * message_start / message_end with the custom message itself. 0, -1 */
 int pi_session_custom(pi_session *s, const char *custom_type, const char *content, int display, const char *details);
+/* pi.sendMessage (agent-session.ts sendCustomMessage): message a JSON object {customType, content, display, details}; trigger -1
+ * unset, 0 false, 1 true; deliver "steer", "followUp", "nextTurn" or 0. "nextTurn" waits for the next prompt; a run going on takes it
+ * after the turn (a steer or follow-up of it is the same here: the queues hold text); an idle session appends it, or with trigger
+ * runs a turn on it once the caller is back in the mode's loop (pi_session_drain). 0, -1 */
+int pi_session_send_custom(pi_session *s, const char *message, int trigger, const char *deliver);
+/* the turn a pi.sendMessage with triggerTurn asked for, when the session is idle: its last answer's stop reason, LS_NONE when none */
+int pi_session_drain(pi_session *s);
 /* the conversation emptied (a session loaded, a branch left) */
 void pi_session_clear(pi_session *s);
 /* the tools as pi-ai's request carries them: a JSON array of {name, description, parameters} */

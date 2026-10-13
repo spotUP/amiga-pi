@@ -18,6 +18,7 @@ long pi_lua_tool_calls;
 #define K_HANDLERS "pi.handlers"        /* registry: event name -> array of handler functions */
 #define K_CTX "pi.ctx"                  /* registry: the ctx table every handler gets */
 #define K_ARRAY "pi.array"              /* registry: the metatable that marks a table as a JSON array */
+#define K_RENDERERS "pi.renderers"      /* registry: customType -> the message renderer function */
 #define K_TOOLS "pi.tools"              /* registry: tool slot + 1 -> its execute function */
 #define K_CMDS "pi.commands"            /* registry: command slot + 1 -> its handler function */
 
@@ -1190,6 +1191,168 @@ static int lx_command(void *u, int handle, const char *args)
     return rc == LUA_OK ? 0 : -1;
 }
 
+/* pi.sendMessage(message, { triggerTurn, deliverAs }) (agent-session.ts sendCustomMessage): message {customType, content (a string or
+ * blocks), display, details} */
+static int pi_send_message(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    pi_session *s = x->host->s;
+    jw w;
+    char err[200];
+    int trigger = -1, rc;
+    const char *deliver = 0;
+    if (x->loading)
+        return luaL_error(L, "Extension runtime not initialized. Action methods cannot be called during extension loading.");
+    luaL_checktype(L, 1, LUA_TTABLE);
+    if (lua_istable(L, 2)) {
+        lua_getfield(L, 2, "triggerTurn");
+        if (!lua_isnil(L, -1))
+            trigger = lua_toboolean(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "deliverAs");
+        if (lua_type(L, -1) == LUA_TSTRING)
+            deliver = lua_tostring(L, -1);
+        lua_pop(L, 1);
+    }
+    jw_init(&w);
+    if (enc_protected(L, 1, &w, err, sizeof(err))) {
+        jw_free(&w);
+        return luaL_error(L, "pi.sendMessage: %s", err);
+    }
+    rc = pi_session_send_custom(s, w.p, trigger, deliver);
+    jw_free(&w);
+    if (rc)
+        return luaL_error(L, "pi.sendMessage: the message could not be sent");
+    return 0;
+}
+
+/* pi.registerMessageRenderer(customType, function(message, options, theme)) -> a string or an array of lines (pi's returns a Component) */
+static int pi_register_renderer(lua_State *L)
+{
+    luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    lua_getfield(L, LUA_REGISTRYINDEX, K_RENDERERS);
+    lua_pushvalue(L, 1);
+    lua_pushvalue(L, 2);
+    lua_rawset(L, -3);
+    return 0;
+}
+
+/* theme.fg(name, text), theme.bg(name, text) and the text styles: pi's Theme wraps the text in the colour's escape sequence */
+static int theme_color(lua_State *L, int bg)
+{
+    const pi_ext_render *r = (const pi_ext_render *)lua_touserdata(L, lua_upvalueindex(1));
+    const char *name = luaL_checkstring(L, 1), *text = luaL_checkstring(L, 2);
+    char sgr[64];
+    luaL_Buffer b;
+    if (!r->sgr || !r->sgr(r->u, name, bg, sgr, sizeof(sgr)))
+        return luaL_error(L, "Unknown theme color: %s", name);
+    luaL_buffinit(L, &b);
+    luaL_addstring(&b, sgr);
+    luaL_addstring(&b, text);
+    luaL_addstring(&b, bg ? "\033[49m" : "\033[39m");
+    luaL_pushresult(&b);
+    return 1;
+}
+
+static int theme_fg(lua_State *L)
+{
+    return theme_color(L, 0);
+}
+
+static int theme_bg(lua_State *L)
+{
+    return theme_color(L, 1);
+}
+
+static int theme_style(lua_State *L)
+{
+    const char *on = lua_tostring(L, lua_upvalueindex(1)), *off = lua_tostring(L, lua_upvalueindex(2));
+    const char *text = luaL_checkstring(L, 1);
+    lua_pushfstring(L, "%s%s%s", on, text, off);
+    return 1;
+}
+
+static void theme_new(lua_State *L, const pi_ext_render *r)
+{
+    static const char *const style[][3] = { { "bold", "\033[1m", "\033[22m" }, { "italic", "\033[3m", "\033[23m" },
+                                            { "underline", "\033[4m", "\033[24m" }, { "inverse", "\033[7m", "\033[27m" },
+                                            { "strikethrough", "\033[9m", "\033[29m" } };
+    int i;
+    lua_newtable(L);
+    lua_pushlightuserdata(L, (void *)r);
+    lua_pushcclosure(L, theme_fg, 1);
+    lua_setfield(L, -2, "fg");
+    lua_pushlightuserdata(L, (void *)r);
+    lua_pushcclosure(L, theme_bg, 1);
+    lua_setfield(L, -2, "bg");
+    for (i = 0; i < 5; i++) {
+        lua_pushstring(L, style[i][1]);
+        lua_pushstring(L, style[i][2]);
+        lua_pushcclosure(L, theme_style, 2);
+        lua_setfield(L, -2, style[i][0]);
+    }
+}
+
+/* the renderer of customType (pi.registerMessageRenderer): called with the message, { expanded, outputPad } and the theme; the lines it
+ * returns (a string split at line feeds, or an array of strings) are drawn instead of the default box. An error or nothing back is the
+ * default drawing (custom-message.ts: the catch falls through) */
+static int lx_render(void *u, const char *type, const char *msg, long n, const pi_ext_render *r, jw *lines)
+{
+    pi_lua_ext *x = (pi_lua_ext *)u;
+    lua_State *L = x->L;
+    int top, got = 0;
+    if (!L)
+        return 0;
+    top = lua_gettop(L);
+    lua_getfield(L, LUA_REGISTRYINDEX, K_RENDERERS);
+    lua_getfield(L, -1, type);
+    lua_remove(L, -2);
+    if (!lua_isfunction(L, -1)) {
+        lua_settop(L, top);
+        return 0;
+    }
+    x->event = "render";
+    if (push_json(L, msg, n)) {
+        lua_settop(L, top);
+        return 0;
+    }
+    lua_createtable(L, 0, 2);
+    lua_pushboolean(L, r->expanded);
+    lua_setfield(L, -2, "expanded");
+    lua_pushinteger(L, r->pad);
+    lua_setfield(L, -2, "outputPad");
+    theme_new(L, r);
+    arm(x);
+    pi_lua_calls++;
+    if (lua_pcall(L, 3, 1, 0) == LUA_OK) {
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            const char *z = lua_tostring(L, -1);
+            jw_rawz(lines, z);
+            jw_rawz(lines, "\n");
+            got = 1;
+        } else if (lua_istable(L, -1)) {
+            long i, cnt = (long)lua_rawlen(L, -1);
+            for (i = 1; i <= cnt; i++) {
+                lua_rawgeti(L, -1, (lua_Integer)i);
+                if (lua_type(L, -1) == LUA_TSTRING) {
+                    jw_rawz(lines, lua_tostring(L, -1));
+                    jw_rawz(lines, "\n");
+                    got = 1;
+                }
+                lua_pop(L, 1);
+            }
+        }
+    } else {
+        char err[300];
+        cl_copy(err, lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "the error value is not a string", sizeof(err));
+        x->host->errors++;
+        (void)err;                            /* pi swallows a renderer's error and draws the default */
+    }
+    settle(x, top);
+    return got;
+}
+
 /* the state's contents, in a protected call (memory errors raise) */
 static int c_setup(lua_State *L)
 {
@@ -1220,6 +1383,8 @@ static int c_setup(lua_State *L)
     lua_setfield(L, LUA_REGISTRYINDEX, K_TOOLS);
     lua_newtable(L);
     lua_setfield(L, LUA_REGISTRYINDEX, K_CMDS);
+    lua_newtable(L);
+    lua_setfield(L, LUA_REGISTRYINDEX, K_RENDERERS);
     /* json */
     lua_newtable(L);
     lua_pushcfunction(L, l_json_encode);
@@ -1260,6 +1425,10 @@ static int c_setup(lua_State *L)
     lua_setfield(L, -2, "registerCommand");
     lua_pushcfunction(L, pi_append_entry);
     lua_setfield(L, -2, "appendEntry");
+    lua_pushcfunction(L, pi_send_message);
+    lua_setfield(L, -2, "sendMessage");
+    lua_pushcfunction(L, pi_register_renderer);
+    lua_setfield(L, -2, "registerMessageRenderer");
     lua_setglobal(L, "pi");
     return 0;
 }
@@ -1709,6 +1878,7 @@ static int load_file(pi_lua *h, const char *path, const char *scope, const char 
     x->ext.input = lx_input;
     x->ext.session_start = lx_session_start;
     x->ext.has = lx_has;
+    x->ext.render = lx_render;
     x->ext.emit = lx_emit;
     L = lua_newstate(l_alloc, x);
     if (!L) {

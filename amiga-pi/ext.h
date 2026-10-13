@@ -63,6 +63,16 @@ typedef int (*pi_ext_apply)(void *u, jv answer, jv after, jw *payload);
 #define PI_EXT_LUA 2
 #define PI_EXT_GATE 3
 
+/* what a message renderer is given besides the message (pi: MessageRenderer(message, { expanded, outputPad }, theme)): the options and the
+ * theme's colours as SGR sequences by role name (theme.fg); width is the screen's */
+typedef struct pi_ext_render {
+    long width;
+    int expanded, pad;
+    /* the SGR sequence that sets the foreground (or background, bg 1) of a theme colour, written into buf: 1, 0 unknown name */
+    int (*sgr)(void *u, const char *name, int bg, char *buf, long cap);
+    void *u;
+} pi_ext_render;
+
 typedef struct pi_ext {
     const char *name;
     void *u;
@@ -92,6 +102,9 @@ typedef struct pi_ext {
      * object as JSON) as it stands after the one before; fn (0: answers are ignored) sees each handler's answer. 1 when fn
      * ended the dispatch */
     int (*emit)(void *u, const char *type, jw *payload, int flags, pi_ext_apply fn, void *fu);
+    /* the renderer this extension registered for a custom message type (pi.registerMessageRenderer): the message (JSON) drawn as lines
+     * appended to lines, each ended by a line feed, SGR sequences allowed; 1, 0 no renderer or it returned nothing (the default box) */
+    int (*render)(void *u, const char *type, const char *msg, long n, const pi_ext_render *r, jw *lines);
 } pi_ext;
 
 /* a command an extension registered; name and description belong to the owner */
@@ -165,6 +178,8 @@ void pi_exts_tool_result(pi_exts *x, const char *id, const char *name, const cha
 /* pi's emitInput: text rewritten by the extensions in order; 1 when one handled it (no run) */
 int pi_exts_input(pi_exts *x, jw *text);
 void pi_exts_session_start(pi_exts *x, const char *reason, const char *prev);
+/* the first extension's renderer for the custom message type (runner.ts getMessageRenderer); 1 lines made, 0 the default drawing */
+int pi_exts_render(const pi_exts *x, const char *type, const char *msg, long n, const pi_ext_render *r, jw *lines);
 /* does any extension handle pi's event type (so the payload is worth building)? */
 int pi_exts_has(const pi_exts *x, const char *type);
 /* pi's runner emit for the events without a dedicated member: the payload to each extension in list order (see pi_ext.emit and
