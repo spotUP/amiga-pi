@@ -2101,7 +2101,8 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
     if (p.look && ui_quiet != 1)
         pshow_header(&p.ps, "amiga-pi", ui_version[0] ? ui_version : "(pi " PI_VERSION ")");
     else if (!p.look) {
-        cl_copy(hello, "amiga-pi in UP-Term. Model ", sizeof(hello));
+        /* the UP-Term mention is amiga-pi's own (pi's header is the name and version): only on a console that is UP-Term's */
+        cl_copy(hello, io->upterm && io->upterm(io->u) ? "amiga-pi in UP-Term. Model " : "amiga-pi. Model ", sizeof(hello));
         cl_cat(hello, s->model.provider, sizeof(hello));
         cl_cat(hello, "/", sizeof(hello));
         cl_cat(hello, s->model.id, sizeof(hello));
