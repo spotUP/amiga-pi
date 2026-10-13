@@ -20,7 +20,9 @@ void pi_ui_set_cwd(const char *cwd);
  * Amiga, after the volume's ':' (trailing '/' ignored); a volume root ("Ram Disk:") gives the volume's name */
 void pi_dir_name(const char *path, char *out, int n);
 /* settings.json's quietStartup: the screen starts without the header */
-void pi_ui_set_quiet(int quiet);
+void pi_ui_set_quiet(int quiet);     /* 0 the start header and the loaded resources, 1 neither (quietStartup true), 2 the header only ("header") */
+/* a startup warning, shown as pi's showWarning after the start screen ("Warning: " is put in front of text); copied, at most four */
+void pi_ui_add_warning(const char *text);
 /* settings.json's tuiMode / fullscreenExitOutput / fullscreenScrollbar (TM1): regular 1 is pi's "regular" mode (the
  * main screen, the editor follows the content), 0 its default "fullscreen" (the alternate screen); hint_only 1 is
  * fullscreenExitOutput "resume-hint"; scrollbar_always 1 is fullscreenScrollbar "always" */

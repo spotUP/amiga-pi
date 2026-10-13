@@ -19,6 +19,7 @@ void pi_truncate(const char *s, long n, int tail, long max_lines, long max_bytes
         for (lines = 1, i = 0; i < e; i++)
             lines += s[i] == '\n';
     r->total_lines = lines;
+    r->total_bytes = n;
     r->n = n;
     r->out_lines = lines;
     if (lines <= max_lines && n <= max_bytes)
@@ -85,6 +86,34 @@ void pi_truncate(const char *s, long n, int tail, long max_lines, long max_bytes
     }
 }
 
+void pi_trunc_json(jw *o, const pi_trunc *r, const char *text, long max_lines)
+{
+    jw_rawz(o, "{\"content\":");
+    jw_str(o, r->first_over ? "" : text + r->off, r->first_over ? 0 : r->n);
+    jw_rawz(o, ",\"truncated\":true,\"truncatedBy\":\"");
+    jw_rawz(o, r->by == PT_LINES ? "lines" : "bytes");
+    jw_rawz(o, "\",\"totalLines\":");
+    jw_long(o, r->total_lines);
+    jw_rawz(o, ",\"totalBytes\":");
+    jw_long(o, r->total_bytes);
+    jw_rawz(o, ",\"outputLines\":");
+    jw_long(o, r->out_lines);
+    jw_rawz(o, ",\"outputBytes\":");
+    jw_long(o, r->first_over ? 0 : r->n);
+    jw_rawz(o, ",\"lastLinePartial\":");
+    jw_rawz(o, r->partial ? "true" : "false");
+    jw_rawz(o, ",\"firstLineExceedsLimit\":");
+    jw_rawz(o, r->first_over ? "true" : "false");
+    jw_rawz(o, ",\"maxLines\":");
+    if (max_lines >= 0x7fffffffL)
+        jw_rawz(o, "9007199254740991");     /* Number.MAX_SAFE_INTEGER, what ls, find and grep pass */
+    else
+        jw_long(o, max_lines);
+    jw_rawz(o, ",\"maxBytes\":");
+    jw_long(o, PI_MAX_BYTES);
+    jw_rawz(o, "}");
+}
+
 void pi_size(long b, char *out, long cap)
 {
     char num[16];
@@ -136,7 +165,7 @@ void pi_cut_path(const char *tmp, const char *id, char *out, long cap)
     pi_tmp_path(tmp, id, ".txt", out, cap);
 }
 
-int pi_cut(cl_sys *sys, const char *tmp, const char *id, const char *text, long n, int tail, jw *out)
+int pi_cut(cl_sys *sys, const char *tmp, const char *id, const char *text, long n, int tail, jw *out, jw *details)
 {
     pi_trunc r;
     char path[300], a[32], b[32], num[16];
@@ -148,6 +177,16 @@ int pi_cut(cl_sys *sys, const char *tmp, const char *id, const char *text, long 
     }
     pi_cut_path(tmp, id, path, sizeof(path));
     saved = sys && sys->write && sys->write(sys->u, path, text, n) == 0;
+    if (details) {
+        jw_reset(details);
+        jw_rawz(details, "{\"truncation\":");
+        pi_trunc_json(details, &r, text, PI_MAX_LINES);
+        if (saved) {
+            jw_rawz(details, ",\"fullOutputPath\":");
+            jw_str(details, path, (long)strlen(path));
+        }
+        jw_rawz(details, "}");
+    }
     jw_raw(out, text + r.off, r.n);
     if (r.n)
         jw_rawz(out, "\n\n");
@@ -202,12 +241,14 @@ int pi_cut(cl_sys *sys, const char *tmp, const char *id, const char *text, long 
     return 1;
 }
 
-void pi_head(const char *s, long n, const char *first, const char *last, jw *out)
+void pi_head(const char *s, long n, const char *first, const char *last, jw *out, pi_trunc *tr)
 {
     pi_trunc r;
     char b[32];
     int k = 0;
     pi_truncate(s, n, 0, 0x7fffffffL, PI_MAX_BYTES, &r);
+    if (tr)
+        *tr = r;
     jw_raw(out, s + r.off, r.n);
     if (first) {
         jw_rawz(out, "\n\n[");

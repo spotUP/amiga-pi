@@ -563,6 +563,109 @@ SCENARIOS.update({
 
 
 
+# G2 (U1b): pi's footer at the widths where its rules differ (footer.ts:177-249): the usage "left" is 33 columns after one answer,
+# the model "fake-model" 10. 45 columns: both fit with the two spaces of padding (flush to the last column); 41: the model is cut to
+# the room left ("fake-m"), never the usage; 30: the usage alone is wider than the window and is cut with "..."
+FOOT_ANS = [('sse', text_answer('msg_a', 'answer one', 20))]
+FOOT_STEPS = [('type', 'first'), ('enter',), ('wait', 'one')]
+SCENARIOS.update({
+    'foot_exact': dict(steps=FOOT_STEPS, answers=FOOT_ANS, cols=45),
+    'foot_cut': dict(steps=FOOT_STEPS, answers=FOOT_ANS, cols=41),
+    'foot_left': dict(steps=FOOT_STEPS, answers=FOOT_ANS, cols=30),
+})
+
+
+# U1b: showStatus (interactive-mode.ts:3824-3844) puts a new dim status into the last one's place when it is the chat's last child:
+# Alt+Up twice with nothing queued ("No queued messages to restore") is one row, not two
+SCENARIOS.update({
+    'status_twice': dict(steps=[('key', 'M-Up'), ('sleep', 0.5), ('key', 'M-Up'), ('sleep', 0.8)], answers=[]),
+})
+
+
+# G3 (U1b): the start header at 64 columns, where the hint line wraps, with outputPad 1 and 0. The header is a BuiltInHeader(.., 1, 0)
+# (interactive-mode.ts:1055-1075): its own padding of one column, whatever outputPad says (settings.md:100); the wrapped part of the
+# hint starts under the logo, in that padding column, not in the text column
+SCENARIOS.update({
+    'start_w64': dict(steps=[], answers=[], cols=64),
+    'pad0_start_w64': dict(steps=[], answers=[], cols=64, settings={'outputPad': 0}),
+})
+
+
+# U3 (U1b): an invalid settings.json is reported, not ignored: main.ts:670 collects settingsManager.drainErrors() into startup
+# diagnostics, interactive mode shows each as a warning (interactive-mode.ts:1197-1204) -- "Invalid settings file <path>: <JSON.parse
+# message>" (core/settings-diagnostics.ts); the settings it could not read count as empty. quietStartup stays off (the file is the
+# one that is broken), so the header is up.
+SCENARIOS.update({
+    'settings_bad': dict(steps=[], answers=[], rows=30, settings_raw='"outputPad": 0\n'),
+})
+
+
+# U1b: Ctrl+O at the start shows the header's long form (expandedInstructions, interactive-mode.ts:1036-1057): one key hint a row, and the
+# hint line of the collapsed form ("Press ctrl+o ...") gives way to it; quietStartup "header" keeps the header but not the loaded resources
+SCENARIOS.update({
+    'start_expanded': dict(steps=[('key', 'C-o'), ('sleep', 1.0)], answers=[], rows=40),
+    'start_expanded_w64': dict(steps=[('key', 'C-o'), ('sleep', 1.0)], answers=[], rows=40, cols=64),
+    'start_header_only': dict(steps=[], answers=[], settings={'quietStartup': 'header'}),
+})
+
+
+# U1b (tool boxes): read highlights a file of a known language when expanded (renderers/read.ts:121-136), shows a skill, a context file
+# or a pi docs file in its short form while collapsed (read.ts:22-111, 155-158); write shows its content under the call, ten lines
+# collapsed (renderers/write.ts:96-127); edit shows the diff under the call, in the box coloured by the preview (renderers/edit.ts);
+# the result's details warn of truncation (read.ts:138-147, ls.ts:48-55)
+CODE_C = ('/* a greeting */\nstatic const char *name = "world";\nunsigned long n = 42;\nif (n > 1) {\n\tname = "again";\n} else {\n\tn = 0x1f; // hex\n}\n'
+          'while (n) {\n\tn--;\n}\nreturn 0;\n')
+CODE_PY = '\n'.join(['import os', 'import sys', '', '# count the lines', 'total = 0', 'for line in sys.stdin:', '    if line:', '        total += 1',
+                    '    else:', '        total -= 1', 'while total > 3:', '    total = total - 1', 'name = "box"', 'size = 3.5',
+                    'flag = total and not size', 'other = size or 2', 'result = total if flag else 0']) + '\n'
+SKILL_MD = '---\nname: greet\ndescription: Greets people.\n---\n\n# Greet\n\nSay hello.\n'
+R_ANS = lambda name, path, extra=None: [('sse', tool_answer('msg_h1', 'toolu_h', name, dict({'path': path}, **(extra or {})), 'Looking.')),
+                                         ('sse', text_answer('msg_h2', 'Finished.', 20))]
+SCENARIOS.update({
+    'dark_read_hl': dict(steps=[('type', 'show main'), ('enter',), ('wait', 'Finished'), ('key', 'C-o'), ('sleep', 1.0)],
+                         answers=R_ANS('read', 'main.c'), theme='dark', files={'main.c': CODE_C}, rows=30),
+    'dark_read_hl_py': dict(steps=[('type', 'show it'), ('enter',), ('wait', 'Finished'), ('key', 'C-o'), ('sleep', 1.0)],
+                            answers=R_ANS('read', 'count.py'), theme='dark', files={'count.py': CODE_PY}, rows=30),
+    'dark_read_skill': dict(steps=[('type', 'read'), ('enter',), ('wait', 'Done compact')], theme='dark', rows=30,
+                            files={'skills/greet/SKILL.md': SKILL_MD, 'docs/AGENTS.md': 'Be brief.\n'},
+                            answers=[('sse', tool_answer2('msg_k1', [('toolu_k1', 'read', {'path': 'skills/greet/SKILL.md'}),
+                                                                     ('toolu_k2', 'read', {'path': 'docs/AGENTS.md', 'offset': 1, 'limit': 5}),
+                                                                     ('toolu_k3', 'read', {'path': 'notes.txt'})])),
+                                     ('sse', text_answer('msg_k2', 'Done compact.', 20))]),
+    'dark_read_skill_expanded': dict(steps=[('type', 'read'), ('enter',), ('wait', 'Done compact'), ('key', 'C-o'), ('sleep', 1.0)],
+                                     theme='dark', rows=40, files={'skills/greet/SKILL.md': SKILL_MD, 'docs/AGENTS.md': 'Be brief.\n'},
+                                     answers=[('sse', tool_answer2('msg_k1', [('toolu_k1', 'read', {'path': 'skills/greet/SKILL.md'}),
+                                                                              ('toolu_k2', 'read', {'path': 'docs/AGENTS.md', 'offset': 1, 'limit': 5})])),
+                                              ('sse', text_answer('msg_k2', 'Done compact.', 20))]),
+    'dark_write': dict(steps=[('type', 'write it'), ('enter',), ('wait', 'Finished')], theme='dark', rows=40,
+                       answers=[('sse', tool_answer('msg_w1', 'toolu_w', 'write', {'path': 'count.py', 'content': CODE_PY}, 'Writing.')),
+                                ('sse', text_answer('msg_w2', 'Finished.', 20))]),
+    'dark_write_expanded': dict(steps=[('type', 'write it'), ('enter',), ('wait', 'Finished'), ('key', 'C-o'), ('sleep', 1.0)], theme='dark',
+                                rows=40,
+                                answers=[('sse', tool_answer('msg_w1', 'toolu_w', 'write', {'path': 'count.py', 'content': CODE_PY}, 'Writing.')),
+                                         ('sse', text_answer('msg_w2', 'Finished.', 20))]),
+    'dark_write_txt': dict(steps=[('type', 'write it'), ('enter',), ('wait', 'Finished')], theme='dark', rows=30,
+                           answers=[('sse', tool_answer('msg_w1', 'toolu_w', 'write', {'path': 'out.txt', 'content': 'one\ntwo\n'}, 'Writing.')),
+                                    ('sse', text_answer('msg_w2', 'Finished.', 20))]),
+    'dark_edit': dict(steps=[('type', 'edit it'), ('enter',), ('wait', 'Finished')], theme='dark', rows=30,
+                      files={'count.py': CODE_PY},
+                      answers=[('sse', tool_answer('msg_e1', 'toolu_e', 'edit',
+                                                   {'path': 'count.py', 'edits': [{'oldText': 'total = 0\n', 'newText': 'total = 1\n'},
+                                                                                  {'oldText': 'name = "box"', 'newText': 'name = "crate"\n# done'}]},
+                                                   'Editing.')),
+                               ('sse', text_answer('msg_e2', 'Finished.', 20))]),
+    'dark_edit_err': dict(steps=[('type', 'edit it'), ('enter',), ('wait', 'Finished')], theme='dark', rows=30,
+                          files={'count.py': CODE_PY},
+                          answers=[('sse', tool_answer('msg_e1', 'toolu_e', 'edit',
+                                                       {'path': 'count.py', 'edits': [{'oldText': 'no such text', 'newText': 'x'}]}, 'Editing.')),
+                                   ('sse', text_answer('msg_e2', 'Finished.', 20))]),
+    'dark_read_trunc_expanded': dict(steps=[('type', 'read big'), ('enter',), ('wait', 'Finished'), ('key', 'C-o'), ('sleep', 1.5)], theme='dark',
+                                     rows=30, files={'big.txt': ''.join('line %d\n' % i for i in range(1, 2501))},
+                                     answers=R_ANS('read', 'big.txt')),
+    'dark_ls_limit': dict(steps=[('type', 'list'), ('enter',), ('wait', 'Finished')], theme='dark', rows=30, files=LS_FILES,
+                          settings={'defaultTools': ['+ls']}, answers=R_ANS('ls', 'files', {'limit': 3})),
+})
+
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []
     served = []
@@ -654,6 +757,7 @@ def run(name, sc, cols, rows, keep):
     global HIST
     HIST = False
     rows = sc.get('rows', rows)
+    cols = sc.get('cols', cols)         # a scenario at its own width (U1b: the footer and header at 64 columns)
     work = '/private/tmp/' + TAG      # the trust prompt and the footer show the path; PITUI_TAG gives a run its own directory and tmux sessions
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
@@ -714,10 +818,15 @@ def run(name, sc, cols, rows, keep):
               open(os.path.join(agent, 'models.json'), 'w'))
     # quietStartup hides the header: only the scenarios about the header show it (the rest would scroll by its height)
     settings = {'defaultProvider': 'fake', 'defaultModel': MODEL, 'defaultThinkingLevel': 'off',
-                'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start', 'skills_start'),
+                'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start', 'skills_start', 'start_w64', 'pad0_start_w64', 'settings_bad', 'start_expanded', 'start_header_only', 'start_expanded_w64'),
                 'tuiMode': sc.get('tui', 'fullscreen'), 'theme': sc.get('theme', 'system')}
     settings.update(sc.get('settings', {}))
     json.dump(settings, open(os.path.join(agent, 'settings.json'), 'w'))
+    if 'settings_raw' in sc:        # a settings.json that is no JSON (U3): its text as it is; the project's too ('project_settings_raw')
+        open(os.path.join(agent, 'settings.json'), 'w').write(sc['settings_raw'])
+    if 'project_settings_raw' in sc:
+        os.makedirs(os.path.join(proj, '.pi'), exist_ok=True)
+        open(os.path.join(proj, '.pi', 'settings.json'), 'w').write(sc['project_settings_raw'])
     fixture = None
     if sc.get('oauth'):         # an OAuth server for the login scenarios: claude_fixture.py --oauth, pi's fetch sent there (fetch_shim.mjs)
         odir = os.path.join(work, 'oauth')
@@ -836,6 +945,8 @@ def main():
     json.dump(CONFLICT_FILES, open(os.path.join(OUT, 'conflict_files.json'), 'w'), indent=1)
     json.dump(RELOAD_FILES, open(os.path.join(OUT, 'reload_files.json'), 'w'), indent=1)
     json.dump(RELOAD_WRITES, open(os.path.join(OUT, 'reload_writes.json'), 'w'), indent=1)
+    # the project files of the scenarios that have some (the tool scenarios of tests/test_pi_tui.c run amiga-pi's own tools on them)
+    json.dump({n: sc['files'] for n, sc in SCENARIOS.items() if 'files' in sc}, open(os.path.join(OUT, 'scenario_files.json'), 'w'), indent=1)
     for n, sc in SCENARIOS.items():
         if a.only and a.only != n:
             continue

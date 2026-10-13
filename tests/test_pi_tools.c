@@ -588,6 +588,118 @@ static void lines_file(const char *name, long n, const char *fmt_pad)
     jw_free(&b);
 }
 
+/* U1b: the `details` of a result (read.ts, edit.ts, ls.ts, find.ts, grep.ts, bash.ts), what the TUI's warnings and the edit box draw from. The
+ * expected JSON is what pi 1.1.0's own tools return on the same tree (tools/pi_oracle/gen_tool_details.mjs); a truncation's text is compared
+ * from the member after "content" (its start is the text cut) */
+static void details_is(const char *want)
+{
+    CHECK_STR(ses.details.p ? ses.details.p : "", want);
+}
+
+static void details_tail_is(const char *start, const char *tail)
+{
+    const char *d = ses.details.p ? ses.details.p : "";
+    const char *at = strstr(d, "\",\"truncated\":");
+    CHECK(strncmp(d, start, strlen(start)) == 0);
+    CHECK(at != 0);
+    if (at)
+        CHECK_STR(at + 2, tail);
+}
+
+static void test_details(void)
+{
+    char *t, pad[201];
+    memset(pad, 'x', 200);
+    pad[200] = 0;
+    {
+        char d[600];
+        full("dt", d);
+        mkdir(d, 0755);
+        full("dt/files", d);
+        mkdir(d, 0755);
+    }
+    lines_file("dt/big.txt", 2500, 0);
+    jw_reset(&ses.details);
+    CHECK_INT(call(PT_READ, "{\"path\":\"dt/big.txt\"}", &t), 0);
+    free(t);
+    details_tail_is("{\"truncation\":{\"content\":\"Line 1\\nLine 2\\nLine 3",
+                    "\"truncated\":true,\"truncatedBy\":\"lines\",\"totalLines\":2500,\"totalBytes\":23892,\"outputLines\":2000,\"outputBytes\":18892,"
+                    "\"lastLinePartial\":false,\"firstLineExceedsLimit\":false,\"maxLines\":2000,\"maxBytes\":51200}}");
+    lines_file("dt/wide.txt", 500, pad);
+    CHECK_INT(call(PT_READ, "{\"path\":\"dt/wide.txt\"}", &t), 0);
+    free(t);
+    details_tail_is("{\"truncation\":{\"content\":\"Line 1: xxxx",
+                    "\"truncated\":true,\"truncatedBy\":\"bytes\",\"totalLines\":500,\"totalBytes\":105391,\"outputLines\":243,\"outputBytes\":51164,"
+                    "\"lastLinePartial\":false,\"firstLineExceedsLimit\":false,\"maxLines\":2000,\"maxBytes\":51200}}");
+    put("dt/small.txt", "one\ntwo\nthree\n", -1);
+    CHECK_INT(call(PT_READ, "{\"path\":\"dt/small.txt\"}", &t), 0);
+    free(t);
+    details_is("");             /* pi: details undefined */
+    CHECK_INT(call(PT_READ, "{\"path\":\"dt/big.txt\",\"offset\":10,\"limit\":5}", &t), 0);
+    free(t);
+    details_is("");
+    put("dt/edit.txt", "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\n", -1);
+    CHECK_INT(call(PT_EDIT, "{\"path\":\"dt/edit.txt\",\"edits\":[{\"oldText\":\"c\\n\",\"newText\":\"C\\nC2\\n\"},{\"oldText\":\"k\\n\",\"newText\":\"K\\n\"}]}", &t), 0);
+    free(t);
+    details_is("{\"diff\":\"  1 a\\n  2 b\\n- 3 c\\n+ 3 C\\n+ 4 C2\\n  4 d\\n  5 e\\n  6 f\\n  7 g\\n  8 h\\n  9 i\\n 10 j\\n-11 k\\n+12 K\\n 12 l\","
+               "\"patch\":\"--- dt/edit.txt\\n+++ dt/edit.txt\\n@@ -1,12 +1,13 @@\\n a\\n b\\n-c\\n+C\\n+C2\\n d\\n e\\n f\\n g\\n h\\n i\\n j\\n-k\\n+K\\n l\\n\","
+               "\"firstChangedLine\":3}");
+    CHECK_INT(call(PT_EDIT, "{\"path\":\"dt/edit.txt\",\"edits\":[{\"oldText\":\"no such text\",\"newText\":\"x\"}]}", &t), 1);
+    free(t);
+    details_is("");             /* an error has none */
+    {
+        int i;
+        for (i = 1; i <= 8; i++) {
+            char n[] = "dt/files/fX.txt";
+            n[10] = (char)('0' + i);
+            put(n, "x\n", -1);
+        }
+    }
+    CHECK_INT(call(PT_LS, "{\"path\":\"dt/files\",\"limit\":3}", &t), 0);
+    free(t);
+    details_is("{\"entryLimitReached\":3}");
+    CHECK_INT(call(PT_LS, "{\"path\":\"dt/files\"}", &t), 0);
+    free(t);
+    details_is("");
+    CHECK_INT(call(PT_FIND, "{\"pattern\":\"*.txt\",\"path\":\"dt/files\",\"limit\":2}", &t), 0);
+    free(t);
+    details_is("{\"resultLimitReached\":2}");
+    put("dt/g.txt", "match 0\nmatch 1\nmatch 2\nmatch 3\nmatch 4\nmatch 5\n", -1);
+    CHECK_INT(call(PT_GREP, "{\"pattern\":\"match\",\"path\":\"dt/g.txt\",\"limit\":4}", &t), 0);
+    free(t);
+    details_is("{\"matchLimitReached\":4}");
+    {
+        jw w;
+        jw_init(&w);
+        jw_rawz(&w, "match ");
+        {
+            int i;
+            for (i = 0; i < 600; i++)
+                jw_raw(&w, "y", 1);
+        }
+        jw_rawz(&w, "\n");
+        put("dt/gl.txt", w.p, w.n);
+        jw_free(&w);
+    }
+    CHECK_INT(call(PT_GREP, "{\"pattern\":\"match\",\"path\":\"dt/gl.txt\"}", &t), 0);
+    free(t);
+    details_is("{\"linesTruncated\":true}");
+    CHECK_INT(call(PT_BASH, "{\"command\":\"seq 1 3000\"}", &t), 0);
+    free(t);
+    {
+        const char *d = ses.details.p ? ses.details.p : "";
+        if (strncmp(d, "{\"truncation\":{\"content\":\"1001\\n1002\\n1003", 36))
+            printf("  bash details: %.200s\n", d);
+        CHECK(strncmp(d, "{\"truncation\":{\"content\":\"1001\\n1002\\n1003", 36) == 0);
+        CHECK(strstr(d, "\"truncated\":true,\"truncatedBy\":\"lines\",\"totalLines\":3000,\"totalBytes\":13893,\"outputLines\":2000,\"outputBytes\":9999,"
+                        "\"lastLinePartial\":false,\"firstLineExceedsLimit\":false,\"maxLines\":2000,\"maxBytes\":51200},\"fullOutputPath\":\"") != 0);
+    }
+    CHECK_INT(call(PT_BASH, "{\"command\":\"echo hi\"}", &t), 0);
+    free(t);
+    details_is("");
+}
+
+
 static void test_pi_cases(void)
 {
     char *t, pad[201], p[600];
@@ -1662,6 +1774,7 @@ void suite_pi_tools(void)
     test_edit();
     test_edit_pi();
     test_pi_cases();
+    test_details();
     test_ls_order();
     test_images();
     test_bash();

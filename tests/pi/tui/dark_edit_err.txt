@@ -1,0 +1,30 @@
+
+ edit it
+
+
+ Editing.
+
+
+ edit count.py
+
+ Could not find the exact text in count.py. The old text must match exactly
+ including all whitespace and newlines.
+
+
+ Finished.
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model

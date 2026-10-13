@@ -1,0 +1,30 @@
+
+
+ Looking.
+
+
+ read main.c
+
+ /* a greeting */
+ static const char *name = "world";
+ unsigned long n = 42;
+ if (n > 1) {
+    name = "again";
+ } else {
+    n = 0x1f; // hex
+ }
+ while (n) {
+    n--;
+ }
+ return 0;
+
+
+ Finished.
+
+ Tool output: expanded
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model
