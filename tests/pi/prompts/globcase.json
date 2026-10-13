@@ -1,0 +1,22 @@
+{
+ "prompts": [
+  {
+   "name": "skip-upper2",
+   "description": "not matched by !Skip-*: case counts",
+   "argumentHint": null,
+   "content": "not matched by !Skip-*: case counts\n",
+   "filePath": "@ROOT@/globcase/agent/prompts/skip-upper2.md",
+   "sourceInfo": {
+    "path": "@ROOT@/globcase/agent/prompts/skip-upper2.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/globcase/agent"
+   },
+   "command": "[u] not matched by !Skip-*: case counts"
+  }
+ ],
+ "diagnostics": [],
+ "rpcCommands": "[{\"name\":\"skip-upper2\",\"description\":\"not matched by !Skip-*: case counts\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/globcase/agent/prompts/skip-upper2.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/globcase/agent\"}}]",
+ "expand": []
+}

@@ -1,0 +1,75 @@
+{
+ "prompts": [
+  {
+   "name": "p2",
+   "description": "p2",
+   "argumentHint": null,
+   "content": "p2\n",
+   "filePath": "@ROOT@/tilde/home/shared-prompts/other/p2.md",
+   "sourceInfo": {
+    "path": "@ROOT@/tilde/home/shared-prompts/other/p2.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] p2"
+  },
+  {
+   "name": "p1",
+   "description": "p1",
+   "argumentHint": null,
+   "content": "p1\n",
+   "filePath": "@ROOT@/tilde/home/shared-prompts/p1.md",
+   "sourceInfo": {
+    "path": "@ROOT@/tilde/home/shared-prompts/p1.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] p1"
+  },
+  {
+   "name": "shared-one",
+   "description": "one",
+   "argumentHint": null,
+   "content": "one\n",
+   "filePath": "@ROOT@/tilde/home/shared-one.md",
+   "sourceInfo": {
+    "path": "@ROOT@/tilde/home/shared-one.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] one"
+  },
+  {
+   "name": "c1",
+   "description": "c1",
+   "argumentHint": null,
+   "content": "c1\n",
+   "filePath": "@ROOT@/tilde/home/cli-prompts/c1.md",
+   "sourceInfo": {
+    "path": "@ROOT@/tilde/home/cli-prompts/c1.md",
+    "source": "local",
+    "scope": "temporary",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/tilde/home/cli-prompts"
+   },
+   "command": "[t] c1"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "error",
+   "message": "Prompt template path does not exist",
+   "path": "@ROOT@/tilde/w/proj/  ~/cli-one.md"
+  },
+  {
+   "type": "error",
+   "message": "Prompt template path does not exist",
+   "path": "@ROOT@/tilde/home/none.md"
+  }
+ ],
+ "rpcCommands": "[{\"name\":\"p2\",\"description\":\"p2\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/tilde/home/shared-prompts/other/p2.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"p1\",\"description\":\"p1\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/tilde/home/shared-prompts/p1.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"shared-one\",\"description\":\"one\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/tilde/home/shared-one.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"c1\",\"description\":\"c1\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/tilde/home/cli-prompts/c1.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/tilde/home/cli-prompts\"}}]",
+ "expand": []
+}

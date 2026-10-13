@@ -619,6 +619,16 @@ static int host_paths(const pi_platform *pl)
     return pl->sys && pl->sys->info && pl->sys->info(pl->sys->u, "os", what, sizeof(what)) == 1 && !strncmp(what, "a POSIX host", 12);
 }
 
+/* what ~ is in a path: HOME (C:Claude's ~/ reads it too), else nothing (pkgres.h then says SYS:) */
+static const char *pl_home(const pi_platform *pl)
+{
+    static char home[300];
+    home[0] = 0;
+    if (pl->getenv)
+        pl->getenv("HOME", home, sizeof(home));
+    return home;
+}
+
 static pi_tmpls tmpls;
 
 /* json and rpc mode: stdout is the protocol's, so the program's own messages go to the platform's diagnostic channel */
@@ -815,11 +825,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         {
             /* the skills (skills.h): default directories, settings.json, --skill; --no-skills leaves out all but --skill */
             pi_skill_opts so;
-            static char home[300];
-            home[0] = 0;
-            if (pl->getenv)
-                pl->getenv("HOME", home, sizeof(home));        /* what ~ is (C:Claude's ~/ also reads HOME) */
-            so.home = home;
+            so.home = pl_home(pl);
             so.host = host_paths(pl);
             so.agent_dir = pl->agent_dir;
             so.data_dir = pl->data_dir;
@@ -838,10 +844,20 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         if (!a.no_extensions)
             pi_lua_discover(&lua, pl->agent_dir, pl->data_dir);
     }
-    /* prompt templates (templates.h): --prompt-template paths, then the project's (when trusted) and the agent directory's */
+    /* prompt templates (templates.h): the project's and the agent directory's, settings.json's entries and packages, then --prompt-template paths */
     memset(&tmpls, 0, sizeof(tmpls));
     if (pl->sys) {
-        pi_tmpl_load(&tmpls, pl->sys, pl->agent_dir, pl->cwd, trusted, a.no_templates, a.tmpl_paths, a.ntmpl_paths);
+        pi_tmpl_opts to;
+        memset(&to, 0, sizeof(to));
+        to.agent_dir = pl->agent_dir;
+        to.cwd = pl->cwd;
+        to.trusted = trusted;
+        to.no_defaults = a.no_templates;
+        to.home = pl_home(pl);
+        to.host = host_paths(pl);
+        to.paths = a.tmpl_paths;
+        to.npaths = a.ntmpl_paths;
+        pi_tmpl_load(&tmpls, pl->sys, &to);
         s.templates = &tmpls;
     }
     /* MCP servers from <agent dir>/mcp.json (pi: ~/.pi/agent/mcp.json), then the project's <cwd>/.pi/mcp.json for a

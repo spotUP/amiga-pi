@@ -1,0 +1,152 @@
+{
+ "prompts": [
+  {
+   "name": "bom",
+   "description": "After a BOM",
+   "argumentHint": null,
+   "content": "body",
+   "filePath": "@ROOT@/yaml/agent/prompts/bom.md",
+   "sourceInfo": {
+    "path": "@ROOT@/yaml/agent/prompts/bom.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/yaml/agent"
+   },
+   "command": "[u] After a BOM"
+  },
+  {
+   "name": "emptyfm",
+   "description": "the body only",
+   "argumentHint": null,
+   "content": "the body only",
+   "filePath": "@ROOT@/yaml/agent/prompts/emptyfm.md",
+   "sourceInfo": {
+    "path": "@ROOT@/yaml/agent/prompts/emptyfm.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/yaml/agent"
+   },
+   "command": "[u] the body only"
+  },
+  {
+   "name": "explicit",
+   "description": "An explicit key",
+   "argumentHint": null,
+   "content": "body",
+   "filePath": "@ROOT@/yaml/agent/prompts/explicit.md",
+   "sourceInfo": {
+    "path": "@ROOT@/yaml/agent/prompts/explicit.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/yaml/agent"
+   },
+   "command": "[u] An explicit key"
+  },
+  {
+   "name": "folded",
+   "description": "folded text",
+   "argumentHint": "<a>\n<b>\n",
+   "content": "body",
+   "filePath": "@ROOT@/yaml/agent/prompts/folded.md",
+   "sourceInfo": {
+    "path": "@ROOT@/yaml/agent/prompts/folded.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/yaml/agent"
+   },
+   "command": "<a>\n<b>\n — [u] folded text"
+  },
+  {
+   "name": "null",
+   "description": "null values",
+   "argumentHint": null,
+   "content": "null values",
+   "filePath": "@ROOT@/yaml/agent/prompts/null.md",
+   "sourceInfo": {
+    "path": "@ROOT@/yaml/agent/prompts/null.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/yaml/agent"
+   },
+   "command": "[u] null values"
+  },
+  {
+   "name": "number",
+   "description": "The first line of the body",
+   "argumentHint": null,
+   "content": "The first line of the body",
+   "filePath": "@ROOT@/yaml/agent/prompts/number.md",
+   "sourceInfo": {
+    "path": "@ROOT@/yaml/agent/prompts/number.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/yaml/agent"
+   },
+   "command": "[u] The first line of the body"
+  },
+  {
+   "name": "quoted",
+   "description": "Tab\there é",
+   "argumentHint": "<it's>",
+   "content": "body",
+   "filePath": "@ROOT@/yaml/agent/prompts/quoted.md",
+   "sourceInfo": {
+    "path": "@ROOT@/yaml/agent/prompts/quoted.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/yaml/agent"
+   },
+   "command": "<it's> — [u] Tab\there é"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "warning",
+   "message": "Block scalar header includes extra characters: |0 at line 1, column 15:\n\ndescription: |0\n              ^\n",
+   "path": "@ROOT@/yaml/agent/prompts/blockerr.md"
+  },
+  {
+   "type": "warning",
+   "message": "Nested mappings are not allowed in compact mappings at line 1, column 14:\n\ndescription: Use when: this\n             ^\n",
+   "path": "@ROOT@/yaml/agent/prompts/colon.md"
+  },
+  {
+   "type": "warning",
+   "message": "Map keys must be unique at line 2, column 1:\n\ndescription: One\ndescription: Two\n^\n",
+   "path": "@ROOT@/yaml/agent/prompts/dupkey.md"
+  },
+  {
+   "type": "warning",
+   "message": "Flow sequence in block collection must be sufficiently indented and end with a ] at line 1, column 19:\n\ndescription: [a, b\n                  ^\n",
+   "path": "@ROOT@/yaml/agent/prompts/flow.md"
+  },
+  {
+   "type": "warning",
+   "message": "Tabs are not allowed as indentation at line 2, column 1:\n\ndescription: x\n\tindented: tab\n^\n",
+   "path": "@ROOT@/yaml/agent/prompts/tabs.md"
+  },
+  {
+   "type": "warning",
+   "message": "Missing closing \"quote at line 1, column 27:\n\ndescription: \"never closed\n                          ^\n",
+   "path": "@ROOT@/yaml/agent/prompts/unclosed.md"
+  }
+ ],
+ "rpcCommands": "[{\"name\":\"bom\",\"description\":\"After a BOM\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml/agent/prompts/bom.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml/agent\"}},{\"name\":\"emptyfm\",\"description\":\"the body only\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml/agent/prompts/emptyfm.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml/agent\"}},{\"name\":\"explicit\",\"description\":\"An explicit key\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml/agent/prompts/explicit.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml/agent\"}},{\"name\":\"folded\",\"description\":\"folded text\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml/agent/prompts/folded.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml/agent\"}},{\"name\":\"null\",\"description\":\"null values\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml/agent/prompts/null.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml/agent\"}},{\"name\":\"number\",\"description\":\"The first line of the body\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml/agent/prompts/number.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml/agent\"}},{\"name\":\"quoted\",\"description\":\"Tab\\there é\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml/agent/prompts/quoted.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml/agent\"}}]",
+ "expand": [
+  {
+   "input": "/colon x",
+   "output": "/colon x"
+  },
+  {
+   "input": "/folded",
+   "output": "body"
+  }
+ ]
+}

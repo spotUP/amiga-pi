@@ -1,0 +1,93 @@
+{
+ "prompts": [
+  {
+   "name": "e2",
+   "description": "e2 below extra: the search is recursive",
+   "argumentHint": null,
+   "content": "e2 below extra: the search is recursive\n",
+   "filePath": "@ROOT@/settings_untrusted/agent/extra/deep/e2.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings_untrusted/agent/extra/deep/e2.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] e2 below extra: the search is recursive"
+  },
+  {
+   "name": "e1",
+   "description": "e1",
+   "argumentHint": null,
+   "content": "e1\n",
+   "filePath": "@ROOT@/settings_untrusted/agent/extra/e1.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings_untrusted/agent/extra/e1.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] e1"
+  },
+  {
+   "name": "single",
+   "description": "single",
+   "argumentHint": null,
+   "content": "single\n",
+   "filePath": "@ROOT@/settings_untrusted/agent/single.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings_untrusted/agent/single.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] single"
+  },
+  {
+   "name": "s",
+   "description": "named with ..",
+   "argumentHint": null,
+   "content": "named with ..\n",
+   "filePath": "@ROOT@/settings_untrusted/shared/s.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings_untrusted/shared/s.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] named with .."
+  },
+  {
+   "name": "off",
+   "description": "switched off by an exact entry -agent/prompts/off.md that do...",
+   "argumentHint": null,
+   "content": "switched off by an exact entry -agent/prompts/off.md that does not match: -x matches paths relative to the base\n",
+   "filePath": "@ROOT@/settings_untrusted/agent/prompts/off.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings_untrusted/agent/prompts/off.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/settings_untrusted/agent"
+   },
+   "command": "[u] switched off by an exact entry -agent/prompts/off.md that do..."
+  },
+  {
+   "name": "stay",
+   "description": "stays",
+   "argumentHint": null,
+   "content": "stays\n",
+   "filePath": "@ROOT@/settings_untrusted/agent/prompts/stay.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings_untrusted/agent/prompts/stay.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/settings_untrusted/agent"
+   },
+   "command": "[u] stays"
+  }
+ ],
+ "diagnostics": [],
+ "rpcCommands": "[{\"name\":\"e2\",\"description\":\"e2 below extra: the search is recursive\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings_untrusted/agent/extra/deep/e2.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"e1\",\"description\":\"e1\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings_untrusted/agent/extra/e1.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"single\",\"description\":\"single\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings_untrusted/agent/single.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"s\",\"description\":\"named with ..\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings_untrusted/shared/s.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"off\",\"description\":\"switched off by an exact entry -agent/prompts/off.md that do...\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings_untrusted/agent/prompts/off.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/settings_untrusted/agent\"}},{\"name\":\"stay\",\"description\":\"stays\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings_untrusted/agent/prompts/stay.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/settings_untrusted/agent\"}}]",
+ "expand": []
+}

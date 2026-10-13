@@ -35,6 +35,8 @@ typedef struct mask {
     const char *why;
 } mask;
 
+int test_tmpl_load(pi_tmpls *ts, cl_sys *sys, const char *agent, const char *cwd, int trusted, int no_defaults, char (*paths)[300], int npaths);
+
 static pi_tmpls slash_tm;      /* the templates of slash_prompts */
 
 typedef struct scen {
@@ -524,7 +526,7 @@ static void run(const scen *sc)
         int nt;
         const cl_cmd *rows;
         sys_posix_init(&sp, &tsys);
-        CHECK_INT(pi_tmpl_load(&slash_tm, &tsys, PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
+        CHECK_INT(test_tmpl_load(&slash_tm, &tsys, PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
         rows = pi_tmpl_menu(&slash_tm, &nt);
         pi_ui_set_extra_commands(0, rows, nt);
     }

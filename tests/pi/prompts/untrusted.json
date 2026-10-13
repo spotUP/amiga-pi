@@ -1,0 +1,61 @@
+{
+ "prompts": [
+  {
+   "name": "long",
+   "description": "This first line is much longer than sixty characters, so it ...",
+   "argumentHint": null,
+   "content": "\n   \nThis first line is much longer than sixty characters, so it is cut and dots follow\nsecond\n",
+   "filePath": "@ROOT@/untrusted/agent/prompts/long.md",
+   "sourceInfo": {
+    "path": "@ROOT@/untrusted/agent/prompts/long.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/untrusted/agent"
+   },
+   "command": "[u] This first line is much longer than sixty characters, so it ..."
+  },
+  {
+   "name": "review",
+   "description": "Review code",
+   "argumentHint": "<path> [focus]",
+   "content": "User review of $1",
+   "filePath": "@ROOT@/untrusted/agent/prompts/review.md",
+   "sourceInfo": {
+    "path": "@ROOT@/untrusted/agent/prompts/review.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/untrusted/agent"
+   },
+   "command": "<path> [focus] — [u] Review code"
+  },
+  {
+   "name": "sum",
+   "description": "Sum it",
+   "argumentHint": null,
+   "content": "body $@",
+   "filePath": "@ROOT@/untrusted/agent/prompts/sum.md",
+   "sourceInfo": {
+    "path": "@ROOT@/untrusted/agent/prompts/sum.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/untrusted/agent"
+   },
+   "command": "[u] Sum it"
+  }
+ ],
+ "diagnostics": [],
+ "rpcCommands": "[{\"name\":\"long\",\"description\":\"This first line is much longer than sixty characters, so it ...\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/untrusted/agent/prompts/long.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/untrusted/agent\"}},{\"name\":\"review\",\"description\":\"Review code\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/untrusted/agent/prompts/review.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/untrusted/agent\"}},{\"name\":\"sum\",\"description\":\"Sum it\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/untrusted/agent/prompts/sum.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/untrusted/agent\"}}]",
+ "expand": [
+  {
+   "input": "/review a b",
+   "output": "User review of a"
+  },
+  {
+   "input": "/fix x",
+   "output": "/fix x"
+  }
+ ]
+}
