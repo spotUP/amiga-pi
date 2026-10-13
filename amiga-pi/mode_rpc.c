@@ -13,6 +13,7 @@
 #define IN_CAP 4096L
 #define IN_MAX (4L * 1024 * 1024)
 
+typedef struct pi_rpc pi_rpc;
 struct pi_rpc {
     pi_rt *rt;
     pi_session *s;
@@ -39,11 +40,6 @@ struct pi_rpc {
 };
 
 static pi_rpc *g_rpc;
-
-pi_rpc *pi_rpc_ui(void)
-{
-    return g_rpc;
-}
 
 /* ---- records out ---- */
 
@@ -548,8 +544,9 @@ static int cancelled(const jw *resp)
     return !resp->n || json_parse(resp->p, resp->n, &o) || (json_get(o, "cancelled", &v) && json_type(v) == J_TRUE);
 }
 
-int pi_rpc_select(pi_rpc *r, const char *title, const char *const *options, int n, long timeout_ms, char *value, long cap)
+static int rpc_ui_select(void *u, const char *title, const char *const *options, int n, long timeout_ms, char *value, long cap)
 {
+    pi_rpc *r = (pi_rpc *)u;
     jw w;
     char id[48];
     int i, ok = 0;
@@ -580,8 +577,9 @@ int pi_rpc_select(pi_rpc *r, const char *title, const char *const *options, int 
     return ok;
 }
 
-int pi_rpc_confirm(pi_rpc *r, const char *title, const char *message, long timeout_ms)
+static int rpc_ui_confirm(void *u, const char *title, const char *message, long timeout_ms)
 {
+    pi_rpc *r = (pi_rpc *)u;
     jw w;
     char id[48];
     jv o, v;
@@ -605,8 +603,9 @@ int pi_rpc_confirm(pi_rpc *r, const char *title, const char *message, long timeo
     return yes;
 }
 
-int pi_rpc_input(pi_rpc *r, const char *title, const char *placeholder, long timeout_ms, char *value, long cap)
+static int rpc_ui_input(void *u, const char *title, const char *placeholder, long timeout_ms, char *value, long cap)
 {
+    pi_rpc *r = (pi_rpc *)u;
     jw w;
     char id[48];
     jv o, v;
@@ -634,8 +633,9 @@ int pi_rpc_input(pi_rpc *r, const char *title, const char *placeholder, long tim
     return ok;
 }
 
-void pi_rpc_notify(pi_rpc *r, const char *message, const char *type)
+static void rpc_ui_notify(void *u, const char *message, const char *type)
 {
+    pi_rpc *r = (pi_rpc *)u;
     jw w;
     char id[48];
     jw_init(&w);
@@ -650,6 +650,9 @@ void pi_rpc_notify(pi_rpc *r, const char *message, const char *type)
     put_line(r, &w);
     jw_free(&w);
 }
+
+/* what an extension's ctx.ui reaches while RPC mode runs (ext.h pi_ext_ui): requests out, the client's responses in */
+static pi_ext_ui rpc_ui = { 0, rpc_ui_select, rpc_ui_confirm, rpc_ui_input, rpc_ui_notify };
 
 /* the permission gate's question (ext_gate.h) as a select */
 static int rpc_ask(void *u, int tool, const char *name, const char *what, int outside)
@@ -667,7 +670,7 @@ static int rpc_ask(void *u, int tool, const char *name, const char *what, int ou
         cl_cat(title, what, sizeof(title));
     }
     cl_cat(title, "?", sizeof(title));
-    if (!pi_rpc_select(r, title, opt, 4, 0, pick, sizeof(pick)))
+    if (!rpc_ui_select(r, title, opt, 4, 0, pick, sizeof(pick)))
         return ASK_NO;
     for (i = 0; i < 4; i++)
         if (!strcmp(pick, opt[i]))
@@ -848,30 +851,8 @@ static void cmd_get_commands(const cmd *c)
         if (nx && ((ts && ts->n) || (c->r->s->res && c->r->s->res->skills.n)))
             jw_raw(&d, ",", 1);
     }
-    for (i = 0; ts && i < ts->n; i++) {
-        const pi_tmpl *t = &ts->t[i];
-        const char *base = t->scope == PI_TMPL_PROJECT ? ts->base_project : t->scope == PI_TMPL_USER ? ts->base_user : t->base;
-        if (i)
-            jw_raw(&d, ",", 1);
-        jw_rawz(&d, "{\"name\":");
-        jw_strz(&d, t->name);
-        jw_rawz(&d, ",\"description\":");
-        jw_strz(&d, t->description);
-        jw_rawz(&d, ",\"source\":\"prompt\",\"sourceInfo\":{\"path\":");
-        jw_strz(&d, t->path);
-        /* the sourceInfo: the default directories' templates are "auto" of their scope, a --prompt-template path "local"
-         * and temporary, its baseDir the directory (or the file's directory) */
-        if (t->scope == PI_TMPL_PATH)
-            jw_rawz(&d, ",\"source\":\"local\",\"scope\":\"temporary\"");
-        else
-            jw_rawz(&d, t->scope == PI_TMPL_PROJECT ? ",\"source\":\"auto\",\"scope\":\"project\"" : ",\"source\":\"auto\",\"scope\":\"user\"");
-        jw_rawz(&d, ",\"origin\":\"top-level\"");
-        if (base[0]) {
-            jw_rawz(&d, ",\"baseDir\":");
-            jw_strz(&d, base);
-        }
-        jw_rawz(&d, "}}");
-    }
+    if (ts)
+        pi_tmpls_commands(ts, &d);
     if (c->r->s->res && c->r->s->res->skills.n) {
         if (ts && ts->n)
             jw_raw(&d, ",", 1);
@@ -1514,6 +1495,7 @@ int pi_mode_rpc(pi_rt *rt)
     int (*poll0)(void *u) = s->h.poll;
     int (*ask0)(void *u, int tool, const char *name, const char *what, int outside) = s->ask;
     void *ask0_u = s->ask_u;
+    const pi_ext_ui *ui0 = s->ext.ui;
     memset(&r, 0, sizeof(r));
     r.rt = rt;
     r.s = s;
@@ -1537,6 +1519,8 @@ int pi_mode_rpc(pi_rt *rt)
                                          * the extensions' session_start comes twice -- pi 1.1.0's behaviour */
     s->ask = rpc_ask;
     s->ask_u = &r;
+    rpc_ui.u = &r;
+    s->ext.ui = &rpc_ui;                /* rpc-mode.ts:320 uiContext: ctx.hasUI is true and the dialogs go to the client */
     g_rpc = &r;
     jw_init(&line);
     for (;;) {
@@ -1552,6 +1536,7 @@ int pi_mode_rpc(pi_rt *rt)
     s->ext.replace_binds = 0;
     s->ask = ask0;
     s->ask_u = ask0_u;
+    s->ext.ui = ui0;
     pi_unsubscribe(&s->em, pi_jout_event, &r.jout);
     pi_unsubscribe(&s->em, track, &r);
     pi_jout_free(&r.jout);

@@ -35,6 +35,15 @@
    "disableModelInvocation": false,
    "label": "path (temp)",
    "command": "[t] Outside the project"
+  },
+  {
+   "name": "abs-skill",
+   "description": "An absolute host path",
+   "filePath": "@ROOT@/cli/w/abs-skill.md",
+   "baseDir": "@ROOT@/cli/w",
+   "disableModelInvocation": false,
+   "label": "path (temp)",
+   "command": "[t] An absolute host path"
   }
  ],
  "diagnostics": [
@@ -50,9 +59,9 @@
   }
  ],
  "enableSkillCommands": true,
- "rpcCommands": "[{\"name\":\"skill:base\",\"description\":\"Discovered\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/agent/skills/base/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/agent\"}},{\"name\":\"skill:one\",\"description\":\"A file given with --skill\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/one.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra\"}},{\"name\":\"skill:d1\",\"description\":\"In a directory given with --skill\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/dir/d1/SKILL.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra/dir/d1\"}},{\"name\":\"skill:two\",\"description\":\"Outside the project\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/abs/two.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/abs\"}}]",
+ "rpcCommands": "[{\"name\":\"skill:base\",\"description\":\"Discovered\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/agent/skills/base/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/agent\"}},{\"name\":\"skill:one\",\"description\":\"A file given with --skill\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/one.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra\"}},{\"name\":\"skill:d1\",\"description\":\"In a directory given with --skill\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/dir/d1/SKILL.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra/dir/d1\"}},{\"name\":\"skill:two\",\"description\":\"Outside the project\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/abs/two.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/abs\"}},{\"name\":\"skill:abs-skill\",\"description\":\"An absolute host path\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/abs-skill.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w\"}}]",
  "sections": {
-  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>base</name>\n    <description>Discovered</description>\n    <location>@ROOT@/cli/agent/skills/base/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>one</name>\n    <description>A file given with --skill</description>\n    <location>@ROOT@/cli/w/proj/extra/one.md</location>\n  </skill>\n  <skill>\n    <name>d1</name>\n    <description>In a directory given with --skill</description>\n    <location>@ROOT@/cli/w/proj/extra/dir/d1/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>two</name>\n    <description>Outside the project</description>\n    <location>@ROOT@/cli/w/abs/two.md</location>\n  </skill>\n</available_skills>\n</skills>"
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>base</name>\n    <description>Discovered</description>\n    <location>@ROOT@/cli/agent/skills/base/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>one</name>\n    <description>A file given with --skill</description>\n    <location>@ROOT@/cli/w/proj/extra/one.md</location>\n  </skill>\n  <skill>\n    <name>d1</name>\n    <description>In a directory given with --skill</description>\n    <location>@ROOT@/cli/w/proj/extra/dir/d1/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>two</name>\n    <description>Outside the project</description>\n    <location>@ROOT@/cli/w/abs/two.md</location>\n  </skill>\n  <skill>\n    <name>abs-skill</name>\n    <description>An absolute host path</description>\n    <location>@ROOT@/cli/w/abs-skill.md</location>\n  </skill>\n</available_skills>\n</skills>"
  },
  "expand": [
   {

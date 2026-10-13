@@ -1,0 +1,167 @@
+{
+ "skills": [
+  {
+   "name": "anchor",
+   "description": "anchor",
+   "filePath": "@ROOT@/yaml_errors/agent/skills/anchor/SKILL.md",
+   "baseDir": "@ROOT@/yaml_errors/agent/skills/anchor",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] anchor"
+  },
+  {
+   "name": "explicit",
+   "description": "An explicit key",
+   "filePath": "@ROOT@/yaml_errors/agent/skills/explicit/SKILL.md",
+   "baseDir": "@ROOT@/yaml_errors/agent/skills/explicit",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] An explicit key"
+  },
+  {
+   "name": "flowtop",
+   "description": "A flow mapping",
+   "filePath": "@ROOT@/yaml_errors/agent/skills/flowtop/SKILL.md",
+   "baseDir": "@ROOT@/yaml_errors/agent/skills/flowtop",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] A flow mapping"
+  },
+  {
+   "name": "foldedmore",
+   "description": "a\n  more indented\nb\n",
+   "filePath": "@ROOT@/yaml_errors/agent/skills/foldedmore/SKILL.md",
+   "baseDir": "@ROOT@/yaml_errors/agent/skills/foldedmore",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] a\n  more indented\nb\n"
+  },
+  {
+   "name": "keep",
+   "description": "kept\n",
+   "filePath": "@ROOT@/yaml_errors/agent/skills/keep/SKILL.md",
+   "baseDir": "@ROOT@/yaml_errors/agent/skills/keep",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] kept\n"
+  },
+  {
+   "name": "nonascii",
+   "description": "café 😀 A",
+   "filePath": "@ROOT@/yaml_errors/agent/skills/nonascii/SKILL.md",
+   "baseDir": "@ROOT@/yaml_errors/agent/skills/nonascii",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] café 😀 A"
+  },
+  {
+   "name": "123",
+   "description": "true",
+   "filePath": "@ROOT@/yaml_errors/agent/skills/tagged/SKILL.md",
+   "baseDir": "@ROOT@/yaml_errors/agent/skills/tagged",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] true"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "warning",
+   "message": "Unresolved alias (the anchor must be set before the alias): nothing",
+   "path": "@ROOT@/yaml_errors/agent/skills/alias/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Plain value cannot start with reserved character @ at line 2, column 14:\n\ndescription: @reserved\n             ^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/at/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "description is required",
+   "path": "@ROOT@/yaml_errors/agent/skills/comment-only/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Map keys must be unique at line 3, column 1:\n\ndescription: One\nname: again\n^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/dupkey/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Invalid escape sequence \\q at line 2, column 19:\n\ndescription: \"bad \\q escape\"\n                  ^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/escape/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Flow sequence in block collection must be sufficiently indented and end with a ] at line 2, column 19:\n\ndescription: [a, b\n                  ^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/flow/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Flow map in block collection must be sufficiently indented and end with a } at line 2, column 19:\n\ndescription: {a: b\n                  ^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/flowmap/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Block scalar header includes extra characters: |0 at line 2, column 15:\n\ndescription: |0\n              ^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/hdr/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "All mapping items must start at the same column at line 4, column 1:\n\n   three\n  two\n^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/indent/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Source contains multiple documents; please use YAML.parseAllDocuments() at line 4, column 1:\n\n...\nname: two\n^^^^^^^^^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/multidoc/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Nested mappings are not allowed in compact mappings at line 2, column 14:\n\ndescription: Use when: this\n             ^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/nested-map/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Unexpected scalar at node end at line 2, column 1:\n\n- not a mapping\nname: seqkey\n^^^^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/seqkey/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Tabs are not allowed as indentation at line 3, column 1:\n\ndescription: x\n\tindented: with a tab\n^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/tabs/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Missing closing \"quote at line 2, column 27:\n\ndescription: \"never closed\n                          ^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/unclosed/SKILL.md"
+  },
+  {
+   "type": "warning",
+   "message": "Missing closing 'quote at line 2, column 27:\n\ndescription: 'never closed\n                          ^\n",
+   "path": "@ROOT@/yaml_errors/agent/skills/unclosed1/SKILL.md"
+  }
+ ],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:anchor\",\"description\":\"anchor\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml_errors/agent/skills/anchor/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml_errors/agent\"}},{\"name\":\"skill:explicit\",\"description\":\"An explicit key\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml_errors/agent/skills/explicit/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml_errors/agent\"}},{\"name\":\"skill:flowtop\",\"description\":\"A flow mapping\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml_errors/agent/skills/flowtop/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml_errors/agent\"}},{\"name\":\"skill:foldedmore\",\"description\":\"a\\n  more indented\\nb\\n\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml_errors/agent/skills/foldedmore/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml_errors/agent\"}},{\"name\":\"skill:keep\",\"description\":\"kept\\n\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml_errors/agent/skills/keep/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml_errors/agent\"}},{\"name\":\"skill:nonascii\",\"description\":\"café 😀 A\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml_errors/agent/skills/nonascii/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml_errors/agent\"}},{\"name\":\"skill:123\",\"description\":\"true\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/yaml_errors/agent/skills/tagged/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/yaml_errors/agent\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>anchor</name>\n    <description>anchor</description>\n    <location>@ROOT@/yaml_errors/agent/skills/anchor/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>explicit</name>\n    <description>An explicit key</description>\n    <location>@ROOT@/yaml_errors/agent/skills/explicit/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>flowtop</name>\n    <description>A flow mapping</description>\n    <location>@ROOT@/yaml_errors/agent/skills/flowtop/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>foldedmore</name>\n    <description>a\n  more indented\nb\n</description>\n    <location>@ROOT@/yaml_errors/agent/skills/foldedmore/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>keep</name>\n    <description>kept\n</description>\n    <location>@ROOT@/yaml_errors/agent/skills/keep/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>nonascii</name>\n    <description>café 😀 A</description>\n    <location>@ROOT@/yaml_errors/agent/skills/nonascii/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>123</name>\n    <description>true</description>\n    <location>@ROOT@/yaml_errors/agent/skills/tagged/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": [
+  {
+   "input": "/skill:anchor",
+   "output": "<skill name=\"anchor\" location=\"@ROOT@/yaml_errors/agent/skills/anchor/SKILL.md\">\nReferences are relative to @ROOT@/yaml_errors/agent/skills/anchor.\n\nBody\n</skill>"
+  },
+  {
+   "input": "/skill:tagged",
+   "output": "/skill:tagged"
+  },
+  {
+   "input": "/skill:keep",
+   "output": "<skill name=\"keep\" location=\"@ROOT@/yaml_errors/agent/skills/keep/SKILL.md\">\nReferences are relative to @ROOT@/yaml_errors/agent/skills/keep.\n\nBody\n</skill>"
+  },
+  {
+   "input": "/skill:explicit",
+   "output": "<skill name=\"explicit\" location=\"@ROOT@/yaml_errors/agent/skills/explicit/SKILL.md\">\nReferences are relative to @ROOT@/yaml_errors/agent/skills/explicit.\n\nBody\n</skill>"
+  }
+ ]
+}

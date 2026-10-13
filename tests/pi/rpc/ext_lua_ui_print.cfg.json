@@ -1,0 +1,22 @@
+{
+ "mode": "json",
+ "args": [
+  "run it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "local function show(v)\n  if v == nil then return \"undefined\" end\n  return tostring(v)\nend\npi.on(\"tool_call\", function(event, ctx)\n  local a = ctx.ui.select(\"Pick\", { \"One\", \"Two\" })\n  local b = ctx.ui.confirm(\"Sure?\", \"It runs a command.\")\n  local c = ctx.ui.input(\"Why?\", \"a reason\")\n  ctx.ui.notify(\"lost\", \"error\")\n  return { block = true, reason = \"hasUI=\" .. show(ctx.hasUI) .. \" select=\" .. show(a) .. \" confirm=\" .. show(b) .. \" input=\" .. show(c) }\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_ui_print"
+}

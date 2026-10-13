@@ -35,6 +35,8 @@ typedef struct mask {
     const char *why;
 } mask;
 
+int test_tmpl_load(pi_tmpls *ts, cl_sys *sys, const char *agent, const char *cwd, int trusted, int no_defaults, char (*paths)[300], int npaths);
+
 static pi_tmpls slash_tm;      /* the templates of slash_prompts */
 
 typedef struct scen {
@@ -524,7 +526,7 @@ static void run(const scen *sc)
         int nt;
         const cl_cmd *rows;
         sys_posix_init(&sp, &tsys);
-        CHECK_INT(pi_tmpl_load(&slash_tm, &tsys, PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
+        CHECK_INT(test_tmpl_load(&slash_tm, &tsys, PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
         rows = pi_tmpl_menu(&slash_tm, &nt);
         pi_ui_set_extra_commands(0, rows, nt);
     }
@@ -835,6 +837,7 @@ static sys_posix asp;
 static cl_sys asys;
 static long aclock;
 static int rest_any;            /* take the look at any screen at rest, not only one with the footer */
+static const char *rest_find = "navigate";     /* with rest_any: the text that shows the screen is the one to take (a dialog's keys) */
 static void (*at_rest)(void);   /* called once with the screen at rest (the next chunk is the last one) */
 static int rested;
 
@@ -887,7 +890,7 @@ static void rest_hook(void)
 {
     if (getenv("PI_TUI_HOOK"))
         printf("  hook: next=%d chunk=%s ms=%ld bottom=[%s]\n", cs.next, cs.script[cs.next] ? cs.script[cs.next] : "(end)", cs.read_ms, cs_row(cs.rows - 1));
-    if (rested || (rest_any && cs_find("navigate") < 0) ||
+    if (rested || (rest_any && cs_find(rest_find) < 0) ||
         (!rest_any && !strstr(cs_row(cs.rows - 1), "-model") && !strstr(cs_row(cs.rows - 1), "claude-")) ||
         cs.read_ms <= 0 || !cs.script[cs.next] || strcmp(cs.script[cs.next], "\004"))
         return;
@@ -903,6 +906,8 @@ static const char *app_tui_cli;     /* --tui-mode <x> for the next app_run, 0 no
 static const char *app_name_cli;    /* --name <x> for the next app_run, 0 none */
 static const char *app_sdir_cli;    /* --session-dir <x> for the next app_run, 0 none */
 static char *app_out;               /* every byte the last app_run wrote to the screen */
+
+static void (*app_ready)(pi_session *s);               /* called once the resources are loaded, before the first key */
 
 static int app_run(int cols, int rows, const char **keys, const char *const *sse, int nsse, void (*rest)(void))
 {
@@ -958,6 +963,7 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pl.utc = 1;
     pl.data_dir = adata;
     pl.agent_dir = app_agent ? app_agent : aagent;
+    pl.ready = app_ready;
     rc = pi_app(argc, a, &pl);
     free(app_out);
     app_out = (char *)malloc((size_t)cs.sent.n + 1);
@@ -1277,6 +1283,21 @@ static void test_resume_summaries(void)
  * (the captures are tests/pi/tui/skills_*.golden, resume_skill*.golden, skill_cmd.golden: pi 1.1.0, tools/pi_oracle/tui_gen.py) ---- */
 
 static char skdir[420];             /* the agent directory with the skills: short, so a path stays on one row as pi's "~/agent/..." does */
+static const char *tree_json = "skills_files.json";     /* the files written into it (tui_gen.py SKILL_FILES, PROMPT_FILES, CONFLICT_FILES) */
+
+/* a new agent directory for the next case: the old one removed (its files would be found again) */
+static void fresh_agent(void)
+{
+    char cmd[460];
+    if (skdir[0] && strlen(skdir) > 10) {
+        strcpy(cmd, "rm -rf '");
+        strncat(cmd, skdir, strlen(skdir) - 6);         /* /tmp/pis_XXXXXX/agent without "/agent" */
+        strcat(cmd, "'");
+        if (system(cmd))
+            CHECK(0);
+    }
+    skdir[0] = 0;
+}
 
 /* the skills of tui_gen.py's SKILL_FILES (tests/pi/tui/skills_files.json) written under skdir/skills */
 static void skills_tree(const char *settings)
@@ -1299,7 +1320,7 @@ static void skills_tree(const char *settings)
         strcat(p, "/skills");
         mkdir(p, 0777);
     }
-    b = slurp("skills_files.json", &n);
+    b = slurp(tree_json, &n);
     CHECK(b != 0);
     if (!b || json_parse(b, n, &all)) {
         free(b);
@@ -1368,6 +1389,44 @@ static int skills_masks(scen *sc, const char *name, int from)
     }
     free(g);
     return k;
+}
+
+/* tui_gen.py RELOAD_WRITES (tests/pi/tui/reload_writes.json) written under skdir: what changes while the program runs */
+static void reload_writes(pi_session *s)
+{
+    char *b, p[600], d[600];
+    long n;
+    jv all, k, v;
+    jit it;
+    (void)s;
+    b = slurp("reload_writes.json", &n);
+    CHECK(b != 0);
+    if (!b || json_parse(b, n, &all)) {
+        free(b);
+        return;
+    }
+    json_iter(all, &it);
+    while (json_next(&it, &k, &v)) {
+        char *rel = json_strdup(k, 0), *text = json_strdup(v, 0), *e;
+        FILE *f;
+        strcpy(p, skdir);
+        strcat(p, "/");
+        strcat(p, rel ? rel : "");
+        strcpy(d, p);
+        e = strrchr(d, '/');
+        if (e) {
+            *e = 0;
+            mkdir(d, 0777);
+        }
+        f = fopen(p, "wb");
+        if (f) {
+            fputs(text ? text : "", f);
+            fclose(f);
+        }
+        free(rel);
+        free(text);
+    }
+    free(b);
 }
 
 static void skills_rest(void)
@@ -1447,6 +1506,40 @@ static void test_skills_screen(void)
     skills_case("resume_skill", "{\"quietStartup\":true}\n", keys_end, 0, 0, 1, 0, m_quiet, 0);
     skills_case("resume_skill_expanded", "{\"quietStartup\":true}\n", keys_exp, 0, 0, 1, 0, m_exp, 0);
     skills_case("skill_cmd", "{\"quietStartup\":true}\n", keys_cmd, sse_cmd, 1, 0, 0, m_quiet, 1);
+    /* I8: Ctrl+O at the start draws the [Skills] list grouped by scope (pi's header is long when expanded: not drawn here, its rows
+     * left out; the block is compared from its title) */
+    {
+        static const int m_sexp[] = { 1, 25, 43, 50, 0 };
+        skills_case("skills_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, -20, m_sexp, 1);
+    }
+    /* J5: the [Prompts] list, compact and grouped, and the [Prompt conflicts] block (a name two files have, YAML that is refused) */
+    {
+        static const int m_pstart[] = { 1, 9, 22, 40, 0 }, m_pexp[] = { 1, 25, 34, 40, 0 }, m_pconf[] = { 26, 30, 0 };
+        fresh_agent();
+        tree_json = "prompts_files.json";
+        skills_case("prompts_start", "{}\n", keys_end, 0, 0, 0, -4, m_pstart, 1);
+        skills_case("prompts_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, -20, m_pexp, 1);
+        {
+            static const char *keys_msg[] = { "hello\r", "\004", 0 };
+            static const char *const sse_msg[] = { "prompts_start_msg.1.sse" };
+            skills_case("prompts_start_msg", "{\"quietStartup\":false}\n", keys_msg, sse_msg, 1, 0, -4, m_pstart, 1);
+        }
+        fresh_agent();
+        tree_json = "conflict_files.json";
+        skills_case("prompts_conflicts", "{\"quietStartup\":true,\"prompts\":[\"extra\"]}\n", keys_end, 0, 0, 0, 0, m_pconf, 1);
+        tree_json = "skills_files.json";
+    }
+    /* /reload: files made after the start show in the lists (the same screen pi gives; the status line says what this port reads again) */
+    {
+        static const char *keys_reload[] = { "/reload\r", "\004", 0 };
+        static const int m_reload[] = { 1, 9, 17, 17, 20, 40, 0 };
+        fresh_agent();
+        tree_json = "reload_files.json";
+        app_ready = reload_writes;
+        skills_case("reload_resources", "{\"quietStartup\":false}\n", keys_reload, 0, 0, 0, -4, m_reload, 1);
+        app_ready = 0;
+        tree_json = "skills_files.json";
+    }
     if (skdir[0] && strlen(skdir) > 10) {
         strcpy(cmd, "rm -rf '");
         strncat(cmd, skdir, strlen(skdir) - 6);         /* /tmp/pis_XXXXXX/agent without "/agent" */
@@ -2132,6 +2225,132 @@ static void test_resume_session_dir(void)
     CHECK(app_out && strstr(app_out, "amiga-pi --session ") != 0 && strstr(app_out, "--session-dir") == 0);
 }
 
+/* ---- L5: ctx.ui.select / confirm / input / notify from a Lua extension, as pi draws them (the captures are
+ * tests/pi/tui/ext_ui_*.golden; tui_gen.py's EXT_UI is the TypeScript twin of this extension) ---- */
+
+static const char *const EXT_UI_LUA[] = {   /* pieces: a string literal is limited to 509 characters in C90 */
+    "pi.registerCommand('pick', { handler = function(args, ctx)\n",
+    "  local v = ctx.ui.select('Pick one', { 'Alpha', 'Beta', 'Gamma' }, args ~= '' and { timeout = 60000 } or nil)\n",
+    "  if v == nil then ctx.ui.notify('nothing picked', 'warning') else ctx.ui.notify('picked ' .. v) end\n",
+    "end })\n",
+    "pi.registerCommand('sure', { handler = function(args, ctx)\n",
+    "  if ctx.ui.confirm('Delete it?', 'This cannot be undone.') then ctx.ui.notify('confirmed', 'info')\n",
+    "  else ctx.ui.notify('declined', 'warning') end\n",
+    "end })\n",
+    "pi.registerCommand('ask', { handler = function(args, ctx)\n",
+    "  local v = ctx.ui.input('Your name', 'a name')\n",
+    "  if v == nil then ctx.ui.notify('no name', 'error') else ctx.ui.notify('hello ' .. v, 'info') end\n",
+    "end })\n",
+    "pi.registerCommand('tell', { handler = function(args, ctx)\n",
+    "  ctx.ui.notify('plain note')\n",
+    "  ctx.ui.notify('a warning', 'warning')\n",
+    "  ctx.ui.notify('an error', 'error')\n",
+    "end })\n",
+    0 };
+
+static void ext_ui_rest(void)
+{
+    compare();
+}
+
+/* one capture: the keys typed (a command, then the dialog's), the screen at rest compared with pi's. show: the text on the
+ * screen that says the dialog or the note is up; mr: golden rows (first, last) left out, ended by 0; shift: the capture's row r
+ * is ours at r + shift (a note lands on our row 1, pi leaves a blank one above it) */
+static void ext_ui_case(const char *name, const char **keys, const char *show, const int *mr, int shift)
+{
+    static scen sc;
+    char dir[600];
+    int i, k = 0;
+    memset(&sc, 0, sizeof(sc));
+    sc.name = name;
+    strcpy(dir, aagent);
+    strcat(dir, "/extensions");
+    mkdir(dir, 0777);
+    {
+        char lua[2000];
+        lua[0] = 0;
+        for (i = 0; EXT_UI_LUA[i]; i++)
+            strcat(lua, EXT_UI_LUA[i]);
+        app_write("extensions/t.lua", lua);
+    }
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    cur = &sc;
+    taken = 0;
+    diffs = 0;
+    memset(rowdiff, 0, sizeof(rowdiff));
+    first_diff[0] = 0;
+    load_golden(name);
+    CHECK(want != 0);
+    if (!want)
+        return;
+    for (i = 0; mr[i] && k < 6; i += 2, k++) {
+        sc.masks[k].r0 = mr[i];
+        sc.masks[k].r1 = mr[i + 1];
+        sc.masks[k].c0 = 0;
+        sc.masks[k].c1 = 79;
+        sc.masks[k].why = "the editor border and the footer carry the capture's fake model and its working directory";
+    }
+    rest_any = 1;
+    rest_find = show;
+    cmp_shift = shift;
+    CHECK_INT(app_run(80, want_rows, keys, 0, 0, ext_ui_rest), 0);
+    cmp_shift = 0;
+    rest_any = 0;
+    rest_find = "navigate";
+    CHECK(taken);
+    if (diffs) {
+        printf("  %s: %d cells differ from pi's capture\n%s", name, diffs, first_diff);
+        if (getenv("PI_TUI_DUMP"))
+            for (i = 0; i < want_rows; i++)
+                printf("    %2d|%s\n", i + 1, snap[i]);
+        if (getenv("PI_TUI_ROWS"))
+            for (i = 0; i < want_rows; i++)
+                if (rowdiff[i]) {
+                    printf("    row %2d pi       |%s\n", i + 1, h_row(want, i));
+                    printf("           amiga-pi |%s   (%d cells)\n", snap[i], rowdiff[i]);
+                }
+    }
+    CHECK_INT(diffs, 0);
+    vt_free(want);
+    {
+        char f[600];
+        strcpy(f, aagent);
+        strcat(f, "/extensions/t.lua");
+        unlink(f);
+        rmdir(dir);
+    }
+}
+
+static void test_ext_ui_screen(void)
+{
+    static const char *k_pick[] = { "/pick\r", "\004", 0 };
+    static const char *k_pick_down[] = { "/pick\r", "\033[B", "\033[B", "\004", 0 };
+    static const char *k_pick_done[] = { "/pick\r", "\033[B", "\r", "\004", 0 };
+    static const char *k_pick_esc[] = { "/pick\r", "\033", "\004", 0 };
+    static const char *k_pick_timeout[] = { "/pick x\r", "\004", 0 };
+    static const char *k_sure[] = { "/sure\r", "\004", 0 };
+    static const char *k_sure_yes[] = { "/sure\r", "\r", "\004", 0 };
+    static const char *k_sure_no[] = { "/sure\r", "\033[B", "\r", "\004", 0 };
+    static const char *k_ask[] = { "/ask\r", "Ada", "\004", 0 };
+    static const char *k_ask_done[] = { "/ask\r", "Ada", "\r", "\004", 0 };
+    static const char *k_ask_esc[] = { "/ask\r", "Ada", "\033", "\004", 0 };
+    static const char *k_tell[] = { "/tell\r", "\004", 0 };
+    static const int foot[] = { 29, 30, 0 };      /* the footer: the capture's fake model, directory and window */
+    static const int note[] = { 25, 30, 0 };      /* a note: the editor, whose border and prompt sit on other rows, and the footer */
+    ext_ui_case("ext_ui_select", k_pick, "navigate", foot, 0);
+    ext_ui_case("ext_ui_select_down", k_pick_down, "navigate", foot, 0);
+    ext_ui_case("ext_ui_select_done", k_pick_done, "picked Beta", note, -1);
+    ext_ui_case("ext_ui_select_cancel", k_pick_esc, "nothing picked", note, -1);
+    ext_ui_case("ext_ui_select_timeout", k_pick_timeout, "navigate", foot, 0);
+    ext_ui_case("ext_ui_confirm", k_sure, "navigate", foot, 0);
+    ext_ui_case("ext_ui_confirm_yes", k_sure_yes, "confirmed", note, -1);
+    ext_ui_case("ext_ui_confirm_no", k_sure_no, "declined", note, -1);
+    ext_ui_case("ext_ui_input", k_ask, "enter submit", foot, 0);
+    ext_ui_case("ext_ui_input_done", k_ask_done, "hello Ada", note, -1);
+    ext_ui_case("ext_ui_input_cancel", k_ask_esc, "no name", note, -1);
+    ext_ui_case("ext_ui_notify", k_tell, "an error", note, -1);
+}
+
 /* ---- the trust question as pi's selector (the capture is tests/pi/tui/approval.golden) ---- */
 
 static void approval_rest(void)
@@ -2523,6 +2742,7 @@ void suite_pi_tui(void)
     test_theme_keys_app();
     test_tui_mode_app();
     test_approval();
+    test_ext_ui_screen();
     test_footer_cost();
     test_bash_rows_uncapped();
     test_slash_fuzzy();

@@ -1,0 +1,19 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "\nexport default function (pi) {\n  pi.on(\"tool_call\", async (event, ctx) => {\n    ctx.ui.notify(\"plain\");\n    ctx.ui.notify(\"one\", \"info\");\n    ctx.ui.notify(\"two\", \"warning\");\n    ctx.ui.notify(\"three\", \"error\");\n    return { block: true, reason: \"notified\" };\n  });\n}\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": []
+}

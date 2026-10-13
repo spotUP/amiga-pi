@@ -1,0 +1,29 @@
+{
+ "skills": [
+  {
+   "name": "keep-tmp",
+   "description": "Brought back by !KEEP.tmp.md",
+   "filePath": "@ROOT@/ignore_case/agent/skills/keep.tmp.md",
+   "baseDir": "@ROOT@/ignore_case/agent/skills",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Brought back by !KEEP.tmp.md"
+  },
+  {
+   "name": "ok",
+   "description": "Fine",
+   "filePath": "@ROOT@/ignore_case/agent/skills/ok/SKILL.md",
+   "baseDir": "@ROOT@/ignore_case/agent/skills/ok",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Fine"
+  }
+ ],
+ "diagnostics": [],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:keep-tmp\",\"description\":\"Brought back by !KEEP.tmp.md\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/ignore_case/agent/skills/keep.tmp.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/ignore_case/agent\"}},{\"name\":\"skill:ok\",\"description\":\"Fine\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/ignore_case/agent/skills/ok/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/ignore_case/agent\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>keep-tmp</name>\n    <description>Brought back by !KEEP.tmp.md</description>\n    <location>@ROOT@/ignore_case/agent/skills/keep.tmp.md</location>\n  </skill>\n  <skill>\n    <name>ok</name>\n    <description>Fine</description>\n    <location>@ROOT@/ignore_case/agent/skills/ok/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": []
+}

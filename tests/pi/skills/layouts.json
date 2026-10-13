@@ -282,6 +282,192 @@
    "agent/skills/tools.md": "---\ndescription: A markdown file at the root is\n---\nBody of the skill.\n\nSecond paragraph.\n"
   }
  },
+ "yaml_errors": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [
+   "/skill:anchor",
+   "/skill:tagged",
+   "/skill:keep",
+   "/skill:explicit"
+  ],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/skills/dupkey/SKILL.md": "---\nname: dupkey\ndescription: One\nname: again\n---\nBody\n",
+   "agent/skills/unclosed/SKILL.md": "---\nname: unclosed\ndescription: \"never closed\n---\nBody\n",
+   "agent/skills/unclosed1/SKILL.md": "---\nname: unclosed1\ndescription: 'never closed\n---\nBody\n",
+   "agent/skills/tabs/SKILL.md": "---\nname: tabs\ndescription: x\n\tindented: with a tab\n---\nBody\n",
+   "agent/skills/flow/SKILL.md": "---\nname: flow\ndescription: [a, b\n---\nBody\n",
+   "agent/skills/flowmap/SKILL.md": "---\nname: flowmap\ndescription: {a: b\n---\nBody\n",
+   "agent/skills/at/SKILL.md": "---\nname: at\ndescription: @reserved\n---\nBody\n",
+   "agent/skills/hdr/SKILL.md": "---\nname: hdr\ndescription: |0\n  text\n---\nBody\n",
+   "agent/skills/escape/SKILL.md": "---\nname: escape\ndescription: \"bad \\q escape\"\n---\nBody\n",
+   "agent/skills/alias/SKILL.md": "---\nname: alias\ndescription: *nothing\n---\nBody\n",
+   "agent/skills/indent/SKILL.md": "---\nname: indent\ndescription: |\n   three\n  two\n---\nBody\n",
+   "agent/skills/seqkey/SKILL.md": "---\n- not a mapping\nname: seqkey\n---\nBody\n",
+   "agent/skills/multidoc/SKILL.md": "---\nname: multidoc\ndescription: One\n...\nname: two\n---\nBody\n",
+   "agent/skills/loose-bad.md": "---\ndescription: dup\ndescription: dup\n---\nA loose file with broken YAML: skipped silently.\n",
+   "agent/skills/anchor/SKILL.md": "---\nname: &n anchor\ndescription: *n\n---\nBody\n",
+   "agent/skills/tagged/SKILL.md": "---\nname: !!str 123\ndescription: !!str true\n---\nBody\n",
+   "agent/skills/keep/SKILL.md": "---\nname: keep\ndescription: |+\n  kept\n\n---\nBody\n",
+   "agent/skills/foldedmore/SKILL.md": "---\nname: foldedmore\ndescription: >\n  a\n    more indented\n  b\n---\nBody\n",
+   "agent/skills/explicit/SKILL.md": "---\n? name\n: explicit\n? description\n: An explicit key\n---\nBody\n",
+   "agent/skills/flowtop/SKILL.md": "---\n{name: flowtop, description: A flow mapping}\n---\nBody\n",
+   "agent/skills/comment-only/SKILL.md": "---\n# only a comment\n---\nBody\n",
+   "agent/skills/nonascii/SKILL.md": "---\nname: nonascii\ndescription: \"caf\\u00e9 \\U0001F600 \\x41\"\n---\nBody\n",
+   "agent/skills/nested-map/SKILL.md": "---\nname: nested-map\ndescription: Use when: this\n---\nBody\n"
+  }
+ },
+ "order": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/skills/z.md": "---\nname: zz\ndescription: Lower z\n---\nBody of zz.\n\nSecond paragraph.\n",
+   "agent/skills/b.md": "---\nname: bb\ndescription: Lower b\n---\nBody of bb.\n\nSecond paragraph.\n",
+   "agent/skills/a.md": "---\nname: aa\ndescription: Lower a\n---\nBody of aa.\n\nSecond paragraph.\n",
+   "agent/skills/_u/SKILL.md": "---\nname: under\ndescription: Underscore\n---\nBody of under.\n\nSecond paragraph.\n",
+   "agent/skills/Z/SKILL.md": "---\nname: ZZ-up\ndescription: Upper Z directory\n---\nBody of ZZ-up.\n\nSecond paragraph.\n",
+   "agent/skills/B.md": "---\nname: bb-up\ndescription: Upper B\n---\nBody of bb-up.\n\nSecond paragraph.\n",
+   "agent/skills/A.md": "---\nname: aa-up\ndescription: Upper A\n---\nBody of aa-up.\n\nSecond paragraph.\n",
+   "agent/skills/10/SKILL.md": "---\nname: ten\ndescription: Ten\n---\nBody of ten.\n\nSecond paragraph.\n",
+   "agent/skills/9/SKILL.md": "---\nname: nine\ndescription: Nine\n---\nBody of nine.\n\nSecond paragraph.\n",
+   "agent/skills/é/SKILL.md": "---\nname: eacute\ndescription: Latin small e with acute\n---\nBody of eacute.\n\nSecond paragraph.\n"
+  }
+ },
+ "ignore_case": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/skills/.gitignore": "IGNORED-DIR/\n*.TMP.MD\n!KEEP.tmp.md\n",
+   "agent/skills/ok/SKILL.md": "---\nname: ok\ndescription: Fine\n---\nBody of ok.\n\nSecond paragraph.\n",
+   "agent/skills/ignored-dir/SKILL.md": "---\nname: ignored-dir\ndescription: Hidden by a pattern in capitals\n---\nBody of ignored-dir.\n\nSecond paragraph.\n",
+   "agent/skills/skip.tmp.md": "---\nname: skip-tmp\ndescription: Hidden by *.TMP.MD\n---\nBody of skip-tmp.\n\nSecond paragraph.\n",
+   "agent/skills/keep.tmp.md": "---\nname: keep-tmp\ndescription: Brought back by !KEEP.tmp.md\n---\nBody of keep-tmp.\n\nSecond paragraph.\n"
+  }
+ },
+ "rank": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/settings.json": "{\"skills\":[\"extra\"]}",
+   "agent/extra/dup/SKILL.md": "---\nname: dup\ndescription: From a user settings entry (rank 2)\n---\nBody of dup.\n\nSecond paragraph.\n",
+   "agent/skills/dup/SKILL.md": "---\nname: dup\ndescription: From the user's directory (rank 3)\n---\nBody of dup.\n\nSecond paragraph.\n",
+   "w/proj/.pi/skills/dup/SKILL.md": "---\nname: dup\ndescription: From the project's directory (rank 1)\n---\nBody of dup.\n\nSecond paragraph.\n",
+   "w/proj/.pi/settings.json": "{\"skills\":[\"../more\"]}",
+   "w/more/dup2/SKILL.md": "---\nname: dup2\ndescription: From a project settings entry (rank 0)\n---\nBody of dup2.\n\nSecond paragraph.\n",
+   "w/proj/.pi/skills/dup2/SKILL.md": "---\nname: dup2\ndescription: From the project's directory (rank 1)\n---\nBody of dup2.\n\nSecond paragraph.\n",
+   "agent/extra/dup3/SKILL.md": "---\nname: dup3\ndescription: From a user settings entry (rank 2)\n---\nBody of dup3.\n\nSecond paragraph.\n",
+   "agent/skills/dup3/SKILL.md": "---\nname: dup3\ndescription: From the user's directory (rank 3)\n---\nBody of dup3.\n\nSecond paragraph.\n",
+   "agent/extra/solo/SKILL.md": "---\nname: solo\ndescription: Only here\n---\nBody of solo.\n\nSecond paragraph.\n"
+  }
+ },
+ "tilde": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noSkills": false,
+  "skillPaths": [
+   "~/cli-skills/c1",
+   "  ~/cli-skills/c2/SKILL.md  ",
+   "~/nothing-here"
+  ],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/settings.json": "{\"skills\":[\"~/shared/s1\",\"  ~/shared/s2/SKILL.md \",\"~\"]}",
+   "home/shared/s1/SKILL.md": "---\nname: s1\ndescription: From ~/shared/s1\n---\nBody of s1.\n\nSecond paragraph.\n",
+   "home/shared/s2/SKILL.md": "---\nname: s2\ndescription: From a trimmed entry\n---\nBody of s2.\n\nSecond paragraph.\n",
+   "home/cli-skills/c1/SKILL.md": "---\nname: c1\ndescription: From --skill ~/cli-skills/c1\n---\nBody of c1.\n\nSecond paragraph.\n",
+   "home/cli-skills/c2/SKILL.md": "---\nname: c2\ndescription: From a trimmed --skill\n---\nBody of c2.\n\nSecond paragraph.\n",
+   "home/top/SKILL.md": "---\nname: top\ndescription: Found because ~ itself is an entry\n---\nBody of top.\n\nSecond paragraph.\n"
+  }
+ },
+ "globcase": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/settings.json": "{\"skills\":[\"!Skip-*\",\"!skip-lower-*\",\"-Exact\",\"-exact-lower\"]}",
+   "agent/skills/Skip-Upper/SKILL.md": "---\nname: Skip-Upper\ndescription: Matched by !Skip-*\n---\nBody of Skip-Upper.\n\nSecond paragraph.\n",
+   "agent/skills/skip-upper2/SKILL.md": "---\nname: skip-upper2\ndescription: Not matched by !Skip-*: case counts\n---\nBody of skip-upper2.\n\nSecond paragraph.\n",
+   "agent/skills/skip-lower-1/SKILL.md": "---\nname: skip-lower-1\ndescription: Matched by !skip-lower-*\n---\nBody of skip-lower-1.\n\nSecond paragraph.\n",
+   "agent/skills/Skip-lower-2/SKILL.md": "---\nname: skip-lower-2\ndescription: Not matched by !skip-lower-*\n---\nBody of skip-lower-2.\n\nSecond paragraph.\n",
+   "agent/skills/Exact/SKILL.md": "---\nname: exact-up\ndescription: Removed by -Exact\n---\nBody of exact-up.\n\nSecond paragraph.\n",
+   "agent/skills/exact/SKILL.md": "---\nname: exact-lo\ndescription: Not removed by -Exact\n---\nBody of exact-lo.\n\nSecond paragraph.\n",
+   "agent/skills/exact-lower/SKILL.md": "---\nname: exact-lower\ndescription: Removed by -exact-lower\n---\nBody of exact-lower.\n\nSecond paragraph.\n",
+   "agent/skills/Exact-Lower/SKILL.md": "---\nname: exact-lower-up\ndescription: Not removed by -exact-lower\n---\nBody of exact-lower-up.\n\nSecond paragraph.\n"
+  }
+ },
+ "packages": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/settings.json": "{\"packages\":[\"../pk/manifest\",\"../pk/conv\",{\"source\":\"../pk/filter\",\"skills\":[\"keep-*\",\"!keep-no\"]},{\"source\":\"../pk/off\",\"skills\":[]},\"npm:some-package\",\"git:github.com/x/y\"]}",
+   "pk/manifest/package.json": "{\"name\":\"m\",\"pi\":{\"skills\":[\"./custom\",\"extra/*.md\",\"!extra/skip.md\"],\"prompts\":[\"./pr\"]}}",
+   "pk/manifest/custom/c1/SKILL.md": "---\nname: c1\ndescription: A manifest entry\n---\nBody of c1.\n\nSecond paragraph.\n",
+   "pk/manifest/extra/e1.md": "---\nname: e1\ndescription: Matched by a manifest glob\n---\nBody of e1.\n\nSecond paragraph.\n",
+   "pk/manifest/extra/skip.md": "---\nname: skipped\ndescription: Switched off by the manifest\n---\nBody of skipped.\n\nSecond paragraph.\n",
+   "pk/manifest/skills/unlisted/SKILL.md": "---\nname: unlisted\ndescription: Not in the manifest: not found\n---\nBody of unlisted.\n\nSecond paragraph.\n",
+   "pk/conv/skills/v1/SKILL.md": "---\nname: v1\ndescription: From a conventional directory\n---\nBody of v1.\n\nSecond paragraph.\n",
+   "pk/conv/skills/v2/SKILL.md": "---\nname: v2\ndescription: Another\n---\nBody of v2.\n\nSecond paragraph.\n",
+   "pk/filter/skills/keep-a/SKILL.md": "---\nname: keep-a\ndescription: Kept by the filter\n---\nBody of keep-a.\n\nSecond paragraph.\n",
+   "pk/filter/skills/keep-no/SKILL.md": "---\nname: keep-no\ndescription: Dropped by the filter\n---\nBody of keep-no.\n\nSecond paragraph.\n",
+   "pk/filter/skills/other/SKILL.md": "---\nname: other\ndescription: Not matched by the filter\n---\nBody of other.\n\nSecond paragraph.\n",
+   "pk/off/skills/off1/SKILL.md": "---\nname: off1\ndescription: An empty list switches the type off\n---\nBody of off1.\n\nSecond paragraph.\n",
+   "agent/skills/own/SKILL.md": "---\nname: own\ndescription: Beats the packages\n---\nBody of own.\n\nSecond paragraph.\n",
+   "pk/conv/skills/own/SKILL.md": "---\nname: own\ndescription: Same name, from a package\n---\nBody of own.\n\nSecond paragraph.\n",
+   "w/proj/.pi/settings.json": "{\"packages\":[\"../../pk/projpkg\"]}",
+   "pk/projpkg/skills/pp/SKILL.md": "---\nname: pp\ndescription: From a project package\n---\nBody of pp.\n\nSecond paragraph.\n"
+  }
+ },
  "cli": {
   "cwd": "w/proj",
   "trusted": true,
@@ -291,7 +477,8 @@
    "extra/dir",
    "extra/none.md",
    "extra/x.txt",
-   "../abs/two.md"
+   "../abs/two.md",
+   "@ROOT@/cli/w/abs-skill.md"
   ],
   "expand": [
    "/skill:one"
@@ -306,7 +493,8 @@
    "w/proj/extra/one.md": "---\nname: one\ndescription: A file given with --skill\n---\nBody of one.\n\nSecond paragraph.\n",
    "w/proj/extra/dir/d1/SKILL.md": "---\nname: d1\ndescription: In a directory given with --skill\n---\nBody of d1.\n\nSecond paragraph.\n",
    "w/proj/extra/x.txt": "not markdown\n",
-   "w/abs/two.md": "---\nname: two\ndescription: Outside the project\n---\nBody of two.\n\nSecond paragraph.\n"
+   "w/abs/two.md": "---\nname: two\ndescription: Outside the project\n---\nBody of two.\n\nSecond paragraph.\n",
+   "w/abs-skill.md": "---\nname: abs-skill\ndescription: An absolute host path\n---\nBody of abs-skill.\n\nSecond paragraph.\n"
   }
  },
  "noskills": {
@@ -329,7 +517,8 @@
    "w/proj/extra/one.md": "---\nname: one\ndescription: A file given with --skill\n---\nBody of one.\n\nSecond paragraph.\n",
    "w/proj/extra/dir/d1/SKILL.md": "---\nname: d1\ndescription: In a directory given with --skill\n---\nBody of d1.\n\nSecond paragraph.\n",
    "w/proj/extra/x.txt": "not markdown\n",
-   "w/abs/two.md": "---\nname: two\ndescription: Outside the project\n---\nBody of two.\n\nSecond paragraph.\n"
+   "w/abs/two.md": "---\nname: two\ndescription: Outside the project\n---\nBody of two.\n\nSecond paragraph.\n",
+   "w/abs-skill.md": "---\nname: abs-skill\ndescription: An absolute host path\n---\nBody of abs-skill.\n\nSecond paragraph.\n"
   }
  }
 }

@@ -9,6 +9,8 @@
 #include "claude/util.h"
 #include "show_pi.h"
 #include "resources.h"
+#include "templates.h"
+#include "resreport.h"
 #include "pstatus.h"
 #include "claude/tools.h"
 #include "compact.h"
@@ -440,6 +442,125 @@ static int u_ask(void *u, int tool, const char *name, const char *what, int outs
     return ui_ask(&p->ui, tool, name, what, outside);
 }
 
+/* ---- ctx.ui for an extension (L5; ext.h pi_ext_ui; pi's ExtensionUIContext in interactive-mode.ts:2690-2970) ---- */
+
+/* an extension dialog is open: the program status says the agent is blocked on it (pi: setBlocked "extension-dialog") */
+static void xu_blocked(pi_ui *p, int kind, const char *title)
+{
+    if (p->pst_on)
+        pi_pstatus_blocked(&p->pst, kind, kind == PSK_NONE ? 0 : title);
+}
+
+/* the screen without pi's look (line mode): the question printed, the answer a line */
+static int xu_line(pi_ui *p, const char *question, char *ans, long cap)
+{
+    long n;
+    ui_puts(&p->ui, "\033[1m");
+    ui_puts(&p->ui, question);
+    ui_puts(&p->ui, "\033[0m ");
+    n = p->ui.io->read_line(p->ui.io->u, ans, cap);
+    p->ui.col0 = 1;
+    return n < 0 ? -1 : (int)n;
+}
+
+static int xu_select(void *u, const char *title, const char *const *opt, int n, long timeout_ms, char *value, long cap)
+{
+    pi_ui *p = (pi_ui *)u;
+    int c;
+    if (p->look && p->ui.tui) {
+        xu_blocked(p, PSK_QUESTION, title);
+        c = tui_ext_menu(p->ui.tui, title, opt, n, timeout_ms);
+        xu_blocked(p, PSK_NONE, 0);
+        if (c < 0)
+            return 0;               /* Escape, Ctrl+C, the end of input, or the timeout: pi's undefined */
+    } else {
+        char ans[40], num[16];
+        int i;
+        ui_line(&p->ui, title);
+        for (i = 0; i < n; i++) {
+            cl_ltoa(i + 1, num);
+            cl_copy(ans, num, sizeof(ans));
+            cl_cat(ans, ") ", sizeof(ans));
+            ui_puts(&p->ui, ans);
+            ui_line(&p->ui, opt[i]);
+        }
+        c = xu_line(p, "Number (empty cancels):", ans, sizeof(ans));
+        if (c <= 0)
+            return 0;
+        c = atoi(ans) - 1;
+        if (c < 0 || c >= n)
+            return 0;
+    }
+    cl_copy(value, opt[c], cap);
+    return 1;
+}
+
+/* confirm is pi's selector over "Yes" and "No" with the message under the title (interactive-mode.ts:2750-2760) */
+static int xu_confirm(void *u, const char *title, const char *message, long timeout_ms)
+{
+    pi_ui *p = (pi_ui *)u;
+    static const char *const yn[] = { "Yes", "No" };
+    char both[800];
+    int c;
+    cl_copy(both, title, sizeof(both));
+    cl_cat(both, "\n", sizeof(both));
+    cl_cat(both, message, sizeof(both));
+    if (p->look && p->ui.tui) {
+        xu_blocked(p, PSK_PERMISSION, title);
+        c = tui_ext_menu(p->ui.tui, both, yn, 2, timeout_ms);
+        xu_blocked(p, PSK_NONE, 0);
+        return c == 0;
+    } else {
+        char ans[16];
+        ui_line(&p->ui, both);
+        return xu_line(p, "Yes (y) or No (n):", ans, sizeof(ans)) > 0 && (ans[0] == 'y' || ans[0] == 'Y');
+    }
+}
+
+static int xu_input(void *u, const char *title, const char *placeholder, long timeout_ms, char *value, long cap)
+{
+    pi_ui *p = (pi_ui *)u;
+    (void)placeholder;              /* ExtensionInputComponent ignores it too (extension-input.ts, _placeholder) */
+    if (p->look && p->ui.tui) {
+        int r;
+        xu_blocked(p, PSK_QUESTION, title);
+        r = tui_ext_input(p->ui.tui, title, value, cap, timeout_ms);
+        xu_blocked(p, PSK_NONE, 0);
+        return r == 1;
+    }
+    ui_line(&p->ui, title);
+    return xu_line(p, ">", value, cap) >= 0;
+}
+
+/* showExtensionNotify: info is showStatus, warning and error their own rows with pi's prefixes */
+static void xu_notify(void *u, const char *message, const char *type)
+{
+    pi_ui *p = (pi_ui *)u;
+    char line[600];
+    int role = PR_DIM;
+    if (type && !strcmp(type, "error")) {
+        cl_copy(line, "Error: ", sizeof(line));
+        cl_cat(line, message, sizeof(line));
+        if (p->look)
+            pshow_error(&p->ps, line);
+        else
+            ui_line(&p->ui, line);
+        return;
+    }
+    if (type && !strcmp(type, "warning")) {
+        cl_copy(line, "Warning: ", sizeof(line));
+        cl_cat(line, message, sizeof(line));
+        message = line;
+        role = PR_WARNING;
+    }
+    if (p->look)
+        pshow_note(&p->ps, role, message);
+    else
+        ui_line(&p->ui, message);
+}
+
+static pi_ext_ui xu_ui = { 0, xu_select, xu_confirm, xu_input, xu_notify };
+
 /* a user message's text blocks, joined */
 static void user_text(const char *json, long n, jw *out)
 {
@@ -581,8 +702,12 @@ static void attach(pi_ui *p, pi_session *s, cl_io *io, int print)
         s->h.poll = u_poll;
         s->ask = u_ask;
         s->ask_u = p;
-    } else
+        xu_ui.u = p;
+        s->ext.ui = &xu_ui;     /* ctx.hasUI is true and ctx.ui reaches this screen (print mode has no user: hasUI false) */
+    } else {
         s->ask = 0;             /* print mode: nobody answers the gate */
+        s->ext.ui = 0;          /* nor an extension's dialogs: ctx.hasUI is false */
+    }
 }
 
 /* pi's formatTokens */
@@ -1228,11 +1353,47 @@ static int login_command(pi_ui *p, cl_tui *t, const char *line)
     return 1;
 }
 
+static void build_skill_rows(pi_ui *p);
+static void resources_report(pi_ui *p, int listing, int header);
+
+/* /reload (interactive-mode.ts handleReloadCommand): the resources are read again, the menu rows and the start-up block follow, and
+ * a status line says so; a failure is "Reload failed: <message>" */
+static void reload_command(pi_ui *p)
+{
+    char err[200];
+    int nt;
+    const cl_cmd *tm;
+    if (!p->s->reload || p->s->reload(p->s->reload_u, p->s, err, sizeof(err))) {
+        char m[260];
+        cl_copy(m, "Reload failed: ", sizeof(m));
+        cl_cat(m, p->s->reload ? err : "nothing to read", sizeof(m));
+        if (p->look)
+            pshow_error(&p->ps, m);
+        else
+            ui_line(&p->ui, m);
+        return;
+    }
+    build_skill_rows(p);
+    tm = p->s->templates ? pi_tmpl_menu((pi_tmpls *)p->s->templates, &nt) : 0;
+    pi_ui_set_extra_commands(0, tm, tm ? nt : 0);
+    if (p->look)
+        pshow_resources_begin(&p->ps);
+    resources_report(p, !ui_quiet, p->look && !ui_quiet);
+    if (p->look)
+        pshow_resources_end(&p->ps);
+    note(p, "Reloaded skills, prompts, and context files");
+}
+
 static int run_command(pi_ui *p, cl_tui *t, const char *line)
 {
     jw reply, editor;
     int rc;
     char *a, *nl;
+    if (!strcmp(line, "/reload")) {
+        reload_command(p);
+        status(p);
+        return 1;
+    }
     if (p->look && t && !strcmp(line, "/tree") && p->s->command) {
         tree_command(p, t);
         return 1;
@@ -1281,55 +1442,77 @@ static void user_echo(pi_ui *p, const char *line)
         ui_user(&p->ui, line);
 }
 
-/* the lines of the skills report: pi's show in its look, plain lines otherwise */
-static void skl_line(void *u, int kind, const char *text)
+/* the lines of the resources report: pi's show in its look, plain lines (the compact form) otherwise */
+static void rr_line(void *u, int kind, int mode, const char *text)
 {
     pi_ui *p = (pi_ui *)u;
     if (p->look)
-        pshow_resource_line(&p->ps, kind, text);
-    else
+        pshow_resource_line(&p->ps, kind, mode, text);
+    else if (mode != RRM_EXPANDED)
         ui_line(&p->ui, text);
 }
 
-static void skl_count(void *u, int kind, const char *text)
+static void rr_count(void *u, int kind, int mode, const char *text)
 {
     (void)kind;
+    (void)mode;
     (void)text;
     (*(int *)u)++;
 }
 
-/* pi's showLoadedResources for skills (interactive-mode.ts:1772-1930, 2044): the "[Skills]" list unless quietStartup, and the
- * "[Skill conflicts]" diagnostics always. header: the start header was drawn (its Spacer separates the block from it) */
-static void skills_report(pi_ui *p, int listing, int header)
+/* one "[title]" section of the report */
+static void rr_section(pi_ui *p, int role, const char *title, int is_skills, int diagnostics)
 {
     const pi_skills *k = p->s->res ? &p->s->res->skills : 0;
-    int nd = 0;
-    if (!k || (!k->n && !k->nd))
-        return;
-    pi_skills_report(k, skl_count, &nd);
-    listing = listing && k->n;
-    if (!listing && !nd)
+    const pi_tmpls *tm = p->s->templates;
+    char plain[40];
+    if (p->look)
+        pshow_resource_title(&p->ps, role, title);
+    else {
+        cl_copy(plain, "[", sizeof(plain));
+        cl_cat(plain, title, sizeof(plain));
+        cl_cat(plain, "]", sizeof(plain));
+        ui_line(&p->ui, plain);
+    }
+    if (is_skills) {
+        if (diagnostics)
+            pi_skills_report(k, rr_line, p);
+        else
+            pi_skills_listing(k, rr_line, p);
+    } else if (diagnostics)
+        pi_tmpls_report(tm, rr_line, p);
+    else
+        pi_tmpls_listing(tm, rr_line, p);
+    if (p->look)
+        pshow_resource_end(&p->ps);
+}
+
+/* pi's showLoadedResources for skills and prompt templates (interactive-mode.ts:1772-1930, 2044): the "[Skills]" and "[Prompts]"
+ * lists unless quietStartup (compact; Ctrl+O draws them grouped by scope), and the "[Skill conflicts]" and "[Prompt conflicts]"
+ * diagnostics always. header: the start header was drawn (its Spacer separates the block from it) */
+static void resources_report(pi_ui *p, int listing, int header)
+{
+    const pi_skills *k = p->s->res ? &p->s->res->skills : 0;
+    const pi_tmpls *tm = p->s->templates;
+    int nsd = 0, ntd = 0, ls, lt;
+    if (k)
+        pi_skills_report(k, rr_count, &nsd);
+    if (tm)
+        pi_tmpls_report(tm, rr_count, &ntd);
+    ls = listing && k && k->n;
+    lt = listing && tm && tm->n;
+    if (!ls && !lt && !nsd && !ntd)
         return;
     if (header && p->look)
         pshow_blank(&p->ps);
-    if (listing) {
-        if (p->look)
-            pshow_resource_title(&p->ps, PR_MD_HEADING, "Skills");
-        else
-            ui_line(&p->ui, "[Skills]");
-        pi_skills_listing(k, skl_line, p);
-        if (p->look)
-            pshow_resource_end(&p->ps);
-    }
-    if (nd) {
-        if (p->look)
-            pshow_resource_title(&p->ps, PR_WARNING, "Skill conflicts");
-        else
-            ui_line(&p->ui, "[Skill conflicts]");
-        pi_skills_report(k, skl_line, p);
-        if (p->look)
-            pshow_resource_end(&p->ps);
-    }
+    if (ls)
+        rr_section(p, PR_MD_HEADING, "Skills", 1, 0);
+    if (lt)
+        rr_section(p, PR_MD_HEADING, "Prompts", 0, 0);
+    if (nsd)
+        rr_section(p, PR_WARNING, "Skill conflicts", 1, 1);
+    if (ntd)
+        rr_section(p, PR_WARNING, "Prompt conflicts", 0, 1);
 }
 
 int pi_ui_run(pi_session *s, cl_io *io, const char *first)
@@ -1370,7 +1553,7 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         cl_cat(hello, ". Type /exit to leave.", sizeof(hello));
         ui_line(&p.ui, hello);
     }
-    skills_report(&p, !ui_quiet, p.look && !ui_quiet);
+    resources_report(&p, !ui_quiet, p.look && !ui_quiet);
     if (p.look && s->nmsg)
         redraw_session(&p);            /* a resumed session shows its conversation, as pi's renderInitialMessages */
     if (first && *first) {
@@ -1439,5 +1622,6 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
     p.all = 0;
     pi_ui_set_extra_commands(1, 0, 0);
     pi_ui_set_extra_commands(3, 0, 0);
+    s->ext.ui = 0;
     return 0;
 }

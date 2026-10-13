@@ -1,0 +1,67 @@
+{
+ "prompts": [
+  {
+   "name": "public-x",
+   "description": "project",
+   "argumentHint": null,
+   "content": "project\n",
+   "filePath": "@ROOT@/ignore/w/proj/.pi/prompts/public-x.md",
+   "sourceInfo": {
+    "path": "@ROOT@/ignore/w/proj/.pi/prompts/public-x.md",
+    "source": "auto",
+    "scope": "project",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/ignore/w/proj/.pi"
+   },
+   "command": "[p] project"
+  },
+  {
+   "name": "keep.tmp",
+   "description": "brought back by !keep.tmp.md",
+   "argumentHint": null,
+   "content": "brought back by !keep.tmp.md\n",
+   "filePath": "@ROOT@/ignore/agent/prompts/keep.tmp.md",
+   "sourceInfo": {
+    "path": "@ROOT@/ignore/agent/prompts/keep.tmp.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/ignore/agent"
+   },
+   "command": "[u] brought back by !keep.tmp.md"
+  },
+  {
+   "name": "ok",
+   "description": "ok",
+   "argumentHint": null,
+   "content": "ok\n",
+   "filePath": "@ROOT@/ignore/agent/prompts/ok.md",
+   "sourceInfo": {
+    "path": "@ROOT@/ignore/agent/prompts/ok.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/ignore/agent"
+   },
+   "command": "[u] ok"
+  },
+  {
+   "name": "sub",
+   "description": "a file called sub.md: SUB/ is for directories",
+   "argumentHint": null,
+   "content": "a file called sub.md: SUB/ is for directories\n",
+   "filePath": "@ROOT@/ignore/agent/prompts/sub.md",
+   "sourceInfo": {
+    "path": "@ROOT@/ignore/agent/prompts/sub.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/ignore/agent"
+   },
+   "command": "[u] a file called sub.md: SUB/ is for directories"
+  }
+ ],
+ "diagnostics": [],
+ "rpcCommands": "[{\"name\":\"public-x\",\"description\":\"project\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/ignore/w/proj/.pi/prompts/public-x.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/ignore/w/proj/.pi\"}},{\"name\":\"keep.tmp\",\"description\":\"brought back by !keep.tmp.md\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/ignore/agent/prompts/keep.tmp.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/ignore/agent\"}},{\"name\":\"ok\",\"description\":\"ok\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/ignore/agent/prompts/ok.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/ignore/agent\"}},{\"name\":\"sub\",\"description\":\"a file called sub.md: SUB/ is for directories\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/ignore/agent/prompts/sub.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/ignore/agent\"}}]",
+ "expand": []
+}

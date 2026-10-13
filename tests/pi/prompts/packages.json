@@ -1,0 +1,132 @@
+{
+ "prompts": [
+  {
+   "name": "own",
+   "description": "beats the package",
+   "argumentHint": null,
+   "content": "beats the package\n",
+   "filePath": "@ROOT@/packages/agent/prompts/own.md",
+   "sourceInfo": {
+    "path": "@ROOT@/packages/agent/prompts/own.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/packages/agent"
+   },
+   "command": "[u] beats the package"
+  },
+  {
+   "name": "pp",
+   "description": "from a project package",
+   "argumentHint": null,
+   "content": "from a project package\n",
+   "filePath": "@ROOT@/packages/pk/projpkg/prompts/pp.md",
+   "sourceInfo": {
+    "path": "@ROOT@/packages/pk/projpkg/prompts/pp.md",
+    "source": "../../../pk/projpkg",
+    "scope": "project",
+    "origin": "package",
+    "baseDir": "@ROOT@/packages/pk/projpkg"
+   },
+   "command": "[p] from a project package"
+  },
+  {
+   "name": "m1",
+   "description": "m1",
+   "argumentHint": null,
+   "content": "m1\n",
+   "filePath": "@ROOT@/packages/pk/manifest/pr/m1.md",
+   "sourceInfo": {
+    "path": "@ROOT@/packages/pk/manifest/pr/m1.md",
+    "source": "../pk/manifest",
+    "scope": "user",
+    "origin": "package",
+    "baseDir": "@ROOT@/packages/pk/manifest"
+   },
+   "command": "[u] m1"
+  },
+  {
+   "name": "m2",
+   "description": "m2",
+   "argumentHint": null,
+   "content": "m2\n",
+   "filePath": "@ROOT@/packages/pk/manifest/more/m2.md",
+   "sourceInfo": {
+    "path": "@ROOT@/packages/pk/manifest/more/m2.md",
+    "source": "../pk/manifest",
+    "scope": "user",
+    "origin": "package",
+    "baseDir": "@ROOT@/packages/pk/manifest"
+   },
+   "command": "[u] m2"
+  },
+  {
+   "name": "v2",
+   "description": "v2: a package's prompts are searched recursively",
+   "argumentHint": null,
+   "content": "v2: a package's prompts are searched recursively\n",
+   "filePath": "@ROOT@/packages/pk/conv/prompts/deep/v2.md",
+   "sourceInfo": {
+    "path": "@ROOT@/packages/pk/conv/prompts/deep/v2.md",
+    "source": "../pk/conv",
+    "scope": "user",
+    "origin": "package",
+    "baseDir": "@ROOT@/packages/pk/conv"
+   },
+   "command": "[u] v2: a package's prompts are searched recursively"
+  },
+  {
+   "name": "v1",
+   "description": "v1",
+   "argumentHint": null,
+   "content": "v1\n",
+   "filePath": "@ROOT@/packages/pk/conv/prompts/v1.md",
+   "sourceInfo": {
+    "path": "@ROOT@/packages/pk/conv/prompts/v1.md",
+    "source": "../pk/conv",
+    "scope": "user",
+    "origin": "package",
+    "baseDir": "@ROOT@/packages/pk/conv"
+   },
+   "command": "[u] v1"
+  },
+  {
+   "name": "keep-a",
+   "description": "kept",
+   "argumentHint": null,
+   "content": "kept\n",
+   "filePath": "@ROOT@/packages/pk/filter/prompts/keep-a.md",
+   "sourceInfo": {
+    "path": "@ROOT@/packages/pk/filter/prompts/keep-a.md",
+    "source": "../pk/filter",
+    "scope": "user",
+    "origin": "package",
+    "baseDir": "@ROOT@/packages/pk/filter"
+   },
+   "command": "[u] kept"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "collision",
+   "message": "name \"/own\" collision",
+   "path": "@ROOT@/packages/pk/conv/prompts/own.md",
+   "collision": {
+    "name": "own",
+    "winnerPath": "@ROOT@/packages/agent/prompts/own.md",
+    "loserPath": "@ROOT@/packages/pk/conv/prompts/own.md"
+   }
+  }
+ ],
+ "rpcCommands": "[{\"name\":\"own\",\"description\":\"beats the package\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/agent/prompts/own.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/packages/agent\"}},{\"name\":\"pp\",\"description\":\"from a project package\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/projpkg/prompts/pp.md\",\"source\":\"../../../pk/projpkg\",\"scope\":\"project\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/projpkg\"}},{\"name\":\"m1\",\"description\":\"m1\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/manifest/pr/m1.md\",\"source\":\"../pk/manifest\",\"scope\":\"user\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/manifest\"}},{\"name\":\"m2\",\"description\":\"m2\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/manifest/more/m2.md\",\"source\":\"../pk/manifest\",\"scope\":\"user\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/manifest\"}},{\"name\":\"v2\",\"description\":\"v2: a package's prompts are searched recursively\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/conv/prompts/deep/v2.md\",\"source\":\"../pk/conv\",\"scope\":\"user\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/conv\"}},{\"name\":\"v1\",\"description\":\"v1\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/conv/prompts/v1.md\",\"source\":\"../pk/conv\",\"scope\":\"user\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/conv\"}},{\"name\":\"keep-a\",\"description\":\"kept\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/filter/prompts/keep-a.md\",\"source\":\"../pk/filter\",\"scope\":\"user\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/filter\"}}]",
+ "expand": [
+  {
+   "input": "/v1",
+   "output": "v1\n"
+  },
+  {
+   "input": "/own",
+   "output": "beats the package\n"
+  }
+ ]
+}

@@ -120,6 +120,9 @@ typedef struct pi_session {
      * of the store's (the line goes to the model) */
     int (*command)(void *u, struct pi_session *s, const char *line, jw *reply, jw *editor);
     void *command_u;
+    /* /reload (interactive mode): the skills, prompt templates and context files read again (app.c). 0 done, -1 failed (err says why); 0: none */
+    int (*reload)(void *u, struct pi_session *s, char *err, long cap);
+    void *reload_u;
     /* Ctrl+P, Shift+Ctrl+P (what 0, dir 1 / -1) and Shift+Tab (what 1): the next model / thinking level as pi cycles them;
      * the line pi shows in msg. 1 changed, 0 not, -1 failed; 0: nobody cycles */
     int (*cycle)(void *u, struct pi_session *s, int what, int dir, char *msg, long cap);
@@ -141,6 +144,9 @@ typedef struct pi_session {
     int retry_on, retry_max;
     long retry_base, retry_max_delay;
     int attempt, retry_stop;
+    /* the last run's agent_end decided to retry (pi's willRetry): the only place that decides, since giving up
+     * (the last retry failed too) resets attempt, and a second look would start the retries over, without end */
+    int retry_next;
     int recover;                /* the run ended on a context overflow the store compacted: ask again (pi_prompt) */
     /* pi's _overflowRecoveryAttempted: set by the store when it omits a failed answer and compacts to ask again; cleared
      * as pi's _handleAgentEvent does, at every user message (the prompt, steering, a follow-up) and at every answer that

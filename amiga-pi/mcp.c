@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "mcp.h"
-#include "sha256.h"
+#include "llm/sha256.h"
 #include "truncate.h"
 #include "tools_pi.h"
 #include "claude/util.h"
@@ -832,7 +832,7 @@ void mcp_tool_name(const char *server, const char *tool, int taken, char *out, l
     jw_rawz(&raw, server);
     jw_raw(&raw, "\0", 1);
     jw_rawz(&raw, tool);
-    pi_sha256_hex(raw.p, raw.n, hex);
+    llm_sha256_hex(raw.p, raw.n, hex);
     jw_free(&raw);
     name[n < MCP_NAME_MAX - 9 ? n : MCP_NAME_MAX - 9] = 0;
     cl_copy(out, name, cap);

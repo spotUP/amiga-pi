@@ -1,0 +1,20 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "local function show(v)\n  if v == nil then return \"undefined\" end\n  return tostring(v)\nend\npi.on(\"tool_call\", function(event, ctx)\n  local a = ctx.ui.select(\"Pick\", { \"One\", \"Two\" }, { timeout = 5000 })\n  local b = ctx.ui.confirm(\"Sure?\", \"It runs a command.\", { timeout = 250 })\n  local c = ctx.ui.input(\"Why?\", \"a reason\", { timeout = 250 })\n  return { block = true, reason = \"select=\" .. show(a) .. \" confirm=\" .. show(b) .. \" input=\" .. show(c) .. \" hasUI=\" .. show(ctx.hasUI) }\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_ui_timeout"
+}

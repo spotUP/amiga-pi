@@ -1,0 +1,20 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"tool_call\", function(event, ctx)\n  ctx.ui.notify(\"plain\")\n  ctx.ui.notify(\"one\", \"info\")\n  ctx.ui.notify(\"two\", \"warning\")\n  ctx.ui.notify(\"three\", \"error\")\n  return { block = true, reason = \"notified\" }\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_ui_notify"
+}

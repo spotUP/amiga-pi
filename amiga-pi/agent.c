@@ -868,6 +868,7 @@ static int run_end(pi_session *s, int answered)
     e.retry = will;
     pi_emit(&s->em, &e);
     jw_free(&w);
+    s->retry_next = will;
     if (!will && s->attempt && s->stop == LS_ERROR)
         emit_retry_end(s, 0, s->err[0] ? s->err : "Unknown error");
     if (!will && answered && s->compact)
@@ -1023,6 +1024,7 @@ static void deliver(pi_session *s)
 static int run(pi_session *s, const char *text)
 {
     int i, round;
+    s->retry_next = 0;
     s->run_msg0 = s->nmsg;
     s->run_sys0 = s->nsys;
     s->sys_seen = s->nsys;
@@ -1154,7 +1156,7 @@ static int prompt_run(pi_session *s, const char *typed)
         pi_event e;
         long delay, cap;
         int k, last;
-        if (!retry_will(s)) {
+        if (!s->retry_next) {
             if (!s->recover)
                 break;
             s->recover = 0;

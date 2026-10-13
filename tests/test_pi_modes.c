@@ -487,6 +487,8 @@ static long io_read(void *u, char *buf, long cap, long timeout_ms)
                 CHECK(0);                       /* a gate whose event never came */
                 return -1;
             }
+            if (timeout_ms > 0)
+                ps.clock += (unsigned long)timeout_ms;      /* a read that waited and got nothing took its time: a dialog's timeout runs out (L5) */
             return 0;
         }
     }
@@ -746,6 +748,7 @@ typedef struct run_opts {
     int bad_models;                 /* models.json is not JSON: the warning of the start, a diagnostic */
     int diag;                       /* capture the diagnostic stream (pl.diag) in diag_log: one entry per call, '|' between */
     int nocmp;                      /* do not compare with the golden: the caller reads the output */
+    int refuse;                     /* the first this many connects fail (nothing listening), the answers after them */
     char *out;                      /* out with nocmp: the records, malloc'ed */
 } run_opts;
 
@@ -1148,6 +1151,8 @@ static int scenario(const char *name, run_opts *ro)
             free(b);
         }
     }
+    if (ro)
+        ps.refuse = ro->refuse;
     memset(&io, 0, sizeof(io));
     io.write = io_write;
     io.ms = io_ms;
@@ -1382,54 +1387,15 @@ static void test_command_set(void)
     CHECK_INT(hit, 33);
 }
 
-/* H5: the extension UI over RPC. The test extension asks the four questions pi's TS extension of the golden asks (select,
- * confirm, input, notify) on a tool call; pi_rpc_ui() is the call an extension makes */
-static int ext_tool_call(void *u, const char *id, const char *name, jw *args, char *reason, long cap)
-{
-    pi_rpc *r = pi_rpc_ui();
-    static const char *const opt[] = { "Allow", "Block" };
-    char choice[40], why[60], msg[200];
-    int has_choice, has_why, yes;
-    (void)u;
-    (void)id;
-    (void)name;
-    (void)args;
-    if (!r)
-        return 0;
-    has_choice = pi_rpc_select(r, "Run it?", opt, 2, 0, choice, sizeof(choice));
-    yes = pi_rpc_confirm(r, "Sure?", "It runs a command.", 0);
-    has_why = pi_rpc_input(r, "Why?", "a reason", 0, why, sizeof(why));
-    strcpy(msg, "decided ");
-    strcat(msg, has_choice ? choice : "undefined");
-    strcat(msg, yes ? " true " : " false ");
-    strcat(msg, has_why ? why : "undefined");
-    pi_rpc_notify(r, msg, "info");
-    if (!has_choice || strcmp(choice, "Allow")) {
-        cl_copy(reason, "Blocked by the user", cap);
-        return 1;
-    }
-    return 0;
-}
-
-static pi_ext ui_ext = { "ui-test", 0, 0, ext_tool_call, 0, 0, 0, 0, 0, 0, 0, 0 };
-static long ui_ready_calls;
-
-static void ui_ready(pi_session *s)
-{
-    ui_ready_calls++;
-    pi_ext_add(&s->ext, &ui_ext);
-}
-
+/* H5, L5: the extension UI over RPC. A Lua extension asks the questions pi's TS extension of the golden asks (select, confirm,
+ * input, notify; ui_dialogs and ui_cancel answer them, ext_ui_timeout lets two run out and answers one too late, ext_ui_notify
+ * sends the three types and none, ext_ui_print has no client at all) and ctx.ui reaches the client's extension_ui_request /
+ * extension_ui_response (mode_rpc.c's pi_ext_ui) */
 static void test_ui(void)
 {
-    run_opts ro;
-    memset(&ro, 0, sizeof(ro));
-    ro.ready = ui_ready;
-    CHECK(scenario("ui_dialogs", &ro));
-    memset(&ro, 0, sizeof(ro));
-    ro.ready = ui_ready;
-    CHECK(scenario("ui_cancel", &ro));
-    CHECK(ui_ready_calls >= 2);
+    static const char *const names[] = { "ext_lua_ui_dialogs", "ext_lua_ui_cancel", "ext_lua_ui_timeout", "ext_lua_ui_notify",
+                                         "ext_lua_ui_print", 0 };
+    group(names);
 }
 
 static int has(const char *text, const char *needle)
@@ -1500,6 +1466,30 @@ static void test_retry_cap(void)
     ro.inline_in = "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello\"}\n#after agent_settled\n";
     scenario("json_retry", &ro);
     CHECK(has(ro.out, "\"type\":\"auto_retry_start\",\"attempt\":1,\"maxAttempts\":2,\"delayMs\":100,"));
+    free(ro.out);
+}
+
+/* N1: nothing listening on the base URL (pi 1.1.0, http://127.0.0.1:9/v1: "Connection error.", retried 2, 4, 8 s, then
+ * the error; agent-session.ts _handleRetryableError): every attempt refused, the retries run out (maxRetries 2) and the run
+ * settles on the error. Giving up resets the retry count, so the run must not look at it again: it started the retries
+ * over without end (amiga-pi hung > 10 min on the Amiga). The scenario's answers come after three refusals, so the old
+ * loop's fourth attempt reached them instead of hanging this test. */
+static void test_retry_refused(void)
+{
+    run_opts ro;
+    memset(&ro, 0, sizeof(ro));
+    ro.force_mode = "rpc";
+    ro.nocmp = 1;
+    ro.refuse = 3;
+    ro.inline_in = "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello\"}\n#after agent_settled\n";
+    scenario("json_retry", &ro);
+    CHECK(has(ro.out, "\"type\":\"auto_retry_start\",\"attempt\":1,\"maxAttempts\":2,\"delayMs\":100,\"errorMessage\":\"Connection error.\""));
+    CHECK(has(ro.out, "\"type\":\"auto_retry_start\",\"attempt\":2,\"maxAttempts\":2,\"delayMs\":200,"));
+    CHECK(has(ro.out, "\"type\":\"auto_retry_end\",\"success\":false,\"attempt\":2,\"finalError\":\"Connection error.\""));
+    CHECK(has(ro.out, "\"type\":\"agent_settled\""));
+    CHECK(!has(ro.out, "Recovered."));
+    CHECK_INT(ps.refused, 3);
+    CHECK_INT(ps.nreq, 0);
     free(ro.out);
 }
 
@@ -1963,6 +1953,7 @@ void suite_pi_modes(void)
     test_duration_entries();
     test_retry_cap();
     test_retry_overflow();
+    test_retry_refused();
     test_gate();
     test_tool_update();
     test_templates_rpc();

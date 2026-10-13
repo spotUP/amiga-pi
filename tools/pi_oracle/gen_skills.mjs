@@ -29,10 +29,12 @@ function findPkg() {
 	}
 	throw new Error("gen_skills: no pinned pi: npm install --prefix vendor/pi-1.1.0 @earendil-works/pi-coding-agent@1.1.0, or set PI_PKG");
 }
+process.env.PI_OFFLINE = "1"; // a package source npm:/git: is not fetched: pi skips it
 const pkg = findPkg();
 const pi = await import(pathToFileURL(join(pkg, "dist", "index.js")).href);
 const { buildSystemPromptSections } = await import(pathToFileURL(join(pkg, "dist", "core", "system-prompt.js")).href);
 const { AgentSession } = await import(pathToFileURL(join(pkg, "dist", "core", "agent-session.js")).href);
+const { resolvePath: piResolvePath } = await import(pathToFileURL(join(pkg, "dist", "utils", "paths.js")).href);
 const version = JSON.parse((await import("node:fs")).readFileSync(join(pkg, "package.json"), "utf-8")).version;
 if (version !== "1.1.0") throw new Error(`gen_skills: pi ${version}, not 1.1.0`);
 
@@ -194,16 +196,165 @@ L.nested = {
 	expand: [],
 	tools: [["read"]],
 };
+L.yaml_errors = {
+	// I8: every YAML error the yaml package reports (not only the nested mapping one) skips a SKILL.md with its message; a loose
+	// .md with broken YAML is skipped silently; valid YAML the old subset got wrong loads
+	cwd: "w/proj",
+	trusted: false,
+	files: {
+		"agent/skills/dupkey/SKILL.md": "---\nname: dupkey\ndescription: One\nname: again\n---\nBody\n",
+		"agent/skills/unclosed/SKILL.md": '---\nname: unclosed\ndescription: "never closed\n---\nBody\n',
+		"agent/skills/unclosed1/SKILL.md": "---\nname: unclosed1\ndescription: 'never closed\n---\nBody\n",
+		"agent/skills/tabs/SKILL.md": "---\nname: tabs\ndescription: x\n\tindented: with a tab\n---\nBody\n",
+		"agent/skills/flow/SKILL.md": "---\nname: flow\ndescription: [a, b\n---\nBody\n",
+		"agent/skills/flowmap/SKILL.md": "---\nname: flowmap\ndescription: {a: b\n---\nBody\n",
+		"agent/skills/at/SKILL.md": "---\nname: at\ndescription: @reserved\n---\nBody\n",
+		"agent/skills/hdr/SKILL.md": "---\nname: hdr\ndescription: |0\n  text\n---\nBody\n",
+		"agent/skills/escape/SKILL.md": '---\nname: escape\ndescription: "bad \\q escape"\n---\nBody\n',
+		"agent/skills/alias/SKILL.md": "---\nname: alias\ndescription: *nothing\n---\nBody\n",
+		"agent/skills/indent/SKILL.md": "---\nname: indent\ndescription: |\n   three\n  two\n---\nBody\n",
+		"agent/skills/seqkey/SKILL.md": "---\n- not a mapping\nname: seqkey\n---\nBody\n",
+		"agent/skills/multidoc/SKILL.md": "---\nname: multidoc\ndescription: One\n...\nname: two\n---\nBody\n",
+		"agent/skills/loose-bad.md": "---\ndescription: dup\ndescription: dup\n---\nA loose file with broken YAML: skipped silently.\n",
+		"agent/skills/anchor/SKILL.md": "---\nname: &n anchor\ndescription: *n\n---\nBody\n",
+		"agent/skills/tagged/SKILL.md": "---\nname: !!str 123\ndescription: !!str true\n---\nBody\n",
+		"agent/skills/keep/SKILL.md": "---\nname: keep\ndescription: |+\n  kept\n\n---\nBody\n",
+		"agent/skills/foldedmore/SKILL.md": "---\nname: foldedmore\ndescription: >\n  a\n    more indented\n  b\n---\nBody\n",
+		"agent/skills/explicit/SKILL.md": "---\n? name\n: explicit\n? description\n: An explicit key\n---\nBody\n",
+		"agent/skills/flowtop/SKILL.md": "---\n{name: flowtop, description: A flow mapping}\n---\nBody\n",
+		"agent/skills/comment-only/SKILL.md": "---\n# only a comment\n---\nBody\n",
+		"agent/skills/nonascii/SKILL.md": "---\nname: nonascii\ndescription: \"caf\\u00e9 \\U0001F600 \\x41\"\n---\nBody\n",
+		"agent/skills/nested-map/SKILL.md": "---\nname: nested-map\ndescription: Use when: this\n---\nBody\n",
+	},
+	expand: ["/skill:anchor", "/skill:tagged", "/skill:keep", "/skill:explicit"],
+	tools: [["read"]],
+};
+L.order = {
+	// I8: pi lists a directory in the order libuv's scandir gives it, sorted by bytes (not by case, not in creation order)
+	cwd: "w/proj",
+	trusted: false,
+	files: {
+		"agent/skills/z.md": sk("zz", "Lower z"),
+		"agent/skills/b.md": sk("bb", "Lower b"),
+		"agent/skills/a.md": sk("aa", "Lower a"),
+		"agent/skills/_u/SKILL.md": sk("under", "Underscore"),
+		"agent/skills/Z/SKILL.md": sk("ZZ-up", "Upper Z directory"),
+		"agent/skills/B.md": sk("bb-up", "Upper B"),
+		"agent/skills/A.md": sk("aa-up", "Upper A"),
+		"agent/skills/10/SKILL.md": sk("ten", "Ten"),
+		"agent/skills/9/SKILL.md": sk("nine", "Nine"),
+		"agent/skills/\u00e9/SKILL.md": sk("eacute", "Latin small e with acute"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
+L.ignore_case = {
+	// I8: pi's ignore package matches without regard to case (its ignorecase option is on by default)
+	cwd: "w/proj",
+	trusted: false,
+	files: {
+		"agent/skills/.gitignore": "IGNORED-DIR/\n*.TMP.MD\n!KEEP.tmp.md\n",
+		"agent/skills/ok/SKILL.md": sk("ok", "Fine"),
+		"agent/skills/ignored-dir/SKILL.md": sk("ignored-dir", "Hidden by a pattern in capitals"),
+		"agent/skills/skip.tmp.md": sk("skip-tmp", "Hidden by *.TMP.MD"),
+		"agent/skills/keep.tmp.md": sk("keep-tmp", "Brought back by !KEEP.tmp.md"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
+L.rank = {
+	// I8: resources are ranked before they are loaded (resourcePrecedenceRank): a project settings entry, the project's default
+	// directories, a user settings entry, the user's default directories, packages. The first of two skills with one name wins.
+	cwd: "w/proj",
+	trusted: true,
+	files: {
+		"agent/settings.json": JSON.stringify({ skills: ["extra"] }),
+		"agent/extra/dup/SKILL.md": sk("dup", "From a user settings entry (rank 2)"),
+		"agent/skills/dup/SKILL.md": sk("dup", "From the user's directory (rank 3)"),
+		"w/proj/.pi/skills/dup/SKILL.md": sk("dup", "From the project's directory (rank 1)"),
+		"w/proj/.pi/settings.json": JSON.stringify({ skills: ["../more"] }),
+		"w/more/dup2/SKILL.md": sk("dup2", "From a project settings entry (rank 0)"),
+		"w/proj/.pi/skills/dup2/SKILL.md": sk("dup2", "From the project's directory (rank 1)"),
+		"agent/extra/dup3/SKILL.md": sk("dup3", "From a user settings entry (rank 2)"),
+		"agent/skills/dup3/SKILL.md": sk("dup3", "From the user's directory (rank 3)"),
+		"agent/extra/solo/SKILL.md": sk("solo", "Only here"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
+L.tilde = {
+	// I8: `~` in a path of settings.json or --skill is the home directory; the entry is trimmed (resolvePath, utils/paths.ts)
+	cwd: "w/proj",
+	trusted: true,
+	skillPaths: ["~/cli-skills/c1", "  ~/cli-skills/c2/SKILL.md  ", "~/nothing-here"],
+	files: {
+		"agent/settings.json": JSON.stringify({ skills: ["~/shared/s1", "  ~/shared/s2/SKILL.md ", "~"] }),
+		"home/shared/s1/SKILL.md": sk("s1", "From ~/shared/s1"),
+		"home/shared/s2/SKILL.md": sk("s2", "From a trimmed entry"),
+		"home/cli-skills/c1/SKILL.md": sk("c1", "From --skill ~/cli-skills/c1"),
+		"home/cli-skills/c2/SKILL.md": sk("c2", "From a trimmed --skill"),
+		"home/top/SKILL.md": sk("top", "Found because ~ itself is an entry"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
+L.globcase = {
+	// I8: settings.json patterns are minimatch's: the case of letters counts (pi's ignore files do not care, see ignore_case)
+	cwd: "w/proj",
+	trusted: false,
+	files: {
+		"agent/settings.json": JSON.stringify({ skills: ["!Skip-*", "!skip-lower-*", "-Exact", "-exact-lower"] }),
+		"agent/skills/Skip-Upper/SKILL.md": sk("Skip-Upper", "Matched by !Skip-*"),
+		"agent/skills/skip-upper2/SKILL.md": sk("skip-upper2", "Not matched by !Skip-*: case counts"),
+		"agent/skills/skip-lower-1/SKILL.md": sk("skip-lower-1", "Matched by !skip-lower-*"),
+		"agent/skills/Skip-lower-2/SKILL.md": sk("skip-lower-2", "Not matched by !skip-lower-*"),
+		"agent/skills/Exact/SKILL.md": sk("exact-up", "Removed by -Exact"),
+		"agent/skills/exact/SKILL.md": sk("exact-lo", "Not removed by -Exact"),
+		"agent/skills/exact-lower/SKILL.md": sk("exact-lower", "Removed by -exact-lower"),
+		"agent/skills/Exact-Lower/SKILL.md": sk("exact-lower-up", "Not removed by -exact-lower"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
+L.packages = {
+	// I8/J5: local packages of settings.json: a manifest (package.json "pi"), the conventional directories, an object entry that
+	// filters, an entry that is not a local path (npm:, git:) is not fetched
+	cwd: "w/proj",
+	trusted: true,
+	files: {
+		"agent/settings.json": JSON.stringify({
+			packages: ["../pk/manifest", "../pk/conv", { source: "../pk/filter", skills: ["keep-*", "!keep-no"] }, { source: "../pk/off", skills: [] }, "npm:some-package", "git:github.com/x/y"],
+		}),
+		"pk/manifest/package.json": JSON.stringify({ name: "m", pi: { skills: ["./custom", "extra/*.md", "!extra/skip.md"], prompts: ["./pr"] } }),
+		"pk/manifest/custom/c1/SKILL.md": sk("c1", "A manifest entry"),
+		"pk/manifest/extra/e1.md": sk("e1", "Matched by a manifest glob"),
+		"pk/manifest/extra/skip.md": sk("skipped", "Switched off by the manifest"),
+		"pk/manifest/skills/unlisted/SKILL.md": sk("unlisted", "Not in the manifest: not found"),
+		"pk/conv/skills/v1/SKILL.md": sk("v1", "From a conventional directory"),
+		"pk/conv/skills/v2/SKILL.md": sk("v2", "Another"),
+		"pk/filter/skills/keep-a/SKILL.md": sk("keep-a", "Kept by the filter"),
+		"pk/filter/skills/keep-no/SKILL.md": sk("keep-no", "Dropped by the filter"),
+		"pk/filter/skills/other/SKILL.md": sk("other", "Not matched by the filter"),
+		"pk/off/skills/off1/SKILL.md": sk("off1", "An empty list switches the type off"),
+		"agent/skills/own/SKILL.md": sk("own", "Beats the packages"),
+		"pk/conv/skills/own/SKILL.md": sk("own", "Same name, from a package"),
+		"w/proj/.pi/settings.json": JSON.stringify({ packages: ["../../pk/projpkg"] }),
+		"pk/projpkg/skills/pp/SKILL.md": sk("pp", "From a project package"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
 L.cli = {
 	cwd: "w/proj",
 	trusted: true,
-	skillPaths: ["extra/one.md", "extra/dir", "extra/none.md", "extra/x.txt", "../abs/two.md"],
+	skillPaths: ["extra/one.md", "extra/dir", "extra/none.md", "extra/x.txt", "../abs/two.md", "@ROOT@/cli/w/abs-skill.md"],
 	files: {
 		"agent/skills/base/SKILL.md": sk("base", "Discovered"),
 		"w/proj/extra/one.md": sk("one", "A file given with --skill"),
 		"w/proj/extra/dir/d1/SKILL.md": sk("d1", "In a directory given with --skill"),
 		"w/proj/extra/x.txt": "not markdown\n",
 		"w/abs/two.md": sk("two", "Outside the project"),
+		"w/abs-skill.md": sk("abs-skill", "An absolute host path"),
 	},
 	expand: ["/skill:one"],
 	tools: [["read"]],
@@ -270,7 +421,7 @@ for (const [name, lay] of Object.entries(L)) {
 		noPromptTemplates: true,
 		noThemes: true,
 		noSkills: !!lay.noSkills,
-		additionalSkillPaths: (lay.skillPaths ?? []).map((p) => resolve(cwd, p)),
+		additionalSkillPaths: (lay.skillPaths ?? []).map((p) => piResolvePath(p.split("@ROOT@").join(root), cwd)), // main.ts resolveCliPaths
 	});
 	await loader.reload();
 	const { skills, diagnostics } = loader.getSkills();

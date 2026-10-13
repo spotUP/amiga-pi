@@ -37,7 +37,7 @@ def lua_of(cfg):
 
 for f in sorted(os.listdir(D)):
     m = re.match(r'(ext_.*)\.cfg\.json$', f)
-    if not m or m.group(1).startswith('ext_lua') or m.group(1).startswith(('ext_tool', 'ext_cmd', 'ext_entry')):
+    if not m or m.group(1).startswith('ext_lua') or m.group(1).startswith(('ext_tool', 'ext_cmd', 'ext_entry', 'ext_ui')):
         continue
     name = m.group(1)
     cfg = json.load(open(os.path.join(D, f)))
@@ -145,3 +145,53 @@ for name, files in L4.items():
             del cfg['lua_dump']
     open(os.path.join(D, 'ext_lua_' + name[4:] + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
     print('wrote ext_lua_' + name[4:])
+
+
+# ---- L5: ctx.ui from a Lua extension. The goldens are pi 1.1.0's with a TypeScript extension that does the same (rpc_gen.py:
+# ui_dialogs, ui_cancel, ext_ui_*); the reason of the block carries what the dialogs gave back, written as JS writes it
+# (undefined for nothing), so the twin has to give nil where pi gives undefined and false where it gives false. ----
+LUA_SHOW = '''local function show(v)
+  if v == nil then return "undefined" end
+  return tostring(v)
+end
+'''
+LUA_UI = LUA_SHOW + '''pi.on("tool_call", function(event, ctx)
+  local choice = ctx.ui.select("Run it?", { "Allow", "Block" })
+  local ok = ctx.ui.confirm("Sure?", "It runs a command.")
+  local why = ctx.ui.input("Why?", "a reason")
+  ctx.ui.notify("decided " .. show(choice) .. " " .. show(ok) .. " " .. show(why), "info")
+  if choice ~= "Allow" then return { block = true, reason = "Blocked by the user" } end
+end)
+'''
+LUA_UI_TIMEOUT = LUA_SHOW + '''pi.on("tool_call", function(event, ctx)
+  local a = ctx.ui.select("Pick", { "One", "Two" }, { timeout = 5000 })
+  local b = ctx.ui.confirm("Sure?", "It runs a command.", { timeout = 250 })
+  local c = ctx.ui.input("Why?", "a reason", { timeout = 250 })
+  return { block = true, reason = "select=" .. show(a) .. " confirm=" .. show(b) .. " input=" .. show(c) .. " hasUI=" .. show(ctx.hasUI) }
+end)
+'''
+LUA_UI_NOTIFY = '''pi.on("tool_call", function(event, ctx)
+  ctx.ui.notify("plain")
+  ctx.ui.notify("one", "info")
+  ctx.ui.notify("two", "warning")
+  ctx.ui.notify("three", "error")
+  return { block = true, reason = "notified" }
+end)
+'''
+LUA_UI_PRINT = LUA_SHOW + '''pi.on("tool_call", function(event, ctx)
+  local a = ctx.ui.select("Pick", { "One", "Two" })
+  local b = ctx.ui.confirm("Sure?", "It runs a command.")
+  local c = ctx.ui.input("Why?", "a reason")
+  ctx.ui.notify("lost", "error")
+  return { block = true, reason = "hasUI=" .. show(ctx.hasUI) .. " select=" .. show(a) .. " confirm=" .. show(b) .. " input=" .. show(c) }
+end)
+'''
+L5 = {'ui_dialogs': LUA_UI, 'ui_cancel': LUA_UI, 'ext_ui_timeout': LUA_UI_TIMEOUT, 'ext_ui_notify': LUA_UI_NOTIFY,
+      'ext_ui_print': LUA_UI_PRINT}
+for name, lua in L5.items():
+    cfg = json.load(open(os.path.join(D, name + '.cfg.json')))
+    cfg['golden'] = name
+    cfg['text_files'] = {'agent/extensions/t.lua': lua}
+    twin = 'ext_lua_' + (name if name.startswith('ui_') else name[4:])
+    open(os.path.join(D, twin + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
+    print('wrote ' + twin)
