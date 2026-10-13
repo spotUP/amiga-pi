@@ -525,6 +525,37 @@ static void line_io(cl_io *io)
     nline = 0;
 }
 
+static int upterm_answer;
+static int l_upterm(void *u)
+{
+    (void)u;
+    return upterm_answer;
+}
+
+/* Y2: the line-mode banner names UP-Term only on a console that is UP-Term's */
+static void test_banner_upterm(void)
+{
+    cl_io io;
+    int k;
+    for (k = 0; k < 3; k++) {
+        up(0, 1);
+        line_io(&io);
+        if (k) {
+            io.upterm = l_upterm;
+            upterm_answer = k - 1;
+        }
+        lines[0] = "/exit";
+        lines[1] = 0;
+        CHECK_INT(pi_ui_run(&ses, &io, 0), 0);
+        if (k == 2)
+            CHECK(out.p && strstr(out.p, "amiga-pi in UP-Term. Model ") != 0);
+        else {
+            CHECK(out.p && strstr(out.p, "amiga-pi. Model ") != 0);
+            CHECK(out.p && strstr(out.p, "in UP-Term") == 0);
+        }
+    }
+}
+
 static void test_ui(void)
 {
     cl_io io;
@@ -538,7 +569,7 @@ static void test_ui(void)
     ps_sse("../pi/openai_tools.sse", 0);
     ps_sse("../pi/openai_final.sse", 0);
     CHECK_INT(pi_ui_run(&ses, &io, 0), 0);
-    CHECK(out.p && strstr(out.p, "amiga-pi in UP-Term. Model ollama/qwen2.5-coder:7b") != 0);
+    CHECK(out.p && strstr(out.p, "amiga-pi. Model ollama/qwen2.5-coder:7b") != 0);
     CHECK(out.p && strstr(out.p, "Let me look.") != 0);
     CHECK(out.p && strstr(out.p, "* read {\"path\":\"S:Startup-Sequence\",\"limit\":20}") != 0);
     CHECK(out.p && strstr(out.p, "Your Startup-Sequence runs SetPatch first.") != 0);
@@ -684,6 +715,7 @@ void suite_pi_agent(void)
     test_transform();
     test_ext_dispatch();
     test_prompt();
+    test_banner_upterm();
     test_ui();
     test_app();
     test_debug_log();
