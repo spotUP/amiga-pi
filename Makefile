@@ -34,11 +34,15 @@ VT_HOST := $(VIEW_CORE) $(call cl_src,tty/bmsg.c handler/clipfmt.c)
 VT_TEST := $(call cl_src,engine/vtengine.c tests/harness.c tests/claude_load.c tests/claude_screen.c tests/pi_stub.c)
 PI_TESTS := tests/main.c tests/test_pi_agent.c tests/test_pi_tools.c tests/test_pi_session.c tests/test_pi_store.c tests/test_pi_model.c tests/test_pi_model_reach.c tests/test_pi_mcp.c tests/test_pi_resources.c tests/test_pi_tui.c tests/test_pi_modes.c tests/test_pi_templates.c tests/test_pi_hooks.c tests/test_pi_lua.c tests/test_pi_yaml.c tests/test_pi_diff.c tests/test_pi_login.c tests/pi/sdk_example.c
 
+# a recipe that fails must not leave its target behind (M2; vtcon tests/test_make_delete_on_error.py proves the make behaviour)
+.DELETE_ON_ERROR:
+
 .PHONY: test layers lua-probe lua-probe-host amiga
 # ONLY=pi_agent the agent suite alone, ONLY=pi_tools the tools and the gate, ONLY=pi_session the session file, ONLY=pi_store the store through pi_app, ONLY=pi_model the registry, models.json, handoff and the model switch, ONLY=pi_mcp MCP (python3 for tools/fake_mcp.py), ONLY=pi_resources context files, SYSTEM.md, trust, ONLY=pi_tui the screen against pi's captures (PI_TUI_ONLY=<scenario>, PI_TUI_DUMP=1 shows both screens), ONLY=pi_templates prompt templates (substitution table from pi 1.1.0, discovery, /name through pi_app), ONLY=pi_login the subscription logins (the flows against tools/claude_fixture.py --oauth and pi's own run of them, tests/pi/oauth; /login and the credential of a request through pi_app; PI_LOGIN_ONLY=<scenario> runs one), ONLY=pi_hooks hook commands on pi's extension events (decisions and payloads against pi's goldens, tests/pi/rpc/ext_*), ONLY=pi_modes the JSON and RPC modes against pi's records (tests/pi/rpc, PI_MODES_ONLY=<scenario>); ONLY=layers the layering check alone
 test: build/pi_test
 	@if [ "$(ONLY)" != layers ]; then cd $(VTCON_DIR) && $(CURDIR)/build/pi_test $(ONLY); fi
 	@if [ -z "$(ONLY)" ] || [ "$(ONLY)" = layers ]; then $(MAKE) -s layers; fi
+	@if [ -z "$(ONLY)" ]; then grep -q '^\.DELETE_ON_ERROR:' Makefile || { echo "[ERROR] Makefile lacks .DELETE_ON_ERROR: (M2)"; exit 1; }; fi
 
 # the suites run in VTCON_DIR (its recordings: tests/claude, tests/pi); amiga-pi's
 # own goldens through PI_TESTS
