@@ -754,7 +754,7 @@ int pi_resume_pick(cl_io *io, cl_sys *sys, const cl_pitheme *th, llm_ts now, con
         res = -1;
         goto out;
     }
-    v->pk.session = 1;
+    v->pk.layout = TUI_PICK_SESSION;
     v->pk.maxrows = RS_PAGE;
     v->pk.row = row_text;
     v->pk.key = key;
