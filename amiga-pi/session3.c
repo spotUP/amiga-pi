@@ -1576,16 +1576,23 @@ done:
 
 /* ---- names and finding sessions ---- */
 
+void s3_root(const char *data_dir, char *out, long cap)
+{
+    long k;
+    cl_copy(out, data_dir, cap);
+    k = (long)strlen(out);
+    if (k && out[k - 1] != ':' && out[k - 1] != '/')
+        cl_cat(out, "/", cap);
+    cl_cat(out, "sessions", cap);
+}
+
 int s3_dir(const char *data_dir, const char *cwd, char *out, long cap)
 {
     char name[300];
     long k = 2;
     const char *c = cwd;
-    cl_copy(out, data_dir, cap);
-    k = (long)strlen(out);
-    if (k && out[k - 1] != ':' && out[k - 1] != '/')
-        cl_cat(out, "/", cap);
-    cl_cat(out, "sessions/", cap);
+    s3_root(data_dir, out, cap);
+    cl_cat(out, "/", cap);
     /* pi: "--" + the cwd without its leading separator, / \ : as - + "--" */
     name[0] = name[1] = '-';
     k = 2;
@@ -1719,70 +1726,226 @@ int s3_by_id(cl_sys *sys, const char *dir, const char *id, char *out, long cap)
     return rc;
 }
 
+/* the text of a message's content (a string, or its text blocks joined by a space), appended to w */
+static void content_to(jv cc, jw *w)
+{
+    jv b, x;
+    jit it;
+    char t[1100];
+    if (json_type(cc) == J_STR) {
+        json_str(cc, t, sizeof(t));
+        jw_rawz(w, t);
+        return;
+    }
+    json_iter(cc, &it);
+    while (json_next(&it, 0, &b))
+        if (json_get(b, "type", &x) && json_streq(x, "text") && json_get(b, "text", &x)) {
+            json_str(x, t, sizeof(t));
+            if (w->n)
+                jw_raw(w, " ", 1);
+            jw_rawz(w, t);
+        }
+}
+
+/* pi's buildSessionInfo of one file (session-manager.ts:799): 1 when it is a session, 0 not */
+static int info_of(cl_sys *sys, const char *p, s3_info *in)
+{
+    reader *r = (reader *)malloc(sizeof(reader));
+    jw w, all;
+    long at;
+    int nl, got_head = 0;
+    double act = 0;
+    llm_ts ht;
+    in->name[0] = in->first[0] = in->parent[0] = in->cwd[0] = 0;
+    in->count = 0;
+    in->modified = 0;
+    if (!r)
+        return 0;
+    memset(r, 0, sizeof(*r));
+    r->sys = sys;
+    r->path = p;
+    cl_copy(in->path, p, sizeof(in->path));
+    ht.sec = 0;
+    ht.ms = 0;
+    jw_init(&w);
+    jw_init(&all);
+    while (sys->pread && next_line(r, &w, &at, &nl)) {
+        jv o, v, m, cc, x;
+        int user;
+        if (blank(w.p, w.n) || !parse_obj(w.p, w.n, &o))
+            continue;
+        if (!got_head) {
+            if (!json_get(o, "type", &v) || !json_streq(v, "session") || !json_get(o, "id", &v) ||
+                json_type(v) != J_STR)
+                break;
+            json_str(v, in->id, sizeof(in->id));
+            if (json_get(o, "cwd", &v) && json_type(v) == J_STR)
+                json_str(v, in->cwd, sizeof(in->cwd));
+            if (json_get(o, "parentSession", &v) && json_type(v) == J_STR)
+                json_str(v, in->parent, sizeof(in->parent));
+            if (json_get(o, "timestamp", &v) && json_type(v) == J_STR) {
+                char ts[40];
+                json_str(v, ts, sizeof(ts));
+                s3_iso_read(ts, &ht);
+            }
+            got_head = 1;
+            continue;
+        }
+        if (!json_get(o, "type", &v))
+            continue;
+        if (json_streq(v, "session_info")) {
+            info_name(o, in->name, sizeof(in->name));      /* the latest, an explicit clear included */
+            continue;
+        }
+        if (!json_streq(v, "message"))
+            continue;
+        in->count++;
+        if (!json_get(o, "message", &m) || !json_get(m, "role", &x) || !json_get(m, "content", &cc))
+            continue;
+        user = json_streq(x, "user");
+        if (user || json_streq(x, "assistant")) {
+            /* getMessageActivityTime: the message's own number, else the entry's timestamp */
+            double t = 0;
+            if (json_get(m, "timestamp", &x) && json_type(x) == J_NUM && x.n < 40) {
+                char nb[48];
+                memcpy(nb, x.p, (size_t)x.n);
+                nb[x.n] = 0;
+                t = strtod(nb, 0);
+            } else if (json_get(o, "timestamp", &x) && json_type(x) == J_STR) {
+                char ts[40];
+                llm_ts e;
+                json_str(x, ts, sizeof(ts));
+                if (!s3_iso_read(ts, &e))
+                    t = (double)e.sec * 1000.0 + e.ms;
+            }
+            if (t > act)
+                act = t;
+            {
+                jw one;
+                jw_init(&one);
+                content_to(cc, &one);
+                if (one.n) {
+                    jw_rawz(&one, "");
+                    if (!in->first[0] && user)
+                        cl_copy(in->first, one.p, sizeof(in->first));
+                    if (all.n < (long)sizeof(in->text) - 2) {
+                        if (all.n)
+                            jw_raw(&all, " ", 1);
+                        jw_rawz(&all, one.p);
+                    }
+                }
+                jw_free(&one);
+            }
+        }
+    }
+    free(r);
+    if (got_head) {
+        jw_rawz(&all, "");
+        cl_copy(in->text, all.p ? all.p : "", sizeof(in->text));
+        in->modified = act > 0 ? act : ht.sec ? (double)ht.sec * 1000.0 + ht.ms : (double)(sys->mtime ? sys->mtime(sys->u, p) : 0) * 1000.0;
+    }
+    jw_free(&w);
+    jw_free(&all);
+    return got_head;
+}
+
+int s3_infos(cl_sys *sys, const char *dir, int max, s3_info **out)
+{
+    scan s;
+    int i, k = 0, j;
+    s3_info *a;
+    *out = 0;
+    if (sorted(sys, dir, &s))
+        return 0;
+    a = (s3_info *)malloc((size_t)(s.n < max ? s.n : max ? max : 1) * sizeof(s3_info) + sizeof(s3_info));
+    if (!a) {
+        free(s.names);
+        return 0;
+    }
+    for (i = 0; i < s.n && k < max; i++) {
+        char p[360];
+        join(dir, s.names[i], p, sizeof(p));
+        if (info_of(sys, p, &a[k]))
+            k++;
+    }
+    free(s.names);
+    /* pi sorts by the last activity, newest first (sortSessionInfos) */
+    for (i = 1; i < k; i++)
+        for (j = i; j > 0 && a[j].modified > a[j - 1].modified; j--) {
+            s3_info t = a[j];
+            a[j] = a[j - 1];
+            a[j - 1] = t;
+        }
+    *out = a;
+    return k;
+}
+
+typedef struct dnames {
+    char (*n)[108];
+    int cnt, cap;
+} dnames;
+
+static int dname_fn(void *c, const cl_dirent *e)
+{
+    dnames *d = (dnames *)c;
+    if (!e->dir)
+        return 0;
+    if (d->cnt == d->cap) {
+        int nc = d->cap ? d->cap * 2 : 16;
+        char (*g)[108] = (char (*)[108])realloc(d->n, (size_t)nc * 108);
+        if (!g)
+            return 1;
+        d->n = g;
+        d->cap = nc;
+    }
+    cl_copy(d->n[d->cnt++], e->name, 108);
+    return 0;
+}
+
+int s3_infos_all(cl_sys *sys, const char *root, int max, s3_info **out)
+{
+    dnames d;
+    s3_info *a = 0;
+    int i, j, k = 0;
+    *out = 0;
+    memset(&d, 0, sizeof(d));
+    if (sys->list(sys->u, root, dname_fn, &d) && !d.cnt) {
+        free(d.n);
+        return 0;
+    }
+    a = (s3_info *)malloc((size_t)(max > 0 ? max : 1) * sizeof(s3_info));
+    if (!a) {
+        free(d.n);
+        return 0;
+    }
+    for (i = 0; i < d.cnt && k < max; i++) {
+        char dir[420];
+        s3_info *b;
+        int m;
+        join(root, d.n[i], dir, sizeof(dir));
+        m = s3_infos(sys, dir, max - k, &b);
+        for (j = 0; j < m; j++)
+            a[k++] = b[j];
+        free(b);
+    }
+    free(d.n);
+    for (i = 1; i < k; i++)
+        for (j = i; j > 0 && a[j].modified > a[j - 1].modified; j--) {
+            s3_info t = a[j];
+            a[j] = a[j - 1];
+            a[j - 1] = t;
+        }
+    *out = a;
+    return k;
+}
+
 int s3_list(cl_sys *sys, const char *dir, int max, void (*fn)(void *c, const char *path, const char *id,
                                                                 const char *title), void *c)
 {
-    scan s;
-    int i, k = 0;
-    if (sorted(sys, dir, &s))
-        return 0;
-    /* pi's buildSessionInfo: a read of each file, never a write (s3_open's
-     * repairs and migrations happen only when a session is opened for use) */
-    for (i = 0; i < s.n && k < max; i++) {
-        reader *r;
-        jw w;
-        long at;
-        int nl, got_head = 0;
-        char p[360], id[48], name[100], first[100];
-        join(dir, s.names[i], p, sizeof(p));
-        r = (reader *)malloc(sizeof(reader));
-        if (!r)
-            break;
-        memset(r, 0, sizeof(*r));
-        r->sys = sys;
-        r->path = p;
-        name[0] = first[0] = 0;
-        jw_init(&w);
-        while (sys->pread && next_line(r, &w, &at, &nl)) {
-            jv o, v, m, cc, b, x;
-            jit it;
-            if (blank(w.p, w.n) || !parse_obj(w.p, w.n, &o))
-                continue;
-            if (!got_head) {
-                if (!json_get(o, "type", &v) || !json_streq(v, "session") || !json_get(o, "id", &v) ||
-                    json_type(v) != J_STR)
-                    break;
-                json_str(v, id, sizeof(id));
-                got_head = 1;
-                continue;
-            }
-            if (!json_get(o, "type", &v))
-                continue;
-            if (json_streq(v, "session_info")) {
-                /* the latest, an explicit clear included */
-                info_name(o, name, sizeof(name));
-                continue;
-            }
-            /* the first user message's text */
-            if (first[0] || !json_streq(v, "message") || !json_get(o, "message", &m) || !json_get(m, "role", &x) ||
-                !json_streq(x, "user") || !json_get(m, "content", &cc))
-                continue;
-            if (json_type(cc) == J_STR)
-                json_str(cc, first, sizeof(first));
-            else {
-                json_iter(cc, &it);
-                while (!first[0] && json_next(&it, 0, &b))
-                    if (json_get(b, "type", &x) && json_streq(x, "text") && json_get(b, "text", &x))
-                        json_str(x, first, sizeof(first));
-            }
-        }
-        jw_free(&w);
-        free(r);
-        if (!got_head)
-            continue;
-        fn(c, p, id, name[0] ? name : first);
-        k++;
-    }
-    free(s.names);
+    s3_info *a;
+    int i, k = s3_infos(sys, dir, max, &a);
+    for (i = 0; i < k; i++)
+        fn(c, a[i].path, a[i].id, a[i].name[0] ? a[i].name : a[i].first);
+    free(a);
     return k;
 }

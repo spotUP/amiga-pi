@@ -330,6 +330,35 @@ SCENARIOS = {
 
 # I1/I3: skills in the agent directory (pi's ~/.pi/agent/skills): a valid one, a name pi warns about (it still loads), a skill without
 # a description (skipped, warned), and two with one name (the second is a collision)
+# U2: `pi -r`, pi 1.1.0's SessionSelectorComponent over seeded sessions. seed: (cwd name or '' for the project, file stem,
+# first prompt, ISO timestamp, session name or None); ages are in years so the goldens hold while the clock moves
+RESUME_SEED = [
+    ('', '20200301T100000_aaaaaaaa', 'fix the build on the old branch', '2020-03-01T10:00:00.000Z', None),
+    ('', '20220815T093000_bbbbbbbb', 'add a --verbose flag to the tool', '2022-08-15T09:30:00.000Z', 'verbose flag work'),
+    ('', '20240615T180000_cccccccc', 'why does the second test hang', '2024-06-15T18:00:00.000Z', None),
+]
+RESUME_OTHER = [('other', '20230101T120000_dddddddd', 'a session of another folder', '2023-01-01T12:00:00.000Z', None)]
+SCENARIOS.update({
+    'resume_list': dict(steps=[], answers=[], resume=True, seed=RESUME_SEED),
+    'resume_search': dict(steps=[('type', 'second'), ('sleep', 0.5)], answers=[], resume=True, seed=RESUME_SEED),
+    'resume_down': dict(steps=[('key', 'Down'), ('key', 'Down')], answers=[], resume=True, seed=RESUME_SEED),
+    'resume_none': dict(steps=[], answers=[], resume=True, seed=[]),
+    'resume_none_esc': dict(steps=[('key', 'Escape'), ('ended',)], answers=[], resume=True, seed=[]),
+    'resume_all': dict(steps=[('key', 'Tab'), ('sleep', 1.0)], answers=[], resume=True, seed=RESUME_SEED + RESUME_OTHER),
+    'resume_confirm': dict(steps=[('key', 'C-d')], answers=[], resume=True, seed=RESUME_SEED),
+    'resume_named': dict(steps=[('key', 'C-n')], answers=[], resume=True, seed=RESUME_SEED),
+    'resume_sort': dict(steps=[('key', 'C-s')], answers=[], resume=True, seed=RESUME_SEED),
+    'resume_path': dict(steps=[('key', 'C-p')], answers=[], resume=True, seed=RESUME_SEED),
+    'resume_fork': dict(steps=[], answers=[], resume=True, seed=RESUME_SEED + [
+        ('', '20240616T090000_eeeeeeee', 'a fork of the hang', '2024-06-16T09:00:00.000Z', None, '20240615T180000_cccccccc'),
+        ('', '20240617T090000_ffffffff', 'a second fork', '2024-06-17T09:00:00.000Z', None, '20240615T180000_cccccccc')]),
+    'resume_many': dict(steps=[('key', 'Down')] * 11, answers=[], resume=True, seed=[
+        ('', '2020%02d01T100000_%08x' % (m, m), 'session number %d' % m, '2020-%02d-01T10:00:00.000Z' % m, None) for m in range(1, 13)]),
+    'resume_enter': dict(steps=[('key', 'Down'), ('key', 'Enter'), ('wait', 'add a --verbose flag'), ('sleep', 1.5)],
+                         answers=[], resume=True, seed=RESUME_SEED, persist=True),
+})
+
+
 def _sk(name, desc, extra=''):
     return '---\n' + ('name: %s\n' % name if name else '') + ('description: %s\n' % desc if desc else '') + extra + '---\nSay hello warmly.\n'
 
@@ -639,6 +668,29 @@ def run(name, sc, cols, rows, keep):
     os.makedirs(proj)
     with open(os.path.join(proj, 'notes.txt'), 'w') as f:
         f.write('one\ntwo\nthree\n')
+    for seed in sc.get('seed', []):      # U2: sessions pi lists for -r
+        cwdname, stem, first, ts, sname = seed[:5]
+        parent_stem = seed[5] if len(seed) > 5 else None
+        scwd = proj if not cwdname else os.path.join(work, cwdname)
+        os.makedirs(scwd, exist_ok=True)
+        sdir_ = os.path.join(agent, 'sessions', '--' + scwd.lstrip('/').replace('/', '-') + '--')
+        os.makedirs(sdir_, exist_ok=True)
+        t0 = int(time.mktime(time.strptime(ts[:19], '%Y-%m-%dT%H:%M:%S'))) * 1000
+        sid = '0199aa00-0000-7000-8000-' + stem[-8:] * 1 + '0000'
+        lines = [{'type': 'session', 'version': 3, 'id': sid, 'timestamp': ts, 'cwd': scwd},
+                 {'type': 'message', 'id': 'u0000001', 'parentId': None, 'timestamp': ts,
+                  'message': {'role': 'user', 'content': first, 'timestamp': t0}},
+                 {'type': 'message', 'id': 'a0000001', 'parentId': 'u0000001', 'timestamp': ts,
+                  'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': 'ok'}], 'api': 'anthropic-messages',
+                              'provider': 'fake', 'model': MODEL, 'usage': {'input': 1, 'output': 1, 'cacheRead': 0, 'cacheWrite': 0,
+                              'totalTokens': 2, 'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0, 'total': 0}},
+                              'stopReason': 'stop', 'timestamp': t0 + 1000}}]
+        if parent_stem:
+            lines[0]['parentSession'] = os.path.join(sdir_, parent_stem + '.jsonl')
+        if sname:
+            lines.append({'type': 'session_info', 'id': 'n0000001', 'parentId': 'a0000001', 'timestamp': ts, 'name': sname})
+        with open(os.path.join(sdir_, stem + '.jsonl'), 'w') as f:
+            f.write(''.join(json.dumps(l, separators=(',', ':')) + '\n' for l in lines))
     if sc.get('session'):       # a session file to open (the tree view needs a conversation with branches)
         own = os.path.join(OUT, sc['session'])       # a fixture of this directory first (took_session.jsonl), else tests/pi/sessions
         txt = open(own if os.path.exists(own) else os.path.join(HERE, '..', '..', 'tests', 'pi', 'sessions', sc['session'])).read()
@@ -692,12 +744,12 @@ def run(name, sc, cols, rows, keep):
                           % (fport, os.path.join(HERE, 'fetch_shim.mjs')))
     pipelog = os.path.join(work, 'pty.bytes')
     tmux('new-session', '-d', '-s', sess, '-x', str(cols), '-y', str(rows), '-c', proj,
-         env + (PI + (" --session-dir '%s'" % os.path.join(work, sc['sdir']) if sc.get('sdir') else '') + (' --session session.jsonl' if sc.get('session') else '' if sc.get('persist') else ' --no-session')))
+         env + (PI + (" --session-dir '%s'" % os.path.join(work, sc['sdir']) if sc.get('sdir') else '') + (' --session session.jsonl' if sc.get('session') else ' -r' if sc.get('resume') else '' if sc.get('persist') else ' --no-session')))
     tmux('set-option', '-t', sess, 'remain-on-exit', 'on')
     if sc.get('pipe'):
         tmux('pipe-pane', '-t', sess, 'cat > %s' % pipelog)
     try:
-        wait_text(sess, MODEL, 30)       # the footer names the model once pi is up
+        wait_text(sess, 'Resume Session' if sc.get('resume') else MODEL, 30)       # the footer names the model once pi is up
         time.sleep(4.0 if sc.get('session') else 1.0)     # a session is loaded after that
         shots = {}
         for st in sc['steps']:
@@ -720,6 +772,11 @@ def run(name, sc, cols, rows, keep):
                     time.sleep(0.2)
                 time.sleep(0.5)
                 shots['alt'] = alt
+            elif st[0] == 'ended':      # pi left by itself (an Escape in -r's selector)
+                end = time.time() + 15
+                while time.time() < end and tmux('display-message', '-t', sess, '-p', '#{pane_dead}').strip() != '1':
+                    time.sleep(0.2)
+                time.sleep(0.5)
             elif st[0] == 'capture_now':
                 pane = capture(sess, True)
                 shots['now'] = pane
@@ -729,7 +786,7 @@ def run(name, sc, cols, rows, keep):
             time.sleep(0.3)
         if 'alt' not in shots:
             shots['alt'] = tmux('display-message', '-t', sess, '-p', '#{alternate_on}').strip()
-        if any(st[0] == 'exit' for st in sc['steps']):
+        if any(st[0] in ('exit', 'ended') for st in sc['steps']):
             HIST = True       # what pi left on the main screen: its rows without the dead pane's notice and the blank rest
         pane = shots.get('now') or settle(sess, 1.5)
         if HIST:

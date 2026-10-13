@@ -19,6 +19,7 @@
 #include "claude/sys_posix.h"
 #include "../amiga-pi/session3.h"
 #include "../amiga-pi/context.h"
+#include "../amiga-pi/resume_pi.h"
 #include "../amiga-pi/compact.h"
 #include "../amiga-pi/cp_prompts.h"
 
@@ -1269,6 +1270,83 @@ static void test_find(void)
     CHECK_INT(s3_list(&sys, dir, 2, list_fn, &l), 2);
 }
 
+/* U2: a volume root as the working directory ("BOOTX:", "DH0:"): the sessions run there are listed again by -r */
+static void test_volume_root_list(void)
+{
+    static const char *const cwds[] = { "BOOTX:", "DH0:", "Work:dir", "/" };
+    char data[600];
+    int i;
+    path_of(data, root, "volroot");
+    for (i = 0; i < 4; i++) {
+        char dir[700], dir2[700];
+        pi_s3 st;
+        lst l;
+        memset(&l, 0, sizeof(l));
+        CHECK_INT(s3_dir(data, cwds[i], dir, sizeof(dir)), 0);
+        s3_init(&st, &sys, tick, 0, 1, (unsigned long)(300 + i));
+        CHECK_INT(s3_new(&st, dir, cwds[i], 0, 0, 1), 0);
+        CHECK_INT(s3_message(&st, USER_MSG, (long)strlen(USER_MSG)), 0);
+        s3_free(&st);
+        CHECK_INT(s3_dir(data, cwds[i], dir2, sizeof(dir2)), 0);
+        CHECK_STR(dir, dir2);
+        CHECK_INT(s3_list(&sys, dir2, 10, list_fn, &l), 1);
+    }
+}
+
+/* U2: pi's SessionInfo as -r's selector reads it (buildSessionInfo): the count of "message" entries of every role, the
+ * last activity of a user or assistant message by its own millisecond number, the latest name, the parent; the age text */
+static void test_infos(void)
+{
+    char dir[700], path[800], age[16];
+    FILE *f;
+    s3_info *a;
+    path_of(dir, root, "infos");
+    {
+        char cmd[800];
+        strcpy(cmd, "mkdir -p '");
+        strcat(cmd, dir);
+        strcat(cmd, "'");
+        CHECK_INT(system(cmd), 0);
+    }
+    path_of(path, dir, "20240101T000000_aaaaaaaa.jsonl");
+    f = fopen(path, "wb");
+    CHECK(f != 0);
+    if (!f)
+        return;
+    fputs("{\"type\":\"session\",\"version\":3,\"id\":\"i1\",\"timestamp\":\"2024-01-01T00:00:00.000Z\",\"cwd\":\"BOOTX:\",\"parentSession\":\"P\"}\n", f);
+    fputs("{\"type\":\"message\",\"id\":\"1\",\"parentId\":null,\"timestamp\":\"2024-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"},{\"type\":\"text\",\"text\":\"there\"}],\"timestamp\":1704067201000}}\n", f);
+    fputs("{\"type\":\"message\",\"id\":\"2\",\"parentId\":\"1\",\"timestamp\":\"2024-01-01T00:00:02.000Z\",\"message\":{\"role\":\"assistant\",\"content\":\"ok\",\"timestamp\":1704067205000}}\n", f);
+    fputs("{\"type\":\"message\",\"id\":\"3\",\"parentId\":\"2\",\"timestamp\":\"2024-01-01T00:00:09.000Z\",\"message\":{\"role\":\"bashExecution\",\"content\":\"x\",\"timestamp\":1704067209000}}\n", f);
+    fputs("{\"type\":\"session_info\",\"id\":\"4\",\"parentId\":\"3\",\"timestamp\":\"2024-01-01T00:00:10.000Z\",\"name\":\"  named  \"}\n", f);
+    fclose(f);
+    CHECK_INT(s3_infos(&sys, dir, 10, &a), 1);
+    if (a) {
+        CHECK_STR(a[0].id, "i1");
+        CHECK_STR(a[0].cwd, "BOOTX:");
+        CHECK_STR(a[0].parent, "P");
+        CHECK_STR(a[0].name, "named");
+        CHECK_STR(a[0].first, "hello there");
+        CHECK_INT(a[0].count, 3);                          /* every role counts, the activity is the last user/assistant message */
+        CHECK(a[0].modified == 1704067205000.0);
+        CHECK(strstr(a[0].text, "hello there ok") != 0);
+    }
+    free(a);
+    pi_resume_age(1000000.0, 1000000.0 + 30000.0, age, sizeof(age));
+    CHECK_STR(age, "now");
+    pi_resume_age(0.0, 5 * 60000.0, age, sizeof(age));
+    CHECK_STR(age, "5m");
+    pi_resume_age(0.0, 3 * 3600000.0, age, sizeof(age));
+    CHECK_STR(age, "3h");
+    pi_resume_age(0.0, 2 * 86400000.0, age, sizeof(age));
+    CHECK_STR(age, "2d");
+    pi_resume_age(0.0, 15 * 86400000.0, age, sizeof(age));
+    CHECK_STR(age, "2w");
+    pi_resume_age(0.0, 70 * 86400000.0, age, sizeof(age));
+    CHECK_STR(age, "2mo");
+    pi_resume_age(0.0, 800 * 86400000.0, age, sizeof(age));
+    CHECK_STR(age, "2y");
+}
+
 static void set_mtime(const char *path, long t)
 {
     struct utimbuf u;
@@ -1374,6 +1452,8 @@ void suite_pi_session(void)
     test_big();
     test_names();
     test_find();
+    test_volume_root_list();
+    test_infos();
     test_list_reads_only();
     test_usage_sum();
     test_overflow_state();      /* last: the tests above count on the clock's ticks */

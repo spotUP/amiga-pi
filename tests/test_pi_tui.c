@@ -844,6 +844,7 @@ static const char *rest_find = "navigate";     /* with rest_any: the text that s
 static int rest_now;            /* with rest_any: take it the moment the text shows, whatever keys are left (a screen no key waits at) */
 static void (*at_rest)(void);   /* called once with the screen at rest (the next chunk is the last one) */
 static int rested;
+static const char *rest_key = "\004";          /* the chunk that is next when the screen is at rest (a selector that takes ctrl+d: another) */
 
 static llm_ts adv_now(void *u)
 {
@@ -902,7 +903,7 @@ static void rest_hook(void)
     }
     if (rested || (rest_any && cs_find(rest_find) < 0) ||
         (!rest_any && !strstr(cs_row(cs.rows - 1), "-model") && !strstr(cs_row(cs.rows - 1), "claude-")) ||
-        cs.read_ms <= 0 || !cs.script[cs.next] || strcmp(cs.script[cs.next], "\004"))
+        cs.read_ms <= 0 || !cs.script[cs.next] || strcmp(cs.script[cs.next], rest_key))
         return;
     rested = 1;
     if (at_rest)
@@ -915,6 +916,7 @@ static const char *app_agent;       /* the agent directory for the next app_run 
 static const char *app_tui_cli;     /* --tui-mode <x> for the next app_run, 0 none */
 static const char *app_name_cli;    /* --name <x> for the next app_run, 0 none */
 static const char *app_sdir_cli;    /* --session-dir <x> for the next app_run, 0 none */
+static int app_resume_cli;          /* -r for the next app_run */
 static char *app_out;               /* every byte the last app_run wrote to the screen */
 
 static void (*app_ready)(pi_session *s);               /* called once the resources are loaded, before the first key */
@@ -953,6 +955,8 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
         a[argc++] = (char *)"--session-dir";
         a[argc++] = (char *)app_sdir_cli;
     }
+    if (app_resume_cli)
+        a[argc++] = (char *)"-r";
     ps_reset();
     ps_pool_up(LLM_POOL);
     for (i = 0; i < nsse; i++) {
@@ -2662,6 +2666,182 @@ static void test_approval(void)
 }
 
 
+/* ---- U2: `-r` as pi's session selector (the captures are tests/pi/tui/resume_*.golden, tools/pi_oracle/tui_gen.py
+ * PITUI_TAG=u2: pi 1.1.0 over the same sessions) ---- */
+
+typedef struct rseed {
+    const char *dir;            /* 0 this working directory, else the name of another one */
+    const char *stem, *first, *ts, *name, *parent;
+} rseed;
+
+static const rseed RS_BASE[] = {
+    { 0, "20200301T100000_aaaaaaaa", "fix the build on the old branch", "2020-03-01T10:00:00.000Z", 0, 0 },
+    { 0, "20220815T093000_bbbbbbbb", "add a --verbose flag to the tool", "2022-08-15T09:30:00.000Z", "verbose flag work", 0 },
+    { 0, "20240615T180000_cccccccc", "why does the second test hang", "2024-06-15T18:00:00.000Z", 0, 0 },
+    { 0, 0, 0, 0, 0, 0 } };
+static const rseed RS_OTHER[] = {
+    { "other", "20230101T120000_dddddddd", "a session of another folder", "2023-01-01T12:00:00.000Z", 0, 0 }, { 0, 0, 0, 0, 0, 0 } };
+static const rseed RS_FORK[] = {
+    { 0, "20240616T090000_eeeeeeee", "a fork of the hang", "2024-06-16T09:00:00.000Z", 0, "20240615T180000_cccccccc" },
+    { 0, "20240617T090000_ffffffff", "a second fork", "2024-06-17T09:00:00.000Z", 0, "20240615T180000_cccccccc" },
+    { 0, 0, 0, 0, 0, 0 } };
+
+/* one session file as pi writes it: the header, the user's message, the answer, the name when there is one */
+static void rs_write(const rseed *r)
+{
+    char dir[700], path[800], parent[800];
+    FILE *f;
+    llm_ts t;
+    long ms_hi;
+    cl_copy(dir, adata, sizeof(dir));
+    cl_cat(dir, "/sessions/", sizeof(dir));
+    if (r->dir) {
+        cl_cat(dir, "--", sizeof(dir));
+        cl_cat(dir, r->dir, sizeof(dir));
+        cl_cat(dir, "--", sizeof(dir));
+    } else {
+        char own[700];
+        s3_dir(adata, aroot, own, sizeof(own));
+        cl_copy(dir, own, sizeof(dir));
+    }
+    {
+        char cmd[800];
+        cl_copy(cmd, "mkdir -p '", sizeof(cmd));
+        cl_cat(cmd, dir, sizeof(cmd));
+        cl_cat(cmd, "'", sizeof(cmd));
+        CHECK_INT(system(cmd), 0);
+    }
+    cl_copy(path, dir, sizeof(path));
+    cl_cat(path, "/", sizeof(path));
+    cl_cat(path, r->stem, sizeof(path));
+    cl_cat(path, ".jsonl", sizeof(path));
+    cl_copy(parent, dir, sizeof(parent));
+    cl_cat(parent, "/", sizeof(parent));
+    cl_cat(parent, r->parent ? r->parent : "", sizeof(parent));
+    cl_cat(parent, ".jsonl", sizeof(parent));
+    CHECK_INT(s3_iso_read(r->ts, &t), 0);
+    ms_hi = t.sec;
+    f = fopen(path, "wb");
+    CHECK(f != 0);
+    if (!f)
+        return;
+    fprintf(f, "{\"type\":\"session\",\"version\":3,\"id\":\"0199aa00-0000-7000-8000-%s0000\",\"timestamp\":\"%s\",\"cwd\":\"%s%s%s\"%s%s%s}\n",
+            r->stem + strlen(r->stem) - 8, r->ts, aroot, r->dir ? "/../" : "", r->dir ? r->dir : "",
+            r->parent ? ",\"parentSession\":\"" : "", r->parent ? parent : "", r->parent ? "\"" : "");
+    fprintf(f, "{\"type\":\"message\",\"id\":\"u0000001\",\"parentId\":null,\"timestamp\":\"%s\",\"message\":{\"role\":\"user\",\"content\":\"%s\",\"timestamp\":%ld000}}\n",
+            r->ts, r->first, ms_hi);
+    fprintf(f, "{\"type\":\"message\",\"id\":\"a0000001\",\"parentId\":\"u0000001\",\"timestamp\":\"%s\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"timestamp\":%ld000}}\n",
+            r->ts, ms_hi + 1);
+    if (r->name)
+        fprintf(f, "{\"type\":\"session_info\",\"id\":\"n0000001\",\"parentId\":\"a0000001\",\"timestamp\":\"%s\",\"name\":\"%s\"}\n", r->ts, r->name);
+    fclose(f);
+}
+
+static void rs_seed(const rseed *a, const rseed *b, const rseed *c)
+{
+    const rseed *l[3], *r;
+    int i;
+    char cmd[800];
+    cl_copy(cmd, "rm -rf '", sizeof(cmd));
+    cl_cat(cmd, adata, sizeof(cmd));
+    cl_cat(cmd, "/sessions'", sizeof(cmd));
+    CHECK_INT(system(cmd), 0);
+    l[0] = a;
+    l[1] = b;
+    l[2] = c;
+    for (i = 0; i < 3; i++)
+        for (r = l[i]; r && r->stem; r++)
+            rs_write(r);
+}
+
+typedef struct rcase {
+    const char *name;
+    const char *keys[4];
+    const rseed *seeds[3];
+    mask masks[4];
+} rcase;
+
+static void sel_rest(void)
+{
+    compare();
+}
+
+static void test_resume_selector(void)
+{
+    static const rcase cases[] = {
+        { "resume_list", { "\005", 0 }, { RS_BASE, 0, 0 }, { { 0, 0, 0, 0, 0 } } },
+        { "resume_search", { "second", "\005", 0 }, { RS_BASE, 0, 0 }, { { 0, 0, 0, 0, 0 } } },
+        { "resume_down", { "\033[B\033[B", "\005", 0 }, { RS_BASE, 0, 0 }, { { 0, 0, 0, 0, 0 } } },
+        { "resume_confirm", { "\004", "\005", 0 }, { RS_BASE, 0, 0 }, { { 0, 0, 0, 0, 0 } } },
+        { "resume_named", { "\016", "\005", 0 }, { RS_BASE, 0, 0 }, { { 0, 0, 0, 0, 0 } } },
+        { "resume_sort", { "\023", "\005", 0 }, { RS_BASE, 0, 0 }, { { 0, 0, 0, 0, 0 } } },
+        { "resume_fork", { "\005", 0 }, { RS_BASE, RS_FORK, 0 }, { { 0, 0, 0, 0, 0 } } },
+        { "resume_none", { "\005", 0 }, { 0, 0, 0 }, { { 0, 0, 0, 0, 0 } } },
+        { "resume_all", { "\t", "\005", 0 }, { RS_BASE, RS_OTHER, 0 },
+          { { 10, 13, 2, 79, "the rows: each shows its folder, which pi shortens to ~ (the sandbox has no home) and so truncates the prompt elsewhere" } } },
+        { "resume_path", { "\020", "\005", 0 }, { RS_BASE, 0, 0 },
+          { { 10, 12, 2, 79, "the file's path in front of the count: the sandbox's paths are not pi's" } } },
+    };
+    unsigned i;
+    int k;
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        const rcase *rc = &cases[i];
+        static scen sc;
+        char *msg;
+        memset(&sc, 0, sizeof(sc));
+        sc.name = rc->name;
+        for (k = 0; k < 4 && rc->masks[k].why; k++)
+            sc.masks[k] = rc->masks[k];
+        cur = &sc;
+        rs_seed(rc->seeds[0], rc->seeds[1], rc->seeds[2]);
+        app_write("settings.json", "{\"quietStartup\":true}\n");
+        taken = 0;
+        diffs = 0;
+        memset(rowdiff, 0, sizeof(rowdiff));
+        first_diff[0] = 0;
+        load_golden(rc->name);
+        CHECK(want != 0);
+        if (!want)
+            continue;
+        rest_any = 1;
+        rest_find = "Resume Session";
+        rest_key = "\005";
+        aclock = 1791892800L - 1760100000L;         /* 2026-10-13 12:00 UTC: the ages are the capture's */
+        app_resume_cli = 1;
+        CHECK_INT(app_run(80, want_rows, (const char **)rc->keys, 0, 0, sel_rest), 0);
+        app_resume_cli = 0;
+        rest_any = 0;
+        rest_find = "navigate";
+        rest_key = "\004";
+        aclock = 0;
+        CHECK(taken);
+        CHECK(app_out && strstr(app_out, "No session selected") != 0);
+        CHECK_INT(ps.nreq, 0);
+        msg = first_diff;
+        if (diffs) {
+            printf("  %s: %d cells differ from pi's capture\n%s", rc->name, diffs, msg);
+            if (getenv("PI_TUI_DUMP"))
+                for (k = 0; k < want_rows; k++)
+                    printf("    %2d|%s\n", k + 1, snap[k]);
+        }
+        CHECK_INT(diffs, 0);
+        vt_free(want);
+    }
+    /* Enter on the second row opens that session (its first prompt is drawn again) and keeps the selector's rows above */
+    {
+        static const char *keys[] = { "\033[B", "\r", "\004", 0 };
+        rs_seed(RS_BASE, 0, 0);
+        app_write("settings.json", "{\"quietStartup\":true}\n");
+        app_resume_cli = 1;
+        CHECK_INT(app_run(80, 25, keys, 0, 0, 0), 0);
+        app_resume_cli = 0;
+        if (getenv("PI_TUI_DUMP") && app_out)
+            printf("OUT[%s]\n", app_out);
+        CHECK(app_out && strstr(app_out, "add a --verbose flag to the tool") != 0 && strstr(app_out, "No session selected") == 0);
+    }
+    rs_seed(0, 0, 0);
+}
+
 /* ---- the cost of a key: pi's footer redraws the same diffed rows C:Claude's does ---- */
 
 static long key_mark[16];
@@ -3038,6 +3218,7 @@ void suite_pi_tui(void)
     test_theme_keys_app();
     test_tui_mode_app();
     test_approval();
+    test_resume_selector();
     test_ext_ui_screen();
     test_ext_msg_screen();
     test_ext_uix_screen();

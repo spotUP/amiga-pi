@@ -21,6 +21,7 @@
 #include "../amiga-pi/compact.h"
 
 static char root[400], data[420], sdir[520];
+static const char *run_cwd;      /* the working directory of run(): 0 is /work/proj */
 static sys_posix sp;
 static cl_sys sys;
 static jw out;
@@ -106,7 +107,7 @@ static int run(int argc, char **argv, const char *sse)
     pl.h.resolve = ps_resolve;
     pl.now = adv_now;
     pl.getenv = no_env;
-    pl.cwd = "/work/proj";
+    pl.cwd = run_cwd ? run_cwd : "/work/proj";
     pl.sys = &sys;
     pl.tmp = root;
     pl.shell = 0;
@@ -306,6 +307,48 @@ static void test_flow(void)
         CHECK_STR(nm, "My  named session");
     }
     s3_free(&st);
+}
+
+/* U2: -r in a volume root ("BOOTX:") lists the sessions kept there, and with none ends as pi's does */
+static void test_volume_root_resume(void)
+{
+    char *n1[] = { "amiga-pi", MODEL_ARGS, "-p", "root session", 0 };
+    char *r1[] = { "amiga-pi", MODEL_ARGS, "-r", "-p", "again", 0 };
+    cl_io io;
+    pi_platform pl;
+    run_cwd = "BOOTX:";
+    CHECK_INT(run(ARGC(n1), n1, "../pi/openai_text.sse"), 0);
+    memset(&pl, 0, sizeof(pl));
+    ps_reset();
+    ps_pool_up(LLM_POOL);
+    line_io(&io);
+    in_lines[0] = "1";
+    in_lines[1] = 0;
+    pl.io = &io;
+    pl.pool = &ps_pool;
+    pl.h.poll = ps_poll;
+    pl.h.sleep = ps_sleep;
+    pl.h.ms = ps_ms;
+    pl.h.resolve = ps_resolve;
+    pl.now = adv_now;
+    pl.getenv = no_env;
+    pl.cwd = run_cwd;
+    pl.sys = &sys;
+    pl.tmp = root;
+    pl.utc = 1;
+    pl.data_dir = data;
+    pl.agent_dir = agent;
+    ps_sse("../pi/openai_text.sse", 0);
+    CHECK_INT(pi_app(ARGC(r1), r1, &pl), 0);
+    CHECK(out.p && strstr(out.p, "root session") != 0);
+    /* a volume root where nothing was kept: pi's -r ends with "No session selected" and starts nothing (main.ts:421-424);
+     * it used to print the prompt alone and go on with a new session */
+    run_cwd = "DH0:";
+    in_lines[0] = 0;
+    CHECK_INT(run(ARGC(r1), r1, "../pi/openai_text.sse"), 0);
+    CHECK(out.p && strstr(out.p, "No session selected") != 0 && strstr(out.p, "Sessions in this directory") == 0);
+    CHECK_INT(ps.nreq, 0);
+    run_cwd = 0;
 }
 
 /* --session by id prefix, -r picking from the list, --no-session, a missing prefix */
@@ -998,6 +1041,7 @@ void suite_pi_store(void)
     jw_init(&out);
     test_flow();
     test_find();
+    test_volume_root_resume();
     test_compaction();
     test_tree();
     test_fork();

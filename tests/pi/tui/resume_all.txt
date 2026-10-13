@@ -1,0 +1,25 @@
+
+────────────────────────────────────────────────────────────────────────────────
+
+Resume Session (All)         ○ Current Folder | ◉ All  Name: All  Sort: Threaded
+tab scope · re:<pattern> regex · "phrase" exact
+ctrl+s sort · ctrl+n named · ctrl+d delete · ctrl+p path (off)
+
+>
+
+› why does the second test hang                                   ~/project 2 2y
+  a session of another folder                                       ~/other 2 3y
+  verbose flag work                                               ~/project 2 4y
+  fix the build on the old branch                                 ~/project 2 6y
+
+────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+
+
