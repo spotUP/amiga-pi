@@ -1211,7 +1211,7 @@ static int app_run_msg(const char *flag, const char *msg)
 {
     cl_io io;
     pi_platform pl;
-    char cwd[400], agent[400], tmp[420], *argv[16];
+    char cwd[400], agent[400], tmp[420], *argv[16], fl[64];
     int a = 0;
     at(cwd, "app/w");
     at(agent, "app/agent");
@@ -1244,8 +1244,17 @@ static int app_run_msg(const char *flag, const char *msg)
     argv[a++] = "-p";
     argv[a++] = "--no-session";
     argv[a++] = "--no-mcp";
-    if (flag)
-        argv[a++] = (char *)flag;
+    if (flag) {
+        /* "flag value" is two arguments */
+        char *sp;
+        cl_copy(fl, flag, sizeof(fl));
+        sp = strchr(fl, ' ');
+        if (sp)
+            *sp++ = 0;
+        argv[a++] = fl;
+        if (sp)
+            argv[a++] = sp;
+    }
     argv[a++] = "--model";
     argv[a++] = "fixture/qwen2.5-coder:7b";
     argv[a++] = "--base-url";
@@ -1431,6 +1440,16 @@ static void test_app_register(void)
     CHECK(sent("\"name\":\"greet\""));
     CHECK_INT(app_run("--no-tools"), 0);
     CHECK(!sent("\"name\":\"greet\""));
+    /* L15: --no-builtin-tools keeps the extension's tool and drops read, bash, edit, write; --exclude-tools drops what it
+     * names or matches from every source, last (pi 1.1.0 main.ts:540-550, sdk.ts:282-294) */
+    CHECK_INT(app_run("--no-builtin-tools"), 0);
+    CHECK(sent("\"name\":\"greet\"") && !sent("\"name\":\"bash\"") && !sent("\"name\":\"read\""));
+    CHECK_INT(app_run("-nbt"), 0);
+    CHECK(sent("\"name\":\"greet\"") && !sent("\"name\":\"edit\""));
+    CHECK_INT(app_run("--exclude-tools greet"), 0);
+    CHECK(!sent("\"name\":\"greet\"") && sent("\"name\":\"bash\""));
+    CHECK_INT(app_run("-xt gre*,bash"), 0);
+    CHECK(!sent("\"name\":\"greet\"") && !sent("\"name\":\"bash\"") && sent("\"name\":\"read\""));
     ps_reset();
 }
 

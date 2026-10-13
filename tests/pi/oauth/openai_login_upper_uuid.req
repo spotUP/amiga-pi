@@ -1,0 +1,6 @@
+POST https://auth.openai.com/api/accounts/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&client_id=app_2&code=C+D%2B1&code_verifier=CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY&redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%2Fcallback&resource=https%3A%2F%2Fapi.openai.com%2Fv1
+--

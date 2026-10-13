@@ -1,0 +1,2 @@
+device_code KIMI-1234 https://www.kimi.com/code/authorize_device?user_code=KIMI-1234
+ok {"type":"oauth","access":"kmat-1","refresh":"kmrt-1","expires":1762692008000}

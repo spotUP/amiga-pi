@@ -547,7 +547,7 @@ static void run(const scen *sc)
         /* R5: the request's error is a line of the chat only (not in the session store): Ctrl+O keeps it and shows the status */
         int r, err = 0, status = 0;
         for (r = 0; r < 64; r++) {
-            err |= strstr(snap[r], "Error: HTTP 400") != 0;
+            err |= strstr(snap[r], "Error: 400") != 0;
             status |= strstr(snap[r], "Tool output: expanded") != 0;
         }
         CHECK(err);
@@ -2688,12 +2688,12 @@ static void test_menu_rows_uncapped(void)
     pi_ui_set_extra_commands(2, rows, 700);
     app_write("settings.json", "{\"quietStartup\":true}\n");
     CHECK_INT(app_run(80, 25, keys, 0, 0, take_shot), 0);
-    CHECK(shot_has("(1/710)"));             /* ten built-in rows and 700 more */
+    CHECK(shot_has("(1/712)"));             /* twelve built-in rows (with /login and /logout) and 700 more */
     CHECK_INT(app_run(80, 25, keys_x, 0, 0, take_shot), 0);
     CHECK(shot_has("a row"));               /* the editor holds "/x699" too: the menu row is what has a description */
     /* Esc closes a menu of more than eight rows (it once asked for the matches into a table of eight) */
     CHECK_INT(app_run(80, 25, keys_esc, 0, 0, take_shot), 0);
-    CHECK(!shot_has("(1/710)"));
+    CHECK(!shot_has("(1/712)"));
     pi_ui_set_extra_commands(2, 0, 0);
 }
 

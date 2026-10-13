@@ -104,6 +104,13 @@ static long a_getenv(const char *name, char *out, long cap)
     return n > 0 ? (long)n : -1;
 }
 
+/* /login's PKCE verifier and state: the TLS library's generator (the logins are https only, so the library is there) */
+static int a_random(void *u, unsigned char *buf, long n)
+{
+    (void)u;
+    return net_amiga_random(buf, n);
+}
+
 int main(int argc, char **argv)
 {
     static net_amiga na;
@@ -138,6 +145,7 @@ int main(int argc, char **argv)
     pl.now = a_now;
     pl.diag = a_diag;
     pl.getenv = a_getenv;
+    pl.random = a_random;
     pl.cwd = cwd;
     /* the tools: AmigaDOS through C:Claude's sys_amiga; bash runs vsh when it is installed */
     sys_amiga_init(&sa, &sys);

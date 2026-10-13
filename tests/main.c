@@ -16,6 +16,7 @@ void suite_pi_templates(void);
 void suite_pi_modes(void);
 void suite_pi_hooks(void);
 void suite_pi_lua(void);
+void suite_pi_login(void);
 void suite_pi_yaml(void);
 
 static const h_suite suites[] = {
@@ -31,6 +32,7 @@ static const h_suite suites[] = {
     { "pi_modes", suite_pi_modes },
     { "pi_hooks", suite_pi_hooks },
     { "pi_lua", suite_pi_lua },
+    { "pi_login", suite_pi_login },
     { "pi_yaml", suite_pi_yaml }
 };
 

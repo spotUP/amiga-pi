@@ -1,0 +1,3 @@
+prompt text GitHub Enterprise URL/domain (blank for github.com) | company.ghe.com
+device_code WXYZ-9876 https://company.ghe.com/login/device
+ok {"type":"oauth","refresh":"gho_githubtoken1","access":"tid=abc;exp=9999999999;sku=x","expires":1760103300000,"enterpriseUrl":"company.ghe.com","availableModelIds":["gpt-5.4"]}

@@ -1,0 +1,30 @@
+{
+  "openai": {
+    "type": "api_key",
+    "key": "sk-x"
+  },
+  "anthropic": {
+    "type": "oauth",
+    "access": "a",
+    "refresh": "r",
+    "expires": 1,
+    "nested": {
+      "a": [
+        1,
+        2,
+        {
+          "b": null
+        }
+      ],
+      "e": {},
+      "f": []
+    },
+    "s": "q\"uote\\ é"
+  },
+  "kimi-coding": {
+    "type": "oauth",
+    "access": "k",
+    "refresh": "r2",
+    "expires": 5
+  }
+}

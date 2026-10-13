@@ -1,0 +1,3 @@
+device_code META-5 https://meta.com/device
+progress Enabling Meta Model API access...
+ok {"type":"oauth","refresh":"mid-identity-1","access":"mkey-1","expires":1760186401000}

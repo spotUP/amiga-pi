@@ -1,0 +1,8 @@
+{
+  "kimi-coding": {
+    "type": "oauth",
+    "access": "k",
+    "refresh": "r2",
+    "expires": 5
+  }
+}

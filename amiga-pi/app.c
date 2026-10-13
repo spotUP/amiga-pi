@@ -4,6 +4,7 @@
 #include <string.h>
 #include "app.h"
 #include "ext_events.h"
+#include "login.h"
 #include "args.h"
 #include "prompt.h"
 #include "ui_pi.h"
@@ -133,6 +134,27 @@ static int default_tools_setting(const pi_platform *pl, char *out, long cap)
     }
     CL_FREE(b);
     return present;
+}
+
+/* settings.json's thinkingBudgets (pi 1.1.0 getThinkingBudgets): {minimal, low, medium, high} token counts the Google request
+ * uses in place of its own (google-generative-ai.ts getGoogleBudget) */
+static void thinking_budgets_setting(const pi_platform *pl, pi_session *s)
+{
+    static const char *const names[] = { "off", "minimal", "low", "medium", "high" };
+    char *b, path[300];
+    long n;
+    jv o, a, x;
+    int i;
+    s->think_budget_set = 0;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return;
+    if (!json_parse(b, n, &o) && json_get(o, "thinkingBudgets", &a) && json_type(a) == J_OBJ)
+        for (i = LT_MINIMAL; i <= LT_HIGH; i++)
+            if (json_get(a, names[i], &x) && json_type(x) == J_NUM) {
+                s->think_budget_set |= 1u << i;
+                s->think_budget[i] = json_long(x, 0);
+            }
+    CL_FREE(b);
 }
 
 /* settings.json's outputPad (pi 1.1.0 getOutputPad): 0 gives 0, anything else 1 */
@@ -598,6 +620,7 @@ done:
 static pi_args a;
 static pi_session s;
 static pi_models models;
+static pi_auth auth;                /* /login and the OAuth credential of a request (login.h) */
 static pi_tools tools;
 static pi_gate gate;
 
@@ -605,6 +628,12 @@ static pi_gate gate;
 static int ext_tool_allowed(void *u, const char *name)
 {
     return pi_tools_ext_allowed((const pi_tools *)u, a.tools, name);
+}
+/* --tools, --no-tools and --exclude-tools on MCP's tools and tool_search (mcp.h tool_ok; tools_pi.h) */
+static int mcp_tool_ok(void *u, const char *name, int direct)
+{
+    return strncmp(name, "mcp__", 5) ? pi_tools_ext_allowed((const pi_tools *)u, a.tools, name)
+                                     : pi_tools_mcp_ok((const pi_tools *)u, a.tools, name, direct);
 }
 static pi_hooks hooks;
 static pi_lua lua;
@@ -914,8 +943,14 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         cl_copy(models.cfg.runtime_key, a.api_key, sizeof(models.cfg.runtime_key));
         cl_copy(models.cfg.runtime_provider, m.provider, sizeof(models.cfg.runtime_provider));
     }
+    thinking_budgets_setting(pl, &s);
     pi_models_attach(&models, &s, &store);
     store.models = &models;
+    memset(&auth, 0, sizeof(auth));
+    auth.random = pl->random;
+    auth.random_u = pl->random_u;
+    auth.url_base = pl->oauth_url_base;
+    pi_auth_init(&auth, &models, &s, pl->sys, pl->agent_dir, pl->getenv);
     s.now = pl->now;
     note_io = pl->io;
     s.h.notice = note;
@@ -927,7 +962,9 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         if (tools_ok) {
             /* the default selection (defaultTools, --no-tools) and --tools through the one applyToolModifiers */
             char dt[256];
-            pi_tools_defaults(&tools, default_tools_setting(pl, dt, sizeof(dt)) ? dt : 0, a.no_tools);
+            pi_tools_defaults(&tools, default_tools_setting(pl, dt, sizeof(dt)) ? dt : 0,
+                              a.no_tools ? PI_NO_TOOLS_ALL : a.no_builtin_tools ? PI_NO_TOOLS_BUILTIN : PI_NO_TOOLS_NONE);
+            pi_tools_exclude(&tools, a.exclude);
         }
         if (!tools_ok || pi_tools_add(&tools, &s, a.tools, err, sizeof(err))) {
             say(pl->io, "amiga-pi: ", err);
@@ -996,6 +1033,10 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     /* MCP servers from <agent dir>/mcp.json (pi: ~/.pi/agent/mcp.json), then the project's <cwd>/.pi/mcp.json for a
      * trusted project (pi: guarded by trust) */
     mcp_init(&mc, pl->sys, pl->mcp_pool ? pl->mcp_pool : pl->pool, &s.h, pl->getenv, pl->cwd, pl->tmp);
+    if (pl->sys) {
+        mc.tool_ok = mcp_tool_ok;
+        mc.tool_u = &tools;
+    }
     if (pl->sys && !a.no_mcp) {
         char path[300];
         long i, st = 0;

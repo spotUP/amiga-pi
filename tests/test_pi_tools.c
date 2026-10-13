@@ -949,6 +949,9 @@ static void test_select(void)
     char *argv2[] = { "amiga-pi", "--no-tools", "--gate", "x", 0 };
     char *argv3[] = { "amiga-pi", "-t", "read,-write", "x", 0 };
     char *argv4[] = { "amiga-pi", "--tools", "-write,+ls", "x", 0 };
+    char *argv5[] = { "amiga-pi", "-nbt", "x", 0 };
+    char *argv6[] = { "amiga-pi", "-xt", "bash, mcp__*", "x", 0 };
+    char *argv7[] = { "amiga-pi", "--exclude-tools", 0 };
     memset(&ses, 0, sizeof(ses));
     CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
     names_of(got);
@@ -1059,6 +1062,59 @@ static void test_select(void)
     CHECK(pi_tools_ext_allowed(&pt, "+greet", "greet") && !pi_tools_ext_allowed(&pt, "+read", "greet"));
     CHECK(!pi_tools_ext_allowed(&pt, "+greet,-greet", "greet") && pi_tools_ext_allowed(&pt, "greet", "greet"));
     pi_tools_defaults(&pt, 0, 0);
+    /* L15: --no-builtin-tools empties the defaults and keeps extension and MCP tools (noTools "builtin", sdk.ts:282-291);
+     * --exclude-tools removes from every source after all other selection (sdk.ts:292-294, _isAllowedTool) */
+    pi_tools_defaults(&pt, 0, PI_NO_TOOLS_BUILTIN);
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
+    CHECK_INT(ses.ntools, 0);
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "+ls", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "ls");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "grep", err, sizeof(err)), 0);                /* an allowlist still selects */
+    names_of(got);
+    CHECK_STR(got, "grep");
+    CHECK(pi_tools_ext_allowed(&pt, 0, "greet") && pi_tools_ext_allowed(&pt, "+ls", "greet"));
+    CHECK(pi_tools_mcp_ok(&pt, 0, "mcp__s__t", 1));
+    pi_tools_defaults(&pt, 0, PI_NO_TOOLS_NONE);
+    pi_tools_exclude(&pt, " write , gre* ,");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,bash,edit");
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "*", err, sizeof(err)), 0);                   /* after the allowlist: still excluded */
+    names_of(got);
+    CHECK_STR(got, "read,bash,edit,find,ls");
+    CHECK(!pi_tools_ext_allowed(&pt, 0, "greet") && !pi_tools_ext_allowed(&pt, "greet", "grep2") && pi_tools_ext_allowed(&pt, 0, "other"));
+    CHECK(!pi_tools_ext_allowed(&pt, "+greet", "greet"));
+    pi_tools_exclude(&pt, "mcp__*,tool_search");
+    CHECK(!pi_tools_mcp_ok(&pt, 0, "mcp__fake__echo", 1) && !pi_tools_mcp_ok(&pt, "mcp__fake__echo", "mcp__fake__echo", 1));
+    CHECK(!pi_tools_ext_allowed(&pt, 0, "tool_search") && pi_tools_ext_allowed(&pt, 0, "bash"));
+    pi_tools_exclude(&pt, "mcp__fake__echo");
+    CHECK(!pi_tools_mcp_ok(&pt, 0, "mcp__fake__echo", 1) && pi_tools_mcp_ok(&pt, 0, "mcp__fake__other", 1));
+    pi_tools_exclude(&pt, 0);
+    /* MCP tools under --tools / --no-tools (agent-session.ts:503-506 _allowlistFiltersMcp, 1537 _isAllowedTool, 1549
+     * _isActivatable): no allowlist keeps them; a list naming an mcp__ entry or empty filters them; any other list keeps them
+     * registered but a direct one is declared only when named, a deferred one is loadable only when tool_search is allowed */
+    CHECK(pi_tools_mcp_ok(&pt, 0, "mcp__fake__echo", 1) && pi_tools_mcp_ok(&pt, "+ls", "mcp__fake__echo", 1));
+    CHECK(pi_tools_mcp_ok(&pt, "read,mcp__fake__*", "mcp__fake__echo", 1) && !pi_tools_mcp_ok(&pt, "read,mcp__fake__*", "mcp__x__y", 0));
+    CHECK(!pi_tools_mcp_ok(&pt, "read", "mcp__fake__echo", 1));                     /* direct and unnamed: not declared */
+    CHECK(!pi_tools_mcp_ok(&pt, "read", "mcp__fake__echo", 0));                     /* deferred, no tool_search in the list */
+    CHECK(pi_tools_mcp_ok(&pt, "read,tool_search", "mcp__fake__echo", 0) && !pi_tools_mcp_ok(&pt, "read,tool_search", "mcp__fake__echo", 1));
+    pi_tools_defaults(&pt, 0, PI_NO_TOOLS_ALL);
+    CHECK(!pi_tools_mcp_ok(&pt, 0, "mcp__fake__echo", 0) && !pi_tools_mcp_ok(&pt, "", "mcp__fake__echo", 1));
+    CHECK(pi_tools_mcp_ok(&pt, "+mcp__fake__echo", "mcp__fake__echo", 1) && !pi_tools_mcp_ok(&pt, "+mcp__fake__echo", "mcp__x__y", 0));
+    CHECK(pi_tools_mcp_ok(&pt, "+tool_search", "mcp__fake__echo", 0));              /* modifiers add tool_search: not an mcp__ entry */
+    pi_tools_defaults(&pt, 0, PI_NO_TOOLS_NONE);
+    CHECK_INT(pi_args_parse(&a, 3, argv5), 0);
+    CHECK(a.no_builtin_tools && !a.no_tools && !a.exclude[0]);
+    CHECK_INT(pi_args_parse(&a, 4, argv6), 0);
+    CHECK_STR(a.exclude, "bash, mcp__*");
+    CHECK_INT(pi_args_parse(&a, 2, argv7), -1);
+    CHECK_STR(a.err, "--exclude-tools needs a value");
     CHECK_INT(pi_args_parse(&a, 5, argv), 0);
     CHECK_STR(a.tools, "read,grep");
     CHECK_INT(a.gate, 0);

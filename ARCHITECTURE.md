@@ -12,7 +12,7 @@ Plan: `~/Code/vtcon/thoughts/shared/plans/2026-10-07-amiga-pi.md` (phase A). Res
 | D4 | Extension language: Lua 5.4. The owner chose Lua on 2026-10-07 evening ("Lua now"), overriding the native-modules call from A5's criterion 1 (the 5-warning limit was a guess). The Amiga run of the probe is a check, not a gate (Extensions below). | owner 2026-10-07 evening, again 2026-10-10 |
 | D5 | Stored format: pi message model and JSONL session v3; local timestamps without offset (E9). | plan, round 2 item 1 |
 | D6 | Permissions: pi default, never ask; C:Claude's gate is a built-in extension, off by default. | plan |
-| D7 | Providers: Anthropic, OpenAI-compatible (phase B), then Google, Azure, Bedrock (SigV4 and API keys); subscription logins last, gated on probe O1 (still open). | plan, round 2 |
+| D7 | Providers: Anthropic, OpenAI-compatible (phase B), then Google, Azure, Bedrock (SigV4 and API keys); subscription logins last (phase O, owner decision 2026-10-13: ChatGPT, Codex, Copilot, Kimi, xAI and Meta by `/login`, never a Claude login). | plan, round 2 |
 | D8 | B5 stays: C:Claude's `http.c` head and `stream.c` decoder move onto the shared backend, gated by goldens. | owner, round 2 item 3 |
 | D9 | `llm/` lives in vtcon, next to `claude/` (`~/Code/vtcon/llm/`). C:Claude links it from its own tree, so its build stays inside one repo and B5 is a single-repo change gated by vtcon's request goldens; amiga-pi compiles it in place from `$(VTCON_DIR)` like the rest of the shared core. | owner 2026-10-10 (option a) |
 | D10 | Growing and bulky data (sessions, skills, prompts, themes, extensions) in `UP-Term:var/amiga-pi/`, small config in `ENVARC:amiga-pi/` (Directories below). | coordinator review 2026-10-10 |

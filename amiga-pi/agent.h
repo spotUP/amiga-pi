@@ -55,10 +55,17 @@ typedef struct pi_session {
     const char *key;            /* 0 none: used when cfg is 0 */
     llm_cfg *cfg;               /* credentials and config values (models.json, auth.json, --api-key); 0: key */
     int thinking;               /* the thinking level, LT_*, as the model supports it */
+    unsigned think_budget_set;  /* settings.json thinkingBudgets: bit LT_x set when that level has a custom budget (google) */
+    long think_budget[8];       /* its tokens, by LT_* */
     long ctx_tokens;            /* tokens the last answer reported (its input, output and cache): the context in use */
     long cost_micro;            /* what the answers of this run cost, micro-dollars, from the model's price */
     long tok_in, tok_out, tok_cr, tok_cw;   /* the answers' tokens summed (the footer's usage line) */
-    char keybuf[512];           /* the credential of the request being made */
+    char keybuf[4096];          /* the credential of the request being made (an OAuth access token is a JWT of a few KB) */
+    /* OAuth (login.h): renews the stored credential of the model's provider before a request, or (force) after a 401;
+     * 0 or -1 with the message in err. auth_u: the pi_auth */
+    int (*auth_hook)(void *u, struct pi_session *s, int force, char *err, long cap);
+    void *auth_u;
+    char oauth_base[300];       /* the base URL a credential brings (github-copilot) for the request being made */
     const char *user_agent;
     llm_pool *pool;
     llm_hooks h;                /* poll (Ctrl+C), sleep, ms, notice, resolve, log */
@@ -194,7 +201,7 @@ typedef struct pi_session {
     jw usage;                   /* the same call's result.usage (a JSON object; a tool's own or a tool_result handler's), empty none */
     int call_terminate;         /* the tool's result said terminate (AgentToolResult.terminate) */
     jw details;                 /* the same call's result.details (a JSON object: an MCP tool's server, tool, fullOutputPath), empty none */
-    char err[256];              /* its errorMessage, or why the prompt stopped */
+    char err[LLM_ERR_MAX];       /* its errorMessage, or why the prompt stopped */
 } pi_session;
 
 /* model copied; pool and hooks the caller's; extensions are subscribed to the events */
@@ -227,6 +234,8 @@ void pi_tools_json(const pi_session *s, jw *w);
 /* the credential and the extra headers of a request to s->model, filled into q (hdr holds the header text:
  * the caller frees it after the request); 0, or -1 with a message in s->err when a header value cannot be resolved */
 int pi_req_auth(pi_session *s, llm_req *q, jw *hdr);
+/* llm_req.reauth for a stored login: renews it once after a 401 (see pi_req_auth) */
+int pi_req_reauth(void *u, llm_req *q, char *err, long cap);
 
 /* the prompt to the end: the last answer's stop reason (LS_STOP, LS_LENGTH,
  * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it). A retryable failure (agent-session.js

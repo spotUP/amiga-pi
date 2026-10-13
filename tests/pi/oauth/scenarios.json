@@ -1,0 +1,3154 @@
+{
+ "now": 1760100000000,
+ "scenarios": [
+  {
+   "name": "openai_login",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "cgat-access-1",
+      "refresh_token": "cgrt-refresh-1",
+      "id_token": "cg.id.token",
+      "scope": "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+      "expires_in": 3600
+     }
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_login_upper_uuid",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "cgat-access-1",
+      "refresh_token": "cgrt-refresh-1",
+      "id_token": "cg.id.token",
+      "scope": "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+      "expires_in": 3600
+     }
+    }
+   ],
+   "deviceId": "5B0F1C2E-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=C%20D%2B1&state=$STATE&client_id=%20app_2%20"
+  },
+  {
+   "name": "openai_paste_junk",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "not a url"
+  },
+  {
+   "name": "openai_paste_wrong_origin",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://localhost:1455/auth/callback?code=c&state=$STATE&client_id=x"
+  },
+  {
+   "name": "openai_paste_wrong_path",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/other?code=c&state=$STATE&client_id=x"
+  },
+  {
+   "name": "openai_paste_https",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "https://127.0.0.1:1455/auth/callback?code=c&state=$STATE&client_id=x"
+  },
+  {
+   "name": "openai_paste_error_param",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?error=access_denied&state=$STATE"
+  },
+  {
+   "name": "openai_paste_no_code",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?state=$STATE&client_id=x"
+  },
+  {
+   "name": "openai_paste_no_state",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=c&client_id=x"
+  },
+  {
+   "name": "openai_paste_bad_state",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=c&state=nope&client_id=x"
+  },
+  {
+   "name": "openai_paste_no_client",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=c&state=$STATE"
+  },
+  {
+   "name": "openai_no_device_id",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": ""
+  },
+  {
+   "name": "openai_bad_device_id",
+   "provider": "openai",
+   "op": "login",
+   "responses": [],
+   "deviceId": "not-a-uuid"
+  },
+  {
+   "name": "openai_token_400",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 400,
+     "text": "invalid_grant"
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_token_500_empty",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 500,
+     "text": ""
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_token_array",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "text": "[]"
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_token_no_id_token",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "cgat-access-1",
+      "refresh_token": "cgrt-refresh-1",
+      "scope": "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+      "expires_in": 3600
+     }
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_token_no_access",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "json": {
+      "refresh_token": "cgrt-refresh-1",
+      "id_token": "cg.id.token",
+      "scope": "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+      "expires_in": 3600
+     }
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_token_no_refresh",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "cgat-access-1",
+      "id_token": "cg.id.token",
+      "scope": "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+      "expires_in": 3600
+     }
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_token_no_scope",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "cgat-access-1",
+      "refresh_token": "cgrt-refresh-1",
+      "id_token": "cg.id.token",
+      "expires_in": 3600
+     }
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_token_wrong_scope",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "cgat-access-1",
+      "refresh_token": "cgrt-refresh-1",
+      "id_token": "cg.id.token",
+      "scope": "openid profile",
+      "expires_in": 3600
+     }
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_token_bad_expires",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "cgat-access-1",
+      "refresh_token": "cgrt-refresh-1",
+      "id_token": "cg.id.token",
+      "scope": "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+      "expires_in": 0
+     }
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_token_str_expires",
+   "provider": "openai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "cgat-access-1",
+      "refresh_token": "cgrt-refresh-1",
+      "id_token": "cg.id.token",
+      "scope": "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+      "expires_in": "3600"
+     }
+    }
+   ],
+   "deviceId": "5b0f1c2e-1111-4222-8333-444455556666",
+   "paste": "http://127.0.0.1:1455/auth/callback?code=CODE-1&state=$STATE&client_id=app_issued_1"
+  },
+  {
+   "name": "openai_refresh",
+   "provider": "openai",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "cgat-access-2",
+      "refresh_token": "cgrt-refresh-2",
+      "id_token": "cg.id.token",
+      "scope": "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+      "expires_in": 3600
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "cgat-old",
+    "refresh": "cgrt-refresh-1",
+    "expires": 1760099999000,
+    "clientId": "app_issued_1",
+    "scopes": [
+     "openid",
+     "profile",
+     "email",
+     "offline_access",
+     "resource.invoke",
+     "chatgpt.tokens.use.direct"
+    ],
+    "extraField": {
+     "keep": "me"
+    }
+   }
+  },
+  {
+   "name": "openai_refresh_400",
+   "provider": "openai",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "invalid_grant"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "cgat-old",
+    "refresh": "cgrt-refresh-1",
+    "expires": 1760099999000,
+    "clientId": "app_issued_1",
+    "scopes": [
+     "openid",
+     "profile",
+     "email",
+     "offline_access",
+     "resource.invoke",
+     "chatgpt.tokens.use.direct"
+    ],
+    "extraField": {
+     "keep": "me"
+    }
+   }
+  },
+  {
+   "name": "openai_refresh_no_client",
+   "provider": "openai",
+   "op": "refresh",
+   "responses": [],
+   "credential": {
+    "type": "oauth",
+    "access": "cgat-old",
+    "refresh": "cgrt-refresh-1",
+    "expires": 1760099999000,
+    "scopes": [
+     "openid",
+     "profile",
+     "email",
+     "offline_access",
+     "resource.invoke",
+     "chatgpt.tokens.use.direct"
+    ],
+    "extraField": {
+     "keep": "me"
+    }
+   }
+  },
+  {
+   "name": "openai_refresh_blank_client",
+   "provider": "openai",
+   "op": "refresh",
+   "responses": [],
+   "credential": {
+    "type": "oauth",
+    "access": "cgat-old",
+    "refresh": "cgrt-refresh-1",
+    "expires": 1760099999000,
+    "clientId": "  ",
+    "scopes": [
+     "openid",
+     "profile",
+     "email",
+     "offline_access",
+     "resource.invoke",
+     "chatgpt.tokens.use.direct"
+    ],
+    "extraField": {
+     "keep": "me"
+    }
+   }
+  },
+  {
+   "name": "codex_login_device",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 200,
+     "json": {
+      "device_auth_id": "dev-1",
+      "user_code": "ABCD-1234",
+      "interval": "2"
+     }
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 403,
+     "text": ""
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 400,
+     "json": {
+      "error": {
+       "code": "deviceauth_authorization_pending"
+      }
+     }
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 404,
+     "text": ""
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 400,
+     "json": {
+      "error": "slow_down"
+     }
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 200,
+     "json": {
+      "authorization_code": "ac-1",
+      "code_verifier": "cv-1"
+     }
+    },
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8xMjMifSwiZXhwIjoxNzYwMjAwMDAwfQ.sig",
+      "refresh_token": "cxrt-1",
+      "expires_in": 7200
+     }
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_device_404",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 404,
+     "text": ""
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_device_500",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 500,
+     "text": "boom"
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_device_bad_resp",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 200,
+     "json": {}
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_device_negative_interval",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 200,
+     "json": {
+      "device_auth_id": "d",
+      "user_code": "u",
+      "interval": -1
+     }
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_device_num_interval",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 200,
+     "json": {
+      "device_auth_id": "dev-1",
+      "user_code": "ABCD-1234",
+      "interval": 1
+     }
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 200,
+     "json": {
+      "authorization_code": "ac-2",
+      "code_verifier": "cv-2"
+     }
+    },
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8xMjMifSwiZXhwIjoxNzYwMjAwMDAwfQ.sig",
+      "refresh_token": "cxrt-1",
+      "expires_in": 7200
+     }
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_device_denied",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 200,
+     "json": {
+      "device_auth_id": "dev-1",
+      "user_code": "ABCD-1234",
+      "interval": "2"
+     }
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 400,
+     "json": {
+      "error": "access_denied"
+     }
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_device_bad_token",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 200,
+     "json": {
+      "device_auth_id": "dev-1",
+      "user_code": "ABCD-1234",
+      "interval": "2"
+     }
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 200,
+     "json": {
+      "authorization_code": "x"
+     }
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_device_timeout",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 200,
+     "json": {
+      "device_auth_id": "dev-1",
+      "user_code": "ABCD-1234",
+      "interval": 300
+     }
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 403,
+     "text": ""
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_device_slow_timeout",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 200,
+     "json": {
+      "device_auth_id": "dev-1",
+      "user_code": "ABCD-1234",
+      "interval": 100
+     }
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 400,
+     "json": {
+      "error": "slow_down"
+     }
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_device_exchange_fail",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+     "status": 200,
+     "json": {
+      "device_auth_id": "dev-1",
+      "user_code": "ABCD-1234",
+      "interval": "2"
+     }
+    },
+    {
+     "url": "https://auth.openai.com/api/accounts/deviceauth/token",
+     "status": 200,
+     "json": {
+      "authorization_code": "ac-1",
+      "code_verifier": "cv-1"
+     }
+    },
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 400,
+     "text": "bad code"
+    }
+   ],
+   "select": [
+    1
+   ]
+  },
+  {
+   "name": "codex_login_browser",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8xMjMifSwiZXhwIjoxNzYwMjAwMDAwfQ.sig",
+      "refresh_token": "cxrt-1",
+      "expires_in": 7200
+     }
+    }
+   ],
+   "select": [
+    0
+   ],
+   "paste": "http://localhost:1455/auth/callback?code=BC-1&state=$STATE"
+  },
+  {
+   "name": "codex_browser_raw_code",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8xMjMifSwiZXhwIjoxNzYwMjAwMDAwfQ.sig",
+      "refresh_token": "cxrt-1",
+      "expires_in": 7200
+     }
+    }
+   ],
+   "select": [
+    0
+   ],
+   "paste": "RAWCODE"
+  },
+  {
+   "name": "codex_browser_hash",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8xMjMifSwiZXhwIjoxNzYwMjAwMDAwfQ.sig",
+      "refresh_token": "cxrt-1",
+      "expires_in": 7200
+     }
+    }
+   ],
+   "select": [
+    0
+   ],
+   "paste": "BC-2#$STATE"
+  },
+  {
+   "name": "codex_browser_query",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8xMjMifSwiZXhwIjoxNzYwMjAwMDAwfQ.sig",
+      "refresh_token": "cxrt-1",
+      "expires_in": 7200
+     }
+    }
+   ],
+   "select": [
+    0
+   ],
+   "paste": "  code=BC%2D3&state=$STATE  "
+  },
+  {
+   "name": "codex_browser_state_mismatch",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [],
+   "select": [
+    0
+   ],
+   "paste": "BC#wrong"
+  },
+  {
+   "name": "codex_browser_url_state_mismatch",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [],
+   "select": [
+    0
+   ],
+   "paste": "http://localhost:1455/auth/callback?code=c&state=wrong"
+  },
+  {
+   "name": "codex_browser_empty",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [],
+   "select": [
+    0
+   ],
+   "paste": "   "
+  },
+  {
+   "name": "codex_browser_url_no_code",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [],
+   "select": [
+    0
+   ],
+   "paste": "http://localhost:1455/auth/callback?state=$STATE"
+  },
+  {
+   "name": "codex_token_missing_fields",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "x"
+     }
+    }
+   ],
+   "select": [
+    0
+   ],
+   "paste": "C1"
+  },
+  {
+   "name": "codex_token_no_account",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "not-a-jwt",
+      "refresh_token": "cxrt-1",
+      "expires_in": 7200
+     }
+    }
+   ],
+   "select": [
+    0
+   ],
+   "paste": "C1"
+  },
+  {
+   "name": "codex_token_500",
+   "provider": "openai-codex",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 500,
+     "text": ""
+    }
+   ],
+   "select": [
+    0
+   ],
+   "paste": "C1"
+  },
+  {
+   "name": "codex_refresh",
+   "provider": "openai-codex",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF80NTYifSwiZXhwIjoxNzYwMjAwMDAwfQ.sig",
+      "refresh_token": "cxrt-2",
+      "expires_in": 7200
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8xMjMifSwiZXhwIjoxNzYwMjAwMDAwfQ.sig",
+    "refresh": "cxrt-1",
+    "expires": 1760099999000,
+    "accountId": "acct_123",
+    "extra": 1
+   }
+  },
+  {
+   "name": "codex_refresh_401",
+   "provider": "openai-codex",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.openai.com/oauth/token",
+     "status": 401,
+     "text": "bad"
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8xMjMifSwiZXhwIjoxNzYwMjAwMDAwfQ.sig",
+    "refresh": "cxrt-1",
+    "expires": 1760099999000,
+    "accountId": "acct_123",
+    "extra": 1
+   }
+  },
+  {
+   "name": "copilot_login",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "error": "authorization_pending"
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "error": "slow_down",
+      "interval": 3
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "access_token": "gho_githubtoken1",
+      "token_type": "bearer",
+      "scope": "read:user"
+     }
+    },
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;sku=x",
+      "expires_at": 1760103600
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models",
+     "status": 200,
+     "json": {
+      "data": [
+       {
+        "id": "gpt-5.4",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "enabled"
+        }
+       },
+       {
+        "id": "claude-sonnet-5",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "unconfigured"
+        }
+       },
+       {
+        "id": "gpt-5-mini",
+        "model_picker_enabled": false,
+        "policy": {
+         "state": "unconfigured"
+        }
+       },
+       {
+        "id": "no-tools",
+        "model_picker_enabled": true,
+        "capabilities": {
+         "supports": {
+          "tool_calls": false
+         }
+        }
+       },
+       {
+        "id": "hidden",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "disabled"
+        }
+       },
+       {
+        "id": 7
+       }
+      ]
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models/claude-sonnet-5/policy",
+     "status": 200,
+     "json": {}
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_login_policy_fails",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "access_token": "gho_githubtoken1"
+     }
+    },
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;sku=x",
+      "expires_at": 1760103600
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models",
+     "status": 200,
+     "json": {
+      "data": [
+       {
+        "id": "gpt-5.4",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "enabled"
+        }
+       },
+       {
+        "id": "claude-sonnet-5",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "unconfigured"
+        }
+       },
+       {
+        "id": "gpt-5-mini",
+        "model_picker_enabled": false,
+        "policy": {
+         "state": "unconfigured"
+        }
+       },
+       {
+        "id": "no-tools",
+        "model_picker_enabled": true,
+        "capabilities": {
+         "supports": {
+          "tool_calls": false
+         }
+        }
+       },
+       {
+        "id": "hidden",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "disabled"
+        }
+       },
+       {
+        "id": 7
+       }
+      ]
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models/claude-sonnet-5/policy",
+     "status": 403,
+     "text": "no"
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_login_policy_429",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "access_token": "gho_githubtoken1"
+     }
+    },
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;sku=x",
+      "expires_at": 1760103600
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models",
+     "status": 200,
+     "json": {
+      "data": [
+       {
+        "id": "gpt-5.4",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "enabled"
+        }
+       },
+       {
+        "id": "claude-sonnet-5",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "unconfigured"
+        }
+       },
+       {
+        "id": "gpt-5-mini",
+        "model_picker_enabled": false,
+        "policy": {
+         "state": "unconfigured"
+        }
+       },
+       {
+        "id": "no-tools",
+        "model_picker_enabled": true,
+        "capabilities": {
+         "supports": {
+          "tool_calls": false
+         }
+        }
+       },
+       {
+        "id": "hidden",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "disabled"
+        }
+       },
+       {
+        "id": 7
+       }
+      ]
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models/claude-sonnet-5/policy",
+     "status": 429,
+     "text": "slow"
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_login_policy_fallback",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "access_token": "gho_githubtoken1"
+     }
+    },
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;sku=x",
+      "expires_at": 1760103600
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models",
+     "status": 200,
+     "json": {
+      "data": [
+       {
+        "id": "gpt-5.4",
+        "model_picker_enabled": false,
+        "policy": {
+         "state": "enabled"
+        }
+       },
+       {
+        "id": "claude-sonnet-5",
+        "model_picker_enabled": false,
+        "policy": {
+         "state": "unconfigured"
+        }
+       },
+       {
+        "id": "gpt-5-mini",
+        "model_picker_enabled": false,
+        "policy": {
+         "state": "enabled"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models/claude-sonnet-5/policy",
+     "status": 200,
+     "json": {}
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_login_enterprise",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://company.ghe.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://company.ghe.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://company.ghe.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "access_token": "gho_githubtoken1"
+     }
+    },
+    {
+     "url": "https://api.company.ghe.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;sku=x",
+      "expires_at": 1760103600
+     }
+    },
+    {
+     "url": "https://copilot-api.company.ghe.com/models",
+     "status": 200,
+     "json": {
+      "data": [
+       {
+        "id": "gpt-5.4",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "enabled"
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "text": [
+    " https://Company.GHE.com/foo "
+   ]
+  },
+  {
+   "name": "copilot_invalid_domain",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [],
+   "text": [
+    "http://["
+   ]
+  },
+  {
+   "name": "copilot_denied",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "error": "access_denied",
+      "error_description": "nope"
+     }
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_expired",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "error": "expired_token"
+     }
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_bad_device",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {}
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_untrusted_uri",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "ftp://x/y",
+      "interval": 1,
+      "expires_in": 900
+     }
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_device_http_500",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 500,
+     "text": "down"
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_poll_garbage",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "weird": 1
+     }
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_timeout",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 400,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "error": "authorization_pending"
+     }
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_token_401",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "access_token": "gho_githubtoken1"
+     }
+    },
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 401,
+     "text": "bad"
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_token_bad_fields",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "access_token": "gho_githubtoken1"
+     }
+    },
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "x"
+     }
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_models_429_then_ok",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "access_token": "gho_githubtoken1"
+     }
+    },
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;sku=x",
+      "expires_at": 1760103600
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models",
+     "status": 429,
+     "text": "wait",
+     "headers": {
+      "retry-after": "2"
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models",
+     "status": 200,
+     "json": {
+      "data": [
+       {
+        "id": "gpt-5.4",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "enabled"
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_models_500",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "access_token": "gho_githubtoken1"
+     }
+    },
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;sku=x",
+      "expires_at": 1760103600
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models",
+     "status": 500,
+     "text": "x"
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_models_bad",
+   "provider": "github-copilot",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://github.com/login/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "dc-1",
+      "user_code": "WXYZ-9876",
+      "verification_uri": "https://github.com/login/device",
+      "interval": 1,
+      "expires_in": 900
+     }
+    },
+    {
+     "url": "https://github.com/login/oauth/access_token",
+     "status": 200,
+     "json": {
+      "access_token": "gho_githubtoken1"
+     }
+    },
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;sku=x",
+      "expires_at": 1760103600
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models",
+     "status": 200,
+     "json": {
+      "x": 1
+     }
+    }
+   ],
+   "text": [
+    ""
+   ]
+  },
+  {
+   "name": "copilot_refresh",
+   "provider": "github-copilot",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;sku=x",
+      "expires_at": 1760107200
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models",
+     "status": 200,
+     "json": {
+      "data": [
+       {
+        "id": "gpt-5.4",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "enabled"
+        }
+       },
+       {
+        "id": "claude-sonnet-5",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "unconfigured"
+        }
+       },
+       {
+        "id": "gpt-5-mini",
+        "model_picker_enabled": false,
+        "policy": {
+         "state": "unconfigured"
+        }
+       },
+       {
+        "id": "no-tools",
+        "model_picker_enabled": true,
+        "capabilities": {
+         "supports": {
+          "tool_calls": false
+         }
+        }
+       },
+       {
+        "id": "hidden",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "disabled"
+        }
+       },
+       {
+        "id": 7
+       }
+      ]
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "refresh": "gho_githubtoken1",
+    "access": "old-copilot",
+    "expires": 1760099999000,
+    "availableModelIds": [
+     "gpt-5.4"
+    ],
+    "extra": true
+   }
+  },
+  {
+   "name": "copilot_refresh_enterprise",
+   "provider": "github-copilot",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://api.company.ghe.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;sku=x",
+      "expires_at": 1760107200
+     }
+    },
+    {
+     "url": "https://copilot-api.company.ghe.com/models",
+     "status": 200,
+     "json": {
+      "data": [
+       {
+        "id": "gpt-5.4",
+        "model_picker_enabled": true,
+        "policy": {
+         "state": "enabled"
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "refresh": "gho_githubtoken1",
+    "access": "old-copilot",
+    "expires": 1760099999000,
+    "availableModelIds": [
+     "gpt-5.4"
+    ],
+    "extra": true,
+    "enterpriseUrl": "https://company.ghe.com/"
+   }
+  },
+  {
+   "name": "copilot_refresh_models_429",
+   "provider": "github-copilot",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 200,
+     "json": {
+      "token": "tid=abc;exp=9999999999;proxy-ep=proxy.individual.githubcopilot.com;sku=x",
+      "expires_at": 1760107200
+     }
+    },
+    {
+     "url": "https://api.individual.githubcopilot.com/models",
+     "status": 429,
+     "text": "wait"
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "refresh": "gho_githubtoken1",
+    "access": "old-copilot",
+    "expires": 1760099999000,
+    "availableModelIds": [
+     "gpt-5.4"
+    ],
+    "extra": true
+   }
+  },
+  {
+   "name": "copilot_refresh_401",
+   "provider": "github-copilot",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://api.github.com/copilot_internal/v2/token",
+     "status": 401,
+     "text": "revoked"
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "refresh": "gho_githubtoken1",
+    "access": "old-copilot",
+    "expires": 1760099999000,
+    "availableModelIds": [
+     "gpt-5.4"
+    ],
+    "extra": true
+   }
+  },
+  {
+   "name": "kimi_login",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "kd-1",
+      "user_code": "KIMI-1234",
+      "verification_uri": "https://www.kimi.com/code/authorize_device",
+      "verification_uri_complete": "https://www.kimi.com/code/authorize_device?user_code=KIMI-1234",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "authorization_pending"
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "slow_down"
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "kmat-1",
+      "refresh_token": "kmrt-1",
+      "expires_in": 2592000
+     }
+    }
+   ]
+  },
+  {
+   "name": "kimi_login_defaults",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "kd-1",
+      "user_code": "KIMI-1234",
+      "verification_uri": "https://www.kimi.com/code/authorize_device",
+      "verification_uri_complete": "https://www.kimi.com/code/authorize_device?user_code=KIMI-1234"
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "kmat-1",
+      "refresh_token": "kmrt-1",
+      "expires_in": 2592000
+     }
+    }
+   ]
+  },
+  {
+   "name": "kimi_denied",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "kd-1",
+      "user_code": "KIMI-1234",
+      "verification_uri": "https://www.kimi.com/code/authorize_device",
+      "verification_uri_complete": "https://www.kimi.com/code/authorize_device?user_code=KIMI-1234",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "access_denied"
+     }
+    }
+   ]
+  },
+  {
+   "name": "kimi_expired",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "kd-1",
+      "user_code": "KIMI-1234",
+      "verification_uri": "https://www.kimi.com/code/authorize_device",
+      "verification_uri_complete": "https://www.kimi.com/code/authorize_device?user_code=KIMI-1234",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "expired_token"
+     }
+    }
+   ]
+  },
+  {
+   "name": "kimi_unknown_error",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "kd-1",
+      "user_code": "KIMI-1234",
+      "verification_uri": "https://www.kimi.com/code/authorize_device",
+      "verification_uri_complete": "https://www.kimi.com/code/authorize_device?user_code=KIMI-1234",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "weird",
+      "error_description": "d"
+     }
+    }
+   ]
+  },
+  {
+   "name": "kimi_no_error",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "kd-1",
+      "user_code": "KIMI-1234",
+      "verification_uri": "https://www.kimi.com/code/authorize_device",
+      "verification_uri_complete": "https://www.kimi.com/code/authorize_device?user_code=KIMI-1234",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 400,
+     "text": "plain"
+    }
+   ]
+  },
+  {
+   "name": "kimi_poll_503",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "kd-1",
+      "user_code": "KIMI-1234",
+      "verification_uri": "https://www.kimi.com/code/authorize_device",
+      "verification_uri_complete": "https://www.kimi.com/code/authorize_device?user_code=KIMI-1234",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 503,
+     "text": "down"
+    }
+   ]
+  },
+  {
+   "name": "kimi_poll_missing",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "kd-1",
+      "user_code": "KIMI-1234",
+      "verification_uri": "https://www.kimi.com/code/authorize_device",
+      "verification_uri_complete": "https://www.kimi.com/code/authorize_device?user_code=KIMI-1234",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "a"
+     }
+    }
+   ]
+  },
+  {
+   "name": "kimi_auth_400",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 400,
+     "text": "no"
+    }
+   ]
+  },
+  {
+   "name": "kimi_auth_bad",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "x"
+     }
+    }
+   ]
+  },
+  {
+   "name": "kimi_auth_bad_uri",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "kd-1",
+      "user_code": "KIMI-1234",
+      "verification_uri": "https://www.kimi.com/code/authorize_device",
+      "verification_uri_complete": "javascript:alert(1)",
+      "interval": 1,
+      "expires_in": 600
+     }
+    }
+   ]
+  },
+  {
+   "name": "kimi_timeout",
+   "provider": "kimi-coding",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/device_authorization",
+     "status": 200,
+     "json": {
+      "device_code": "kd-1",
+      "user_code": "KIMI-1234",
+      "verification_uri": "https://www.kimi.com/code/authorize_device",
+      "verification_uri_complete": "https://www.kimi.com/code/authorize_device?user_code=KIMI-1234",
+      "interval": 200,
+      "expires_in": 500
+     }
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "authorization_pending"
+     }
+    }
+   ]
+  },
+  {
+   "name": "kimi_refresh",
+   "provider": "kimi-coding",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "kmat-2",
+      "refresh_token": "kmrt-2",
+      "expires_in": 3600
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "kmat-old",
+    "refresh": "kmrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "kimi_refresh_invalid_grant",
+   "provider": "kimi-coding",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "invalid_grant",
+      "error_description": "revoked"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "kmat-old",
+    "refresh": "kmrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "kimi_refresh_401",
+   "provider": "kimi-coding",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 401,
+     "text": ""
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "kmat-old",
+    "refresh": "kmrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "kimi_refresh_retry",
+   "provider": "kimi-coding",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 500,
+     "text": "x"
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 429,
+     "text": "y"
+    },
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "kmat-3",
+      "refresh_token": "kmrt-3",
+      "expires_in": 60
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "kmat-old",
+    "refresh": "kmrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "kimi_refresh_exhausted",
+   "provider": "kimi-coding",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 500,
+     "json": {
+      "error": "server"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "kmat-old",
+    "refresh": "kmrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "kimi_refresh_400",
+   "provider": "kimi-coding",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "bad_request"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "kmat-old",
+    "refresh": "kmrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "kimi_refresh_missing",
+   "provider": "kimi-coding",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.kimi.com/api/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "a"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "kmat-old",
+    "refresh": "kmrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "xai_login",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "xd-1",
+      "user_code": "XAI-77",
+      "verification_uri": "https://accounts.x.ai/device",
+      "verification_uri_complete": "https://accounts.x.ai/device?user_code=XAI-77",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 400,
+     "json": {
+      "error": "authorization_pending"
+     }
+    },
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 400,
+     "json": {
+      "error": "slow_down",
+      "interval": 7
+     }
+    },
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 200,
+     "json": {
+      "access_token": "xat-1",
+      "refresh_token": "xrt-1",
+      "expires_in": 3600
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_login_no_complete",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "xd-1",
+      "user_code": "XAI-77",
+      "verification_uri": "https://accounts.x.ai/device",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 200,
+     "json": {
+      "access_token": "xat-1",
+      "refresh_token": "xrt-1"
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_login_http_uri",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "xd-1",
+      "user_code": "XAI-77",
+      "verification_uri": "http://accounts.x.ai/device",
+      "verification_uri_complete": "https://accounts.x.ai/device?user_code=XAI-77",
+      "expires_in": 600,
+      "interval": 2
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_login_no_expires",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "xd-1",
+      "user_code": "XAI-77",
+      "verification_uri": "https://accounts.x.ai/device",
+      "verification_uri_complete": "https://accounts.x.ai/device?user_code=XAI-77",
+      "interval": 2
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_login_no_device_code",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "user_code": "XAI-77",
+      "verification_uri": "https://accounts.x.ai/device",
+      "verification_uri_complete": "https://accounts.x.ai/device?user_code=XAI-77",
+      "expires_in": 600,
+      "interval": 2
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_denied",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "xd-1",
+      "user_code": "XAI-77",
+      "verification_uri": "https://accounts.x.ai/device",
+      "verification_uri_complete": "https://accounts.x.ai/device?user_code=XAI-77",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 400,
+     "json": {
+      "error": "authorization_denied"
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_denied2",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "xd-1",
+      "user_code": "XAI-77",
+      "verification_uri": "https://accounts.x.ai/device",
+      "verification_uri_complete": "https://accounts.x.ai/device?user_code=XAI-77",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 400,
+     "json": {
+      "error": "access_denied"
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_expired",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "xd-1",
+      "user_code": "XAI-77",
+      "verification_uri": "https://accounts.x.ai/device",
+      "verification_uri_complete": "https://accounts.x.ai/device?user_code=XAI-77",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 400,
+     "json": {
+      "error": "expired_token"
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_unknown",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "xd-1",
+      "user_code": "XAI-77",
+      "verification_uri": "https://accounts.x.ai/device",
+      "verification_uri_complete": "https://accounts.x.ai/device?user_code=XAI-77",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 400,
+     "json": {
+      "error": "x",
+      "error_description": "y"
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_poll_no_refresh",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "xd-1",
+      "user_code": "XAI-77",
+      "verification_uri": "https://accounts.x.ai/device",
+      "verification_uri_complete": "https://accounts.x.ai/device?user_code=XAI-77",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 200,
+     "json": {
+      "access_token": "a"
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_device_400",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 400,
+     "json": {
+      "error": "invalid_client"
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_device_non_json",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 502,
+     "text": "<html>"
+    }
+   ]
+  },
+  {
+   "name": "xai_timeout",
+   "provider": "xai",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/device/code",
+     "status": 200,
+     "json": {
+      "device_code": "xd-1",
+      "user_code": "XAI-77",
+      "verification_uri": "https://accounts.x.ai/device",
+      "verification_uri_complete": "https://accounts.x.ai/device?user_code=XAI-77",
+      "expires_in": 600,
+      "interval": 250
+     }
+    },
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 400,
+     "json": {
+      "error": "authorization_pending"
+     }
+    }
+   ]
+  },
+  {
+   "name": "xai_refresh_rotated",
+   "provider": "xai",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 200,
+     "json": {
+      "access_token": "xat-2",
+      "refresh_token": "xrt-2",
+      "expires_in": 1800
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "xat-old",
+    "refresh": "xrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "xai_refresh_keep",
+   "provider": "xai",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 200,
+     "json": {
+      "access_token": "xat-3"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "xat-old",
+    "refresh": "xrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "xai_refresh_400",
+   "provider": "xai",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 400,
+     "json": {
+      "error": "invalid_grant",
+      "error_description": "expired"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "xat-old",
+    "refresh": "xrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "xai_refresh_bad_expires",
+   "provider": "xai",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://auth.x.ai/oauth2/token",
+     "status": 200,
+     "json": {
+      "access_token": "xat-3",
+      "expires_in": -5
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "xat-old",
+    "refresh": "xrt-1",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "meta_login",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "verification_uri_complete": "https://meta.com/device?c=META-5",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 400,
+     "json": {
+      "error": "authorization_pending"
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 400,
+     "json": {
+      "error": "slow_down",
+      "interval": 4
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 200,
+     "json": {
+      "access_token": "mid-identity-1"
+     }
+    },
+    {
+     "url": "https://api.meta.ai/muse-code/key",
+     "status": 200,
+     "json": {
+      "api_key": "mkey-1"
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_login_plain_uri",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 200,
+     "json": {
+      "access_token": "mid-identity-1"
+     }
+    },
+    {
+     "url": "https://api.meta.ai/muse-code/key",
+     "status": 200,
+     "json": {
+      "api_key": "mkey-1"
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_denied",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "verification_uri_complete": "https://meta.com/device?c=META-5",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 400,
+     "json": {
+      "error": "access_denied"
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_expired",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "verification_uri_complete": "https://meta.com/device?c=META-5",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 400,
+     "json": {
+      "error": "expired_token"
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_poll_error",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "verification_uri_complete": "https://meta.com/device?c=META-5",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 400,
+     "json": {
+      "error": "server_error",
+      "error_description": " oops "
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_poll_text",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "verification_uri_complete": "https://meta.com/device?c=META-5",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 502,
+     "text": "bad gateway"
+    }
+   ]
+  },
+  {
+   "name": "meta_auth_500",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 500,
+     "json": {
+      "message": "down"
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_auth_bad",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "x"
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_mint_401",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "verification_uri_complete": "https://meta.com/device?c=META-5",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 200,
+     "json": {
+      "access_token": "mid-identity-1"
+     }
+    },
+    {
+     "url": "https://api.meta.ai/muse-code/key",
+     "status": 401,
+     "json": {
+      "detail": "expired"
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_mint_500",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "verification_uri_complete": "https://meta.com/device?c=META-5",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 200,
+     "json": {
+      "access_token": "mid-identity-1"
+     }
+    },
+    {
+     "url": "https://api.meta.ai/muse-code/key",
+     "status": 500,
+     "json": {
+      "error": "x"
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_mint_nokey",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "verification_uri_complete": "https://meta.com/device?c=META-5",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 200,
+     "json": {
+      "access_token": "mid-identity-1"
+     }
+    },
+    {
+     "url": "https://api.meta.ai/muse-code/key",
+     "status": 200,
+     "json": {
+      "action_url": "https://meta.com/setup"
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_mint_nokey_plain",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "verification_uri_complete": "https://meta.com/device?c=META-5",
+      "interval": 1,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 200,
+     "json": {
+      "access_token": "mid-identity-1"
+     }
+    },
+    {
+     "url": "https://api.meta.ai/muse-code/key",
+     "status": 200,
+     "json": {}
+    }
+   ]
+  },
+  {
+   "name": "meta_timeout",
+   "provider": "meta",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://auth.meta.com/oidc/device/authorization/",
+     "status": 200,
+     "json": {
+      "device_code": "md-1",
+      "user_code": "META-5",
+      "verification_uri": "https://meta.com/device",
+      "verification_uri_complete": "https://meta.com/device?c=META-5",
+      "interval": 250,
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://auth.meta.com/oidc/device/token/",
+     "status": 400,
+     "json": {
+      "error": "authorization_pending"
+     }
+    }
+   ]
+  },
+  {
+   "name": "meta_refresh",
+   "provider": "meta",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://api.meta.ai/muse-code/key",
+     "status": 200,
+     "json": {
+      "api_key": "mkey-2"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "refresh": "mid-identity-1",
+    "access": "mkey-old",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "meta_refresh_403",
+   "provider": "meta",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://api.meta.ai/muse-code/key",
+     "status": 403,
+     "json": {
+      "message": "gone"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "refresh": "mid-identity-1",
+    "access": "mkey-old",
+    "expires": 1760099999000
+   }
+  },
+  {
+   "name": "meta_refresh_503",
+   "provider": "meta",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://api.meta.ai/muse-code/key",
+     "status": 503,
+     "text": ""
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "refresh": "mid-identity-1",
+    "access": "mkey-old",
+    "expires": 1760099999000
+   }
+  }
+ ]
+}
