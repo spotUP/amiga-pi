@@ -28,7 +28,28 @@ void pi_ext_payload_input(jw *b, const jw *text, const char *source, const char 
 /* SessionStartEvent */
 void pi_ext_payload_start(jw *b, const char *reason, const char *prev);
 
+/* UIPromptStartEvent / UIPromptEndEvent (types.ts:1014-1028): kind "select", "confirm", "input", "editor", "custom"; title 0: none */
+void pi_ext_payload_ui_prompt(jw *b, int start, const char *kind, const char *title);
+/* ModelSelectEvent (types.ts:1106): previous 0: undefined; source "set" or "cycle" */
+void pi_ext_payload_model_select(jw *b, const llm_model *m, const llm_model *previous, const char *source);
+/* ThinkingLevelSelectEvent (types.ts:1114) */
+void pi_ext_payload_thinking(jw *b, const char *level, const char *previous);
+/* SessionInfoChangedEvent (types.ts:750): name 0 is a cleared name (no key, as JSON.stringify drops undefined) */
+void pi_ext_payload_session_info(jw *b, const char *name);
+/* SessionShutdownEvent (types.ts:810): reason "quit", "reload", "new", "resume", "fork"; target 0: none */
+void pi_ext_payload_shutdown(jw *b, const char *reason, const char *target);
+/* SessionBeforeSwitchEvent (types.ts:757): reason "new" or "resume"; target 0: none */
+void pi_ext_payload_before_switch(jw *b, const char *reason, const char *target);
+/* SessionBeforeForkEvent (types.ts:764): position "before" or "at" */
+void pi_ext_payload_before_fork(jw *b, const char *entry_id, const char *position);
+/* ResourcesDiscoverEvent (types.ts:711) */
+void pi_ext_payload_resources(jw *b, const char *cwd, const char *reason);
+/* UserBashEvent (types.ts:1125) */
+void pi_ext_payload_user_bash(jw *b, const char *command, int exclude, const char *cwd);
+
 /* ---- decisions: the handler's answer as a JSON object ---- */
+/* the session_before_* results (types.ts:1474-1500): {"cancel":true} -> 1 */
+int pi_ext_decide_cancel(jv answer);
 /* tool_call: {"block":true,"reason":"..."} -> 1 (reason set, "" for pi's default words); {"input":{...}} replaces args
  * (a hook command cannot mutate the event in place). runner.ts emitToolCall, agent-loop.ts. */
 int pi_ext_decide_call(jv answer, jw *args, char *reason, long cap);

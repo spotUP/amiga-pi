@@ -1,0 +1,4 @@
+{"type":"bash_execution_update","id":"1","delta":"hi\n"}
+{"id":"1","type":"response","command":"bash","success":true,"data":{"output":"hi\n","exitCode":0,"cancelled":false,"truncated":false}}
+{"type":"bash_execution_update","id":"2","delta":"quiet\n"}
+{"id":"2","type":"response","command":"bash","success":true,"data":{"output":"quiet\n","exitCode":0,"cancelled":false,"truncated":false}}

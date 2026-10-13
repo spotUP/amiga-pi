@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "agent.h"
+#include "ext_events.h"
 #include "templates.h"
 #include "llm/transform.h"
 #include "llm/handoff.h"
@@ -34,6 +35,7 @@ void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_poo
     pi_emitter_init(&s->em);
     pi_exts_init(&s->ext);
     pi_subscribe(&s->em, pi_exts_event, &s->ext);
+    pi_ev_attach(s);
 }
 
 void pi_session_clear(pi_session *s)

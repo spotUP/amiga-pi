@@ -5,12 +5,14 @@
   "durationMs": "pi 1.1.0: ms measured per run (a message's request time, a tool's execute() time); the key and its place are compared, the value is not",
   "labelTimestamp": "made per run",
   "sessionFile": "pi names session files by time and uuid, ours by the session's own naming",
+  "targetSessionFile": "the same names, in session_shutdown and session_before_switch",
+  "previousSessionFile": "the same names, in session_start",
   "sections": "the system prompt is compared where it lives (test_pi_store, test_pi_resources); its text is amiga-pi's",
   "wall_time_seconds": "made per run",
   "estimatedTokensAfter": "counts the compacted context with its system message, whose text is amiga-pi's prompt"
  },
  "ids": {
-  "keys": ["id", "parentId", "sessionId", "leafId", "firstKeptEntryId", "targetId", "fromId"],
+  "keys": ["id", "parentId", "sessionId", "leafId", "firstKeptEntryId", "targetId", "fromId", "entryId", "messageEntryId", "toolResultEntryIds", "newLeafId", "oldLeafId"],
   "why": "a uuid or an 8-hex entry id is made per run; the fixed ids of the session fixtures start d000 and are compared"
  },
  "rules": {

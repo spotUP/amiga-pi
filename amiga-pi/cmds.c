@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "store.h"
+#include "ext_events.h"
 #include "resources.h"
 #include "compact.h"
 #include "export.h"
@@ -451,13 +452,17 @@ static void fork_list(pi_store *st, jw *reply)
 
 /* a new session from the branch ending at leaf; -1 a fork at the root: a new empty session with parentSession.
  * 0, or -1 with the reason in reply ("[ERROR] ...") */
-int pi_store_branch(pi_store *st, int leaf, jw *reply)
+int pi_store_branch(pi_store *st, int leaf, const char *entry_id, const char *position, jw *reply)
 {
     pi_s3 *s = &st->s3;
+    char prev[320];
+    if (pi_ev_before_fork(st->s, entry_id, position))   /* agent-session-runtime.ts fork: a handler may cancel */
+        return 1;
     if (s->persist && !s->flushed) {
         jw_rawz(reply, "[ERROR] This session has not been saved yet. Send a message before cloning or forking it.");
         return -1;
     }
+    cl_copy(prev, s->persist ? s->file : "", sizeof(prev));
     if (leaf < 0) {
         char old[320], dir[256], cwd[256];
         cl_copy(old, s->persist ? s->file : "", sizeof(old));
@@ -472,10 +477,14 @@ int pi_store_branch(pi_store *st, int leaf, jw *reply)
         jw_rawz(reply, s->err[0] ? s->err : "Failed to create forked session");
         return -1;
     }
-    if (pi_store_reload(st)) {
+    if (st->s)
+        pi_ev_shutdown(st->s, "fork", s->persist ? s->file : 0);        /* teardownCurrent("fork", the new session's file) */
+    if (pi_store_restore(st, leaf >= 0) || pi_store_reload(st)) {
         jw_rawz(reply, "[ERROR] the session could not be reloaded");
         return -1;
     }
+    if (st->s)
+        pi_exts_session_start(&st->s->ext, "fork", prev[0] ? prev : 0);
     return 0;
 }
 
@@ -561,7 +570,7 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
                 return 1;
             }
             message_text(s, pick, editor);
-            if (pi_store_branch(st, s->e[pick].parent, reply))
+            if (pi_store_branch(st, s->e[pick].parent, s3_id(s, pick), "before", reply))
                 return 1;
             jw_rawz(reply, "[INFO] Forked into a new session.");
         }
@@ -572,7 +581,7 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
             jw_rawz(reply, "[ERROR] Nothing to clone yet");
             return 1;
         }
-        if (pi_store_branch(st, s->leaf, reply))
+        if (pi_store_branch(st, s->leaf, s3_id(s, s->leaf), "at", reply))
             return 1;
         jw_rawz(reply, "[INFO] Cloned into a new session.");
         return 1;

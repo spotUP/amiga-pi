@@ -17,6 +17,9 @@
 /* the event as pi's JSON record (no line feed) appended to w: 1, or 0 when pi writes no record for it */
 int pi_json_event(const pi_session *s, const pi_event *e, jw *w);
 
+/* pi's Model object as JSON appended to w (RPC get_state / set_model, the model_select event) */
+void pi_model_json(const llm_model *m, jw *w);
+
 /* a listener that writes every event as a record on io (pi_subscribe it); u is a pi_jout */
 typedef struct pi_jout {
     pi_session *s;

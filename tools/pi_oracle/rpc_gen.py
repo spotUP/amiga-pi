@@ -296,6 +296,39 @@ sc('ext_events', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')],
    settings={'hooks': L_DUMP_HOOKS}, collect=['dump.jsonl'])
 
 
+# L7: the events beyond the first thirteen, dumped the same way (dump_ext: the TypeScript extension and the hook commands)
+def dump_ext(events):
+    return EXT_DUMP.replace(json.dumps(L_EVENTS), json.dumps(events))
+
+
+def dump_hooks(events):
+    return {e: hook('cat >> $CLAUDE_PROJECT_DIR/dump.jsonl') for e in events}
+
+
+L7_RUN = ['resources_discover', 'before_agent_start', 'context', 'context_with_system', 'message_update', 'turn_end',
+          'agent_before_settle', 'session_shutdown']
+sc('ext_ev_run', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')], ext=dump_ext(L7_RUN),
+   settings={'hooks': dump_hooks(L7_RUN)}, collect=['dump.jsonl'])
+L7_SESSION = ['session_start', 'session_before_switch', 'session_before_fork', 'session_shutdown', 'model_select',
+              'thinking_level_select', 'session_info_changed', 'user_bash', 'session_before_compact', 'session_compact',
+              'session_compact_failed', 'resources_discover']
+sc('ext_ev_model', steps=[('cmd', {'type': 'set_model', 'provider': 'fake', 'modelId': 'fake-think'}),
+                     ('cmd', {'type': 'set_thinking_level', 'level': 'high'}),
+                     ('cmd', {'type': 'set_session_name', 'name': 'my session'}),
+                     ('cmd', {'type': 'set_model', 'provider': 'fake', 'modelId': 'fake-model'}), ('cmd', {'type': 'cycle_thinking_level'})],
+   answers=[], session=True, ext=dump_ext(L7_SESSION), settings={'hooks': dump_hooks(L7_SESSION)}, collect=['dump.jsonl'])
+sc('ext_ev_fork', steps=[('cmd', {'type': 'fork', 'entryId': 'd0000006'}), ('cmd', {'type': 'clone'}), ('cmd', {'type': 'new_session'}),
+                    ('cmd', {'type': 'switch_session', 'sessionPath': 'other.jsonl'})],
+   answers=[], session='doc_branch', files={'other.jsonl': 'doc_branch'}, ext=dump_ext(L7_SESSION),
+   settings={'hooks': dump_hooks(L7_SESSION)}, collect=['dump.jsonl'])
+sc('ext_ev_compact', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('cmd', {'type': 'compact'})],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), A('## Goal\nSay hello.\n\n## Progress\nDone.', 40)],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}, 'hooks': dump_hooks(L7_SESSION)}, ext=dump_ext(L7_SESSION),
+   collect=['dump.jsonl'])
+sc('ext_ev_bash', steps=[('cmd', {'type': 'bash', 'command': 'echo hi'}), ('cmd', {'type': 'bash', 'command': 'echo quiet', 'excludeFromContext': True})],
+   answers=[], session=True, ext=dump_ext(L7_SESSION), settings={'hooks': dump_hooks(L7_SESSION)}, collect=['dump.jsonl'])
+
+
 def ext_one(event, body):
     return 'export default function (pi) { pi.on("%s", async (event) => { %s }); }\n' % (event, body)
 

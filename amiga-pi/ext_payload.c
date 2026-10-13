@@ -103,6 +103,105 @@ void pi_ext_payload_start(jw *b, const char *reason, const char *prev)
     jw_rawz(b, "}");
 }
 
+void pi_ext_payload_ui_prompt(jw *b, int start, const char *kind, const char *title)
+{
+    jw_rawz(b, start ? "{\"type\":\"ui_prompt_start\"" : "{\"type\":\"ui_prompt_end\"");
+    jw_rawz(b, ",\"reason\":\"ui_prompt\",\"kind\":");
+    jw_strz(b, kind);
+    if (title && title[0]) {
+        jw_rawz(b, ",\"title\":");
+        jw_strz(b, title);
+    }
+    jw_rawz(b, "}");
+}
+
+void pi_ext_payload_model_select(jw *b, const llm_model *m, const llm_model *previous, const char *source)
+{
+    jw_rawz(b, "{\"type\":\"model_select\",\"model\":");
+    pi_model_json(m, b);
+    if (previous) {
+        jw_rawz(b, ",\"previousModel\":");
+        pi_model_json(previous, b);
+    }
+    jw_rawz(b, ",\"source\":");
+    jw_strz(b, source);
+    jw_rawz(b, "}");
+}
+
+void pi_ext_payload_thinking(jw *b, const char *level, const char *previous)
+{
+    jw_rawz(b, "{\"type\":\"thinking_level_select\",\"level\":");
+    jw_strz(b, level);
+    jw_rawz(b, ",\"previousLevel\":");
+    jw_strz(b, previous);
+    jw_rawz(b, "}");
+}
+
+void pi_ext_payload_session_info(jw *b, const char *name)
+{
+    jw_rawz(b, "{\"type\":\"session_info_changed\"");
+    if (name) {
+        jw_rawz(b, ",\"name\":");
+        jw_strz(b, name);
+    }
+    jw_rawz(b, "}");
+}
+
+void pi_ext_payload_shutdown(jw *b, const char *reason, const char *target)
+{
+    jw_rawz(b, "{\"type\":\"session_shutdown\",\"reason\":");
+    jw_strz(b, reason);
+    if (target && target[0]) {
+        jw_rawz(b, ",\"targetSessionFile\":");
+        jw_strz(b, target);
+    }
+    jw_rawz(b, "}");
+}
+
+void pi_ext_payload_before_switch(jw *b, const char *reason, const char *target)
+{
+    jw_rawz(b, "{\"type\":\"session_before_switch\",\"reason\":");
+    jw_strz(b, reason);
+    if (target && target[0]) {
+        jw_rawz(b, ",\"targetSessionFile\":");
+        jw_strz(b, target);
+    }
+    jw_rawz(b, "}");
+}
+
+void pi_ext_payload_before_fork(jw *b, const char *entry_id, const char *position)
+{
+    jw_rawz(b, "{\"type\":\"session_before_fork\",\"entryId\":");
+    jw_strz(b, entry_id);
+    jw_rawz(b, ",\"position\":");
+    jw_strz(b, position);
+    jw_rawz(b, "}");
+}
+
+void pi_ext_payload_resources(jw *b, const char *cwd, const char *reason)
+{
+    jw_rawz(b, "{\"type\":\"resources_discover\",\"cwd\":");
+    jw_strz(b, cwd);
+    jw_rawz(b, ",\"reason\":");
+    jw_strz(b, reason);
+    jw_rawz(b, "}");
+}
+
+void pi_ext_payload_user_bash(jw *b, const char *command, int exclude, const char *cwd)
+{
+    jw_rawz(b, "{\"type\":\"user_bash\",\"command\":");
+    jw_strz(b, command);
+    jw_rawz(b, exclude ? ",\"excludeFromContext\":true,\"cwd\":" : ",\"excludeFromContext\":false,\"cwd\":");
+    jw_strz(b, cwd);
+    jw_rawz(b, "}");
+}
+
+int pi_ext_decide_cancel(jv o)
+{
+    jv v;
+    return o.p && json_get(o, "cancel", &v) && json_type(v) == J_TRUE;
+}
+
 int pi_ext_decide_call(jv o, jw *args, char *reason, long cap)
 {
     jv x;

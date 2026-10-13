@@ -51,6 +51,13 @@ typedef struct pi_ext_ui {
     void (*notify)(void *u, const char *message, const char *type);
 } pi_ext_ui;
 
+/* the answer of one handler to an event of the generic kind (pi_exts_emit): answer is the object the handler returned (p 0
+ * when it returned nothing or something else), after the event as the handler left it (only when pi_exts_emit was asked for
+ * PI_EMIT_INPLACE and the handler changed it; p 0 otherwise). The function applies it, may rewrite the payload the next
+ * handler is given, and answers 1 to end the dispatch (pi: a cancelling result, a handled input). */
+typedef int (*pi_ext_apply)(void *u, jv answer, jv after, jw *payload);
+#define PI_EMIT_INPLACE 1               /* handlers may change the event in place (pi's context, before_agent_start): read it back */
+
 /* pi_ext.rank: where pi_ext_add puts the extension (0: no rank, the end) */
 #define PI_EXT_HOOKS 1
 #define PI_EXT_LUA 2
@@ -78,6 +85,13 @@ typedef struct pi_ext {
     /* pi's SourceInfo of the extension for get_commands: its file, scope ("user", "project", "temporary") and baseDir;
      * 0 for a built-in */
     const char *path, *scope, *base_dir;
+    /* every event of pi's ExtensionEvent union the dedicated members above do not carry (message_update, turn_end, context,
+     * the session_* and model events ...): does the extension have a handler for pi's event type? */
+    int (*has)(void *u, const char *type);
+    /* the event delivered to every handler of the extension for type, one after the other, each given payload (pi's event
+     * object as JSON) as it stands after the one before; fn (0: answers are ignored) sees each handler's answer. 1 when fn
+     * ended the dispatch */
+    int (*emit)(void *u, const char *type, jw *payload, int flags, pi_ext_apply fn, void *fu);
 } pi_ext;
 
 /* a command an extension registered; name and description belong to the owner */
@@ -108,6 +122,12 @@ typedef struct pi_exts {
     int thrown;                 /* the tool itself failed: its result's details are {} when it has none */
     pi_ext_cmd cmd[PI_EXT_CMDS];
     int ncmd;
+    int prompt_depth;           /* dialogs open at once: ui_prompt_start / _end are told for the outermost only (runner.ts withUIPrompt) */
+    const char *cwd;            /* the working directory (resources_discover, user_bash carry it), "" until the mode sets it */
+    /* pi's bindExtensions goes on after session_start with resources_discover: called once per binding, after the
+     * extensions' session_start (RPC binds a replaced session twice, so twice) with the same reason */
+    void (*bound)(void *u, const char *reason);
+    void *bound_u;
 } pi_exts;
 
 void pi_exts_init(pi_exts *x);
@@ -131,5 +151,10 @@ void pi_exts_tool_result(pi_exts *x, const char *id, const char *name, const cha
 /* pi's emitInput: text rewritten by the extensions in order; 1 when one handled it (no run) */
 int pi_exts_input(pi_exts *x, jw *text);
 void pi_exts_session_start(pi_exts *x, const char *reason, const char *prev);
+/* does any extension handle pi's event type (so the payload is worth building)? */
+int pi_exts_has(const pi_exts *x, const char *type);
+/* pi's runner emit for the events without a dedicated member: the payload to each extension in list order (see pi_ext.emit and
+ * pi_ext_apply). 1 when an apply function ended the dispatch */
+int pi_exts_emit(pi_exts *x, const char *type, jw *payload, int flags, pi_ext_apply fn, void *fu);
 
 #endif

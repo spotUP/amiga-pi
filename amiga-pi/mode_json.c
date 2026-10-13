@@ -101,6 +101,36 @@ static int update_event(const pi_event *e, jw *w)
     return 1;
 }
 
+/* pi's Model object (types.ts Model): what get_state, set_model and the model events carry */
+void pi_model_json(const llm_model *m, jw *w)
+{
+    jw_rawz(w, "{\"id\":");
+    jw_strz(w, m->id);
+    jw_rawz(w, ",\"name\":");
+    jw_strz(w, m->name ? m->name : m->id);
+    jw_rawz(w, ",\"api\":");
+    jw_strz(w, m->api);
+    jw_rawz(w, ",\"provider\":");
+    jw_strz(w, m->provider);
+    jw_rawz(w, ",\"baseUrl\":");
+    jw_strz(w, m->base_url ? m->base_url : "");
+    jw_rawz(w, m->reasoning ? ",\"reasoning\":true" : ",\"reasoning\":false");
+    jw_rawz(w, m->image ? ",\"input\":[\"text\",\"image\"]" : ",\"input\":[\"text\"]");
+    jw_rawz(w, ",\"cost\":{\"input\":");
+    llm_w_micro(w, m->cost[0]);
+    jw_rawz(w, ",\"output\":");
+    llm_w_micro(w, m->cost[1]);
+    jw_rawz(w, ",\"cacheRead\":");
+    llm_w_micro(w, m->cost[2]);
+    jw_rawz(w, ",\"cacheWrite\":");
+    llm_w_micro(w, m->cost[3]);
+    jw_rawz(w, "},\"contextWindow\":");
+    jw_long(w, m->context_window);
+    jw_rawz(w, ",\"maxTokens\":");
+    jw_long(w, m->max_tokens);
+    jw_rawz(w, "}");
+}
+
 static const char *reason_name(int r)
 {
     return r == 0 ? "manual" : r == 1 ? "threshold" : "overflow";

@@ -6,6 +6,7 @@
 #include "lualib.h"
 #include "ext_lua.h"
 #include "ext_payload.h"
+#include "ext_events.h"
 #include "mcp.h"
 #include "claude/util.h"
 #include "claude/path.h"
@@ -536,6 +537,15 @@ static void ui_waited(pi_lua_ext *x, unsigned long t0)
     x->t0 += ui_clock(x) - t0;
 }
 
+/* a dialog opens or closes: ui_prompt_start / ui_prompt_end for the outermost one (runner.ts withUIPrompt) */
+static void prompt_event(pi_lua_ext *x, int start, const char *kind, const char *title)
+{
+    pi_exts *e = &x->host->s->ext;
+    if (start ? e->prompt_depth++ > 0 : --e->prompt_depth > 0)
+        return;
+    pi_ev_ui_prompt(x->host->s, start, kind, title);
+}
+
 /* ctx.ui.select(title, options, { timeout }) -> the chosen string, or nil (cancelled, timed out, no UI) */
 static int ui_select(lua_State *L)
 {
@@ -566,9 +576,11 @@ static int ui_select(lua_State *L)
     if (!value)
         return luaL_error(L, "not enough memory");
     value[0] = 0;
+    prompt_event(x, 1, "select", title);
     t0 = ui_clock(x);
     ok = ui->select(ui->u, title, opt, (int)n, ms, value, UI_VALUE);
     ui_waited(x, t0);
+    prompt_event(x, 0, "select", title);
     if (ok)
         lua_pushstring(L, value);
     else
@@ -587,9 +599,11 @@ static int ui_confirm(lua_State *L)
     unsigned long t0;
     int yes = 0;
     if (ui && ui->confirm) {
+        prompt_event(x, 1, "confirm", title);
         t0 = ui_clock(x);
         yes = ui->confirm(ui->u, title, message, ms);
         ui_waited(x, t0);
+        prompt_event(x, 0, "confirm", title);
     }
     lua_pushboolean(L, yes);
     return 1;
@@ -614,9 +628,11 @@ static int ui_input(lua_State *L)
     if (!value)
         return luaL_error(L, "not enough memory");
     value[0] = 0;
+    prompt_event(x, 1, "input", title);
     t0 = ui_clock(x);
     ok = ui->input(ui->u, title, ph, ms, value, UI_VALUE);
     ui_waited(x, t0);
+    prompt_event(x, 0, "input", title);
     if (ok)
         lua_pushstring(L, value);
     else
@@ -1536,6 +1552,73 @@ static void lx_session_start(void *u, const char *reason, const char *prev)
     settle(x, top);
 }
 
+/* ---- the other events (pi_ext.has / pi_ext.emit) ---- */
+
+static int lx_has(void *u, const char *type)
+{
+    pi_lua_ext *x = (pi_lua_ext *)u;
+    lua_State *L = x->L;
+    int has;
+    if (!L)
+        return 0;
+    lua_getfield(L, LUA_REGISTRYINDEX, K_HANDLERS);
+    lua_getfield(L, -1, type);
+    has = lua_type(L, -1) == LUA_TTABLE && lua_rawlen(L, -1) > 0;
+    lua_pop(L, 2);
+    return has;
+}
+
+static int lx_emit(void *u, const char *type, jw *payload, int flags, pi_ext_apply fn, void *fu)
+{
+    pi_lua_ext *x = (pi_lua_ext *)u;
+    lua_State *L = x->L;
+    long n, i;
+    int top, lidx, stop = 0;
+    jw before, after, r;
+    char err[300];
+    if (!L)
+        return 0;
+    top = lua_gettop(L);
+    n = handlers_of(L, type);
+    if (!n)
+        return 0;
+    lidx = lua_gettop(L);
+    jw_init(&before);
+    jw_init(&after);
+    jw_init(&r);
+    for (i = 1; i <= (long)lua_rawlen(L, lidx) && !stop; i++) {
+        jv ans, aft;
+        int eidx, inplace = (flags & PI_EMIT_INPLACE) != 0;
+        ans.p = aft.p = 0;
+        ans.n = aft.n = 0;
+        if (push_event(x, payload))
+            break;
+        eidx = lua_gettop(L);
+        jw_reset(&before);
+        if (inplace && enc_protected(L, eidx, &before, err, sizeof(err)))
+            inplace = 0;
+        if (call_one(x, lidx, i, eidx, 1, err, sizeof(err)) == 0) {
+            if (result_json(x, &r, &ans) <= 0)
+                ans.p = 0;
+            lua_pop(L, 1);
+        }
+        if (inplace) {
+            jw_reset(&after);
+            if (enc_protected(L, eidx, &after, err, sizeof(err)) == 0 &&
+                (after.n != before.n || memcmp(after.p, before.p, (size_t)after.n)) && json_parse(after.p, after.n, &aft))
+                aft.p = 0;
+        }
+        if (fn && (ans.p || aft.p) && fn(fu, ans, aft, payload))
+            stop = 1;
+        lua_settop(L, lidx);
+    }
+    jw_free(&before);
+    jw_free(&after);
+    jw_free(&r);
+    settle(x, top);
+    return stop;
+}
+
 /* ---- loading ---- */
 
 void pi_lua_init(pi_lua *h, pi_session *s, cl_sys *sys, const char *cwd, int trusted)
@@ -1601,6 +1684,8 @@ static int load_file(pi_lua *h, const char *path, const char *scope, const char 
     x->ext.tool_result = lx_tool_result;
     x->ext.input = lx_input;
     x->ext.session_start = lx_session_start;
+    x->ext.has = lx_has;
+    x->ext.emit = lx_emit;
     L = lua_newstate(l_alloc, x);
     if (!L) {
         CL_FREE(src);

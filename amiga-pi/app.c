@@ -3,6 +3,7 @@
 #include "themes_builtin.h"
 #include <string.h>
 #include "app.h"
+#include "ext_events.h"
 #include "args.h"
 #include "prompt.h"
 #include "ui_pi.h"
@@ -929,6 +930,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     }
     if (a.name[0])
         s3_session_info(&store.s3, a.name);
+    s.ext.cwd = pl->cwd;
     pi_exts_session_start(&s.ext, "startup", 0);       /* agent-session.ts bindExtensions: the extensions' session_start */
     rt->a = &a;
     rt->s = &s;
@@ -993,6 +995,7 @@ int pi_rt_run(pi_rt *rt)
 
 void pi_rt_close(pi_rt *rt)
 {
+    pi_ev_shutdown(&s, "quit", 0);                      /* main.ts at exit: the extensions are told before they are torn down */
     pi_store_free(&store);
     pi_session_free(&s);
     mcp_free(&mc);

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "models.h"
+#include "ext_events.h"
 #include "store.h"
 #include "claude/util.h"
 #include "claude/glob.h"
@@ -132,6 +133,7 @@ int pi_thinking_set(pi_models *m, pi_session *s, int level)
 {
     int eff = llm_think_clamp(&s->model, level);
     if (eff != s->thinking) {
+        const char *was = llm_think_name(s->thinking);
         if (m->store && pi_store_thinking(m->store, llm_think_name(eff)) < 0)
             return -1;          /* the level in effect is unchanged */
         s->thinking = eff;
@@ -142,6 +144,7 @@ int pi_thinking_set(pi_models *m, pi_session *s, int level)
             e.msg_n = (long)strlen(e.msg);
             pi_emit(&s->em, &e);
         }
+        pi_ev_thinking(s, llm_think_name(eff), was);        /* agent-session.ts setThinkingLevel: after thinking_level_changed */
     }
     return s->thinking;
 }
@@ -157,7 +160,8 @@ static int usable(pi_models *m, const llm_model *mo)
 /* pi's setModel (agent-session.js :1942): the level for the new model is the settings default, else the one the session has
  * (_getThinkingLevelForModelSwitch), clamped to the model. The session keeps its model and level when the session file
  * cannot take the entries. */
-int pi_model_switch_level(pi_models *m, pi_session *s, const llm_model *to, int explicit_level, char *err, long cap)
+int pi_model_switch_level(pi_models *m, pi_session *s, const llm_model *to, int explicit_level, const char *source, char *err,
+                          long cap)
 {
     char label[200];
     llm_model was = s->model;
@@ -179,12 +183,13 @@ int pi_model_switch_level(pi_models *m, pi_session *s, const llm_model *to, int 
         cl_copy(err, "the thinking level change could not be recorded", cap);
         return -1;
     }
+    pi_ev_model_select(s, to, &was, source);            /* agent-session.ts setModel / cycle: after the thinking level */
     return 0;
 }
 
 int pi_model_switch(pi_models *m, pi_session *s, const llm_model *to, char *err, long cap)
 {
-    return pi_model_switch_level(m, s, to, -1, err, cap);
+    return pi_model_switch_level(m, s, to, -1, "set", err, cap);
 }
 
 int pi_model_usable(pi_models *m, const llm_model *mo)
@@ -342,7 +347,7 @@ int pi_model_cycle(pi_models *m, pi_session *s, int dir, char *msg, long cap)
             cur = i;
     next = dir > 0 ? (cur + 1) % n : (cur - 1 + n) % n;
     to = &m->reg.m[idx[next]];
-    if (pi_model_switch_level(m, s, to, lv[next], err, sizeof(err))) {
+    if (pi_model_switch_level(m, s, to, lv[next], "cycle", err, sizeof(err))) {
         cl_copy(msg, err, cap);
         free(idx);
         return -1;

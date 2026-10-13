@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "store.h"
+#include "ext_events.h"
 #include "ansi.h"
 #include "compact.h"
 #include "models.h"
@@ -975,6 +976,8 @@ int pi_store_new_session(pi_store *st, const char *parent)
 {
     pi_s3 *s = &st->s3;
     char dir[256], cwd[256], prev[320];
+    if (pi_ev_before_switch(st->s, "new", 0))          /* agent-session-runtime.ts newSession: a handler may cancel */
+        return 1;
     cl_copy(dir, s->dir, sizeof(dir));
     cl_copy(cwd, s->cwd, sizeof(cwd));
     cl_copy(prev, s->file, sizeof(prev));
@@ -985,6 +988,7 @@ int pi_store_new_session(pi_store *st, const char *parent)
     st->resumed = 0;
     if (st->s) {
         pi_session *ag = st->s;
+        pi_ev_shutdown(ag, "new", s->persist ? s->file : 0);    /* teardownCurrent: the old session's extensions are told first */
         if (s3_model(s, ag->model.provider, ag->model.id) < 0 || s3_thinking(s, llm_think_name(ag->thinking)) < 0 ||
             pi_store_reload(st)) {
             cl_copy(st->err, "the new session could not be started", sizeof(st->err));
@@ -997,11 +1001,35 @@ int pi_store_new_session(pi_store *st, const char *parent)
     return 0;
 }
 
-int pi_store_switch(pi_store *st, const char *path)
+int pi_store_restore(pi_store *st, int existing)
+{
+    pi_session *ag = st->s;
+    char prov[64], id[128], lv[32];
+    if (!ag)
+        return 0;
+    if (!existing)              /* sdk.ts:454-458: a new session records its model and thinking level */
+        return s3_model(&st->s3, ag->model.provider, ag->model.id) < 0 ||
+               s3_thinking(&st->s3, llm_think_name(ag->thinking)) < 0 ? -1 : 0;
+    /* what pi restores from the session it opens: its model and its thinking level */
+    if (pi_store_model(st, prov, sizeof(prov), id, sizeof(id)) && st->models) {
+        const llm_model *f = llm_reg_find(&st->models->reg, prov, id);
+        if (f)
+            ag->model = *f;
+    }
+    if (pi_store_level(st, lv, sizeof(lv)))
+        ag->thinking = llm_think_clamp(&ag->model, llm_think_of(lv));
+    else if (s3_thinking(&st->s3, llm_think_name(ag->thinking)) < 0)    /* sdk.ts:450: older sessions get the level they run at */
+        return -1;
+    return 0;
+}
+
+int pi_store_switch(pi_store *st, const char *path, const char *given)
 {
     pi_s3 n;
     pi_session *ag = st->s;
-    char prov[64], id[128], lv[32], prev[320];
+    char prev[320];
+    if (pi_ev_before_switch(ag, "resume", given ? given : path))      /* switchSession: before it opens anything */
+        return 1;
     cl_copy(prev, st->s3.file, sizeof(prev));
     s3_init(&n, st->sys, st->s3.now, st->s3.u, st->s3.utc, st->s3.seed);
     cl_copy(n.cwd, st->cwd, sizeof(n.cwd));
@@ -1011,19 +1039,12 @@ int pi_store_switch(pi_store *st, const char *path)
         return -1;
     }
     st->resumed = st->sys->kind(st->sys->u, path) == 1;
+    pi_ev_shutdown(ag, "resume", path);                 /* teardownCurrent("resume", the opened session's file) */
     s3_free(&st->s3);
     st->s3 = n;
     if (!ag)
         return 0;
-    /* what pi restores from the session it opens: its model and its thinking level */
-    if (pi_store_model(st, prov, sizeof(prov), id, sizeof(id)) && st->models) {
-        const llm_model *f = llm_reg_find(&st->models->reg, prov, id);
-        if (f)
-            ag->model = *f;
-    }
-    if (pi_store_level(st, lv, sizeof(lv)))
-        ag->thinking = llm_think_clamp(&ag->model, llm_think_of(lv));
-    else if (st->resumed && s3_thinking(&st->s3, llm_think_name(ag->thinking)) < 0) {
+    if (pi_store_restore(st, st->resumed)) {
         cl_copy(st->err, "the session could not be recorded", sizeof(st->err));
         return -1;
     }
@@ -1047,6 +1068,7 @@ int pi_store_name(pi_store *st, const char *name)
         e.msg = name && name[0] ? name : 0;
         e.msg_n = name ? (long)strlen(name) : 0;
         pi_emit(&st->s->em, &e);
+        pi_ev_session_info(st->s, e.msg);               /* agent-session.ts:3944: after the session event */
     }
     return 0;
 }

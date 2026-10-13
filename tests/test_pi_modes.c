@@ -301,6 +301,27 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
                 jw_rawz(o, "\"*\"");
             else
                 m_val(val, 0, o, cwd);
+        } else if (in_list(key, &id_keys) && json_type(val) == J_ARR) {
+            /* a list of ids (turn_end's toolResultEntryIds) */
+            jit ai;
+            jv e;
+            int f2 = 1;
+            jw_rawz(o, "[");
+            json_iter(val, &ai);
+            while (json_next(&ai, 0, &e)) {
+                char id[64];
+                if (!f2)
+                    jw_rawz(o, ",");
+                f2 = 0;
+                id[0] = 0;
+                if (json_type(e) == J_STR)
+                    json_str(e, id, sizeof(id));
+                if (id[0] && fresh_id(id))
+                    jw_rawz(o, "\"*\"");
+                else
+                    m_val(e, 0, o, cwd);
+            }
+            jw_rawz(o, "]");
         } else if (!strcmp(key, "cost") && json_type(val) == J_OBJ && json_get(val, "total", &t))
             m_obj(val, F_COST, o, cwd);
         else if (!strcmp(key, "baseUrl") && json_type(val) == J_STR)
@@ -1829,7 +1850,7 @@ static void test_hooks_pi(void)
 {
     static const char *const names[] = { "ext_events", "ext_block_plain", "ext_mutate", "ext_matcher", "ext_result",
                                          "ext_input_transform", "ext_input_handled", "ext_rpc_prompt", "ext_rpc_handled",
-                                         "ext_rpc_new", 0 };
+                                         "ext_rpc_new", "ext_ev_model", "ext_ev_fork", 0 };
     group(names);
 }
 
@@ -1851,7 +1872,8 @@ static void test_lua_pi(void)
 {
     static const char *const names[] = { "ext_lua_events", "ext_lua_block_plain", "ext_lua_mutate", "ext_lua_matcher",
                                          "ext_lua_result", "ext_lua_input_transform", "ext_lua_input_handled",
-                                         "ext_lua_rpc_prompt", "ext_lua_rpc_handled", "ext_lua_rpc_new", 0 };
+                                         "ext_lua_rpc_prompt", "ext_lua_rpc_handled", "ext_lua_rpc_new", "ext_lua_ev_model",
+                                         "ext_lua_ev_fork", 0 };
     group(names);
 }
 

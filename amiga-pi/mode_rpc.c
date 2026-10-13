@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "mode_rpc.h"
+#include "ext_events.h"
 #include "mode_json.h"
 #include "export.h"
 #include "compact.h"
@@ -170,35 +171,6 @@ static int rpc_poll(void *u)
 
 /* ---- JSON pieces ---- */
 
-static void model_json(const llm_model *m, jw *w)
-{
-    jw_rawz(w, "{\"id\":");
-    jw_strz(w, m->id);
-    jw_rawz(w, ",\"name\":");
-    jw_strz(w, m->name ? m->name : m->id);
-    jw_rawz(w, ",\"api\":");
-    jw_strz(w, m->api);
-    jw_rawz(w, ",\"provider\":");
-    jw_strz(w, m->provider);
-    jw_rawz(w, ",\"baseUrl\":");
-    jw_strz(w, m->base_url ? m->base_url : "");
-    jw_rawz(w, m->reasoning ? ",\"reasoning\":true" : ",\"reasoning\":false");
-    jw_rawz(w, m->image ? ",\"input\":[\"text\",\"image\"]" : ",\"input\":[\"text\"]");
-    jw_rawz(w, ",\"cost\":{\"input\":");
-    llm_w_micro(w, m->cost[0]);
-    jw_rawz(w, ",\"output\":");
-    llm_w_micro(w, m->cost[1]);
-    jw_rawz(w, ",\"cacheRead\":");
-    llm_w_micro(w, m->cost[2]);
-    jw_rawz(w, ",\"cacheWrite\":");
-    llm_w_micro(w, m->cost[3]);
-    jw_rawz(w, "},\"contextWindow\":");
-    jw_long(w, m->context_window);
-    jw_rawz(w, ",\"maxTokens\":");
-    jw_long(w, m->max_tokens);
-    jw_rawz(w, "}");
-}
-
 /* v as a string into a malloc'ed copy (0 when it is not a string) */
 static char *str_of(jv obj, const char *key, long *n)
 {
@@ -233,7 +205,7 @@ static void state_json(pi_rpc *r, jw *w)
     pi_s3 *t = &r->st->s3;
     char nm[200];
     jw_rawz(w, "{\"model\":");
-    model_json(&s->model, w);
+    pi_model_json(&s->model, w);
     jw_rawz(w, ",\"thinkingLevel\":");
     jw_strz(w, llm_think_name(s->thinking));
     jw_rawz(w, s->active ? ",\"isStreaming\":true" : ",\"isStreaming\":false");
@@ -868,13 +840,15 @@ static void cmd_new_session(const cmd *c)
     pi_rpc *r = c->r;
     char *parent;
     long n;
+    int rc;
     if (busy(c))
         return;
     parent = str_of(c->obj, "parentSession", &n);
-    if (pi_store_new_session(r->st, parent))
+    rc = pi_store_new_session(r->st, parent);
+    if (rc < 0)
         fail(c, r->st->err);
     else
-        ok(c, "{\"cancelled\":false}");
+        ok(c, rc ? "{\"cancelled\":true}" : "{\"cancelled\":false}");
     free(parent);
 }
 
@@ -917,7 +891,7 @@ static void cmd_set_model(const cmd *c)
     else {
         jw d;
         jw_init(&d);
-        model_json(&r->s->model, &d);
+        pi_model_json(&r->s->model, &d);
         okw(c, &d);
         jw_free(&d);
     }
@@ -938,7 +912,7 @@ static void cmd_cycle_model(const cmd *c)
         jw d;
         jw_init(&d);
         jw_rawz(&d, "{\"model\":");
-        model_json(&r->s->model, &d);
+        pi_model_json(&r->s->model, &d);
         jw_rawz(&d, ",\"thinkingLevel\":");
         jw_strz(&d, llm_think_name(r->s->thinking));
         jw_rawz(&d, r->rt->models->scope ? ",\"isScoped\":true}" : ",\"isScoped\":false}");
@@ -958,7 +932,7 @@ static void cmd_get_available_models(const cmd *c)
         if (pi_model_usable(ms, &ms->reg.m[i])) {
             if (k++)
                 jw_rawz(&d, ",");
-            model_json(&ms->reg.m[i], &d);
+            pi_model_json(&ms->reg.m[i], &d);
         }
     jw_rawz(&d, "]}");
     okw(c, &d);
@@ -1141,14 +1115,16 @@ static void cmd_switch_session(const cmd *c)
     else {
         /* a relative path is the working directory's, as pi's process has it */
         char full[600];
+        int rc;
         if (path[0] != '/' && !strchr(path, ':') && !path_join(r->st->cwd, path, full, sizeof(full)))
             ;
         else
             cl_copy(full, path, sizeof(full));
-        if (pi_store_switch(r->st, full))
+        rc = pi_store_switch(r->st, full, path);
+        if (rc < 0)
             fail(c, r->st->err);
         else
-            ok(c, "{\"cancelled\":false}");
+            ok(c, rc ? "{\"cancelled\":true}" : "{\"cancelled\":false}");
     }
     free(path);
 }
@@ -1159,22 +1135,30 @@ static void cmd_fork(const cmd *c)
     pi_s3 *t = &r->st->s3;
     long n;
     char *id;
-    int idx;
+    int idx, rc;
     jw text, reply, d;
     if (busy(c))
         return;
     id = str_of(c->obj, "entryId", &n);
     idx = id ? s3_find(t, id) : -1;
-    free(id);
     if (idx < 0 || t->e[idx].type != S3_MESSAGE || t->e[idx].role != S3R_USER) {
-        fail(c, "Invalid entry ID for forking");
+        /* runtime.fork emits session_before_fork before it looks at the entry */
+        if (pi_ev_before_fork(r->s, id ? id : "", "before"))
+            ok(c, "{\"cancelled\":true}");
+        else
+            fail(c, "Invalid entry ID for forking");
+        free(id);
         return;
     }
+    free(id);
     jw_init(&text);
     jw_init(&reply);
     pi_user_text(t, idx, &text);
-    if (pi_store_branch(r->st, t->e[idx].parent, &reply))
+    rc = pi_store_branch(r->st, t->e[idx].parent, s3_id(t, idx), "before", &reply);
+    if (rc < 0)
         fail(c, reply.p && !strncmp(reply.p, "[ERROR] ", 8) ? reply.p + 8 : "Failed to fork");
+    else if (rc)
+        ok(c, "{\"cancelled\":true}");           /* result.selectedText is undefined: JSON.stringify leaves `text` out */
     else {
         jw_init(&d);
         jw_rawz(&d, "{\"text\":");
@@ -1191,6 +1175,7 @@ static void cmd_clone(const cmd *c)
 {
     pi_rpc *r = c->r;
     jw reply;
+    int rc;
     if (busy(c))
         return;
     if (r->st->s3.leaf < 0) {
@@ -1198,10 +1183,11 @@ static void cmd_clone(const cmd *c)
         return;
     }
     jw_init(&reply);
-    if (pi_store_branch(r->st, r->st->s3.leaf, &reply))
+    rc = pi_store_branch(r->st, r->st->s3.leaf, s3_id(&r->st->s3, r->st->s3.leaf), "at", &reply);
+    if (rc < 0)
         fail(c, reply.p && !strncmp(reply.p, "[ERROR] ", 8) ? reply.p + 8 : "Failed to clone");
     else
-        ok(c, "{\"cancelled\":false}");
+        ok(c, rc ? "{\"cancelled\":true}" : "{\"cancelled\":false}");
     jw_free(&reply);
 }
 
