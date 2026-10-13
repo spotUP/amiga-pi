@@ -69,4 +69,11 @@ int pi_ev_before_tree(pi_session *s, const char *target, const char *old_leaf, c
 /* summary_entry: the branch_summary entry's line (0 none); from_ext meaningful only with a summary */
 void pi_ev_tree(pi_session *s, const char *new_leaf, const char *old_leaf, const char *summary_entry, long summary_n, int from_ext);
 
+/* message_end (runner.ts emitMessageEnd): msg is the finished message. A handler may answer {message} with the same role to replace
+ * it: 1 and out holds the replacement (the last handler's), 0 untouched. Called in place of the generic event dispatch */
+int pi_ev_message_end(pi_session *s, const char *msg, long msg_n, jw *out);
+
+/* an extension's error (runner.ts emitError); without a mode's reporter the notice reads as interactive-mode.ts showExtensionError */
+void pi_ev_error(pi_session *s, const char *path, const char *event, const char *message);
+
 #endif

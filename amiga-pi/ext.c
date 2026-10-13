@@ -132,6 +132,7 @@ int pi_exts_tool_call(pi_exts *x, const char *id, const char *name, jw *args, ch
 {
     int i;
     x->calls++;
+    x->terminate = 0;
     for (i = 0; i < x->n; i++) {
         reason[0] = 0;
         if (x->e[i]->tool_call && x->e[i]->tool_call(x->e[i]->u, id, name, args, reason, cap)) {

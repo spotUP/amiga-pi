@@ -1,0 +1,21 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"message_end\", function(event, ctx)\n  if event.message.role == \"assistant\" then return { message = { role = \"user\", content = \"x\", timestamp = 1 } } end\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_msg_end_role"
+}

@@ -201,6 +201,31 @@ for name, lua in L5.items():
 
 # ---- L7: the handlers that edit in place or keep state (no hook-command twin); the golden is pi's run of the TypeScript one ----
 L7 = {
+    'ext_error_json': 'pi.on("input", function() error("boom", 0) end)\n',
+    'ext_error_rpc': 'pi.on("input", function() error("boom", 0) end)\n',
+    'ext_tool_usage': '''pi.registerTool({
+  name = "usagey", label = "usagey", description = "usagey tool.",
+  parameters = { type = "object", properties = {} },
+  execute = function(toolCallId, params, signal, onUpdate, ctx)
+    return { content = { { type = "text", text = "ok" } }, details = {}, terminate = true,
+             usage = { input = 5, output = 6, cacheRead = 0, cacheWrite = 0, totalTokens = 11,
+                       cost = { input = 0, output = 0, cacheRead = 0, cacheWrite = 0, total = 0 } } }
+  end,
+})
+pi.on("tool_result", function(event, ctx) print(json.encode(event)) end)
+pi.on("tool_execution_end", function(event, ctx) print(json.encode(event)) end)
+''',
+    'ext_msg_end': '''pi.on("message_end", function(event, ctx)
+  if event.message.role == "assistant" then
+    event.message.content = { { type = "text", text = "replaced" } }
+    return { message = event.message }
+  end
+end)
+''',
+    'ext_msg_end_role': '''pi.on("message_end", function(event, ctx)
+  if event.message.role == "assistant" then return { message = { role = "user", content = "x", timestamp = 1 } } end
+end)
+''',
     'ext_ctx_inplace': '''pi.on("context_with_system", function(event, ctx)
   for _, m in ipairs(event.messages) do
     if m.role == "user" then m.content[1].text = m.content[1].text .. " [seen]" end
@@ -228,6 +253,10 @@ for name, lua in L7.items():
     cfg = json.load(open(os.path.join(D, name + '.cfg.json')))
     cfg['golden'] = name
     cfg['text_files'] = dict(cfg.get('text_files', {}), **{'agent/extensions/t.lua': lua})
+    cfg['text_files'].pop('agent/extensions/t.ts', None)
+    if cfg.get('collect') and cfg['collect'][0] == 'dump.jsonl':
+        cfg['lua_dump'] = 'dump.jsonl'
+        cfg['canonical'] = True
     open(os.path.join(D, 'ext_lua_' + name[4:] + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
     print('wrote ext_lua_' + name[4:])
 

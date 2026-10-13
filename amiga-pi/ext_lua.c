@@ -1134,6 +1134,25 @@ static int lt_run(void *u, pi_session *s, const char *args, long an, jw *content
             return tool_fail(content, "the tool's content must be an array of blocks");
         }
     }
+    if (s) {
+        jw w;
+        char e2[200];
+        jw_init(&w);
+        lua_getfield(L, -1, "usage");
+        if (lua_istable(L, -1) && enc_to(L, -1, &w, e2, sizeof(e2)) == 0) {
+            jv uo;
+            jw_reset(&s->usage);
+            if (!json_parse(w.p, w.n, &uo) && json_type(uo) == J_OBJ)
+                pi_ext_usage_order(uo, &s->usage);
+            else
+                jw_raw(&s->usage, w.p, w.n);
+        }
+        lua_pop(L, 1);
+        jw_free(&w);
+        lua_getfield(L, -1, "terminate");
+        s->call_terminate = lua_toboolean(L, -1);           /* AgentToolResult.terminate: the batch may end the run */
+        lua_pop(L, 1);
+    }
     lua_getfield(L, -1, "isError");
     *is_error = lua_toboolean(L, -1);
     lua_pop(L, 1);
@@ -1164,6 +1183,7 @@ static int lx_command(void *u, int handle, const char *args)
         cl_copy(err, lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "the error value is not a string", sizeof(err));
         cl_copy(shown, "command:", sizeof(shown));
         cl_cat(shown, x->cmd[handle], sizeof(shown));
+        x->event = "command";
         ext_error_at(x, shown, err);
     }
     settle(x, top);
@@ -1259,11 +1279,9 @@ static void tell(pi_lua *h, const char *m)
 static void ext_error_at(pi_lua_ext *x, const char *shown, const char *msg)
 {
     char m[900];
-    cl_copy(m, "Extension \"", sizeof(m));
-    cl_cat(m, shown, sizeof(m));
-    cl_cat(m, "\" error: ", sizeof(m));
-    cl_cat(m, msg, sizeof(m) - 40);
-    tell(x->host, m);
+    cl_copy(m, msg, sizeof(m) - 40);
+    x->host->errors++;
+    pi_ev_error(x->host->s, shown, x->event ? x->event : "", m);       /* each mode tells it its own way */
 }
 
 static void ext_error(pi_lua_ext *x, const char *msg)
@@ -1372,6 +1390,7 @@ static void lx_event(void *u, const pi_event *e)
         return;
     top = lua_gettop(L);
     n = handlers_of(L, name);
+    x->event = name;
     if (!n)
         return;
     lidx = lua_gettop(L);
@@ -1404,6 +1423,7 @@ static int lx_tool_call(void *u, const char *id, const char *name, jw *args, cha
         return 0;
     top = lua_gettop(L);
     n = handlers_of(L, "tool_call");
+    x->event = "tool_call";
     if (!n)
         return 0;
     lidx = lua_gettop(L);
@@ -1439,7 +1459,7 @@ static int lx_tool_call(void *u, const char *id, const char *name, jw *args, cha
                 if (rc < 0) {
                     cl_copy(reason, "Extension failed, blocking execution: the result cannot be used", cap);
                     blocked = 1;
-                } else if (rc > 0 && pi_ext_decide_call(o, args, reason, cap))
+                } else if (rc > 0 && pi_ext_decide_call(o, args, reason, cap, &x->host->s->ext.terminate))
                     blocked = 1;
                 lua_pop(L, 1);
             }
@@ -1465,6 +1485,7 @@ static void lx_tool_result(void *u, const char *id, const char *name, const char
         return;
     top = lua_gettop(L);
     n = handlers_of(L, "tool_result");
+    x->event = "tool_result";
     if (!n)
         return;
     lidx = lua_gettop(L);
@@ -1501,6 +1522,7 @@ static int lx_input(void *u, const char *source, const char *streaming, jw *text
         return 0;
     top = lua_gettop(L);
     n = handlers_of(L, "input");
+    x->event = "input";
     if (!n)
         return 0;
     lidx = lua_gettop(L);
@@ -1537,6 +1559,7 @@ static void lx_session_start(void *u, const char *reason, const char *prev)
         return;
     top = lua_gettop(L);
     n = handlers_of(L, "session_start");
+    x->event = "session_start";
     if (!n)
         return;
     lidx = lua_gettop(L);
@@ -1580,6 +1603,7 @@ static int lx_emit(void *u, const char *type, jw *payload, int flags, pi_ext_app
         return 0;
     top = lua_gettop(L);
     n = handlers_of(L, type);
+    x->event = type;
     if (!n)
         return 0;
     lidx = lua_gettop(L);

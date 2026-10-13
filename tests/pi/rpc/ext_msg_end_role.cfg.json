@@ -1,0 +1,20 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "export default function (pi) { pi.on(\"message_end\", async (event) => { if (event.message.role === \"assistant\") return { message: { role: \"user\", content: \"x\", timestamp: 1 } }; }); }\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": []
+}

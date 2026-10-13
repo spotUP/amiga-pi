@@ -430,6 +430,12 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
             jw_rawz(w, ",\"details\":");
             jw_raw(w, e->details, e->details_n);
         }
+        if (e->usage_early) {                   /* the tool's own: where its result literal put them */
+            jw_rawz(w, ",\"usage\":");
+            jw_raw(w, e->usage, e->usage_n);
+        }
+        if (e->usage_early && e->terminate)
+            jw_rawz(w, ",\"terminate\":true");
         if (e->structured) {
             jw_rawz(w, ",\"structuredContent\":");
             jw_raw(w, e->structured, e->structured_n);
@@ -438,6 +444,12 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
             jw_rawz(w, ",\"isError\":true");
         if (e->thrown && !e->structured && !e->details)     /* a thrown error has details {}; bash's non-zero exit is a result */
             jw_rawz(w, ",\"details\":{}");
+        if (e->usage && !e->usage_early) {      /* a handler's {usage} and a block's terminate come last (agent-loop.ts) */
+            jw_rawz(w, ",\"usage\":");
+            jw_raw(w, e->usage, e->usage_n);
+        }
+        if (e->terminate && !e->usage_early)
+            jw_rawz(w, ",\"terminate\":true");
         jw_rawz(w, "}");
         put_key(w, "isError");
         jw_rawz(w, e->is_error ? "true" : "false");

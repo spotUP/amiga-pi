@@ -1866,8 +1866,74 @@ static void test_decisions(void)
                                          "ext_lua_ctx_rewrite", "ext_lua_ctx_inplace", "ext_lua_bas_message",
                                          "ext_lua_cancel_session", "ext_lua_cancel_compact", "ext_lua_compact_own",
                                          "ext_lua_bash_result", "ext_lua_settle_continue", "ext_lua_turn_entries",
-                                         "ext_lua_resources", "ext_lua_ev_ui", 0 };
+                                         "ext_lua_resources", "ext_lua_ev_ui", "ext_term_block", "ext_lua_term_block",
+                                         "ext_result_usage", "ext_lua_result_usage", "ext_lua_tool_usage", "ext_lua_msg_end",
+                                         "ext_lua_error_rpc", 0 };
     group(names);
+}
+
+/* a diagnostic line with this run's directories and pi's fixed ones written as <cwd> and <agent>, an extension's suffix as .<ext> */
+static void mask_diag(const char *text, jw *o)
+{
+    const char *from[4], *to[4];
+    int i, k;
+    from[0] = GOLD_CWD;
+    from[1] = GOLD_AGENT;
+    from[2] = proj;
+    from[3] = mask_agent;
+    to[0] = to[2] = "<cwd>";
+    to[1] = to[3] = "<agent>";
+    for (i = 0; text[i];) {
+        for (k = 0; k < 4; k++)
+            if (from[k][0] && !strncmp(text + i, from[k], strlen(from[k]))) {
+                jw_rawz(o, to[k]);
+                i += (int)strlen(from[k]);
+                break;
+            }
+        if (k < 4)
+            continue;
+        if (!strncmp(text + i, ".lua)", 5) || !strncmp(text + i, ".ts)", 4)) {
+            jw_rawz(o, ".<ext>)");
+            i += text[i + 1] == 'l' ? 5 : 4;
+            continue;
+        }
+        jw_raw(o, text + i++, 1);
+    }
+}
+
+/* L16: in print and json mode pi tells an extension's error on stderr, `Extension error (<path>): <message>` (print-mode.ts:101); the
+ * golden is pi's stderr (.err) with the path masked as the records' are */
+static void test_ext_error_stderr(void)
+{
+    static const char *const names[] = { "ext_lua_error_json", 0 };
+    int i;
+    for (i = 0; names[i]; i++) {
+        run_opts ro;
+        char *want;
+        long wn;
+        jw wm, gm;
+        if (getenv("PI_MODES_ONLY") && strcmp(getenv("PI_MODES_ONLY"), names[i]))
+            continue;
+        memset(&ro, 0, sizeof(ro));
+        ro.diag = 1;
+        CHECK(scenario(names[i], &ro));
+        want = slurp_rpc("ext_error_json", ".err", &wn);
+        CHECK(want != 0);
+        if (want) {
+            jw_init(&wm);
+            jw_init(&gm);
+            while (wn && (want[wn - 1] == '\n'))
+                want[--wn] = 0;
+            mask_diag(want, &wm);
+            mask_diag(diag_log, &gm);
+            CHECK(wm.p && gm.p && !strcmp(wm.p, gm.p));
+            if (!wm.p || !gm.p || strcmp(wm.p, gm.p))
+                printf("  stderr want %s\n  stderr got  %s\n", wm.p ? wm.p : "", gm.p ? gm.p : "");
+            jw_free(&wm);
+            jw_free(&gm);
+            free(want);
+        }
+    }
 }
 
 /* L1 reachability: pi_app -> the agent loop -> the hook dispatcher -> a hook command that blocks bash: the command ran
@@ -2002,6 +2068,7 @@ void suite_pi_modes(void)
     test_hooks_pi();
     test_hooks_reach();
     test_decisions();
+    test_ext_error_stderr();
     test_lua_pi();
     test_lua_reach();
     test_lua_register();

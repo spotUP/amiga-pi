@@ -47,12 +47,19 @@ void pi_ext_payload_resources(jw *b, const char *cwd, const char *reason);
 /* UserBashEvent (types.ts:1125) */
 void pi_ext_payload_user_bash(jw *b, const char *command, int exclude, const char *cwd);
 
+/* an object whose members are put in the order of `like` first (a replaced message keeps the order of the one it replaces, as a
+ * JavaScript object does), the members `like` lacks after them in their own order */
+void pi_ext_reorder(jv like, jv obj, jw *out);
+/* pi-ai's Usage object in its own member order (input, output, cacheRead, cacheWrite, totalTokens, cost{...}, then the rest), from
+ * an object a Lua table made with its keys sorted */
+void pi_ext_usage_order(jv usage, jw *out);
+
 /* ---- decisions: the handler's answer as a JSON object ---- */
 /* the session_before_* results (types.ts:1474-1500): {"cancel":true} -> 1 */
 int pi_ext_decide_cancel(jv answer);
-/* tool_call: {"block":true,"reason":"..."} -> 1 (reason set, "" for pi's default words); {"input":{...}} replaces args
+/* tool_call: {"block":true,"reason":"...","terminate":true} -> 1 (terminate: *terminate set; agent-loop.ts:747) (reason set, "" for pi's default words); {"input":{...}} replaces args
  * (a hook command cannot mutate the event in place). runner.ts emitToolCall, agent-loop.ts. */
-int pi_ext_decide_call(jv answer, jw *args, char *reason, long cap);
+int pi_ext_decide_call(jv answer, jw *args, char *reason, long cap, int *terminate);
 /* tool_result: content / details / structuredContent / isError each replace when given; content without
  * structuredContent drops the structured content (runner.ts emitToolResult) */
 void pi_ext_decide_result(jv answer, pi_exts *x, jw *content, int *is_error);

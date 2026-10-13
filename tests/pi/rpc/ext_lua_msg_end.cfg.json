@@ -1,0 +1,23 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"message_end\", function(event, ctx)\n  if event.message.role == \"assistant\" then\n    event.message.content = { { type = \"text\", text = \"replaced\" } }\n    return { message = event.message }\n  end\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "golden": "ext_msg_end"
+}

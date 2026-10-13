@@ -1,0 +1,23 @@
+{
+ "mode": "json",
+ "args": [
+  "use it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "import { appendFileSync } from \"node:fs\";\nexport default function (pi) {\n  for (const name of [\"tool_result\", \"tool_execution_end\"]) pi.on(name, async (event) => { appendFileSync(\"dump.jsonl\", JSON.stringify(event) + \"\\n\"); });\n  pi.registerTool({\n    name: \"usagey\", label: \"usagey\", description: \"usagey tool.\",\n    parameters: { type: \"object\", properties: {} },\n    async execute(toolCallId, params, signal, onUpdate, ctx) {\n      return { content: [{ type: \"text\", text: \"ok\" }], details: {}, usage: {\"input\": 5, \"output\": 6, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 11, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}, terminate: true };\n    },\n  });\n}\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl",
+  "session.jsonl"
+ ]
+}

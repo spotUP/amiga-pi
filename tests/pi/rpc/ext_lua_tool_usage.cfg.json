@@ -1,0 +1,26 @@
+{
+ "mode": "json",
+ "args": [
+  "use it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.registerTool({\n  name = \"usagey\", label = \"usagey\", description = \"usagey tool.\",\n  parameters = { type = \"object\", properties = {} },\n  execute = function(toolCallId, params, signal, onUpdate, ctx)\n    return { content = { { type = \"text\", text = \"ok\" } }, details = {}, terminate = true,\n             usage = { input = 5, output = 6, cacheRead = 0, cacheWrite = 0, totalTokens = 11,\n                       cost = { input = 0, output = 0, cacheRead = 0, cacheWrite = 0, total = 0 } } }\n  end,\n})\npi.on(\"tool_result\", function(event, ctx) print(json.encode(event)) end)\npi.on(\"tool_execution_end\", function(event, ctx) print(json.encode(event)) end)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl",
+  "session.jsonl"
+ ],
+ "golden": "ext_tool_usage",
+ "lua_dump": "dump.jsonl",
+ "canonical": true
+}

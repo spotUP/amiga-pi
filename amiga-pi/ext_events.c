@@ -210,13 +210,8 @@ static int bnd_finish(bnd *b, const char *type)
         if (!json_parse(b->entries.p, b->entries.n, &arr)) {
             json_iter(arr, &it);
             while (json_next(&it, 0, &d))
-                if (s->draft(s->boundary_u, s, d.p, d.n) < 0 && s->h.notice) {
-                    char m[200];
-                    cl_copy(m, "Extension \"<boundary>\" error: ", sizeof(m));
-                    cl_cat(m, type, sizeof(m));
-                    cl_cat(m, " draft entry not supported", sizeof(m));
-                    s->h.notice(s->h.u, m);
-                }
+                if (s->draft(s->boundary_u, s, d.p, d.n) < 0)
+                    pi_ev_error(s, "<boundary>", type, "Invalid boundary entries: this draft type is not supported");
         }
     }
     if (go && s->boundary) {
@@ -224,11 +219,9 @@ static int bnd_finish(bnd *b, const char *type)
         jw_init(&ctx);
         if (s->boundary(s->boundary_u, s, b->settle, 0, &ctx) == 0 && ctx.p && !strstr(ctx.p + (ctx.n > 24 ? ctx.n - 24 : 0), "\"canContinue\":true")) {
             char m[200];
-            cl_copy(m, "Extension \"<boundary>\" error: ", sizeof(m));
-            cl_cat(m, type, sizeof(m));
+            cl_copy(m, type, sizeof(m));
             cl_cat(m, " requested continuation without runnable model context", sizeof(m));
-            if (s->h.notice)
-                s->h.notice(s->h.u, m);
+            pi_ev_error(s, "<boundary>", type, m);
             go = 0;
         }
         jw_free(&ctx);
@@ -777,4 +770,99 @@ void pi_ev_tree(pi_session *s, const char *new_leaf, const char *old_leaf, const
     }
     jw_rawz(&p, "}");
     plain(s, "session_tree", &p);
+}
+
+/* ---- message_end ---- */
+
+typedef struct mend {
+    pi_session *s;
+    char role[24];
+    jw cur;
+    int changed;
+} mend;
+
+static void mend_payload(mend *m, jw *p)
+{
+    jw_reset(p);
+    jw_rawz(p, "{\"type\":\"message_end\",\"message\":");
+    jw_raw(p, m->cur.p, m->cur.n);
+    jw_rawz(p, "}");
+}
+
+static int mend_apply(void *u, jv answer, jv after, jw *payload)
+{
+    mend *m = (mend *)u;
+    jv v, r;
+    char role[24];
+    (void)after;
+    if (!answer.p || !json_get(answer, "message", &v) || json_type(v) != J_OBJ)
+        return 0;
+    role[0] = 0;
+    if (json_get(v, "role", &r) && json_type(r) == J_STR)
+        json_str(r, role, sizeof(role));
+    if (strcmp(role, m->role)) {
+        pi_ev_error(m->s, m->s->ext.current && m->s->ext.current->path ? m->s->ext.current->path : "", "message_end",
+                    "message_end handlers must return a message with the same role");
+        return 0;
+    }
+    {
+        /* a handler's message back from a hook command or a Lua table has its members sorted: they go back in the order of the
+         * message they replace, as a JavaScript object keeps them */
+        jw t;
+        jv was;
+        jw_init(&t);
+        if (!json_parse(m->cur.p, m->cur.n, &was) && json_type(was) == J_OBJ)
+            pi_ext_reorder(was, v, &t);
+        else
+            jw_raw(&t, v.p, v.n);
+        jw_reset(&m->cur);
+        jw_raw(&m->cur, t.p, t.n);
+        jw_free(&t);
+    }
+    m->changed = 1;
+    mend_payload(m, payload);
+    return 0;
+}
+
+int pi_ev_message_end(pi_session *s, const char *msg, long msg_n, jw *out)
+{
+    mend m;
+    jw p;
+    jv v, r;
+    int changed;
+    if (!s || !pi_exts_has(&s->ext, "message_end"))
+        return 0;
+    memset(&m, 0, sizeof(m));
+    m.s = s;
+    jw_init(&m.cur);
+    jw_raw(&m.cur, msg, msg_n);
+    if (!json_parse(msg, msg_n, &v) && json_get(v, "role", &r) && json_type(r) == J_STR)
+        json_str(r, m.role, sizeof(m.role));
+    jw_init(&p);
+    mend_payload(&m, &p);
+    if (!p.oom)
+        pi_exts_emit(&s->ext, "message_end", &p, 0, mend_apply, &m);
+    changed = m.changed && !m.cur.oom;
+    if (changed) {
+        jw_reset(out);
+        jw_raw(out, m.cur.p, m.cur.n);
+    }
+    jw_free(&m.cur);
+    jw_free(&p);
+    return changed;
+}
+
+void pi_ev_error(pi_session *s, const char *path, const char *event, const char *message)
+{
+    char m[900];
+    if (s->ext.report) {
+        s->ext.report(s->ext.report_u, path, event, message);
+        return;
+    }
+    cl_copy(m, "Extension \"", sizeof(m));
+    cl_cat(m, path, sizeof(m));
+    cl_cat(m, "\" error: ", sizeof(m));
+    cl_cat(m, message, sizeof(m));
+    if (s->h.notice)
+        s->h.notice(s->h.u, m);
 }

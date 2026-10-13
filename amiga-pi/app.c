@@ -631,6 +631,36 @@ static const char *pl_home(const pi_platform *pl)
     return home;
 }
 
+/* an extension's error, the way pi's mode tells it (runner.ts emitError; print-mode.ts:101: console.error `Extension error (<path>):
+ * <message>`, json mode alike; rpc-mode.ts:348: an extension_error record). Interactive mode has its own text (the notice). */
+static void ext_report(void *u, const char *path, const char *event, const char *msg)
+{
+    pi_rt *rt = (pi_rt *)u;
+    jw w;
+    if (rt->mode == PI_MODE_RPC) {
+        jw_init(&w);
+        jw_rawz(&w, "{\"type\":\"extension_error\",\"extensionPath\":");
+        jw_strz(&w, path);
+        jw_rawz(&w, ",\"event\":");
+        jw_strz(&w, event);
+        jw_rawz(&w, ",\"error\":");
+        jw_strz(&w, msg);
+        jw_rawz(&w, "}");
+        if (!w.oom && rt->io)
+            pi_jout_line(rt->io, w.p, w.n);
+        jw_free(&w);
+        return;
+    }
+    {
+        char line[1024];
+        cl_copy(line, "Extension error (", sizeof(line));
+        cl_cat(line, path, sizeof(line));
+        cl_cat(line, "): ", sizeof(line));
+        cl_cat(line, msg, sizeof(line));
+        diag_out(&rt->pl, line);
+    }
+}
+
 /* resources_discover's paths (see ext_discovered below) */
 static char ext_paths[2][8][300];
 static char ext_src[8][100], ext_base[8][300];
@@ -1001,6 +1031,10 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     if (a.name[0])
         s3_session_info(&store.s3, a.name);
     s.ext.cwd = pl->cwd;
+    if (rt->mode == PI_MODE_RPC || rt->mode == PI_MODE_JSON || a.print) {
+        s.ext.report = ext_report;
+        s.ext.report_u = rt;
+    }
     rt->trusted = trusted;
     s.ext.discovered = ext_discovered;
     s.ext.discovered_u = rt;

@@ -524,6 +524,34 @@ sc('ext_input_images', steps=[('send', P('read it', images=[IMG])), ('gate', 'tu
    answers=[R1(), SLOW(2, A('Read it.')), A('Left it is.')], model='fake-think', requests=True,
    ext=dump_ext(['input']), settings={'hooks': dump_hooks(['input'])}, collect=['dump.jsonl'])
 
+# L12: terminate (a blocked call, a tool's own result), usage (a tool's, a tool_result handler's), message_end's replacement
+sc('ext_term_block', mode='json', args=['run it'], answers=[L_BASH()],
+   ext=ext_one('tool_call', 'return { block: true, reason: "stop here", terminate: true };'),
+   settings={'hooks': {'tool_call': hook(say({'block': True, 'reason': 'stop here', 'terminate': True}))}})
+USAGE = {'input': 5, 'output': 6, 'cacheRead': 0, 'cacheWrite': 0, 'totalTokens': 11,
+         'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0, 'total': 0}}
+EXT_USAGE = ('import { appendFileSync } from "node:fs";\nexport default function (pi) {\n'
+             '  for (const name of ["tool_result", "tool_execution_end"]) pi.on(name, async (event) => { appendFileSync("dump.jsonl", JSON.stringify(event) + "\\n"); });\n'
+             + tool_def('usagey', '', '{ type: "object", properties: {} }',
+                        '      return { content: [{ type: "text", text: "ok" }], details: {}, usage: %s, terminate: true };' % json.dumps(USAGE))
+             + '}\n')
+sc('ext_tool_usage', mode='json', args=['use it'], answers=[TOOL('usagey', {})], text_files={'agent/extensions/t.ts': EXT_USAGE},
+   session=True, collect=['dump.jsonl', 'session.jsonl'])
+RU = {'usage': USAGE}
+sc('ext_result_usage', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')], session=True,
+   ext=ext_one('tool_result', 'return %s;' % json.dumps(RU)), settings={'hooks': {'tool_result': hook(say(RU))}},
+   collect=['session.jsonl'])
+sc('ext_msg_end', mode='json', args=['say hi'], answers=[A('Hi there.')], session=True,
+   ext=ext_one('message_end', 'if (event.message.role === "assistant") { event.message.content = [{ type: "text", text: "replaced" }]; return { message: event.message }; }'),
+   collect=['session.jsonl'])
+sc('ext_msg_end_role', mode='json', args=['say hi'], answers=[A('Hi there.')],
+   text_files={'agent/extensions/t.ts': ext_one('message_end', 'if (event.message.role === "assistant") return { message: { role: "user", content: "x", timestamp: 1 } };')})
+
+# L16: an extension handler that throws: pi 1.1.0 tells json and print mode on stderr (print-mode.ts:101) and RPC with an extension_error record
+THROW = {'agent/extensions/t.ts': 'export default function (pi) { pi.on("input", async () => { throw new Error("boom"); }); }\n'}
+sc('ext_error_json', mode='json', args=['say hi'], answers=[A('Hi there.')], text_files=THROW)
+sc('ext_error_rpc', steps=[('prompt', 'hello')], answers=[A('Hi there.')], text_files=THROW)
+
 
 # ---- L7: what handlers of the other events decide (hook-command twins answer with printf, the Lua twins are made from them) ----
 REWRITE = {'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': 'rewritten'}], 'timestamp': 1}]}
@@ -808,6 +836,8 @@ def run(name, s, keep):
                 with open(os.path.join(OUT, '%s.%d.http' % (name, i + 1)), 'w') as f:
                     f.write('HTTP/1.1 %d X\r\ncontent-type: application/json\r\ncontent-length: %d\r\n\r\n%s' % (a[1], len(a[2]), a[2]))
         if pi.err.strip():
+            with open(os.path.join(OUT, name + '.err'), 'wb') as f:      # L16: what pi wrote on stderr (extension errors in print and json mode)
+                f.write(pi.err)
             print('[WARN] %s: stderr: %s' % (name, pi.err.decode()[:300].strip()), file=sys.stderr)
         print('[OK] %s (%d lines)' % (name, len(out)))
     finally:

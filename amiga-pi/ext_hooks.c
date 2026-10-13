@@ -95,7 +95,6 @@ static int hk_of(int type)
     case PE_TURN_START: return HK_PI_TURN_START;
     case PE_MESSAGE_START: return HK_PI_MESSAGE_START;
     case PE_MESSAGE_UPDATE: return HK_PI_MESSAGE_UPDATE;
-    case PE_MESSAGE_END: return HK_PI_MESSAGE_END;
     case PE_TOOL_START: return HK_PI_TOOL_EXEC_START;
     case PE_TOOL_UPDATE: return HK_PI_TOOL_EXEC_UPDATE;
     case PE_TOOL_END: return HK_PI_TOOL_EXEC_END;
@@ -163,7 +162,7 @@ static int call_done(void *u, const cl_hook *kk, int st, long rc, const char *ou
     }
     if (!answer(out, n, &o))
         return 0;
-    if (pi_ext_decide_call(o, c->args, c->reason, c->cap)) {
+    if (pi_ext_decide_call(o, c->args, c->reason, c->cap, &c->k->s->ext.terminate)) {
         c->blocked = 1;
         return 1;
     }

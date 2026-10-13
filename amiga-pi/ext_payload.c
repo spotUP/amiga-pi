@@ -11,7 +11,6 @@ const char *pi_ext_event_name(int t)
     case PE_TURN_START: return "turn_start";
     case PE_MESSAGE_START: return "message_start";
     case PE_MESSAGE_UPDATE: return "message_update";
-    case PE_MESSAGE_END: return "message_end";
     case PE_TOOL_START: return "tool_execution_start";
     case PE_TOOL_UPDATE: return "tool_execution_update";
     case PE_TOOL_END: return "tool_execution_end";
@@ -95,7 +94,12 @@ void pi_ext_payload_result(jw *b, const pi_exts *x, const char *name, const char
         jw_rawz(b, ",\"structuredContent\":");
         jw_raw(b, x->structured->p, x->structured->n);
     }
-    jw_rawz(b, is_error ? ",\"isError\":true}" : ",\"isError\":false}");
+    jw_rawz(b, is_error ? ",\"isError\":true" : ",\"isError\":false");
+    if (x->usage && x->usage->n) {              /* types.ts ToolResultEvent: usage: result.usage */
+        jw_rawz(b, ",\"usage\":");
+        jw_raw(b, x->usage->p, x->usage->n);
+    }
+    jw_rawz(b, "}");
 }
 
 void pi_ext_payload_input(jw *b, const jw *text, const jw *images, const char *source, const char *streaming)
@@ -219,13 +223,125 @@ void pi_ext_payload_user_bash(jw *b, const char *command, int exclude, const cha
     jw_rawz(b, "}");
 }
 
+/* val in the member order of like where both are objects, element by element where both are arrays, as it is otherwise */
+static void reorder_val(jv like, jv val, jw *out)
+{
+    if (json_type(like) == J_OBJ && json_type(val) == J_OBJ) {
+        pi_ext_reorder(like, val, out);
+    } else if (json_type(like) == J_ARR && json_type(val) == J_ARR) {
+        jit il, iv;
+        jv el, ev;
+        int first = 1;
+        jw_rawz(out, "[");
+        json_iter(like, &il);
+        json_iter(val, &iv);
+        while (json_next(&iv, 0, &ev)) {
+            if (!first)
+                jw_rawz(out, ",");
+            first = 0;
+            if (json_next(&il, 0, &el))
+                reorder_val(el, ev, out);
+            else
+                jw_raw(out, ev.p, ev.n);
+        }
+        jw_rawz(out, "]");
+    } else
+        jw_raw(out, val.p, val.n);
+}
+
+void pi_ext_reorder(jv like, jv obj, jw *out)
+{
+    jit it, it2;
+    jv k, v, k2, v2;
+    int first = 1;
+    char name[80], name2[80];
+    jw_rawz(out, "{");
+    if (json_type(like) == J_OBJ) {
+        json_iter(like, &it);
+        while (json_next(&it, &k, &v)) {
+            json_str(k, name, sizeof(name));
+            if (json_get(obj, name, &v2)) {
+                if (!first)
+                    jw_rawz(out, ",");
+                first = 0;
+                jw_strz(out, name);
+                jw_rawz(out, ":");
+                reorder_val(v, v2, out);
+            }
+        }
+    }
+    json_iter(obj, &it2);
+    while (json_next(&it2, &k2, &v2)) {
+        json_str(k2, name2, sizeof(name2));
+        if (json_type(like) == J_OBJ && json_get(like, name2, &v))
+            continue;
+        if (!first)
+            jw_rawz(out, ",");
+        first = 0;
+        jw_strz(out, name2);
+        jw_rawz(out, ":");
+        jw_raw(out, v2.p, v2.n);
+    }
+    jw_rawz(out, "}");
+}
+
+void pi_ext_usage_order(jv usage, jw *out)
+{
+    static const char *const order[] = { "input", "output", "cacheRead", "cacheWrite", "totalTokens", "cost", 0 };
+    static const char *const cost[] = { "input", "output", "cacheRead", "cacheWrite", "total", 0 };
+    jit it;
+    jv k, v, c, x;
+    int i, first = 1, j;
+    char name[80];
+    jw_rawz(out, "{");
+    for (i = 0; order[i]; i++) {
+        if (!json_get(usage, order[i], &v))
+            continue;
+        if (!first)
+            jw_rawz(out, ",");
+        first = 0;
+        jw_strz(out, order[i]);
+        jw_rawz(out, ":");
+        if (!strcmp(order[i], "cost") && json_type(v) == J_OBJ) {
+            int cf = 1;
+            jw_rawz(out, "{");
+            for (j = 0; cost[j]; j++)
+                if (json_get(v, cost[j], &c)) {
+                    if (!cf)
+                        jw_rawz(out, ",");
+                    cf = 0;
+                    jw_strz(out, cost[j]);
+                    jw_rawz(out, ":");
+                    jw_raw(out, c.p, c.n);
+                }
+            jw_rawz(out, "}");
+        } else
+            jw_raw(out, v.p, v.n);
+    }
+    json_iter(usage, &it);
+    while (json_next(&it, &k, &x)) {
+        json_str(k, name, sizeof(name));
+        for (i = 0; order[i] && strcmp(order[i], name); i++)
+            ;
+        if (order[i])
+            continue;
+        if (!first)
+            jw_rawz(out, ",");
+        first = 0;
+        jw_strz(out, name);
+        jw_rawz(out, ":");
+        jw_raw(out, x.p, x.n);
+    }
+    jw_rawz(out, "}");
+}
+
 int pi_ext_decide_cancel(jv o)
 {
     jv v;
     return o.p && json_get(o, "cancel", &v) && json_type(v) == J_TRUE;
 }
 
-int pi_ext_decide_call(jv o, jw *args, char *reason, long cap)
+int pi_ext_decide_call(jv o, jw *args, char *reason, long cap, int *terminate)
 {
     jv x;
     if (json_get(o, "input", &x) && json_type(x) == J_OBJ) {
@@ -236,6 +352,8 @@ int pi_ext_decide_call(jv o, jw *args, char *reason, long cap)
         reason[0] = 0;
         if (json_get(o, "reason", &x) && json_type(x) == J_STR)
             json_str(x, reason, cap);
+        if (terminate && json_get(o, "terminate", &x) && json_type(x) == J_TRUE)
+            *terminate = 1;
         return 1;
     }
     return 0;
@@ -258,6 +376,10 @@ void pi_ext_decide_result(jv o, pi_exts *x, jw *content, int *is_error)
     if (json_get(o, "structuredContent", &v) && json_type(v) != J_NULL && x->structured) {
         jw_reset(x->structured);
         jw_raw(x->structured, v.p, v.n);
+    }
+    if (json_get(o, "usage", &v) && json_type(v) == J_OBJ && x->usage) {
+        jw_reset(x->usage);
+        pi_ext_usage_order(v, x->usage);
     }
     if (json_get(o, "isError", &v) && (json_type(v) == J_TRUE || json_type(v) == J_FALSE))
         *is_error = json_type(v) == J_TRUE;

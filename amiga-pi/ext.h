@@ -120,6 +120,8 @@ typedef struct pi_exts {
     /* the running tool's structured content and details, for a tool_result extension that replaces the content
      * (pi: structuredContent is dropped unless the handler returns it too); set by the loop, 0 outside it */
     jw *structured, *details;
+    jw *usage;                  /* the same call's result.usage (a JSON object): a tool_result handler's {usage} replaces it, 0 outside the loop */
+    int terminate;              /* the tool_call handler that blocked the call said terminate (ToolCallEventResult.terminate) */
     const pi_ext_ui *ui;        /* the mode's dialogs, 0 none (print, json): ctx.hasUI is ui != 0 */
     int turn;                   /* turn_start's turnIndex: 0 at agent_start, +1 after each turn_end (kept by pi_exts_event) */
     int thrown;                 /* the tool itself failed: its result's details are {} when it has none */
@@ -134,6 +136,10 @@ typedef struct pi_exts {
     /* resources_discover's answers: a skill or prompt template path an extension named (kind "skill" or "prompt"), then kind 0 once
      * when all of them are in, for the mode to read its resources again; 0: nobody reads them */
     void (*discovered)(void *u, const char *kind, const char *path, const struct pi_ext *from);
+    /* an extension's error (runner.ts emitError: path, event, message), told the way the mode tells it -- print and json mode on
+     * stderr, RPC as an extension_error record; 0: the session's notice carries pi's interactive text */
+    void (*report)(void *u, const char *path, const char *event, const char *message);
+    void *report_u;
     const struct pi_ext *current;       /* the extension pi_exts_emit is asking now (0 outside it) */
     void *discovered_u;
 } pi_exts;

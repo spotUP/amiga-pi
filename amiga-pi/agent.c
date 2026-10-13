@@ -34,6 +34,7 @@ void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_poo
     s->retry_max_delay = 60000;
     jw_init(&s->structured);
     jw_init(&s->details);
+    jw_init(&s->usage);
     pi_emitter_init(&s->em);
     pi_exts_init(&s->ext);
     pi_subscribe(&s->em, pi_exts_event, &s->ext);
@@ -111,6 +112,7 @@ void pi_session_free(pi_session *s)
     s->npend = 0;
     jw_free(&s->structured);
     jw_free(&s->details);
+    jw_free(&s->usage);
     free(s->sys);
     free(s->sys_n);
     free(s->sys_at);
@@ -258,6 +260,26 @@ int pi_session_push(pi_session *s, const char *json, long n)
     return keep(s, &w) < 0 ? -1 : 0;
 }
 
+/* message_end goes to the extensions through emitMessageEnd, which lets a handler replace the message (same role) before the
+ * listeners see it and the session saves it; every message end passes here (idx the conversation's index, -1 a message that is
+ * not in it: a system message, a custom message made elsewhere) */
+static void end_message(pi_session *s, pi_event *e, int idx)
+{
+    jw r;
+    jw_init(&r);
+    if (pi_ev_message_end(s, e->msg, e->msg_n, &r) && idx >= 0 && !r.oom) {
+        free(s->msg[idx]);
+        s->msg[idx] = r.p;
+        s->msg_n[idx] = r.n;
+        r.p = 0;
+        r.n = r.cap = 0;
+        e->msg = s->msg[idx];
+        e->msg_n = s->msg_n[idx];
+    }
+    jw_free(&r);
+    pi_emit(&s->em, e);
+}
+
 static void emit_msg(pi_session *s, int type, int i, int role)
 {
     pi_event e;
@@ -267,7 +289,10 @@ static void emit_msg(pi_session *s, int type, int i, int role)
         e.msg = s->msg[i];
         e.msg_n = s->msg_n[i];
     }
-    pi_emit(&s->em, &e);
+    if (type == PE_MESSAGE_END && i >= 0)
+        end_message(s, &e, i);
+    else
+        pi_emit(&s->em, &e);
 }
 
 static void emit_simple(pi_session *s, int type)
@@ -292,7 +317,10 @@ static void announce_system(pi_session *s)
             e.role = LR_SYSTEM;
             e.msg = s->sys[j];
             e.msg_n = s->sys_n[j];
-            pi_emit(&s->em, &e);
+            if (t == PE_MESSAGE_END)
+                end_message(s, &e, -1);
+            else
+                pi_emit(&s->em, &e);
         }
     }
 }
@@ -698,11 +726,12 @@ static void text_result(jw *content, const char *text)
 }
 
 /* one call through the extensions and the tool, its toolResult kept; 1 when the user stopped it */
-static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
+/* *terminate: this call finalized with terminate (agent-loop.ts shouldTerminateToolBatch asks every call of the batch) */
+static int run_call(pi_session *s, const llm_ablock *b, int length_stop, int *terminate)
 {
     pi_event e;
     jw args, content, m;
-    int is_error = 0, stopped = 0, i, thrown = -1;
+    int is_error = 0, stopped = 0, i, thrown = -1, early_usage = 0;
     long duration = -1;         /* pi-agent-core 1.1.0: the tool's execute() time; none when it did not run */
     char reason[256], what[160];
     pi_tool *t;
@@ -710,6 +739,9 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     jw_init(&content);
     jw_reset(&s->structured);
     jw_reset(&s->details);
+    jw_reset(&s->usage);
+    s->call_terminate = 0;
+    *terminate = 0;
     s->result_error = 0;
     if (b->a.n)
         jw_raw(&args, b->a.p, b->a.n);
@@ -742,6 +774,7 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     } else if (pi_exts_tool_call(&s->ext, b->id, b->name, &args, reason, sizeof(reason))) {
         text_result(&content, reason[0] ? reason : "Tool execution was blocked");
         is_error = 1;
+        *terminate = s->ext.terminate;
     } else if (s->h.poll && s->h.poll(s->h.u)) {
         text_result(&content, "Operation aborted");
         is_error = 1;
@@ -763,9 +796,13 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
         thrown = is_error && !s->result_error;  /* the tool's own failure: its result has details {}; an extension's isError does not */
         s->ext.structured = &s->structured;     /* a tool_result extension may replace them with the content */
         s->ext.details = &s->details;
+        s->ext.usage = &s->usage;
         s->ext.thrown = thrown;
+        *terminate = s->call_terminate;
+        early_usage = s->usage.n != 0;
         pi_exts_tool_result(&s->ext, b->id, b->name, args.p, args.n, &content, &is_error);
         s->ext.structured = s->ext.details = 0;
+        s->ext.usage = 0;
     }
     pi_event_init(&e, PE_TOOL_END);
     e.tool_id = b->id;
@@ -784,11 +821,31 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     e.details = s->details.n ? s->details.p : 0;
     e.details_n = s->details.n;
     e.duration_ms = duration;
+    e.usage = s->usage.n ? s->usage.p : 0;
+    e.usage_n = s->usage.n;
+    e.terminate = *terminate;
+    e.usage_early = early_usage;
     pi_emit(&s->em, &e);
     jw_init(&m);
     llm_m_toolresult(&m, b->id, b->name, content.p, content.n,
                      s->details.n ? s->details.p : thrown && !s->structured.n ? "{}" : 0,
                      s->details.n ? s->details.n : thrown && !s->structured.n ? 2 : 0, is_error, duration, now(s));
+    if (s->usage.n && m.p && !m.oom) {
+        /* the message's usage member sits between details and isError (agent-loop.ts createToolResultMessage); llm_m_toolresult
+         * (llm/, shared with C:Claude) has no parameter for it */
+        char *at = strstr(m.p, ",\"isError\":");
+        if (at) {
+            jw u;
+            long off = (long)(at - m.p);
+            jw_init(&u);
+            jw_raw(&u, m.p, off);
+            jw_rawz(&u, ",\"usage\":");
+            jw_raw(&u, s->usage.p, s->usage.n);
+            jw_raw(&u, m.p + off, m.n - off);
+            jw_free(&m);
+            m = u;
+        }
+    }
     i = keep(s, &m);
     jw_free(&m);
     if (i >= 0) {
@@ -1074,7 +1131,10 @@ int pi_session_custom(pi_session *s, const char *custom_type, const char *conten
                 e.role = PI_ROLE_CUSTOM;
                 e.msg = m.p;
                 e.msg_n = m.n;
-                pi_emit(&s->em, &e);
+                if (ty == PE_MESSAGE_END)
+                    end_message(s, &e, -1);
+                else
+                    pi_emit(&s->em, &e);
             }
             rc = 0;
         }
@@ -1280,7 +1340,7 @@ static int run(pi_session *s, const char *text, const char *images)
     for (round = 0; round < PI_ROUNDS; round++) {
         stream t;
         llm_info inf;
-        int k, n, stopped = 0, go;
+        int k, n, stopped = 0, go, batch_term = 0;
         if (round) {
             /* pi's prepareNextTurn (compaction) runs before the pending messages go in; steering typed meanwhile is
              * polled only when the turn's poll found nothing (one-at-a-time mode delivers one a turn) */
@@ -1317,8 +1377,14 @@ static int run(pi_session *s, const char *text, const char *images)
             return run_end(s, 1);
         }
         n = llm_acc_tools(&t.acc);
-        for (k = 0; k < n && !stopped; k++)
-            stopped = run_call(s, llm_acc_tool(&t.acc, k), inf.stop == LS_LENGTH);
+        {
+            int term, all_term = n > 0;
+            for (k = 0; k < n && !stopped; k++) {
+                stopped = run_call(s, llm_acc_tool(&t.acc, k), inf.stop == LS_LENGTH, &term);
+                all_term = all_term && term;
+            }
+            batch_term = all_term && !stopped;
+        }
         llm_acc_free(&t.acc);
         if (stopped) {
             s->stop = LS_ABORTED;
@@ -1329,7 +1395,7 @@ static int run(pi_session *s, const char *text, const char *images)
             return run_end(s, 0);               /* pi does not check a run the user stopped */
         /* steering is polled after the turn's tool calls and goes in at the next turn; the run goes on for it even
          * when the answer called no tool. When the run would stop, a follow-up does the same. */
-        if (poll_queue(s, 0) || n || go)
+        if (poll_queue(s, 0) || (n && !batch_term) || go)
             continue;
         if (poll_queue(s, 1))
             continue;

@@ -186,6 +186,8 @@ typedef struct pi_session {
     int run_msg0, run_sys0;     /* the conversation's size when the run began: agent_end's messages are what came after */
     int sys_seen;               /* the transcript's system messages announced as message events so far */
     jw structured;              /* the tool call running now: pi's structuredContent of its result (JSON), empty none */
+    jw usage;                   /* the same call's result.usage (a JSON object; a tool's own or a tool_result handler's), empty none */
+    int call_terminate;         /* the tool's result said terminate (AgentToolResult.terminate) */
     jw details;                 /* the same call's result.details (a JSON object: an MCP tool's server, tool, fullOutputPath), empty none */
     char err[256];              /* its errorMessage, or why the prompt stopped */
 } pi_session;
