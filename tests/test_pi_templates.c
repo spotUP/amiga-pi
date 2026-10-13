@@ -20,6 +20,7 @@
 #include "pi_stub.h"
 #include "../amiga-pi/app.h"
 #include "../amiga-pi/templates.h"
+#include "../amiga-pi/agent.h"
 
 static char root[400];
 static sys_posix sp;
@@ -403,6 +404,37 @@ static void test_reach(void)
     CHECK(sent("/nosuch a"));
 }
 
+/* J7: agent-session.ts _queueUserInput (2183-2192) expands a prompt template in a steering or follow-up message, as
+ * prompt() does; a name that is no template goes on as typed */
+static void test_queue(void)
+{
+    pi_tmpls ts;
+    llm_model model;
+    pi_session ses;
+    put("q1/agent/prompts/review.md", "Please review $1 with ${2:-nothing else}.");
+    memset(&model, 0, sizeof(model));
+    CHECK_INT(pi_tmpl_load(&ts, &sys, "", "", 0, 0, 0, 0), 0);
+    pi_tmpl_free(&ts);
+    {
+        char agent[400];
+        at(agent, sizeof(agent), "q1/agent");
+        CHECK_INT(pi_tmpl_load(&ts, &sys, agent, "", 0, 0, 0, 0), 0);
+    }
+    pi_session_init(&ses, &model, 0, 0, 0);
+    ses.templates = &ts;
+    CHECK_INT(pi_steer(&ses, "/review src"), 0);
+    CHECK_INT(ses.nsteer, 1);
+    CHECK(ses.nsteer == 1 && !strcmp(ses.steer[0], "Please review src with nothing else."));
+    CHECK_INT(pi_follow_up(&ses, "/review a b"), 0);
+    CHECK(ses.nfollow == 1 && !strcmp(ses.follow[0], "Please review a with b."));
+    CHECK_INT(pi_steer(&ses, "/nosuch a"), 0);
+    CHECK(ses.nsteer == 2 && !strcmp(ses.steer[1], "/nosuch a"));
+    CHECK_INT(pi_steer(&ses, "plain"), 0);
+    CHECK(ses.nsteer == 3 && !strcmp(ses.steer[2], "plain"));
+    pi_session_free(&ses);
+    pi_tmpl_free(&ts);
+}
+
 void suite_pi_templates(void)
 {
     const char *tmp = getenv("TMPDIR");
@@ -419,6 +451,7 @@ void suite_pi_templates(void)
     test_table();
     test_discover();
     test_reach();
+    test_queue();
     jw_free(&out);
     ps_reset();
     {

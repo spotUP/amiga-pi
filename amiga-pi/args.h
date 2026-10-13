@@ -50,6 +50,7 @@ typedef struct pi_args {
     int approve;                /* -a / --approve 1 trusts the project's .pi/ resources, -na / --no-approve 0, -1 ask */
     int version;                /* --version / -v: print PI_VERSION and exit 0, over every later check (pi main.ts:632) */
     int no_mcp;                 /* --no-mcp: no MCP servers this run (pi's flag) */
+    int no_extensions;          /* --no-extensions / -ne: the Lua extensions are not discovered (ext_lua.h) */
     int no_skills;              /* --no-skills / -ns: no skills but those of --skill (skills.h) */
     const char *skills[PI_ARG_SKILLS];  /* --skill <path>, repeatable: a skill file or a directory of them; pointers into argv */
     int nskills;

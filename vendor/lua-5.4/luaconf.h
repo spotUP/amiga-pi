@@ -43,6 +43,9 @@
 */
 /* amiga-pi: vbcc 68020 build (probe A5) */
 #define LUA_USE_C89
+/* amiga-pi (L3): the C stack is 32 KB ($STACK cookie, main_amiga.c); 200 nested C calls and parser levels (the default)
+** could use more than that, 60 is what a 68k frame budget allows. Not measured on the Amiga. */
+#define LUAI_MAXCCALLS 60
 
 
 /*

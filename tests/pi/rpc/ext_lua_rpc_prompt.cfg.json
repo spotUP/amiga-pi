@@ -1,0 +1,23 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"session_start\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"input\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"agent_start\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"turn_start\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"message_start\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"message_end\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"tool_call\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"tool_execution_start\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"tool_execution_update\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"tool_result\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"tool_execution_end\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"agent_end\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"agent_settled\", function(event, ctx)\n  print(json.encode(event))\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl"
+ ],
+ "golden": "ext_rpc_prompt",
+ "lua_dump": "dump.jsonl",
+ "canonical": true
+}

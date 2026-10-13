@@ -47,7 +47,7 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             i++;
         }
         else if (!strcmp(s, "--no-extensions") || !strcmp(s, "-ne"))
-            ;                   /* pi's flag: amiga-pi has no extension host to switch off */
+            a->no_extensions = 1;       /* pi: no extension discovery (ext_lua.h) */
         else if (!strcmp(s, "--mode")) {
             const char *v = i + 1 < argc ? argv[++i] : "";
             if (!strcmp(v, "text"))

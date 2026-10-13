@@ -15,6 +15,7 @@ void suite_pi_tui(void);
 void suite_pi_templates(void);
 void suite_pi_modes(void);
 void suite_pi_hooks(void);
+void suite_pi_lua(void);
 
 static const h_suite suites[] = {
     { "pi_agent", suite_pi_agent },
@@ -27,7 +28,8 @@ static const h_suite suites[] = {
     { "pi_tui", suite_pi_tui },
     { "pi_templates", suite_pi_templates },
     { "pi_modes", suite_pi_modes },
-    { "pi_hooks", suite_pi_hooks }
+    { "pi_hooks", suite_pi_hooks },
+    { "pi_lua", suite_pi_lua }
 };
 
 int pi_golden(const char *name, const char *got)

@@ -19,9 +19,13 @@ void pi_exts_event(void *u, const pi_event *e)
 {
     pi_exts *x = (pi_exts *)u;
     int i;
+    if (e->type == PE_AGENT_START)
+        x->turn = 0;
     for (i = 0; i < x->n; i++)
         if (x->e[i]->event)
             x->e[i]->event(x->e[i]->u, e);
+    if (e->type == PE_TURN_END)
+        x->turn++;
 }
 
 int pi_exts_tool_call(pi_exts *x, const char *id, const char *name, jw *args, char *reason, long cap)

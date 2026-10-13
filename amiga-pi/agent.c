@@ -866,16 +866,28 @@ static int queue_add(char **q, int *n, const char *text)
 
 /* pi's _expandSkillCommand, applied where pi_prompt, pi_steer and pi_follow_up take the text (agent-session.ts:2005-2010): the
  * text as typed, or the <skill> block in buf (buf is initialised here and freed by the caller) */
+/* agent-session.ts prompt() (2005-2010) and _queueUserInput (2183-2192): a skill command expands, then a prompt template's
+ * /name args; the one function for the prompt and for the queued messages. The text is returned as is when nothing expands. */
 static const char *expand_input(const pi_session *s, const char *text, jw *buf)
 {
+    jw tm;
     jw_init(buf);
     if (s->res && s->res->skills.n && !strncmp(text, "/skill:", 7) && pi_skill_expand(&s->res->skills, text, buf) == 1)
-        return buf->p;
+        text = buf->p;
+    if (s->templates && text[0] == '/') {
+        jw_init(&tm);
+        if (pi_tmpl_expand(s->templates, text, &tm) && !tm.oom && tm.p) {
+            jw_reset(buf);
+            jw_raw(buf, tm.p, tm.n);
+            text = buf->p;
+        }
+        jw_free(&tm);
+    }
     return text;
 }
 
 /* agent-session.ts _queueUserInput (2173-2199): the extensions' input event first (streamingBehavior "steer" or
- * "followUp"; "handled" queues nothing), then the skill command expands, then the message is queued */
+ * "followUp"; "handled" queues nothing), then the skill command and the prompt template expand, then the message is queued */
 static int queue_input(pi_session *s, const char *text, int follow)
 {
     jw t, ex;
@@ -1088,14 +1100,8 @@ static int prompt_run(pi_session *s, const char *typed)
         s->started = 0;
         f(s->started_u);
     }
-    if (s->templates && text && text[0] == '/') {
-        /* agent-session.ts prompt(): a prompt template's /name args becomes its body (after the skill commands) */
-        jw ex;
-        jw_init(&ex);
-        rc = pi_tmpl_expand(s->templates, text, &ex) && !ex.oom ? run(s, ex.p ? ex.p : "") : run(s, text);
-        jw_free(&ex);
-    } else
-        rc = run(s, text);
+    rc = run(s, text);
+    jw_free(&ex);
     /* a failed answer pi retries after its delay; a context overflow the store compacted is asked again at once, and
      * only once (the store keeps count: its second overflow ends the run, as pi's _overflowRecoveryAttempted) */
     for (;;) {

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ext_hooks.h"
+#include "ext_payload.h"
 #include "mode_json.h"
 #include "claude/util.h"
 
@@ -108,33 +109,10 @@ typedef struct hk_ev {
     const pi_event *e;
 } hk_ev;
 
-/* pi's payload of an agent event: the JSON mode's record (mode_json.c, the same shapes) except for turn_start (adds
- * turnIndex and timestamp) and agent_end (no willRetry: AgentEndEvent is {type, messages}) */
 static int build_event(hk_ctx *c)
 {
     hk_ev *v = (hk_ev *)c;
-    const pi_event *e = v->e;
-    pi_session *s = c->k->s;
-    if (e->type == PE_TURN_START) {
-        llm_ts t;
-        t.sec = 0;
-        t.ms = 0;
-        if (s->now)
-            t = s->now(s->h.u);
-        jw_rawz(&c->body, "{\"type\":\"turn_start\",\"turnIndex\":");
-        jw_long(&c->body, c->k->turn);
-        jw_rawz(&c->body, ",\"timestamp\":");
-        llm_w_ts(&c->body, t);                  /* the 13-digit milliseconds, in the 32 bits of a long too */
-        jw_rawz(&c->body, "}");
-        return 1;
-    }
-    if (e->type == PE_AGENT_END) {
-        jw_rawz(&c->body, "{\"type\":\"agent_end\",\"messages\":");
-        jw_raw(&c->body, e->result ? e->result : "[]", e->result ? e->result_n : 2);
-        jw_rawz(&c->body, "}");
-        return 1;
-    }
-    return pi_json_event(s, e, &c->body);
+    return pi_ext_payload_event(c->k->s, v->e, &c->body);
 }
 
 static int ev_done(void *u, const cl_hook *kk, int st, long rc, const char *out, long n)
@@ -152,8 +130,6 @@ static void hk_event(void *u, const pi_event *e)
 {
     pi_hooks *k = (pi_hooks *)u;
     int ev = hk_of(e->type);
-    if (e->type == PE_AGENT_START)
-        k->turn = 0;
     if (ev >= 0 && hooks_any(&k->h, ev, e->tool_name ? e->tool_name : "")) {
         hk_ev v;
         memset(&v, 0, sizeof(v));
@@ -164,28 +140,20 @@ static void hk_event(void *u, const pi_event *e)
         pi_hook_runs += hooks_run_raw(&k->h, ev, e->tool_name ? e->tool_name : "", hk_body, ev_done, &v);
         jw_free(&v.c.body);
     }
-    if (e->type == PE_TURN_END)
-        k->turn++;
 }
 
 /* ---- tool_call ---- */
 
 static int build_call(hk_ctx *c)
 {
-    jw_rawz(&c->body, "{\"type\":\"tool_call\",\"toolName\":");
-    jw_strz(&c->body, c->name);
-    jw_rawz(&c->body, ",\"toolCallId\":");
-    jw_strz(&c->body, c->id);
-    jw_rawz(&c->body, ",\"input\":");
-    jw_raw(&c->body, c->args->p ? c->args->p : "{}", c->args->p ? c->args->n : 2);
-    jw_rawz(&c->body, "}");
+    pi_ext_payload_call(&c->body, c->name, c->id, c->args);
     return 1;
 }
 
 static int call_done(void *u, const cl_hook *kk, int st, long rc, const char *out, long n)
 {
     hk_ctx *c = (hk_ctx *)u;
-    jv o, x;
+    jv o;
     if (bad(c, st, rc)) {
         /* pi: a handler that throws blocks the call with the error's message */
         failure(kk, st, rc, out, n, c->k->h.sys, c->reason, c->cap);
@@ -194,14 +162,7 @@ static int call_done(void *u, const cl_hook *kk, int st, long rc, const char *ou
     }
     if (!answer(out, n, &o))
         return 0;
-    if (json_get(o, "input", &x) && json_type(x) == J_OBJ) {
-        jw_reset(c->args);
-        jw_raw(c->args, x.p, x.n);
-    }
-    if (json_get(o, "block", &x) && json_type(x) == J_TRUE) {
-        c->reason[0] = 0;
-        if (json_get(o, "reason", &x) && json_type(x) == J_STR)
-            json_str(x, c->reason, c->cap);
+    if (pi_ext_decide_call(o, c->args, c->reason, c->cap)) {
         c->blocked = 1;
         return 1;
     }
@@ -232,26 +193,7 @@ static int hk_tool_call(void *u, const char *id, const char *name, jw *args, cha
 
 static int build_result(hk_ctx *c)
 {
-    const pi_exts *x = &c->k->s->ext;
-    int details = x->details && x->details->n, structured = x->structured && x->structured->n;
-    jw_rawz(&c->body, "{\"type\":\"tool_result\",\"toolName\":");
-    jw_strz(&c->body, c->name);
-    jw_rawz(&c->body, ",\"toolCallId\":");
-    jw_strz(&c->body, c->id);
-    jw_rawz(&c->body, ",\"input\":");
-    jw_raw(&c->body, c->args_p && c->args_n ? c->args_p : "{}", c->args_p && c->args_n ? c->args_n : 2);
-    jw_rawz(&c->body, ",\"content\":");
-    jw_raw(&c->body, c->content->p ? c->content->p : "[]", c->content->p ? c->content->n : 2);
-    if (details) {
-        jw_rawz(&c->body, ",\"details\":");
-        jw_raw(&c->body, x->details->p, x->details->n);
-    } else if (x->thrown && !structured)
-        jw_rawz(&c->body, ",\"details\":{}");      /* a thrown error's result has details {} (mode_json.c) */
-    if (structured) {
-        jw_rawz(&c->body, ",\"structuredContent\":");
-        jw_raw(&c->body, x->structured->p, x->structured->n);
-    }
-    jw_rawz(&c->body, *c->is_error ? ",\"isError\":true}" : ",\"isError\":false}");
+    pi_ext_payload_result(&c->body, &c->k->s->ext, c->name, c->id, c->args_p, c->args_n, c->content, *c->is_error);
     return 1;
 }
 
@@ -259,7 +201,7 @@ static int result_done(void *u, const cl_hook *kk, int st, long rc, const char *
 {
     hk_ctx *c = (hk_ctx *)u;
     pi_exts *x = &c->k->s->ext;
-    jv o, v;
+    jv o;
     if (bad(c, st, rc)) {
         char m[400];
         failure(kk, st, rc, out, n, c->k->h.sys, m, sizeof(m));
@@ -268,23 +210,7 @@ static int result_done(void *u, const cl_hook *kk, int st, long rc, const char *
     }
     if (!answer(out, n, &o))
         return 0;
-    if (json_get(o, "content", &v) && json_type(v) == J_ARR) {
-        jw_reset(c->content);
-        jw_raw(c->content, v.p, v.n);
-        /* pi: structured content that is not replaced along with the content may no longer match it */
-        if (x->structured && !json_get(o, "structuredContent", &v))
-            jw_reset(x->structured);
-    }
-    if (json_get(o, "details", &v) && json_type(v) != J_NULL && x->details) {
-        jw_reset(x->details);
-        jw_raw(x->details, v.p, v.n);
-    }
-    if (json_get(o, "structuredContent", &v) && json_type(v) != J_NULL && x->structured) {
-        jw_reset(x->structured);
-        jw_raw(x->structured, v.p, v.n);
-    }
-    if (json_get(o, "isError", &v) && (json_type(v) == J_TRUE || json_type(v) == J_FALSE))
-        *c->is_error = json_type(v) == J_TRUE;
+    pi_ext_decide_result(o, x, c->content, c->is_error);
     return 0;
 }
 
@@ -313,40 +239,25 @@ static void hk_tool_result(void *u, const char *id, const char *name, const char
 
 static int build_input(hk_ctx *c)
 {
-    jw_rawz(&c->body, "{\"type\":\"input\",\"text\":");
-    jw_str(&c->body, c->text->p ? c->text->p : "", c->text->p ? c->text->n : 0);
-    jw_rawz(&c->body, ",\"source\":");
-    jw_strz(&c->body, c->source);
-    if (c->streaming) {
-        jw_rawz(&c->body, ",\"streamingBehavior\":");
-        jw_strz(&c->body, c->streaming);
-    }
-    jw_rawz(&c->body, "}");
+    pi_ext_payload_input(&c->body, c->text, c->source, c->streaming);
     return 1;
 }
 
 static int input_done(void *u, const cl_hook *kk, int st, long rc, const char *out, long n)
 {
     hk_ctx *c = (hk_ctx *)u;
-    jv o, v;
-    char *t;
-    long tn;
+    jv o;
     if (bad(c, st, rc)) {
         char m[400];
         failure(kk, st, rc, out, n, c->k->h.sys, m, sizeof(m));
         told(c->k, m);
         return 0;
     }
-    if (!answer(out, n, &o) || !json_get(o, "action", &v))
+    if (!answer(out, n, &o))
         return 0;
-    if (json_streq(v, "handled")) {
+    if (pi_ext_decide_input(o, c->text)) {
         c->handled = 1;
         return 1;
-    }
-    if (json_streq(v, "transform") && json_get(o, "text", &v) && (t = json_strdup(v, &tn)) != 0) {
-        jw_reset(c->text);
-        jw_raw(c->text, t, tn);
-        free(t);
     }
     return 0;
 }
@@ -373,13 +284,7 @@ static int hk_input(void *u, const char *source, const char *streaming, jw *text
 
 static int build_start(hk_ctx *c)
 {
-    jw_rawz(&c->body, "{\"type\":\"session_start\",\"reason\":");
-    jw_strz(&c->body, c->source);
-    if (c->name) {
-        jw_rawz(&c->body, ",\"previousSessionFile\":");
-        jw_strz(&c->body, c->name);
-    }
-    jw_rawz(&c->body, "}");
+    pi_ext_payload_start(&c->body, c->source, c->name);
     return 1;
 }
 

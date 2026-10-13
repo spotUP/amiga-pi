@@ -1,0 +1,22 @@
+{
+ "mode": "json",
+ "args": [
+  "run it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"tool_result\", function(event, ctx)\n  return json.decode(\"{\\\"content\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"redacted\\\"}],\\\"isError\\\":true}\")\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_result"
+}
