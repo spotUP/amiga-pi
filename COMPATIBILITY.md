@@ -4,7 +4,7 @@ Sources: pi 1.0.4 (tag v1.0.4, commit 7c10bd4337495ee613f2224843ecdf349b80d1df, 
 
 Decision D3: the pi `bash` tool is named `bash` and runs `vsh -c` (AmigaDOS Shell fallback). `shell` in older plan text is superseded.
 
-Rows per group (262 total, counted from the tables by script: the lines starting with `|` minus each table's header and `|---` separator; Phase L1 added the extension events table): pi-ai 32; pi-agent-core 6; pi-coding-agent 15; pi-tui 33; sessions 27; tools 7; extensions 20; extension events 41; skills 12; prompt templates 6; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 28; pi-modes 18.
+Rows per group (265 total, counted from the tables by script: the lines starting with `|` minus each table's header and `|---` separator; Phase L1 added the extension events table, L3 three extension rows): pi-ai 32; pi-agent-core 6; pi-coding-agent 15; pi-tui 33; sessions 27; tools 7; extensions 23; extension events 41; skills 12; prompt templates 6; themes 3; RPC 12; JSON mode 1; SDK 1; MCP 28; pi-modes 18.
 
 
 ## pi-ai
@@ -163,11 +163,11 @@ Phase E (2026-10-11). Every row below was compared with pi's own code: `tools/pi
 
 | pi concept | Amiga implementation | status | phase item |
 |---|---|---|---|
-| Loading (TS via jiti in pi) | Lua 5.4 script loaded by the embedded interpreter (decision D4) | planned (different language) | L |
-| Event group: session_* | ext.h table; session_start by hook commands (L1) | partial: session_start done | L7 |
-| Event group: agent/turn/message | ext.h table; hook commands (L1) | partial: see the extension events table | L7 |
-| Event group: tool_call (block, mutate), tool_result (replace) | amiga-pi/ext.c for built-in C extensions (C3), hook commands (ext_hooks.c); Lua in L3; carries the gate | partial (C, L1): hooks done, Lua later | L3, D6 |
-| Event group: input, user_bash | ext.h table; input by hook commands (L1) | partial: input done, user_bash later | L7 |
+| Loading (TS via jiti in pi) | Lua 5.4 files (decision D4; amiga-pi/ext_lua.c, vendor/lua-5.4): `<agent dir>/extensions/*.lua` (and the data dir's), `<name>/index.lua` in a directory, in name order, after `<cwd>/.pi/extensions` which is read only when the project is trusted (loader.ts discoverAndLoadExtensions: project, then global); the file is the factory, `pi` is its global and first argument; `--no-extensions`/`-ne` skips discovery. Each file is its own Lua state and its own entry in the one dispatch list (hook commands, Lua in load order, the gate). No `-e <path>`, no packages, no `/reload` | partial: pi.on only (L3); a different language by decision | L3, L4 |
+| Event group: session_* | ext.h table; session_start by hook commands (L1) and Lua `pi.on` (L3) | partial: session_start done | L7 |
+| Event group: agent/turn/message | ext.h table; hook commands (L1), Lua `pi.on` (L3, the same payloads: ext_payload.c) | partial: see the extension events table | L7 |
+| Event group: tool_call (block, mutate), tool_result (replace) | amiga-pi/ext.c for built-in C extensions (C3), hook commands (ext_hooks.c), Lua (ext_lua.c, L3: `{block = true, reason}` returned, `event.input` changed in place and written back after each handler, a throwing handler blocks with its message as pi's _beforeToolCall; tool_result returns `{content, details, structuredContent, isError}`); carries the gate | done for block, mutate and replace (C, L1, L3) | L3, D6 |
+| Event group: input, user_bash | ext.h table; input by hook commands (L1) and Lua (L3: `{action = "transform", text}`, `{action = "handled"}`) | partial: input done, user_bash later | L7 |
 | Event group: context, before_agent_start | ext.h table | planned | L |
 | Event group: model_select, thinking_level_select, provider_stream_event | ext.h table | planned | L |
 | Event group: project_trust, resources_discover, mcp_servers_change | ext.h table | planned | L |
@@ -181,12 +181,15 @@ Phase E (2026-10-11). Every row below was compared with pi's own code: `tools/pi
 | Actions sendMessage / sendUserMessage / appendEntry / setLabel / exec / get-set model | function table entries | planned | L |
 | ctx.ui calls (notify, confirm, select, input, status, widgets) | text-mode implementations over the TUI | partial: text prompts only | L |
 | Hook commands (claude/hooks.c mechanism) | amiga-pi/ext_hooks.c over vtcon claude/hooks.c's runner (hooks_run_raw: `<cmd> < <event file>`, JSON decision on the output); settings.json `hooks` keyed by pi's event names; user settings only (a project's hooks wait for the trust-gated discovery, L3); pi 1.1.0 has no hook commands, only TypeScript extensions, so the configuration and the answer format ("block", "input", "content", "action") are amiga-pi's, the events and the handler results pi's; one ordered list with the gate (hooks first) | done (L1, L2) | L1, L2 |
+| Extension error isolation | A load error is told as pi's main.ts:802 does (`Failed to load extension "<path>": Failed to load extension: <message>`) and the file is left out; a handler error as interactive-mode.ts showExtensionError (`Extension "<path>" error: <message>`) and the extension is DISABLED for the rest of the session (pi keeps calling a handler that threw, once per event); the session goes on. Lua's messages carry its own `file:line:` prefix; the stack trace is not shown. A tool_call handler that throws blocks the call with its message, as pi | done (differs: disables) | L3 |
+| Extension limits | Per extension: 4 MB of Lua memory, 5,000,000 VM instructions and 10 s per call (the load counts as one), checked every 1000 instructions; past a limit the call fails with an error the extension's pcall cannot swallow. pi has no limits (a runaway handler hangs it); on a 68020 the instruction limit is about 5 minutes (65 s per 100,000 loop iterations in A5), the clock limit stops it first | done (amiga-pi only) | L3 |
+| Lua environment | `pi.on(event, handler)` returns the unsubscribe function; handlers get `(event, ctx)` with the event as pi's payload table, `ctx.cwd`, `ctx.hasUI` (false), `ctx.isProjectTrusted()`; globals `json` (encode with keys in a fixed order: type, text, data, mimeType, then sorted; decode; null), `print` (a notice); libraries base (no dofile, loadfile; load reads text only), coroutine, table, string, math, utf8; no io, os, package, debug. Lua numbers are 32-bit: a JSON integer past 2147483647 (turn_start's timestamp) is a float of 24 bits; a null member reads as nil. The remaining ExtensionContext members and every other `pi.*` call (registerTool, exec, ...) are L4 to L7 | partial | L3, L4 |
 | Packages (npm, git) | - | not planned: npm packages need a JS runtime | - |
 | codemode (QuickJS tool scripts) | - | not planned: needs a JS runtime | - |
 
 ## extension events
 
-Every member of pi 1.1.0's `ExtensionEvent` union (core/extensions/types.ts:1377-1411); the first column is the event's `type`. Hook commands (ext_hooks.h) carry the ones marked done; the payloads are compared with pi 1.1.0's own (tests/pi/rpc/ext_*, tools/pi_oracle/rpc_gen.py).
+Every member of pi 1.1.0's `ExtensionEvent` union (core/extensions/types.ts:1377-1411); the first column is the event's `type`. Hook commands (ext_hooks.h) and Lua `pi.on` (ext_lua.h) carry the ones marked done, from the same payload builders (ext_payload.c); the payloads are compared with pi 1.1.0's own (tests/pi/rpc/ext_*, tools/pi_oracle/rpc_gen.py).
 
 | pi event | pi type | status | phase item |
 |---|---|---|---|
@@ -354,7 +357,7 @@ Goldens: tests/pi/rpc, made by tools/pi_oracle/rpc_gen.py from pi 1.1.0 (abe508e
 | get_state / get_session_stats numbers | percent is decimal with up to 10 digits (pi: a binary float); sessionFile and ids are masked (file naming differs, see sessions) | difference | H3 |
 | compact: estimatedTokensAfter, and tokensBefore of an overflow compaction that asks again | counts the system message of the compacted context; its text is amiga-pi's prompt, so the number differs. tokensBefore after an omitted answer is the same estimate (pi's estimateProjectedContextTokens ignores usage once a context_edit follows it; overflow: both 273 apart); every other tokensBefore is usage-based and compared | difference | H3 |
 | get_available_models | lists the catalog's providers on plain-http endpoints (no key needed, as /model); the golden compares the fixture provider's entries | difference | H3 |
-| get_commands | the prompt templates (J, golden prompt_templates) then the skills (I, `skill:<name>`; rpc-mode.ts:680-708 lists extension, prompt, skill in that order); no extension host, so no `extension` entries (pi lists its built-in `mcp` and `llama` extension commands; the golden is made with --no-extensions) | gap until Phase L | H3 |
+| get_commands | the prompt templates (J, golden prompt_templates) then the skills (I, `skill:<name>`; rpc-mode.ts:680-708 lists extension, prompt, skill in that order); no extension commands yet (registerCommand is L4), so no `extension` entries (pi lists its built-in `mcp` and `llama` extension commands; the golden is made with --no-extensions) | gap until Phase L | H3 |
 | prompt/steer/follow_up `images` | the field is ignored | gap | H3 |
 | Parse failure text | `Failed to parse command: Invalid JSON` (pi: V8's message) | difference | H2 |
 | bash command | runs to the end, then one bash_execution_update with the whole output (pi: a record per chunk); abort_bash stops a command in flight only through the poll hook | difference | H3 |

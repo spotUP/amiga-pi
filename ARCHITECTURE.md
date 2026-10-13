@@ -103,14 +103,42 @@ Measured on the Mac (2026-10-07), Lua 5.4.9 vendored in `vendor/lua-5.4/`, vbcc 
 | 3 | probe adds at most 300 KB to a hello world | holds: luaprobe 193,160 bytes (after the link-order fix; 187,572 before), hello 4,892 bytes, delta 188,268 bytes (libs open: base, coroutine, table, string, math, utf8; io, os, package, debug not linked; link needs `-lmieee`, i.e. mathieeedoubtrans.library at run time). |
 | 4 | fib(24) plus 100,000-iteration loop within 10 s on a 68020 without FPU | FAILS (rig 2, 2026-10-10, AmigaDOS `Date` around each run, 1 s resolution): loop 65 s, fib(24) 27 s, whole probe 91 s -- 9 times the limit. Rig 2 is FS-UAE A1200, 68020 at `uae_cpu_speed = real`, not cycle-exact, and has a 68882 configured (the plan assumed no FPU; both parts are integer work). |
 
-What the numbers mean for the design: the speed was measured on a plain 68020 at real A1200 speed (rig 2's configuration then), the slowest machine the kit supports; a 68060 is several times faster. Extensions should therefore do event handling and small transforms in Lua and leave heavy work (search, file walking, JSON of large payloads) to the C tools they call. The link needs `-lmieee` BEFORE `-lvc`. Next Lua step (owner, 2026-10-07): evaluate AmigaDaLua (https://github.com/alpine9000/AmigaDaLua) against the vendored stock 5.4.9 and reuse it if it builds with vbcc and its licence and additions fit (phase L). Hook commands (`claude/hooks.c`) still come first (phase L).
+What the numbers mean for the design: the speed was measured on a plain 68020 at real A1200 speed (rig 2's configuration then), the slowest machine the kit supports; a 68060 is several times faster. Extensions should therefore do event handling and small transforms in Lua and leave heavy work (search, file walking, JSON of large payloads) to the C tools they call. The link needs `-lmieee` BEFORE `-lvc`. Phase L3 built it in (next section). Next Lua step (owner, 2026-10-07): evaluate AmigaDaLua (https://github.com/alpine9000/AmigaDaLua) against the vendored stock 5.4.9 and reuse it if it builds with vbcc and its licence and additions fit (phase L). Hook commands (`claude/hooks.c`) still come first (phase L).
+
+## Lua extensions (Phase L3)
+
+`amiga-pi/ext_lua.c` (portable C89, host-tested in `tests/test_pi_lua.c`) runs pi's extension API in Lua 5.4 (`vendor/lua-5.4`,
+stock 5.4.9; the changes are in `luaconf.h` only: A5's `LUA_USE_C89`/`LUA_32BITS` and, new, `LUAI_MAXCCALLS 60` because the
+C stack is 32 KB). `pi_rt_open` loads, after the trust decision, `<cwd>/.pi/extensions` (trusted projects only), then
+`<agent dir>/extensions` and the data dir's (`*.lua`, `<dir>/index.lua`; name order; pi: loader.ts discoverAndLoadExtensions);
+`--no-extensions` skips it. Each file is a Lua state of its own with a memory cap and an instruction and clock limit
+(`PI_LUA_MEM` 4 MB, `PI_LUA_INSTR` 5,000,000 instructions, `PI_LUA_MS` 10 s, per call; ext_lua.h), and one entry in `pi_exts`
+(ext.c), the single ordered list: hook commands, Lua extensions in load order, then the permission gate (so the gate decides on
+the arguments an extension produced). pi's order is the load order too (runner.ts iterates `this.extensions`).
+
+The event an extension is handed is built once, for every extension kind, by `ext_payload.c` (pi's types.ts payloads as JSON);
+`ext_lua.c` turns it into a table (`json.decode` semantics) and the handler's returned table back into JSON for the decision
+functions that are also the hook commands' (`pi_ext_decide_call/result/input`: runner.ts emitToolCall, emitToolResult,
+emitInput). `tool_call` handlers share one event; what they changed in `event.input` (compared with a second decode of the
+arguments) is written back, key order of a changed object being ext_lua.c's fixed order. Handlers run on a snapshot of the
+list (runner.ts snapshotEventHandlers), so `pi.on`'s unsubscribe function cannot disturb a dispatch under way.
+
+Errors: a file that does not load is told as pi's main.ts:802 and left out; a handler that throws is told as pi's interactive
+showExtensionError and its extension is disabled (its state closed); the loop goes on. The tool_call case blocks with the error's
+message (agent-session.ts:679). Differences from pi 1.1.0 and what is open are the three Lua rows of COMPATIBILITY.md
+("extensions"): 32-bit numbers, `ctx` is cwd, hasUI and isProjectTrusted only, the rest of `pi.*` (registerTool, registerCommand,
+exec, appendEntry, ctx.ui) comes with L4 to L6. Proof against pi: the ten L1/L2 golden scenarios of pi 1.1.0 rerun with the same
+behaviour as a Lua extension (`tests/pi/rpc/ext_lua_*.cfg.json`, made by `tools/pi_oracle/gen_lua_scenarios.py`; the event
+recorders compare payloads with sorted keys on both sides), the block scenario doubling as the L9-shaped reachability test (the
+sentinel `pi_lua_calls`). Size: the Amiga binary grew from 1,344,904 to 1,520,672 bytes (+175,768) with Lua linked; not run on the
+rig yet (L10).
 
 ## Hook commands on pi's events (Phase L1, L2)
 
 pi 1.1.0 has no hook commands (extensions are TypeScript modules), so the commands are amiga-pi's way to pi's extension events;
 the parity target is the events' payloads (core/extensions/types.ts) and the handlers' results (core/extensions/runner.ts), not a
 configuration format. Configuration: `hooks` in `ENVARC:amiga-pi/settings.json`, C:Claude's hook format (claude/config.c) with pi's
-event names as keys; user settings only (a project's hooks wait for the trust-gated discovery, L3). Runner: vtcon `claude/hooks.c`
+event names as keys; user settings only (hook commands in a project's files are not read; the trust-gated discovery of L3 is for Lua extensions). Runner: vtcon `claude/hooks.c`
 `hooks_run_raw` (spawn `<cmd> < <event file>` through sys->run, temp file, timeout, output back); `ext_hooks.c` adds the payloads and
 the pi decision semantics, nothing else. Dispatch: one ordered list, `pi_exts` (ext.c) -- the hook commands come first, the permission
 gate (ext_gate.c) after them, so the gate decides on the arguments a hook produced; L8 makes the gate a member of the same list.
