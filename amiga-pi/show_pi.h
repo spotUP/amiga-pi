@@ -39,6 +39,8 @@ typedef struct ps_item {
     jw x, y;                    /* the texts */
     jw z;                       /* PK_CUSTOM: the message itself (JSON), for an extension's renderer */
     ps_box tool;                /* PK_TOOL */
+    long mark, end;             /* PK_STATUS: the transcript's lines before it and after it (end 0: not on the screen as drawn) */
+    int sany, safter;           /* PK_STATUS: `any` and `after_block` as they were before it, to draw its replacement the same */
 } ps_item;
 
 struct pi_ext_render;

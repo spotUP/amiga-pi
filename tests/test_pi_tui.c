@@ -1117,8 +1117,9 @@ static void test_cycle(void)
     CHECK(strstr(sh, "model_change:claude-opus-5-5 thinking_level_change:medium message") == sh);
     CHECK(strstr(sh, " message message model_change:gpt-4.1 thinking_level_change:off model_change:claude-opus-5-5 "
                      "thinking_level_change:high thinking_level_change:") != 0);
-    CHECK(shot_has("Switched to GPT-4.1"));
-    CHECK(shot_has("Switched to Claude Opus 5.5 (thinking: high)") || shot_has("(thinking: high)"));
+    /* three statuses in a row (showStatus, interactive-mode.ts:3824-3834): each replaces the one above, the last stays */
+    CHECK(!shot_has("Switched to GPT-4.1"));
+    CHECK(!shot_has("(thinking: high)"));
     CHECK(shot_has("Thinking level: "));
     if (getenv("PI_TUI_DUMP")) {
         int r;
@@ -3021,6 +3022,9 @@ static const scen scenarios[] = {
     /* G3: the start header at 64 columns, where the hint wraps, whatever outputPad is (BuiltInHeader's own padding of one) */
     { "start_w64", { 0 }, { 0 }, 0, 1, 0, { HDR_VER64, HDR_HELP64 } },
     { "pad0_start_w64", { 0 }, { 0 }, 0, 1, 0, { HDR_VER64, HDR_HELP64 } },
+    /* U1b: showStatus puts a dim status in the place of the last one (interactive-mode.ts:3824-3844): Alt+Up twice with nothing queued
+     * says "No queued messages to restore" once, not twice */
+    { "status_twice", { "\033[1;3A", "\033[1;3A", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "foot_exact", { "first\r", 0 }, { "foot_exact.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "foot_cut", { "first\r", 0 }, { "foot_cut.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "foot_left", { "first\r", 0 }, { "foot_left.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },

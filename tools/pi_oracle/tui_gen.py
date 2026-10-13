@@ -546,6 +546,13 @@ SCENARIOS.update({
 })
 
 
+# U1b: showStatus (interactive-mode.ts:3824-3844) puts a new dim status into the last one's place when it is the chat's last child:
+# Alt+Up twice with nothing queued ("No queued messages to restore") is one row, not two
+SCENARIOS.update({
+    'status_twice': dict(steps=[('key', 'M-Up'), ('sleep', 0.5), ('key', 'M-Up'), ('sleep', 0.8)], answers=[]),
+})
+
+
 # G3 (U1b): the start header at 64 columns, where the hint line wraps, with outputPad 1 and 0. The header is a BuiltInHeader(.., 1, 0)
 # (interactive-mode.ts:1055-1075): its own padding of one column, whatever outputPad says (settings.md:100); the wrapped part of the
 # hint starts under the logo, in that padding column, not in the text column

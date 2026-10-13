@@ -609,11 +609,26 @@ static void d_user(pi_show *s, const char *text)
     user_box(s, text);
 }
 
-static void d_note(pi_show *s, int role, const char *text)
+static void d_note_rows(pi_show *s, int role, const char *text)
 {
     spacer_item(s);
     say_pad(s, 1, role, "", text);     /* pi's status lines are Text(.., 1, 0), not outputPad */
+}
+
+static void d_note(pi_show *s, int role, const char *text)
+{
+    d_note_rows(s, role, text);
     out(s);
+}
+
+/* a dim status drawn, its place in the transcript kept for showStatus to put the next one there */
+static void status_draw(pi_show *s, ps_item *it)
+{
+    it->sany = s->any;
+    it->safter = s->after_block;
+    it->mark = s->t->n_lines;
+    d_note(s, (int)it->a, it->x.p ? it->x.p : "");
+    it->end = s->t->n_lines;
 }
 
 static void d_error(pi_show *s, const char *text)
@@ -1715,8 +1730,10 @@ static void item_draw(pi_show *s, ps_item *it)
         answer_draw(s, it);
         break;
     case PK_NOTE:
-    case PK_STATUS:
         d_note(s, (int)it->a, x);
+        break;
+    case PK_STATUS:
+        status_draw(s, it);
         break;
     case PK_ERROR:
         d_error(s, x);
@@ -1824,8 +1841,31 @@ void pshow_user(pi_show *s, const char *text)
 /* a dim note is pi's showStatus: Ctrl+O replaces one that is the last item */
 void pshow_note(pi_show *s, int role, const char *text)
 {
-    item_text(s, role == PR_DIM ? PK_STATUS : PK_NOTE, role, text, (long)strlen(text), 0);
-    d_note(s, role, text);
+    ps_item *last = s->nitem ? s->item[s->nitem - 1] : 0, *it;
+    if (role == PR_DIM && last && last->kind == PK_STATUS && last->end && s->ins < 0 && !s->nbox && s->t->n_lines == last->end) {
+        /* showStatus (interactive-mode.ts:3824-3834): the last child of the chat is the last status, so its text is replaced */
+        long mark = last->mark;
+        jw_reset(&last->x);
+        jw_rawz(&last->x, text);
+        s->any = last->sany;
+        s->after_block = last->safter;
+        jw_reset(&s->batch);
+        d_note_rows(s, role, text);
+        if (tui_replace_tail(s->t, mark, s->batch.p, s->batch.n) == 0) {
+            jw_reset(&s->batch);
+            last->end = s->t->n_lines;
+            return;
+        }
+        jw_reset(&s->batch);
+        last->end = 0;
+        redraw_items(s);
+        return;
+    }
+    it = item_text(s, role == PR_DIM ? PK_STATUS : PK_NOTE, role, text, (long)strlen(text), 0);
+    if (it && it->kind == PK_STATUS)
+        status_draw(s, it);
+    else
+        d_note(s, role, text);
 }
 
 void pshow_error(pi_show *s, const char *text)
