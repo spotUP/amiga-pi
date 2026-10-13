@@ -1543,11 +1543,36 @@ static int retry_wait(pi_session *s, long ms)
     return s->retry_stop;
 }
 
+/* checkAuth (model-registry.ts): a credential for the provider (the environment, auth.json, models.json, a stored login), or an
+ * endpoint that wants none (a LAN server on plain http); a session without a config source (an SDK caller's own key) passes */
+int pi_auth_ok(llm_cfg *cfg, const llm_model *mo)
+{
+    if (!cfg || (mo->base_url && !strncmp(mo->base_url, "http://", 7)))
+        return 1;
+    return llm_cfg_authed(cfg, mo) && llm_cfg_model_ok(cfg, mo);
+}
+
+/* agent-session.ts prompt() :2036-2050: a model without configured auth stops the prompt before anything is kept or sent --
+ * formatNoApiKeyFoundMessage (auth-guidance.ts:22-25, getProviderLoginHelp :6-12). pi names its own docs directory in the two
+ * links; the Amiga install has none, so they read as the relative paths of pi's docs */
+static void no_auth_text(const pi_session *s, char *out, long cap)
+{
+    cl_copy(out, "No API key found for ", cap);
+    cl_cat(out, s->model.provider && *s->model.provider ? s->model.provider : "the selected model", cap);
+    cl_cat(out, ".\n\nUse /login to log into a provider via OAuth or API key. See:\n  docs/providers.md\n  docs/models.md", cap);
+}
+
 static int prompt_run(pi_session *s, const char *typed, const char *images)
 {
     int rc;
     jw ex;
     const char *text;
+    if (!pi_auth_ok(s->cfg, &s->model)) {
+        pi_agent_prompts++;
+        no_auth_text(s, s->err, sizeof(s->err));
+        s->stop = LS_ERROR;
+        return LS_ERROR;
+    }
     jw_init(&ex);
     text = typed ? expand_input(s, typed, &ex) : 0;       /* typed 0: a turn on a message pi.sendMessage made (_runAgentPrompt) */
     pi_agent_prompts++;

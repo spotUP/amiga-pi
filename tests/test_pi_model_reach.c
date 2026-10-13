@@ -37,6 +37,7 @@ static llm_ts adv_now(void *u)
 }
 
 static const char *extra_name[4], *extra_val[4];       /* a test's own environment variables */
+static int bare_env;                                   /* 1: not even the default OPENAI_API_KEY / ANTHROPIC_API_KEY */
 
 static long env(const char *name, char *o, long cap)
 {
@@ -46,6 +47,8 @@ static long env(const char *name, char *o, long cap)
         if (extra_name[i] && !strcmp(name, extra_name[i]))
             v = extra_val[i];
     if (v)
+        ;
+    else if (bare_env)
         ;
     else if (!strcmp(name, "OPENAI_API_KEY"))
         v = "sk-test-openai";
@@ -943,6 +946,34 @@ static void test_bedrock_reach(void)
     CHECK(llm_feeds_bedrock > f0);
 }
 
+/* openai-codex-responses through pi_app (the ChatGPT subscription's endpoint): the key (here the environment's, as a JWT whose
+ * claim names the account; an OAuth login in auth.json gives the same) goes out as Authorization: Bearer with the account
+ * id and pi's originator header, to POST /backend-api/codex/responses on chatgpt.com; the Responses events of the answer
+ * are decoded (the Codex backend's sentinel, not openai-responses'). Its HTTP errors read as pi's parseErrorResponse
+ * words them (llm_be_openai_codex http_err, host goldens in vtcon tests/pi/httperr). */
+static void test_codex_reach(void)
+{
+    static const char jwt[] = "eyJhbGciOiJub25lIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF9yaWcifX0.sig";
+    char *a[] = { "amiga-pi", "--model", "openai-codex/gpt-5.3-codex-spark", 0 };
+    static const char *const sse[] = { "../pi/responses/plain.sse" };
+    long f0 = llm_feeds_codex, r0 = llm_feeds_responses;
+    extra_name[0] = "OPENAI_CODEX_API_KEY";
+    extra_val[0] = jwt;
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    extra_name[0] = 0;
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq < 1)
+        return;
+    CHECK(strstr(ps.head[0], "POST /backend-api/codex/responses HTTP/1.1\r\nHost: chatgpt.com\r\n") == ps.head[0]);
+    CHECK(strstr(ps.head[0], "Authorization: Bearer eyJhbGciOiJub25lIn0.") != 0);
+    CHECK(strstr(ps.head[0], "chatgpt-account-id: acct_rig\r\n") != 0 && strstr(ps.head[0], "originator: pi\r\n") != 0);
+    CHECK(strstr(ps.body[0], "\"store\":false,\"stream\":true") != 0);
+    CHECK(out.p && strstr(out.p, "Hello from the Amiga.") != 0);
+    CHECK(llm_feeds_codex > f0 && llm_feeds_responses == r0);       /* its own backend ran, not openai-responses */
+}
+
 /* M8: a bearer token (AWS_BEARER_TOKEN_BEDROCK) goes in Authorization and nothing is signed, even with access keys set */
 static void test_bedrock_bearer(void)
 {
@@ -989,6 +1020,33 @@ static void test_bedrock_no_credentials(void)
     CHECK(out.p && strstr(out.p, "No Amazon Bedrock credentials amiga-pi can use") != 0);
 }
 
+/* G4: no credential at all for the model (no ANTHROPIC_API_KEY, no auth.json, no login): pi's prompt() stops before anything is
+ * kept or sent, with formatNoApiKeyFoundMessage (agent-session.ts:2036-2050, auth-guidance.ts:22-25) -- not a connection
+ * attempt that ends in "Connection error." A LAN endpoint on plain http needs none and still goes out. */
+static void test_no_credentials(void)
+{
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0 };
+    static const char *const sse[] = { "../pi/switch_anthropic.sse" };
+    long p0 = pi_agent_prompts;
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    bare_env = 1;
+    run(ARGC(a), a, sse, 1);
+    bare_env = 0;
+    CHECK_INT(ps.nreq, 0);
+    CHECK(pi_agent_prompts > p0);                       /* the prompt did reach the agent */
+    CHECK(out.p && strstr(out.p, "No API key found for anthropic.\n\nUse /login to log into a provider via OAuth or API key. See:") != 0);
+    CHECK(out.p && strstr(out.p, "docs/providers.md") != 0 && strstr(out.p, "Connection error") == 0);
+    /* with the key it goes out */
+    extra_name[0] = "ANTHROPIC_API_KEY";
+    extra_val[0] = "sk-ant-test";
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    run(ARGC(a), a, sse, 1);
+    extra_name[0] = 0;
+    CHECK_INT(ps.nreq, 1);
+}
+
 void suite_pi_model_reach(void)
 {
     const char *base = getenv("TMPDIR");
@@ -1028,5 +1086,7 @@ void suite_pi_model_reach(void)
     test_bedrock_reach();
     test_bedrock_bearer();
     test_bedrock_no_credentials();
+    test_codex_reach();
+    test_no_credentials();
     jw_free(&out);
 }

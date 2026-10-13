@@ -489,6 +489,7 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     msgs[0] = um.p;
     mn[0] = um.n;
     memset(&c, 0, sizeof(c));
+    c.cache_retention = "none";         /* compaction.ts:629-631: no cache writes for a one-off summary (bedrock reads it) */
     {
         /* pi's completeSimple normalizes the context: the prompt becomes the leading system message, which
          * buildBaseOptions' estimate counts */

@@ -55,7 +55,7 @@ typedef struct pi_session {
     const char *key;            /* 0 none: used when cfg is 0 */
     llm_cfg *cfg;               /* credentials and config values (models.json, auth.json, --api-key); 0: key */
     int thinking;               /* the thinking level, LT_*, as the model supports it */
-    unsigned think_budget_set;  /* settings.json thinkingBudgets: bit LT_x set when that level has a custom budget (google) */
+    unsigned think_budget_set;  /* settings.json thinkingBudgets: bit LT_x set when that level has a custom budget (google, anthropic-messages, bedrock) */
     long think_budget[8];       /* its tokens, by LT_* */
     long ctx_tokens;            /* tokens the last answer reported (its input, output and cache): the context in use */
     long cost_micro;            /* what the answers of this run cost, micro-dollars, from the model's price */
@@ -244,6 +244,8 @@ int pi_prompt(pi_session *s, const char *text);
 /* the same with images: a JSON array of ImageContent ({type, data (base64), mimeType}), 0 none. They go through the input event
  * (a handler may replace them), pi's processImage (resized or left out with a hint after the text), and join the message */
 int pi_prompt_images(pi_session *s, const char *text, const char *images);
+/* checkAuth: the model has a credential, or needs none (a LAN endpoint on plain http); cfg 0 passes */
+int pi_auth_ok(llm_cfg *cfg, const llm_model *mo);
 /* the conversation from message m0 and system message sys0 on, as a JSON array of pi-ai messages (the transcript's system
  * messages in their places) */
 void pi_messages_json(const pi_session *s, int m0, int sys0, jw *w);
