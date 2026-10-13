@@ -1297,6 +1297,120 @@ static void test_app(void)
     ps_reset();
 }
 
+
+/* L16: line mode (a console without pi's screen) reads an extension dialog's answer with the time the extension gave it
+ * (ExtensionUIDialogOptions.timeout): the console's timed read is polled until the time is up and the dialog answers as pi's
+ * does when it times out. The first line typed is the prompt; the extension's input handler asks. With the time given the
+ * clock below passes it, so the handler sees "false" (confirm) or nil (select, input); a console without a timed read gets
+ * its line read as before. */
+static int lm_lines, lm_timed_reads;
+static unsigned long lm_clock;
+
+static long lm_read_line(void *u, char *buf, long cap)
+{
+    (void)u;
+    if (lm_lines++ == 0) {
+        cl_copy(buf, "hello", cap);
+        return 5;
+    }
+    if (lm_lines == 2) {
+        cl_copy(buf, "y", cap);               /* the answer a blocking read would take */
+        return 1;
+    }
+    return -1;
+}
+
+static long lm_read(void *u, char *buf, long cap, long timeout_ms)
+{
+    (void)u;
+    (void)buf;
+    (void)cap;
+    (void)timeout_ms;
+    lm_timed_reads++;
+    return 0;                                  /* nothing typed */
+}
+
+static unsigned long lm_ms(void *u)
+{
+    (void)u;
+    lm_clock += 100;
+    return lm_clock;
+}
+
+static int lm_sleep(void *u, long ms)
+{
+    (void)u;
+    (void)ms;
+    return 0;
+}
+
+static int app_line(int timed)
+{
+    cl_io io;
+    pi_platform pl;
+    char cwd[400], agent[400], tmp[420], *argv[16];
+    int a = 0;
+    at(cwd, "app/w");
+    at(agent, "app/agent");
+    mkdirs(cwd);
+    cl_copy(tmp, root, sizeof(tmp));
+    cl_cat(tmp, "/", sizeof(tmp));
+    memset(&io, 0, sizeof(io));
+    io.read_line = lm_read_line;
+    io.write = l_write;
+    io.brk = l_brk;
+    io.ms = lm_ms;
+    io.sleep = lm_sleep;
+    if (timed)
+        io.read = lm_read;
+    lm_lines = lm_timed_reads = 0;
+    jw_free(&out);
+    jw_init(&out);
+    ps_reset();
+    ps_pool_up(LLM_POOL);
+    ps_sse("../pi/openai_text.sse", 0);
+    memset(&pl, 0, sizeof(pl));
+    pl.io = &io;
+    pl.pool = &ps_pool;
+    pl.h.poll = ps_poll;
+    pl.h.sleep = ps_sleep;
+    pl.h.ms = ps_ms;
+    pl.h.resolve = ps_resolve;
+    pl.now = adv_now;
+    pl.getenv = no_env;
+    pl.cwd = cwd;
+    pl.sys = &sys;
+    pl.tmp = tmp;
+    pl.utc = 1;
+    pl.agent_dir = agent;
+    argv[a++] = "amiga-pi";
+    argv[a++] = "--no-session";
+    argv[a++] = "--no-mcp";
+    argv[a++] = "-na";                          /* no trust question: the first line is the prompt */
+    argv[a++] = "--model";
+    argv[a++] = "fixture/qwen2.5-coder:7b";
+    argv[a++] = "--base-url";
+    argv[a++] = "http://192.168.1.10:11434/v1";
+    argv[a] = 0;
+    return pi_app(a, argv, &pl);
+}
+
+static void test_line_timeout(void)
+{
+    put("app/agent/extensions/ask.lua",
+        "pi.on('input', function(event, ctx)\n"
+        "  local ok = ctx.ui.confirm('Sure?', 'It runs.', { timeout = 300 })\n"
+        "  return { action = 'transform', text = event.text .. (ok and ' [answered]' or ' [timed out]') }\n"
+        "end)\n");
+    CHECK_INT(app_line(1), 0);
+    CHECK(sent("hello [timed out]"));
+    CHECK(lm_timed_reads >= 2);                 /* polled in slices until the 300 ms were up */
+    CHECK_INT(app_line(0), 0);                  /* no timed read: the line is read as before */
+    CHECK(sent("hello [answered]"));
+    rm_file("app/agent/extensions/ask.lua");
+    ps_reset();
+}
+
 /* L4 through pi_app: an extension in <agent dir>/extensions registers a command and a tool; "/hello a b" on the command line runs the
  * handler (the sentinel counts that one call) and sends nothing to the model, and the tool is among the tools of an ordinary
  * request unless --tools leaves it out or --no-tools */
@@ -1351,6 +1465,7 @@ void suite_pi_lua(void)
     jw_init(&out);
     test_app();
     test_app_register();
+    test_line_timeout();
     jw_free(&out);
     {
         char cmd[600];

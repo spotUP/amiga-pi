@@ -448,13 +448,43 @@ static void xu_blocked(pi_ui *p, int kind, const char *title)
         pi_pstatus_blocked(&p->pst, kind, kind == PSK_NONE ? 0 : title);
 }
 
-/* the screen without pi's look (line mode): the question printed, the answer a line */
-static int xu_line(pi_ui *p, const char *question, char *ans, long cap)
+/* the screen without pi's look (line mode): the question printed, the answer a line. With timeout_ms the line is read in slices of the
+ * console's timed read (io->read; AmigaDOS WaitForChar, the host's poll) until the time is up: -2, as pi's dialog timeout
+ * (ExtensionUIDialogOptions.timeout) gives undefined; a console without one waits as long as it takes. -1 at the end of input */
+static int xu_line(pi_ui *p, const char *question, char *ans, long cap, long timeout_ms)
 {
     long n;
     ui_puts(&p->ui, "\033[1m");
     ui_puts(&p->ui, question);
     ui_puts(&p->ui, "\033[0m ");
+    if (timeout_ms > 0 && p->ui.io->read && p->ui.io->ms) {
+        unsigned long t0 = p->ui.io->ms(p->ui.io->u);
+        long have = 0;
+        for (;;) {
+            char buf[64];
+            long left = timeout_ms - (long)(p->ui.io->ms(p->ui.io->u) - t0), got, i;
+            if (left <= 0) {
+                p->ui.col0 = 0;
+                ui_line(&p->ui, "");
+                p->ui.col0 = 1;
+                return -2;
+            }
+            got = p->ui.io->read(p->ui.io->u, buf, sizeof(buf), left > 100 ? 100 : left);
+            if (got < 0)
+                return -1;
+            if (p->ui.io->brk && p->ui.io->brk(p->ui.io->u))
+                return -1;
+            for (i = 0; i < got; i++) {
+                if (buf[i] == '\n' || buf[i] == '\r') {
+                    ans[have] = 0;
+                    p->ui.col0 = 1;
+                    return (int)have;
+                }
+                if (have < cap - 1)
+                    ans[have++] = buf[i];
+            }
+        }
+    }
     n = p->ui.io->read_line(p->ui.io->u, ans, cap);
     p->ui.col0 = 1;
     return n < 0 ? -1 : (int)n;
@@ -481,7 +511,7 @@ static int xu_select(void *u, const char *title, const char *const *opt, int n, 
             ui_puts(&p->ui, ans);
             ui_line(&p->ui, opt[i]);
         }
-        c = xu_line(p, "Number (empty cancels):", ans, sizeof(ans));
+        c = xu_line(p, "Number (empty cancels):", ans, sizeof(ans), timeout_ms);
         if (c <= 0)
             return 0;
         c = atoi(ans) - 1;
@@ -510,7 +540,7 @@ static int xu_confirm(void *u, const char *title, const char *message, long time
     } else {
         char ans[16];
         ui_line(&p->ui, both);
-        return xu_line(p, "Yes (y) or No (n):", ans, sizeof(ans)) > 0 && (ans[0] == 'y' || ans[0] == 'Y');
+        return xu_line(p, "Yes (y) or No (n):", ans, sizeof(ans), timeout_ms) > 0 && (ans[0] == 'y' || ans[0] == 'Y');
     }
 }
 
@@ -526,7 +556,7 @@ static int xu_input(void *u, const char *title, const char *placeholder, long ti
         return r == 1;
     }
     ui_line(&p->ui, title);
-    return xu_line(p, ">", value, cap) >= 0;
+    return xu_line(p, ">", value, cap, timeout_ms) >= 0;
 }
 
 /* showExtensionNotify: info is showStatus, warning and error their own rows with pi's prefixes */
