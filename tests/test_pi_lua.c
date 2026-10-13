@@ -1292,7 +1292,8 @@ static void test_app(void)
     CHECK_INT(app_run(0), 0);
     CHECK(sent("hello [user]"));
     CHECK(strstr(out.p, "Failed to load extension \"") != 0 && strstr(out.p, "a_bad.lua") != 0);
-    CHECK(strstr(out.p, "b_throw.lua\" error: oops") != 0);
+    /* print mode tells a handler's error as print-mode.ts:101 does (stderr, which the test's platform folds into its console) */
+    CHECK(strstr(out.p, "Extension error (") != 0 && strstr(out.p, "b_throw.lua): oops") != 0);
     ps_reset();
 }
 
