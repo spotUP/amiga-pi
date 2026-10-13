@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "agent.h"
+#include "context.h"
 #include "ext_events.h"
 #include "templates.h"
 #include "llm/transform.h"
@@ -318,9 +319,10 @@ void pi_messages_json(const pi_session *s, int m0, int sys0, jw *w)
     jw_rawz(w, "]");
 }
 
-/* turn_end: the assistant message i and the tool results after it */
-static void emit_turn_end(pi_session *s, int i)
+/* turn_end: the assistant message i and the tool results after it; 1 when an extension asked the run to go on */
+static int emit_turn_end(pi_session *s, int i)
 {
+    int go = 0;
     pi_event e;
     jw w;
     int k, first = 1;
@@ -345,8 +347,11 @@ static void emit_turn_end(pi_session *s, int i)
     }
     e.result = w.p;
     e.result_n = w.n;
+    if (i >= 0 && i < s->nmsg)
+        go = pi_ev_turn_end(s, s->msg[i], s->msg_n[i], w.p, w.n);       /* finishTurn: before the agent's own turn_end */
     pi_emit(&s->em, &e);
     jw_free(&w);
+    return go;
 }
 
 /* ---- one answer ---- */
@@ -441,6 +446,10 @@ static int answer(pi_session *s, stream *t)
     long est;
     int o = 0;
     tick t0;
+    jw cj;                      /* the messages a context handler rewrote: tm points into it */
+    const char **xm = 0;        /* the same without the system messages, for a model that takes none in the conversation */
+    long *xn = 0;
+    jw_init(&cj);
     {
         /* pi's agent-loop declareToolChanges runs before every request, whatever the model: the tool changes become a
          * system message of the transcript (the session file); a model that takes no system messages in the
@@ -469,6 +478,48 @@ static int answer(pi_session *s, stream *t)
             }
         }
     }
+    /* the extensions' context and context_with_system events (runner.ts emitContext): the request carries what they left */
+    if (pi_ev_context(s, &cj)) {
+        jv arr, el, r;
+        jit it;
+        long cnt;
+        const char **nm;
+        long *nn;
+        if (!json_parse(cj.p, cj.n, &arr) && json_type(arr) == J_ARR) {
+            cnt = json_count(arr);
+            nm = (const char **)malloc((size_t)(cnt + 1) * sizeof(*nm));
+            nn = (long *)malloc((size_t)(cnt + 1) * sizeof(*nn));
+            xm = (const char **)malloc((size_t)(cnt + 1) * sizeof(*xm));
+            xn = (long *)malloc((size_t)(cnt + 1) * sizeof(*xn));
+            if (nm && nn && xm && xn) {
+                int nx = 0;
+                free(tm);
+                free(tn);
+                tm = nm;
+                tn = nn;
+                o = 0;
+                json_iter(arr, &it);
+                while (json_next(&it, 0, &el)) {
+                    tm[o] = el.p;
+                    tn[o++] = el.n;
+                    if (!(json_get(el, "role", &r) && json_streq(r, "system"))) {
+                        xm[nx] = el.p;
+                        xn[nx++] = el.n;
+                    }
+                }
+                pm = xm;
+                pn = xn;
+                pc = nx;
+            } else {
+                free(nm);
+                free(nn);
+                free(xm);
+                free(xn);
+                xm = 0;
+                xn = 0;
+            }
+        }
+    }
     /* pi's buildBaseOptions: the output cap is clamped by the estimate over this transcript, as it stands */
     est = llm_estimate_context(tm, tn, o);
     if (llm_mid_system(&s->model)) {
@@ -480,8 +531,11 @@ static int answer(pi_session *s, stream *t)
     rc = llm_prepare(&s->model, pm, pn, pc, t0.ts, &v);
     free(tm);
     free(tn);
+    free(xm);
+    free(xn);
     if (rc) {
         llm_view_free(&v);
+        jw_free(&cj);
         s->oom = 1;
         return -1;
     }
@@ -537,6 +591,7 @@ static int answer(pi_session *s, stream *t)
     } else
         llm_request(&q);
     llm_view_free(&v);
+    jw_free(&cj);
     jw_free(&tools);
     jw_free(&hdr);
     jw_init(&m);
@@ -860,6 +915,46 @@ static int add_user(pi_session *s, const char *text)
     return i;
 }
 
+int pi_session_custom(pi_session *s, const char *custom_type, const char *content, int display, const char *details)
+{
+    jw m, one;
+    pi_event e;
+    int i, rc = -1;
+    llm_ts t = now(s);
+    jw_init(&m);
+    jw_rawz(&m, "{\"role\":\"custom\",\"customType\":");
+    jw_strz(&m, custom_type);
+    jw_rawz(&m, ",\"content\":");
+    jw_rawz(&m, content && content[0] ? content : "[]");
+    jw_rawz(&m, display ? ",\"display\":true" : ",\"display\":false");
+    if (details) {
+        jw_rawz(&m, ",\"details\":");
+        jw_rawz(&m, details);
+    }
+    jw_rawz(&m, ",\"timestamp\":");
+    llm_w_ts(&m, t);
+    jw_rawz(&m, "}");
+    jw_init(&one);
+    if (!m.oom && (!s->custom_save || s->custom_save(s->custom_u, s, custom_type, content && content[0] ? content : "[]", display, details) == 0) &&
+        ctx_msg_to_llm(m.p, m.n, &one) && !one.oom) {
+        i = keep(s, &one);
+        if (i >= 0) {
+            int ty;
+            for (ty = PE_MESSAGE_START; ty <= PE_MESSAGE_END; ty += PE_MESSAGE_END - PE_MESSAGE_START) {
+                pi_event_init(&e, ty);
+                e.role = PI_ROLE_CUSTOM;
+                e.msg = m.p;
+                e.msg_n = m.n;
+                pi_emit(&s->em, &e);
+            }
+            rc = 0;
+        }
+    }
+    jw_free(&one);
+    jw_free(&m);
+    return rc;
+}
+
 static int queue_add(char **q, int *n, const char *text)
 {
     char *c = (char *)malloc(strlen(text) + 1);
@@ -981,6 +1076,34 @@ static void deliver(pi_session *s)
     }
 }
 
+/* the custom messages before_agent_start's handlers made (pi pushes them after the user message) */
+static void flush_next_custom(pi_session *s)
+{
+    int i;
+    for (i = 0; i < s->nnext_custom; i++) {
+        jv m, v;
+        if (!json_parse(s->next_custom[i], (long)strlen(s->next_custom[i]), &m)) {
+            char ct[200];
+            jw content, details;
+            ct[0] = 0;
+            jw_init(&content);
+            jw_init(&details);
+            if (json_get(m, "customType", &v) && json_type(v) == J_STR)
+                json_str(v, ct, sizeof(ct));
+            if (json_get(m, "content", &v))
+                jw_raw(&content, v.p, v.n);
+            if (json_get(m, "details", &v))
+                jw_raw(&details, v.p, v.n);
+            pi_session_custom(s, ct, content.p, json_get(m, "display", &v) && json_type(v) == J_TRUE, details.n ? details.p : 0);
+            jw_free(&content);
+            jw_free(&details);
+        }
+        free(s->next_custom[i]);
+        s->next_custom[i] = 0;
+    }
+    s->nnext_custom = 0;
+}
+
 /* the run: text the user's message, 0 to go on with the conversation as it is (a retry) */
 static int run(pi_session *s, const char *text)
 {
@@ -1001,11 +1124,12 @@ static int run(pi_session *s, const char *text)
             return s->stop;
         }
     }
+    flush_next_custom(s);       /* before_agent_start's messages follow the user's */
     poll_queue(s, 0);           /* typed before the first request (pi polls at the start) */
     for (round = 0; round < PI_ROUNDS; round++) {
         stream t;
         llm_info inf;
-        int k, n, stopped = 0;
+        int k, n, stopped = 0, go;
         if (round) {
             /* pi's prepareNextTurn (compaction) runs before the pending messages go in; steering typed meanwhile is
              * polled only when the turn's poll found nothing (one-at-a-time mode delivers one a turn) */
@@ -1049,12 +1173,12 @@ static int run(pi_session *s, const char *text)
             s->stop = LS_ABORTED;
             cl_copy(s->err, "Operation aborted", sizeof(s->err));
         }
-        emit_turn_end(s, i);
+        go = emit_turn_end(s, i);
         if (stopped)
             return run_end(s, 0);               /* pi does not check a run the user stopped */
         /* steering is polled after the turn's tool calls and goes in at the next turn; the run goes on for it even
          * when the answer called no tool. When the run would stop, a follow-up does the same. */
-        if (poll_queue(s, 0) || n)
+        if (poll_queue(s, 0) || n || go)
             continue;
         if (poll_queue(s, 1))
             continue;
@@ -1104,6 +1228,7 @@ static int prompt_run(pi_session *s, const char *typed)
     /* the context against the window before the user message is kept */
     if (s->compact)
         s->compact(s->compact_u, s, PI_CP_PROMPT);
+    pi_ev_before_agent_start(s, text);          /* after the compaction check, before the run (agent-session.ts:2062) */
     if (s->started) {
         void (*f)(void *) = s->started;
         s->started = 0;
@@ -1118,8 +1243,13 @@ static int prompt_run(pi_session *s, const char *typed)
         long delay, cap;
         int k, last;
         if (!s->retry_next) {
-            if (!s->recover)
-                break;
+            if (!s->recover) {
+                /* the run would settle: agent_before_settle may ask for one more request (_runBeforeSettleBoundary) */
+                if (s->aborted || !pi_ev_before_settle(s))
+                    break;
+                rc = run(s, 0);
+                continue;
+            }
             s->recover = 0;
             rc = run(s, 0);
             continue;

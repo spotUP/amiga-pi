@@ -155,6 +155,22 @@ typedef struct pi_session {
      * -- appended to the session and announced as entry_appended; 0, -1 */
     int (*append_entry)(void *u, struct pi_session *s, const char *custom_type, const char *data);
     void *append_u;
+    /* a custom message saved in the session (pi_session_custom): customType, content (a JSON string or block array), display,
+     * details (JSON or 0); 0, -1 */
+    int (*custom_save)(void *u, struct pi_session *s, const char *custom_type, const char *content, int display,
+                       const char *details);
+    void *custom_u;
+    /* turn_end (settle 0) / agent_before_settle (settle 1) (types.ts BoundaryState): ids receives the turn's `"messageEntryId":..,"toolResultEntryIds":[..]`
+     * members (0: not wanted), ctx the BoundaryContextPreview object of the branch as it stands; 0, -1 */
+    int (*boundary)(void *u, struct pi_session *s, int settle, jw *ids, jw *ctx);
+    /* a boundary draft entry (types.ts SessionBoundaryDraft, a JSON object) appended to the session and announced as entry_appended:
+     * "custom" and "custom_message"; 0, -1 */
+    int (*draft)(void *u, struct pi_session *s, const char *draft, long n);
+    void *boundary_u;
+    /* before_agent_start's messages (and pi.sendMessage's next-turn ones): custom messages that join the user message when the
+     * run starts; JSON objects {"customType","content","display","details"} */
+    char *next_custom[8];
+    int nnext_custom;
     int result_error;           /* the tool running now returned a result with isError set, which is no thrown error (an extension's
                                  * tool; its details stay as it gave them): reset by the loop before each call */
     int active;                 /* a prompt is running (pi's isStreaming) */
@@ -178,6 +194,10 @@ int pi_tool_add(pi_session *s, pi_tool *t);
 int pi_session_push(pi_session *s, const char *json, long n);
 /* a system message of the transcript added at the end of the conversation (copied): 0, -1 out of memory */
 int pi_session_push_system(pi_session *s, const char *json, long n);
+/* a custom message (pi's AgentMessage role "custom": customType, content a JSON string or block array, display, details a JSON
+ * value or 0) saved in the session, put in the conversation as the user message convertToLlm makes of it, and announced as
+ * message_start / message_end with the custom message itself. 0, -1 */
+int pi_session_custom(pi_session *s, const char *custom_type, const char *content, int display, const char *details);
 /* the conversation emptied (a session loaded, a branch left) */
 void pi_session_clear(pi_session *s);
 /* the tools as pi-ai's request carries them: a JSON array of {name, description, parameters} */

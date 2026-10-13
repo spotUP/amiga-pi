@@ -94,6 +94,7 @@ static int hk_of(int type)
     case PE_AGENT_START: return HK_PI_AGENT_START;
     case PE_TURN_START: return HK_PI_TURN_START;
     case PE_MESSAGE_START: return HK_PI_MESSAGE_START;
+    case PE_MESSAGE_UPDATE: return HK_PI_MESSAGE_UPDATE;
     case PE_MESSAGE_END: return HK_PI_MESSAGE_END;
     case PE_TOOL_START: return HK_PI_TOOL_EXEC_START;
     case PE_TOOL_UPDATE: return HK_PI_TOOL_EXEC_UPDATE;

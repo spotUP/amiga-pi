@@ -25,6 +25,10 @@ enum {
     PE_RETRY_START, PE_RETRY_END, PE_N
 };
 
+/* pi_event.role of a custom message (role "custom": pi.sendMessage, before_agent_start's message); the persisting listener leaves it
+ * out, the entry is written when the message is made (agent.h pi_session_custom) */
+#define PI_ROLE_CUSTOM 10
+
 #define PI_SUBS 8
 
 typedef struct pi_event {

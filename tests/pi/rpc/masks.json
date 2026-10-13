@@ -7,6 +7,8 @@
   "sessionFile": "pi names session files by time and uuid, ours by the session's own naming",
   "targetSessionFile": "the same names, in session_shutdown and session_before_switch",
   "previousSessionFile": "the same names, in session_start",
+  "systemPrompt": "before_agent_start: the prompt's words are amiga-pi's (compared where it lives, test_pi_store)",
+  "systemPromptOptions": "before_agent_start: pi's options object holds its own tool snippets and guidelines; amiga-pi reports the active tools and the directory",
   "sections": "the system prompt is compared where it lives (test_pi_store, test_pi_resources); its text is amiga-pi's",
   "wall_time_seconds": "made per run",
   "estimatedTokensAfter": "counts the compacted context with its system message, whose text is amiga-pi's prompt"

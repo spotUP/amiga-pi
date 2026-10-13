@@ -10,6 +10,7 @@ const char *pi_ext_event_name(int t)
     case PE_AGENT_START: return "agent_start";
     case PE_TURN_START: return "turn_start";
     case PE_MESSAGE_START: return "message_start";
+    case PE_MESSAGE_UPDATE: return "message_update";
     case PE_MESSAGE_END: return "message_end";
     case PE_TOOL_START: return "tool_execution_start";
     case PE_TOOL_UPDATE: return "tool_execution_update";
@@ -34,6 +35,24 @@ int pi_ext_payload_event(pi_session *s, const pi_event *e, jw *b)
         llm_w_ts(b, t);                         /* the 13-digit milliseconds, in the 32 bits of a long too */
         jw_rawz(b, "}");
         return 1;
+    }
+    if (e->type == PE_MESSAGE_UPDATE) {
+        /* MessageUpdateEvent (types.ts:1053): the cumulative message, then the stream event with the same message as `partial` */
+        jw ae;
+        int ok;
+        if (!e->acc)
+            return 0;
+        jw_init(&ae);
+        ok = pi_assistant_event(s, e, 1, &ae) && !ae.oom;
+        if (ok) {
+            jw_rawz(b, "{\"type\":\"message_update\",\"message\":");
+            pi_partial_message(s, e->acc, b);
+            jw_rawz(b, ",\"assistantMessageEvent\":");
+            jw_raw(b, ae.p, ae.n);
+            jw_rawz(b, "}");
+        }
+        jw_free(&ae);
+        return ok;
     }
     if (e->type == PE_AGENT_END) {
         jw_rawz(b, "{\"type\":\"agent_end\",\"messages\":");

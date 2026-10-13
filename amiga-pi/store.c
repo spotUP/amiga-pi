@@ -51,6 +51,9 @@ void pi_store_free(pi_store *st)
         st->s->declare = 0;
         st->s->declare_u = 0;
         st->s->append_entry = 0;
+        st->s->custom_save = 0;
+        st->s->boundary = 0;
+        st->s->draft = 0;
         st->s->append_u = 0;
     }
     jw_free(&st->system);
@@ -803,6 +806,193 @@ static int append_custom(void *u, pi_session *s, const char *custom_type, const 
     return 0;
 }
 
+/* a custom message made through the agent (pi_session_custom): its entry, without the entry_appended event (the message events
+ * announce it) */
+static int custom_save(void *u, pi_session *s, const char *custom_type, const char *content, int display, const char *details)
+{
+    pi_store *st = (pi_store *)u;
+    (void)s;
+    return s3_custom_message(&st->s3, custom_type, content, display, details) < 0 ? -1 : 0;
+}
+
+/* a boundary draft (types.ts SessionBoundaryDraft): "custom" and "custom_message" entries appended and announced as
+ * entry_appended; a custom message also joins the conversation as the user message convertToLlm makes of it
+ * (_refreshFinalizedContext). The other drafts (context_edit, compaction) are not read: -1 */
+static int draft_entry(void *u, pi_session *s, const char *text, long n)
+{
+    pi_store *st = (pi_store *)u;
+    jv d, v;
+    char type[32], ct[200];
+    int idx;
+    if (json_parse(text, n, &d) || !json_get(d, "type", &v) || json_type(v) != J_STR)
+        return -1;
+    json_str(v, type, sizeof(type));
+    ct[0] = 0;
+    if (json_get(d, "customType", &v) && json_type(v) == J_STR)
+        json_str(v, ct, sizeof(ct));
+    if (!strcmp(type, "custom")) {
+        jw data;
+        int rc;
+        jw_init(&data);
+        if (json_get(d, "data", &v))
+            jw_raw(&data, v.p, v.n);
+        rc = append_custom(u, s, ct, data.n ? data.p : 0);
+        jw_free(&data);
+        return rc;
+    }
+    if (!strcmp(type, "custom_message")) {
+        jw content, details, m, one;
+        long cn;
+        const char *line;
+        int display = json_get(d, "display", &v) && json_type(v) == J_TRUE;
+        jw_init(&content);
+        jw_init(&details);
+        jw_init(&m);
+        jw_init(&one);
+        if (json_get(d, "content", &v))
+            jw_raw(&content, v.p, v.n);
+        else
+            jw_rawz(&content, "[]");
+        if (json_get(d, "details", &v) && json_type(v) != J_NULL)
+            jw_raw(&details, v.p, v.n);
+        idx = s3_custom_message(&st->s3, ct, content.p, display, details.n ? details.p : 0);
+        if (idx >= 0) {
+            /* the message as the session's entry reads back (customType, content, display, details, timestamp) */
+            line = s3_text(&st->s3, idx, &cn);
+            if (line) {
+                jv e, ts;
+                jw_rawz(&m, "{\"role\":\"custom\",\"customType\":");
+                jw_strz(&m, ct);
+                jw_rawz(&m, ",\"content\":");
+                jw_raw(&m, content.p, content.n);
+                jw_rawz(&m, display ? ",\"display\":true" : ",\"display\":false");
+                if (details.n) {
+                    jw_rawz(&m, ",\"details\":");
+                    jw_raw(&m, details.p, details.n);
+                }
+                if (!json_parse(line, cn, &e) && json_get(e, "timestamp", &ts) && json_type(ts) == J_STR) {
+                    llm_ts t;
+                    char z[40];
+                    json_str(ts, z, sizeof(z));
+                    if (s3_iso_read(z, &t) == 0) {
+                        jw_rawz(&m, ",\"timestamp\":");
+                        llm_w_ts(&m, t);
+                    }
+                }
+                jw_rawz(&m, "}");
+                if (ctx_msg_to_llm(m.p, m.n, &one) && !one.oom)
+                    pi_session_push(s, one.p, one.n);
+            }
+            announce_entry(st, s, idx);
+        }
+        jw_free(&content);
+        jw_free(&details);
+        jw_free(&m);
+        jw_free(&one);
+        return idx < 0 ? -1 : 0;
+    }
+    return -1;
+}
+
+/* the BoundaryContextPreview of the branch as it stands (agent-session.ts _buildBoundaryContext: the session projection, the
+ * messages convertToLlm makes of it, the queued messages, whether a request could be made) and, for turn_end, the ids of the
+ * turn's persisted entries (_findPersistedMessageEntryId) */
+static int boundary(void *u, pi_session *s, int settle, jw *ids, jw *out)
+{
+    pi_store *st = (pi_store *)u;
+    pi_ctx c;
+    jw llm;
+    int i, k, final_assistant = 0, has_non_system = 0, can, q;
+    ctx_init(&c);
+    if (ctx_build(&st->s3, st->s3.leaf, &c)) {
+        ctx_free(&c);
+        return -1;
+    }
+    if (ids) {
+        int a = -1, res[64], nr = 0, j;
+        for (j = st->s3.leaf; j >= 0 && a < 0; j = st->s3.e[j].parent) {
+            if (st->s3.e[j].type == S3_MESSAGE && st->s3.e[j].role == S3R_ASSISTANT)
+                a = j;
+            else if (st->s3.e[j].type == S3_MESSAGE && st->s3.e[j].role == S3R_TOOLRESULT && nr < 64)
+                res[nr++] = j;
+        }
+        jw_rawz(ids, "\"messageEntryId\":");
+        jw_strz(ids, a >= 0 ? s3_id(&st->s3, a) : "");
+        jw_rawz(ids, ",\"toolResultEntryIds\":[");
+        for (j = nr - 1; j >= 0; j--) {
+            jw_strz(ids, s3_id(&st->s3, res[j]));
+            if (j)
+                jw_rawz(ids, ",");
+        }
+        jw_rawz(ids, "]");
+    }
+    jw_rawz(out, "{\"contextEntries\":[");
+    for (i = 0; i < c.ne; i++) {
+        long ln;
+        const char *line = s3_text(&st->s3, c.esrc[i], &ln);
+        if (i)
+            jw_rawz(out, ",");
+        jw_rawz(out, "{\"sourceEntry\":");
+        jw_raw(out, line ? line : "null", line ? ln : 4);
+        jw_rawz(out, ",\"messages\":[");
+        for (k = 0; k < c.ecnt[i]; k++) {
+            if (k)
+                jw_rawz(out, ",");
+            jw_raw(out, c.msg[c.efirst[i] + k], c.msg_n[c.efirst[i] + k]);
+        }
+        jw_rawz(out, "]}");
+    }
+    jw_rawz(out, "],\"contextMessages\":[");
+    for (i = 0; i < c.n; i++) {
+        if (i)
+            jw_rawz(out, ",");
+        jw_raw(out, c.msg[i], c.msg_n[i]);
+    }
+    jw_rawz(out, "],\"llmMessages\":");
+    jw_init(&llm);
+    ctx_to_llm(&c, &llm);
+    jw_raw(out, llm.p, llm.n);
+    if (llm.p && !llm.oom) {
+        jit it;
+        jv arr, el, r;
+        char role[16];
+        if (!json_parse(llm.p, llm.n, &arr)) {
+            json_iter(arr, &it);
+            while (json_next(&it, 0, &el)) {
+                role[0] = 0;
+                if (json_get(el, "role", &r) && json_type(r) == J_STR)
+                    json_str(r, role, sizeof(role));
+                final_assistant = !strcmp(role, "assistant");
+                if (strcmp(role, "system"))
+                    has_non_system = 1;
+            }
+        }
+    }
+    jw_rawz(out, ",\"pendingMessages\":[");
+    q = s->nsteer + s->nfollow;
+    for (i = 0; i < q; i++) {
+        const char *text = i < s->nsteer ? s->steer[i] : s->follow[i - s->nsteer];
+        llm_ts t;
+        t.sec = 0;
+        t.ms = 0;
+        if (s->now)
+            t = s->now(s->h.u);
+        if (i)
+            jw_rawz(out, ",");
+        jw_rawz(out, "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":");
+        jw_strz(out, text);
+        jw_rawz(out, "}],\"timestamp\":");
+        llm_w_ts(out, t);
+        jw_rawz(out, "}");
+    }
+    /* contextCanContinue || a queued message (turn_end) / a queued message after an assistant answer (agent_before_settle) */
+    can = (has_non_system && !final_assistant) || (settle ? (final_assistant && q > 0) : q > 0);
+    jw_rawz(out, can ? "],\"canContinue\":true}" : "],\"canContinue\":false}");
+    jw_free(&llm);
+    ctx_free(&c);
+    return 0;
+}
+
 /* pi's _omitRecoveryAttempt(message, toolResults): the last answer of the branch and the tool results of its turn leave the
  * context, in that order */
 static int omit_recovery(pi_store *st, pi_session *s)
@@ -1175,5 +1365,10 @@ int pi_store_attach(pi_store *st, pi_session *s)
     s->omit_u = st;
     s->append_entry = append_custom;
     s->append_u = st;
+    s->custom_save = custom_save;
+    s->custom_u = st;
+    s->boundary = boundary;
+    s->draft = draft_entry;
+    s->boundary_u = st;
     return pi_subscribe(&s->em, on_event, st);
 }

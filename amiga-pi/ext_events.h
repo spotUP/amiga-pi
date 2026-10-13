@@ -28,4 +28,17 @@ void pi_ev_shutdown(pi_session *s, const char *reason, const char *target);
 int pi_ev_before_switch(pi_session *s, const char *reason, const char *target);
 int pi_ev_before_fork(pi_session *s, const char *entry_id, const char *position);
 
+/* turn_end (agent-session.ts _dispatchTurnEndBoundary): message is the turn's assistant message, results a JSON array of its tool
+ * results. Handlers may answer {entries: [custom | custom_message drafts], continue}; the drafts are appended (entry_appended).
+ * 1 when the run is to go on though the model asked for nothing more */
+int pi_ev_turn_end(pi_session *s, const char *message, long message_n, const char *results, long results_n);
+/* agent_before_settle (_runBeforeSettleBoundary): the same answers; 1 when the run is to continue */
+int pi_ev_before_settle(pi_session *s);
+/* context and context_with_system (runner.ts emitContext) over the transcript the next request carries: 1 when a handler
+ * changed it, out then holds the new messages as a JSON array (system messages included, as the request needs them) */
+int pi_ev_context(pi_session *s, jw *out);
+/* before_agent_start (runner.ts emitBeforeAgentStart): handlers may answer {message}, a custom message that joins the user's
+ * (kept in s->next_custom); systemPrompt overrides are not read */
+void pi_ev_before_agent_start(pi_session *s, const char *prompt);
+
 #endif
