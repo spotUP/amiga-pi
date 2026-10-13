@@ -187,17 +187,19 @@ static void test_real_timeout(void)
 {
     jw s, args;
     char reason[300];
-    time_t t0;
     jw_init(&s);
     jw_init(&args);
     jw_rawz(&args, "{\"command\":\"ls\"}");
-    put("slow.sh", "cat >/dev/null\nsleep 30\necho '{\"block\":false}'\n");
+    /* the hook writes finished.txt after its sleep. Killed at its 1 s timeout it never does; a timeout path that waits for it
+     * (or leaves it running) does. No wall-clock bound: how long the call took depends on the machine's load, whether the
+     * hook was killed does not. */
+    put("slow.sh", "cat >/dev/null\nsleep 3\ntouch \"$CLAUDE_PROJECT_DIR/finished.txt\"\necho '{\"block\":false}'\n");
     settings_for(&s, "tool_call", 0, "slow.sh", 0, 1);
     up(s.p);
-    t0 = time(0);
     CHECK_INT(pi_exts_tool_call(&ses.ext, "t1", "bash", &args, reason, sizeof(reason)), 1);
     CHECK(strstr(reason, "ran out of time") != 0);
-    CHECK(time(0) - t0 < 10);
+    sleep(6);                           /* past the end of the hook's sleep: a survivor has written its file by now */
+    CHECK(!exists("finished.txt"));
     down();
     jw_reset(&s);
     put("quick.sh", "cat >/dev/null\necho '{\"block\":true,\"reason\":\"quick\"}'\n");
