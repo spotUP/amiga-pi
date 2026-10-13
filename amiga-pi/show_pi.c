@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "show_pi.h"
-#include "skills.h"
+#include "resreport.h"
 #include "ansi.h"
 #include "claude/util.h"
 #include "claude/json.h"
@@ -62,6 +62,17 @@ static void spacer(pi_show *s)
     if (s->any)
         blank(s);
     s->any = 1;
+    s->after_block = 0;
+}
+
+/* showStatus and showError add a Spacer(1) of their own: below the loaded-resources block (whose own Spacer ends it) that is two blank rows;
+ * the user's message has no Spacer, its box begins with a padding row */
+static void spacer_item(pi_show *s)
+{
+    int after = s->after_block;
+    spacer(s);
+    if (after)
+        blank(s);
 }
 
 /* text set in a role's colour (plus extra attributes), wrapped to the screen's width less pi's one column of
@@ -269,6 +280,7 @@ void pshow_clear(pi_show *s)
     items_drop(s);
     tui_clear(s->t);
     s->any = 0;
+    s->after_block = 0;
 }
 
 /* ---- the answer ---- */
@@ -585,14 +597,14 @@ static void d_user(pi_show *s, const char *text)
 
 static void d_note(pi_show *s, int role, const char *text)
 {
-    spacer(s);
+    spacer_item(s);
     say_pad(s, 1, role, "", text);     /* pi's status lines are Text(.., 1, 0), not outputPad */
     out(s);
 }
 
 static void d_error(pi_show *s, const char *text)
 {
-    spacer(s);
+    spacer_item(s);
     say(s, PR_ERROR, "", text);
     out(s);
 }
@@ -1320,16 +1332,19 @@ static void d_rtitle(pi_show *s, int role, const char *title)
     raw(s, "\n");
 }
 
-static void d_rline(pi_show *s, int kind, const char *text)
+static void d_rline(pi_show *s, int kind, int mode, const char *text)
 {
     char b[48], c[48];
-    if (kind == SKL_COLL_WIN || kind == SKL_COLL_LOSE) {
+    const char *nl;
+    if ((mode == RRM_COLLAPSED && s->expanded) || (mode == RRM_EXPANDED && !s->expanded))
+        return;                     /* the block's other form (ExpandableText: Ctrl+O switches between them) */
+    if (kind == RRL_COLL_WIN || kind == RRL_COLL_LOSE) {
         /* "    <glyph> <path>" in the dim colour with the glyph in success (winner) or warning (skipped) */
         long glyph = 4;
         if ((long)strlen(text) > glyph + 3 && tui_width(text, (long)strlen(text)) <= s->t->cols) {
             raw(s, sg(s, PR_DIM, b));
             jw_raw(&s->batch, text, glyph);
-            raw(s, sg(s, kind == SKL_COLL_WIN ? PR_SUCCESS : PR_WARNING, c));
+            raw(s, sg(s, kind == RRL_COLL_WIN ? PR_SUCCESS : PR_WARNING, c));
             jw_raw(&s->batch, text + glyph, 3);
             raw(s, "\033[39m");          /* the dim colour is the terminal's own: the glyph's colour ends */
             raw(s, text + glyph + 3);
@@ -1339,13 +1354,35 @@ static void d_rline(pi_show *s, int kind, const char *text)
         say_pad(s, 0, PR_DIM, "", text);
         return;
     }
-    say_pad(s, 0, kind == SKL_ERROR ? PR_ERROR : kind == SKL_LISTING ? PR_DIM : PR_WARNING, "", text);
+    if (kind == RRL_SCOPE) {
+        /* "  <scope>": the two spaces plain, the scope in the accent colour */
+        raw(s, "  ");
+        raw(s, sg(s, PR_ACCENT, b));
+        raw(s, text + 2);
+        raw(s, SGR0 "\n");
+        return;
+    }
+    /* a message with line breaks of its own (a YAML error's context lines): the lines one after the other */
+    nl = strchr(text, '\n');
+    if (nl) {
+        char one[1200];
+        long n = (long)(nl - text);
+        if (n >= (long)sizeof(one))
+            n = (long)sizeof(one) - 1;
+        memcpy(one, text, (size_t)n);
+        one[n] = 0;
+        d_rline(s, kind, RRM_BOTH, one);
+        d_rline(s, kind, RRM_BOTH, nl + 1);
+        return;
+    }
+    say_pad(s, 0, kind == RRL_ERROR ? PR_ERROR : kind == RRL_ITEM ? PR_DIM : PR_WARNING, "", text);
 }
 
 static void d_rend(pi_show *s)
 {
     blank(s);                       /* Spacer(1) */
     s->any = 0;
+    s->after_block = 1;
     out(s);
 }
 
@@ -1396,6 +1433,7 @@ void pshow_replay_msgs(pi_show *s, char *const *msg, const long *msg_n, int nmsg
     box_forget(s);
     s->replay = 1;
     s->any = 0;
+    s->after_block = 0;
     item_new(s, PK_RESET);          /* a redraw of the items begins the conversation the same way */
     pshow_render(s, &r);
     for (i = 0; i < nmsg; i++) {
@@ -1650,7 +1688,7 @@ static void item_draw(pi_show *s, ps_item *it)
         d_rtitle(s, (int)it->a, x);
         break;
     case PK_RLINE:
-        d_rline(s, (int)it->a, x);
+        d_rline(s, (int)it->a, (int)it->b, x);
         break;
     case PK_REND:
         d_rend(s);
@@ -1660,6 +1698,7 @@ static void item_draw(pi_show *s, ps_item *it)
         break;
     case PK_RESET:
         s->any = 0;
+        s->after_block = 0;
         break;
     }
 }
@@ -1678,6 +1717,7 @@ void pshow_expand(pi_show *s, int expanded, const char *status)
     box_forget(s);
     tui_clear(s->t);
     s->any = 0;
+    s->after_block = 0;
     s->replay = 0;
     for (i = 0; i < s->nitem; i++)
         item_draw(s, s->item[i]);
@@ -1737,10 +1777,12 @@ void pshow_resource_title(pi_show *s, int role, const char *title)
     d_rtitle(s, role, title);
 }
 
-void pshow_resource_line(pi_show *s, int kind, const char *text)
+void pshow_resource_line(pi_show *s, int kind, int mode, const char *text)
 {
-    item_text(s, PK_RLINE, kind, text, (long)strlen(text), 0);
-    d_rline(s, kind, text);
+    ps_item *it = item_text(s, PK_RLINE, kind, text, (long)strlen(text), 0);
+    if (it)
+        it->b = mode;
+    d_rline(s, kind, mode, text);
 }
 
 void pshow_resource_end(pi_show *s)

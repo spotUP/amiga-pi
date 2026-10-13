@@ -4,6 +4,7 @@
 #include "skills.h"
 #include "frontmatter.h"
 #include "pkgres.h"
+#include "resreport.h"
 #include "tools_pi.h"
 #include "claude/path.h"
 #include "claude/util.h"
@@ -588,110 +589,51 @@ int pi_skills_commands(const pi_skills *k, jw *out)
 
 void pi_skill_label(const pi_skill *s, char *out, long cap)
 {
-    if (s->source == SKO_PACKAGE) {
-        /* a package: its source string, accent coloured, with the scope after it */
-        cl_copy(out, s->psrc, cap);
-        cl_cat(out, s->scope == SKS_USER ? " (user)" : s->scope == SKS_PROJECT ? " (project)" : " (temp)", cap);
-    } else if (s->source == SKO_AUTO)
-        cl_copy(out, s->scope == SKS_USER ? "auto (user)" : "auto (project)", cap);
-    else if (s->scope == SKS_USER)
-        cl_copy(out, "user", cap);
-    else if (s->scope == SKS_PROJECT)
-        cl_copy(out, "project", cap);
-    else
-        cl_copy(out, "path (temp)", cap);
+    rr_label(s->scope == SKS_USER ? PMS_USER : s->scope == SKS_PROJECT ? PMS_PROJECT : PMS_TEMP,
+             s->source == SKO_AUTO ? PMK_AUTO : s->source == SKO_LOCAL ? PMK_LOCAL : PMK_PACKAGE, s->psrc, out, cap);
 }
 
-/* pi's formatPathWithSource: "<label> <path>" for a loaded skill's file, else the path */
-static void path_with_source(const pi_skills *k, const char *path, char *out, long cap)
+/* the skills as the report's items; free with free() */
+static rr_item *report_items(const pi_skills *k)
 {
+    rr_item *it = (rr_item *)calloc((size_t)(k->n ? k->n : 1), sizeof(rr_item));
     int i;
-    for (i = 0; i < k->n; i++)
-        if (!strcmp(k->s[i].path, path)) {
-            pi_skill_label(&k->s[i], out, cap);
-            cl_cat(out, " ", cap);
-            cl_cat(out, path, cap);
-            return;
-        }
-    cl_copy(out, path, cap);
-}
-
-static int name_cmp(const void *a, const void *b)
-{
-    return pi_locale_compare(*(const char *const *)a, *(const char *const *)b);
-}
-
-void pi_skills_listing(const pi_skills *k, pi_skl_fn fn, void *u)
-{
-    const char **names;
-    int i;
-    jw w;
-    if (!k->n)
-        return;
-    names = (const char **)malloc(sizeof(char *) * (size_t)k->n);
-    if (!names)
-        return;
-    for (i = 0; i < k->n; i++)
-        names[i] = k->s[i].name;
-    qsort(names, (size_t)k->n, sizeof(char *), name_cmp);
-    jw_init(&w);
-    jw_rawz(&w, "  ");
+    if (!it)
+        return 0;
     for (i = 0; i < k->n; i++) {
-        if (i)
-            jw_rawz(&w, ", ");
-        jw_rawz(&w, names[i]);
+        it[i].name = k->s[i].name;
+        it[i].path = k->s[i].path;
+        it[i].scope = k->s[i].scope == SKS_USER ? PMS_USER : k->s[i].scope == SKS_PROJECT ? PMS_PROJECT : PMS_TEMP;
+        it[i].kind = k->s[i].source == SKO_AUTO ? PMK_AUTO : k->s[i].source == SKO_LOCAL ? PMK_LOCAL : PMK_PACKAGE;
+        it[i].psrc = k->s[i].psrc;
     }
-    if (!w.oom)
-        fn(u, SKL_LISTING, w.p);
-    jw_free(&w);
-    free(names);
+    return it;
 }
 
-int pi_skills_report(const pi_skills *k, pi_skl_fn fn, void *u)
+void pi_skills_listing(const pi_skills *k, rr_fn fn, void *u)
 {
+    rr_item *it = report_items(k);
+    if (it)
+        rr_listing(it, k->n, fn, u);
+    free(it);
+}
+
+int pi_skills_report(const pi_skills *k, rr_fn fn, void *u)
+{
+    rr_item *it = report_items(k);
+    rr_diag *d = (rr_diag *)calloc((size_t)(k->nd ? k->nd : 1), sizeof(rr_diag));
     int i, lines = 0;
-    char buf[900], p[700];
-    /* the collisions grouped by name, in the order the names first collided */
-    for (i = 0; i < k->nd; i++) {
-        int j, seen = 0;
-        if (k->d[i].type != SKD_COLLISION)
-            continue;
-        for (j = 0; j < i; j++)
-            if (k->d[j].type == SKD_COLLISION && !strcmp(k->d[j].name, k->d[i].name))
-                seen = 1;
-        if (seen)
-            continue;
-        cl_copy(buf, "  \"", sizeof(buf));
-        cl_cat(buf, k->d[i].name, sizeof(buf));
-        cl_cat(buf, "\" collision:", sizeof(buf));
-        fn(u, SKL_COLL_HEAD, buf);
-        lines++;
-        path_with_source(k, k->d[i].winner, p, sizeof(p));
-        cl_copy(buf, "    \342\234\223 ", sizeof(buf));
-        cl_cat(buf, p, sizeof(buf));
-        fn(u, SKL_COLL_WIN, buf);
-        lines++;
-        for (j = i; j < k->nd; j++)
-            if (k->d[j].type == SKD_COLLISION && !strcmp(k->d[j].name, k->d[i].name)) {
-                path_with_source(k, k->d[j].path, p, sizeof(p));
-                cl_copy(buf, "    \342\234\227 ", sizeof(buf));
-                cl_cat(buf, p, sizeof(buf));
-                cl_cat(buf, " (skipped)", sizeof(buf));
-                fn(u, SKL_COLL_LOSE, buf);
-                lines++;
-            }
+    if (it && d) {
+        for (i = 0; i < k->nd; i++) {
+            d[i].type = k->d[i].type == SKD_COLLISION ? RRD_COLLISION : k->d[i].type == SKD_ERROR ? RRD_ERROR : RRD_WARNING;
+            d[i].msg = k->d[i].msg;
+            d[i].path = k->d[i].path;
+            d[i].winner = k->d[i].winner;
+            d[i].name = k->d[i].name;
+        }
+        lines = rr_diagnostics(d, k->nd, it, k->n, fn, u);
     }
-    for (i = 0; i < k->nd; i++) {
-        if (k->d[i].type == SKD_COLLISION)
-            continue;
-        path_with_source(k, k->d[i].path, p, sizeof(p));
-        cl_copy(buf, "  ", sizeof(buf));
-        cl_cat(buf, p, sizeof(buf));
-        fn(u, k->d[i].type == SKD_ERROR ? SKL_ERROR : SKL_WARN, buf);
-        cl_copy(buf, "    ", sizeof(buf));
-        cl_cat(buf, k->d[i].msg, sizeof(buf));
-        fn(u, k->d[i].type == SKD_ERROR ? SKL_ERROR : SKL_WARN, buf);
-        lines += 2;
-    }
+    free(it);
+    free(d);
     return lines;
 }

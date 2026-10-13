@@ -21,6 +21,7 @@
 #include "claude/json.h"
 #include "claude/tui.h"
 #include "pkgres.h"
+#include "resreport.h"
 
 /* pi's parseCommandArgs: the words of s, quotes ' and " group (and are dropped), JavaScript's whitespace splits,
  * a word that is empty is not a word. *out is an array of *n malloc'ed strings (0 when none): 0, -1 out of memory */
@@ -93,5 +94,11 @@ const cl_cmd *pi_tmpl_menu(pi_tmpls *ts, int *n);
 /* the templates as get_commands lists them (rpc-mode.ts:690-696): [{"name":"review","description":...,"source":"prompt","sourceInfo":{...}}, ...]
  * appended to out, without the brackets and with a comma before each but the first; n templates added */
 int pi_tmpls_commands(const pi_tmpls *ts, jw *out);
+
+/* the start-up report of pi's showLoadedResources for templates (resreport.h): the "[Prompts]" lists, compact ("/review, /fix") and
+ * grouped by scope, and the "[Prompt conflicts]" lines (a name two files have, a file whose YAML was refused, a path that is not there);
+ * the report returns the number of lines */
+void pi_tmpls_listing(const pi_tmpls *ts, rr_fn fn, void *u);
+int pi_tmpls_report(const pi_tmpls *ts, rr_fn fn, void *u);
 
 #endif

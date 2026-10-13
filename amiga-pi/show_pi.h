@@ -50,6 +50,7 @@ typedef struct pi_show {
     jw batch;                   /* lines ready for the screen */
     int first;                  /* the answer has written nothing yet (it gets its blank line first) */
     int any;                    /* something is in the transcript: the next block starts a blank line below it */
+    int after_block;            /* the loaded-resources block was the last thing drawn (its Spacer ends it) */
     long n_text, n_blocks, n_tools;
     int pad;                    /* outputPad: 1 (pi's default) or 0 */
     int expanded;               /* pi's toolOutputExpanded (ctrl+o): the summaries show their text; drawn from here on, redraw_chat redraws the rest */
@@ -109,9 +110,10 @@ void pshow_compaction_summary(pi_show *s, long tokens_before, const char *summar
 void pshow_branch_summary(pi_show *s, const char *summary, long n);
 void pshow_custom(pi_show *s, const char *type, const char *text, long n);
 /* pi's loaded-resources block at the start (showLoadedResources): "[title]" in a role's colour, the lines of a skills report
- * (skills.h SKL_*), then the blank row that ends it; pshow_blank is the row between the header and the block */
+ * (resreport.h RRL_*; mode RRM_*: the form of the block the line belongs to, Ctrl+O switches), then the blank row that ends it;
+ * pshow_blank is the row between the header and the block */
 void pshow_resource_title(pi_show *s, int role, const char *title);
-void pshow_resource_line(pi_show *s, int kind, const char *text);
+void pshow_resource_line(pi_show *s, int kind, int mode, const char *text);
 void pshow_resource_end(pi_show *s);
 void pshow_blank(pi_show *s);
 /* the conversation of ses drawn again from its messages (a branch left for another, a session resumed) */

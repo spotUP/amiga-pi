@@ -38,6 +38,7 @@ def find_pi():
     sys.exit('tui_gen: no pinned pi: npm install --prefix vendor/pi-1.1.0 @earendil-works/pi-coding-agent@1.1.0, or set PI_BIN')
 
 
+TAG = os.environ.get('PITUI_TAG', 'pitui')
 PI = find_pi()
 PI_VERSION = subprocess.run([PI, '--version'], capture_output=True, text=True).stdout.strip()
 
@@ -324,6 +325,34 @@ SCENARIOS.update({
 })
 
 
+# J5/I8: the start with prompt templates: the [Prompts] list, its Ctrl+O form, the [Prompt conflicts] block (a name two files have, a
+# file whose YAML pi refuses, a path that is not there), and the skills list in its Ctrl+O form
+PROMPT_FILES = {
+    'prompts/review.md': '---\ndescription: Review a file\nargument-hint: "<path>"\n---\nReview $1 carefully.\n',
+    'prompts/summarize.md': 'Summarize $ARGUMENTS in three lines.\n',
+    'prompts/explain.md': '---\ndescription: Explain a piece of code\n---\nExplain $@.\n',
+}
+CONFLICT_FILES = dict(PROMPT_FILES)
+CONFLICT_FILES.update({
+    'extra/review.md': 'Another review, from a settings.json entry: $1\n',
+    'prompts/broken.md': '---\ndescription: Use when: this\n---\nA template with refused YAML.\n',
+})
+
+SCENARIOS.update({
+    'prompts_start': dict(steps=[], answers=[], agent_files=PROMPT_FILES, rows=40, settings={'quietStartup': False}),
+    'prompts_start_expanded': dict(steps=[('key', 'C-o'), ('sleep', 1.0)], answers=[], agent_files=PROMPT_FILES, rows=40,
+                                   settings={'quietStartup': False}),
+    'skills_start_expanded': dict(steps=[('key', 'C-o'), ('sleep', 1.0)], answers=[], agent_files=SKILL_FILES, rows=50,
+                                  settings={'quietStartup': False}),
+    # a message after the lists: the blank rows between the block and the user's message
+    'prompts_start_msg': dict(steps=[('type', 'hello'), ('enter',), ('wait', 'Hello there')],
+                              answers=[('sse', text_answer('msg_ps', 'Hello there, friend!', 20))], agent_files=PROMPT_FILES, rows=40,
+                              settings={'quietStartup': False}),
+    # quietStartup hides the lists, not the conflicts
+    'prompts_conflicts': dict(steps=[], answers=[], agent_files=CONFLICT_FILES, rows=30, settings={'prompts': ['extra']}),
+})
+
+
 # R5: Ctrl+O (app.tools.expand) over tool boxes: the read box shows its file when expanded (renderers/read.ts:73-90), bash all of
 # its output (renderers/bash.ts:60-77), ls all its rows (renderers/ls.ts:35-39); a line that is not in the session store (the
 # request's error) stays; a running bash call stays live (tool-execution.ts setExpanded, interactive-mode.ts:4557-4574)
@@ -442,7 +471,7 @@ def run(name, sc, cols, rows, keep):
     global HIST
     HIST = False
     rows = sc.get('rows', rows)
-    work = '/private/tmp/pitui'      # fixed: the trust prompt and the footer show the path
+    work = '/private/tmp/' + TAG      # the trust prompt and the footer show the path; PITUI_TAG gives a run its own directory and tmux sessions
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
     agent = os.path.join(work, 'agent')
@@ -482,7 +511,7 @@ def run(name, sc, cols, rows, keep):
                 'tuiMode': sc.get('tui', 'fullscreen'), 'theme': sc.get('theme', 'system')}
     settings.update(sc.get('settings', {}))
     json.dump(settings, open(os.path.join(agent, 'settings.json'), 'w'))
-    sess = 'pitui-' + name
+    sess = TAG + '-' + name
     tmux('kill-session', '-t', sess)
     env = ('env -i HOME=%s PATH=%s TERM=xterm-256color LANG=en_US.UTF-8 PI_CODING_AGENT_DIR=%s PI_OFFLINE=1 '
            'PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0 ' % (work, os.environ['PATH'], agent))
@@ -571,6 +600,8 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     # the skills of the skills_* scenarios, for tests/test_pi_tui.c to put in its own agent directory
     json.dump(SKILL_FILES, open(os.path.join(OUT, 'skills_files.json'), 'w'), indent=1)
+    json.dump(PROMPT_FILES, open(os.path.join(OUT, 'prompts_files.json'), 'w'), indent=1)
+    json.dump(CONFLICT_FILES, open(os.path.join(OUT, 'conflict_files.json'), 'w'), indent=1)
     for n, sc in SCENARIOS.items():
         if a.only and a.only != n:
             continue

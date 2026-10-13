@@ -4,6 +4,7 @@
 #include "templates.h"
 #include "frontmatter.h"
 #include "pkgres.h"
+#include "resreport.h"
 #include "claude/path.h"
 #include "claude/util.h"
 
@@ -682,4 +683,72 @@ int pi_tmpls_commands(const pi_tmpls *ts, jw *out)
         jw_rawz(out, "}}");
     }
     return out->oom ? -1 : i;
+}
+
+/* the templates as the report's items ("/name"); free the strings and the array with free_items */
+static rr_item *report_items(const pi_tmpls *ts, char ***names)
+{
+    rr_item *it = (rr_item *)calloc((size_t)(ts->n ? ts->n : 1), sizeof(rr_item));
+    char **nm = (char **)calloc((size_t)(ts->n ? ts->n : 1), sizeof(char *));
+    int i;
+    if (!it || !nm) {
+        free(it);
+        free(nm);
+        return 0;
+    }
+    for (i = 0; i < ts->n; i++) {
+        char buf[120];
+        cl_copy(buf, "/", sizeof(buf));
+        cl_cat(buf, ts->t[i].name, sizeof(buf));
+        nm[i] = dupn(buf, (long)strlen(buf));
+        it[i].name = nm[i];
+        it[i].shown = nm[i];
+        it[i].path = ts->t[i].path;
+        it[i].scope = ts->t[i].scope;
+        it[i].kind = ts->t[i].kind;
+        it[i].psrc = ts->t[i].psrc;
+    }
+    *names = nm;
+    return it;
+}
+
+static void free_items(rr_item *it, char **nm, int n)
+{
+    int i;
+    for (i = 0; nm && i < n; i++)
+        free(nm[i]);
+    free(nm);
+    free(it);
+}
+
+void pi_tmpls_listing(const pi_tmpls *ts, rr_fn fn, void *u)
+{
+    char **nm = 0;
+    rr_item *it = report_items(ts, &nm);
+    if (it)
+        rr_listing(it, ts->n, fn, u);
+    free_items(it, nm, ts->n);
+}
+
+int pi_tmpls_report(const pi_tmpls *ts, rr_fn fn, void *u)
+{
+    char **nm = 0;
+    rr_item *it = report_items(ts, &nm);
+    rr_diag *d = (rr_diag *)calloc((size_t)(ts->nd ? ts->nd : 1), sizeof(rr_diag));
+    int i, lines = 0;
+    if (it && d) {
+        for (i = 0; i < ts->nd; i++) {
+            char *nmz;
+            d[i].type = ts->d[i].type == TD_COLLISION ? RRD_COLLISION : ts->d[i].type == TD_ERROR ? RRD_ERROR : RRD_WARNING;
+            d[i].msg = ts->d[i].msg;
+            d[i].path = ts->d[i].path;
+            d[i].winner = ts->d[i].winner;
+            nmz = ts->d[i].name;
+            d[i].name = nmz;
+        }
+        lines = rr_diagnostics(d, ts->nd, it, ts->n, fn, u);
+    }
+    free_items(it, nm, ts->n);
+    free(d);
+    return lines;
 }

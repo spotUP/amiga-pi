@@ -1,0 +1,7 @@
+{
+ "prompts/review.md": "---\ndescription: Review a file\nargument-hint: \"<path>\"\n---\nReview $1 carefully.\n",
+ "prompts/summarize.md": "Summarize $ARGUMENTS in three lines.\n",
+ "prompts/explain.md": "---\ndescription: Explain a piece of code\n---\nExplain $@.\n",
+ "extra/review.md": "Another review, from a settings.json entry: $1\n",
+ "prompts/broken.md": "---\ndescription: Use when: this\n---\nA template with refused YAML.\n"
+}

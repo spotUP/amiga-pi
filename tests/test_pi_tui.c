@@ -1279,6 +1279,21 @@ static void test_resume_summaries(void)
  * (the captures are tests/pi/tui/skills_*.golden, resume_skill*.golden, skill_cmd.golden: pi 1.1.0, tools/pi_oracle/tui_gen.py) ---- */
 
 static char skdir[420];             /* the agent directory with the skills: short, so a path stays on one row as pi's "~/agent/..." does */
+static const char *tree_json = "skills_files.json";     /* the files written into it (tui_gen.py SKILL_FILES, PROMPT_FILES, CONFLICT_FILES) */
+
+/* a new agent directory for the next case: the old one removed (its files would be found again) */
+static void fresh_agent(void)
+{
+    char cmd[460];
+    if (skdir[0] && strlen(skdir) > 10) {
+        strcpy(cmd, "rm -rf '");
+        strncat(cmd, skdir, strlen(skdir) - 6);         /* /tmp/pis_XXXXXX/agent without "/agent" */
+        strcat(cmd, "'");
+        if (system(cmd))
+            CHECK(0);
+    }
+    skdir[0] = 0;
+}
 
 /* the skills of tui_gen.py's SKILL_FILES (tests/pi/tui/skills_files.json) written under skdir/skills */
 static void skills_tree(const char *settings)
@@ -1301,7 +1316,7 @@ static void skills_tree(const char *settings)
         strcat(p, "/skills");
         mkdir(p, 0777);
     }
-    b = slurp("skills_files.json", &n);
+    b = slurp(tree_json, &n);
     CHECK(b != 0);
     if (!b || json_parse(b, n, &all)) {
         free(b);
@@ -1449,6 +1464,29 @@ static void test_skills_screen(void)
     skills_case("resume_skill", "{\"quietStartup\":true}\n", keys_end, 0, 0, 1, 0, m_quiet, 0);
     skills_case("resume_skill_expanded", "{\"quietStartup\":true}\n", keys_exp, 0, 0, 1, 0, m_exp, 0);
     skills_case("skill_cmd", "{\"quietStartup\":true}\n", keys_cmd, sse_cmd, 1, 0, 0, m_quiet, 1);
+    /* I8: Ctrl+O at the start draws the [Skills] list grouped by scope (pi's header is long when expanded: not drawn here, its rows
+     * left out; the block is compared from its title) */
+    {
+        static const int m_sexp[] = { 1, 25, 43, 50, 0 };
+        skills_case("skills_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, -20, m_sexp, 1);
+    }
+    /* J5: the [Prompts] list, compact and grouped, and the [Prompt conflicts] block (a name two files have, YAML that is refused) */
+    {
+        static const int m_pstart[] = { 1, 9, 22, 40, 0 }, m_pexp[] = { 1, 25, 34, 40, 0 }, m_pconf[] = { 26, 30, 0 };
+        fresh_agent();
+        tree_json = "prompts_files.json";
+        skills_case("prompts_start", "{}\n", keys_end, 0, 0, 0, -4, m_pstart, 1);
+        skills_case("prompts_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, -20, m_pexp, 1);
+        {
+            static const char *keys_msg[] = { "hello\r", "\004", 0 };
+            static const char *const sse_msg[] = { "prompts_start_msg.1.sse" };
+            skills_case("prompts_start_msg", "{\"quietStartup\":false}\n", keys_msg, sse_msg, 1, 0, -4, m_pstart, 1);
+        }
+        fresh_agent();
+        tree_json = "conflict_files.json";
+        skills_case("prompts_conflicts", "{\"quietStartup\":true,\"prompts\":[\"extra\"]}\n", keys_end, 0, 0, 0, 0, m_pconf, 1);
+        tree_json = "skills_files.json";
+    }
     if (skdir[0] && strlen(skdir) > 10) {
         strcpy(cmd, "rm -rf '");
         strncat(cmd, skdir, strlen(skdir) - 6);         /* /tmp/pis_XXXXXX/agent without "/agent" */

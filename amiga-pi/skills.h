@@ -20,6 +20,7 @@
 
 #include "claude/sys.h"
 #include "claude/json.h"
+#include "resreport.h"
 
 enum { SKS_USER, SKS_PROJECT, SKS_TEMP };       /* pi's SourceScope: user, project, temporary (--skill) */
 enum { SKO_AUTO, SKO_LOCAL, SKO_PACKAGE };      /* pi's SourceInfo.source: "auto" (a default directory), "local" (settings, --skill), a package's source string */
@@ -91,12 +92,10 @@ void pi_skill_label(const pi_skill *s, char *out, long cap);
  * appended to out, without the brackets and with a comma before each; n skills added */
 int pi_skills_commands(const pi_skills *k, jw *out);
 
-/* the startup report of pi's interactive mode (showLoadedResources): lines of text, each tagged with how it is drawn */
-enum { SKL_LISTING, SKL_WARN, SKL_ERROR, SKL_COLL_HEAD, SKL_COLL_WIN, SKL_COLL_LOSE };
-typedef void (*pi_skl_fn)(void *u, int kind, const char *text);
-/* the "[Skills]" compact list ("  a, b": SKL_LISTING, one line; none without skills) */
-void pi_skills_listing(const pi_skills *k, pi_skl_fn fn, void *u);
+/* the startup report of pi's interactive mode (showLoadedResources, resreport.h): the "[Skills]" lists, compact and grouped by scope
+ * (one callback line each, tagged with the form it belongs to) */
+void pi_skills_listing(const pi_skills *k, rr_fn fn, void *u);
 /* the "[Skill conflicts]" lines (formatDiagnostics); the number of lines */
-int pi_skills_report(const pi_skills *k, pi_skl_fn fn, void *u);
+int pi_skills_report(const pi_skills *k, rr_fn fn, void *u);
 
 #endif

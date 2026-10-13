@@ -18,6 +18,7 @@
 #include "mode_json.h"
 #include "mode_rpc.h"
 #include "templates.h"
+#include "resreport.h"
 #include "claude/util.h"
 #include "claude/path.h"
 #include "claude/repl.h"       /* cl_key_clean */
@@ -926,6 +927,7 @@ int pi_rt_run(pi_rt *rt)
         static char *kb;
         long kn = 0;
         pi_ui_set_cwd(pl->cwd);
+        rr_set_home(pl_home(pl));                    /* a path in the start-up lists is written with ~ for the home directory */
         {
             int nt;
             const cl_cmd *tm = pi_tmpl_menu(&tmpls, &nt);
