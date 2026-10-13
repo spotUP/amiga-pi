@@ -9,6 +9,8 @@
  *   discover   <cwd>/.pi/extensions only when trusted, then the user's, by name; index.lua in a directory
  *   limits     instructions, time, memory; each call is limited anew, the extension keeps running
  *   env        no io / os / require / bytecode; json; ctx; print; unsubscribe
+ *   ui         ctx.hasUI and ctx.ui: pi's defaults without a user, the mode's dialogs with one, a long wait is not the
+ *              handler's time (L5)
  *   order      one list with C extensions: the order they were added in */
 #define _XOPEN_SOURCE 700
 #define _DARWIN_C_SOURCE
@@ -532,6 +534,145 @@ static void test_env(void)
     CHECK_STR(eval("select(2, pcall(json.encode, { [1] = 'a', x = 'b' }))"), "json.encode: object keys must be strings");
     CHECK_STR(eval("(function() local t = {}; t.t = t; return select(2, pcall(json.encode, t)) end)()"),
               "json.encode: table nested too deeply (a cycle?)");
+    down();
+}
+
+/* ---- L5: ctx.hasUI and ctx.ui ---- */
+
+static struct {
+    char title[80], message[80], placeholder[80], type[16], opt[4][16];
+    int n, calls;
+    long timeout;
+    int yes, pick;              /* confirm's answer, select's (-1: cancelled) */
+    const char *text;           /* input's answer, 0 cancelled */
+    unsigned long wait_ms;      /* how long the dialog "waits" (the session clock goes on) */
+} fui;
+
+static int fui_select(void *u, const char *title, const char *const *opt, int n, long timeout_ms, char *value, long cap)
+{
+    int i;
+    (void)u;
+    fui.calls++;
+    cl_copy(fui.title, title, sizeof(fui.title));
+    fui.n = n;
+    for (i = 0; i < n && i < 4; i++)
+        cl_copy(fui.opt[i], opt[i], sizeof(fui.opt[i]));
+    fui.timeout = timeout_ms;
+    clk += fui.wait_ms;
+    if (fui.pick < 0)
+        return 0;
+    cl_copy(value, opt[fui.pick], cap);
+    return 1;
+}
+
+static int fui_confirm(void *u, const char *title, const char *message, long timeout_ms)
+{
+    (void)u;
+    fui.calls++;
+    cl_copy(fui.title, title, sizeof(fui.title));
+    cl_copy(fui.message, message, sizeof(fui.message));
+    fui.timeout = timeout_ms;
+    clk += fui.wait_ms;
+    return fui.yes;
+}
+
+static int fui_input(void *u, const char *title, const char *placeholder, long timeout_ms, char *value, long cap)
+{
+    (void)u;
+    fui.calls++;
+    cl_copy(fui.title, title, sizeof(fui.title));
+    cl_copy(fui.placeholder, placeholder ? placeholder : "<none>", sizeof(fui.placeholder));
+    fui.timeout = timeout_ms;
+    clk += fui.wait_ms;
+    if (!fui.text)
+        return 0;
+    cl_copy(value, fui.text, cap);
+    return 1;
+}
+
+static void fui_notify(void *u, const char *message, const char *type)
+{
+    (void)u;
+    fui.calls++;
+    cl_copy(fui.message, message, sizeof(fui.message));
+    cl_copy(fui.type, type ? type : "<none>", sizeof(fui.type));
+}
+
+static pi_ext_ui fake_ui = { 0, fui_select, fui_confirm, fui_input, fui_notify };
+
+static void test_ui(void)
+{
+    /* no user (print, json): pi's noOpUIContext -- hasUI false, select and input undefined, confirm false, notify nothing */
+    up(0);
+    CHECK_STR(eval("ctx.hasUI"), "false");
+    CHECK_STR(eval("tostring(ctx.ui.select('T', { 'a', 'b' })) .. tostring(ctx.ui.confirm('T', 'm')) .. tostring(ctx.ui.input('T', 'p'))"),
+              "nilfalsenil");
+    CHECK_STR(eval("tostring((ctx.ui.notify('hello', 'error')))"), "nil");
+    down();
+    /* a user: hasUI is read when asked, so a mode that binds after the extensions loaded still shows */
+    up(0);
+    memset(&fui, 0, sizeof(fui));
+    CHECK_INT(load("ui.lua",
+                   "pi.on('input', function(event, ctx)\n"
+                   "  return { action = 'transform', text = tostring(ctx.hasUI) }\n"
+                   "end)"), 0);
+    CHECK_STR(run_input("x"), "false");
+    ses.ext.ui = &fake_ui;
+    CHECK_STR(run_input("x"), "true");
+    down();
+    /* the four calls reach the mode with pi's arguments and give its answers back */
+    up(0);
+    memset(&fui, 0, sizeof(fui));
+    ses.ext.ui = &fake_ui;
+    fui.pick = 1;
+    CHECK_STR(eval("ctx.ui.select('Pick', { 'one', 'two', 'three' })"), "two");
+    CHECK_STR(fui.title, "Pick");
+    CHECK_INT(fui.n, 3);
+    CHECK_STR(fui.opt[2], "three");
+    CHECK_INT((int)fui.timeout, 0);
+    CHECK_STR(eval("ctx.ui.select('Pick', { 'one', 'two' }, { timeout = 250 })"), "two");
+    CHECK_INT((int)fui.timeout, 250);
+    fui.pick = -1;
+    CHECK_STR(eval("tostring(ctx.ui.select('Pick', { 'one' }))"), "nil");            /* cancelled and timed out: undefined */
+    CHECK_STR(eval("tostring(ctx.ui.select('Pick', {}))"), "nil");                     /* nothing to choose from: no dialog */
+    CHECK_INT(fui.calls, 3);
+    fui.yes = 1;
+    CHECK_STR(eval("tostring(ctx.ui.confirm('Sure?', 'It runs.', { timeout = 9 }))"), "true");
+    CHECK_STR(fui.title, "Sure?");
+    CHECK_STR(fui.message, "It runs.");
+    CHECK_INT((int)fui.timeout, 9);
+    fui.yes = 0;
+    CHECK_STR(eval("tostring(ctx.ui.confirm('Sure?', 'It runs.'))"), "false");
+    fui.text = "because";
+    CHECK_STR(eval("ctx.ui.input('Why?', 'a reason')"), "because");
+    CHECK_STR(fui.placeholder, "a reason");
+    CHECK_STR(eval("ctx.ui.input('Why?')"), "because");
+    CHECK_STR(fui.placeholder, "<none>");
+    fui.text = 0;
+    CHECK_STR(eval("tostring(ctx.ui.input('Why?', 'a reason'))"), "nil");
+    CHECK_STR(eval("tostring((ctx.ui.notify('careful', 'warning')))"), "nil");
+    CHECK_STR(fui.message, "careful");
+    CHECK_STR(fui.type, "warning");
+    CHECK_STR(eval("tostring((ctx.ui.notify('plain')))"), "nil");
+    CHECK_STR(fui.type, "<none>");
+    /* a wrong call is the handler's error, as any Lua call with a missing argument (the extension keeps running) */
+    CHECK(strstr(eval("select(2, pcall(ctx.ui.select, 'Pick'))"), "table expected") != 0);
+    down();
+    /* a dialog waits for the user as long as it takes: a minute on the session clock is not the handler's, whose limit is 10 s */
+    up(0);
+    memset(&fui, 0, sizeof(fui));
+    ses.ext.ui = &fake_ui;
+    fui.pick = 0;
+    fui.wait_ms = 60000;
+    CHECK_INT(load("wait.lua",
+                   "pi.on('input', function(event, ctx)\n"
+                   "  local v = ctx.ui.select('Pick', { 'a', 'b' })\n"
+                   "  local n = 0\n"
+                   "  for i = 1, 20000 do n = n + 1 end\n"
+                   "  return { action = 'transform', text = v .. n }\n"
+                   "end)"), 0);
+    CHECK_STR(run_input("x"), "a20000");
+    CHECK_INT((int)told_n, 0);
     down();
 }
 
@@ -1079,6 +1220,7 @@ void suite_pi_lua(void)
     test_discover();
     test_limits();
     test_env();
+    test_ui();
     test_events_and_api();
     test_order();
     test_rank();

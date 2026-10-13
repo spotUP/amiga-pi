@@ -487,6 +487,8 @@ static long io_read(void *u, char *buf, long cap, long timeout_ms)
                 CHECK(0);                       /* a gate whose event never came */
                 return -1;
             }
+            if (timeout_ms > 0)
+                ps.clock += (unsigned long)timeout_ms;      /* a read that waited and got nothing took its time: a dialog's timeout runs out (L5) */
             return 0;
         }
     }
@@ -1382,54 +1384,15 @@ static void test_command_set(void)
     CHECK_INT(hit, 33);
 }
 
-/* H5: the extension UI over RPC. The test extension asks the four questions pi's TS extension of the golden asks (select,
- * confirm, input, notify) on a tool call; pi_rpc_ui() is the call an extension makes */
-static int ext_tool_call(void *u, const char *id, const char *name, jw *args, char *reason, long cap)
-{
-    pi_rpc *r = pi_rpc_ui();
-    static const char *const opt[] = { "Allow", "Block" };
-    char choice[40], why[60], msg[200];
-    int has_choice, has_why, yes;
-    (void)u;
-    (void)id;
-    (void)name;
-    (void)args;
-    if (!r)
-        return 0;
-    has_choice = pi_rpc_select(r, "Run it?", opt, 2, 0, choice, sizeof(choice));
-    yes = pi_rpc_confirm(r, "Sure?", "It runs a command.", 0);
-    has_why = pi_rpc_input(r, "Why?", "a reason", 0, why, sizeof(why));
-    strcpy(msg, "decided ");
-    strcat(msg, has_choice ? choice : "undefined");
-    strcat(msg, yes ? " true " : " false ");
-    strcat(msg, has_why ? why : "undefined");
-    pi_rpc_notify(r, msg, "info");
-    if (!has_choice || strcmp(choice, "Allow")) {
-        cl_copy(reason, "Blocked by the user", cap);
-        return 1;
-    }
-    return 0;
-}
-
-static pi_ext ui_ext = { "ui-test", 0, 0, ext_tool_call, 0, 0, 0, 0, 0, 0, 0, 0 };
-static long ui_ready_calls;
-
-static void ui_ready(pi_session *s)
-{
-    ui_ready_calls++;
-    pi_ext_add(&s->ext, &ui_ext);
-}
-
+/* H5, L5: the extension UI over RPC. A Lua extension asks the questions pi's TS extension of the golden asks (select, confirm,
+ * input, notify; ui_dialogs and ui_cancel answer them, ext_ui_timeout lets two run out and answers one too late, ext_ui_notify
+ * sends the three types and none, ext_ui_print has no client at all) and ctx.ui reaches the client's extension_ui_request /
+ * extension_ui_response (mode_rpc.c's pi_ext_ui) */
 static void test_ui(void)
 {
-    run_opts ro;
-    memset(&ro, 0, sizeof(ro));
-    ro.ready = ui_ready;
-    CHECK(scenario("ui_dialogs", &ro));
-    memset(&ro, 0, sizeof(ro));
-    ro.ready = ui_ready;
-    CHECK(scenario("ui_cancel", &ro));
-    CHECK(ui_ready_calls >= 2);
+    static const char *const names[] = { "ext_lua_ui_dialogs", "ext_lua_ui_cancel", "ext_lua_ui_timeout", "ext_lua_ui_notify",
+                                         "ext_lua_ui_print", 0 };
+    group(names);
 }
 
 static int has(const char *text, const char *needle)

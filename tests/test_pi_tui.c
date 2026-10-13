@@ -835,6 +835,7 @@ static sys_posix asp;
 static cl_sys asys;
 static long aclock;
 static int rest_any;            /* take the look at any screen at rest, not only one with the footer */
+static const char *rest_find = "navigate";     /* with rest_any: the text that shows the screen is the one to take (a dialog's keys) */
 static void (*at_rest)(void);   /* called once with the screen at rest (the next chunk is the last one) */
 static int rested;
 
@@ -887,7 +888,7 @@ static void rest_hook(void)
 {
     if (getenv("PI_TUI_HOOK"))
         printf("  hook: next=%d chunk=%s ms=%ld bottom=[%s]\n", cs.next, cs.script[cs.next] ? cs.script[cs.next] : "(end)", cs.read_ms, cs_row(cs.rows - 1));
-    if (rested || (rest_any && cs_find("navigate") < 0) ||
+    if (rested || (rest_any && cs_find(rest_find) < 0) ||
         (!rest_any && !strstr(cs_row(cs.rows - 1), "-model") && !strstr(cs_row(cs.rows - 1), "claude-")) ||
         cs.read_ms <= 0 || !cs.script[cs.next] || strcmp(cs.script[cs.next], "\004"))
         return;
@@ -2132,6 +2133,132 @@ static void test_resume_session_dir(void)
     CHECK(app_out && strstr(app_out, "amiga-pi --session ") != 0 && strstr(app_out, "--session-dir") == 0);
 }
 
+/* ---- L5: ctx.ui.select / confirm / input / notify from a Lua extension, as pi draws them (the captures are
+ * tests/pi/tui/ext_ui_*.golden; tui_gen.py's EXT_UI is the TypeScript twin of this extension) ---- */
+
+static const char *const EXT_UI_LUA[] = {   /* pieces: a string literal is limited to 509 characters in C90 */
+    "pi.registerCommand('pick', { handler = function(args, ctx)\n",
+    "  local v = ctx.ui.select('Pick one', { 'Alpha', 'Beta', 'Gamma' }, args ~= '' and { timeout = 60000 } or nil)\n",
+    "  if v == nil then ctx.ui.notify('nothing picked', 'warning') else ctx.ui.notify('picked ' .. v) end\n",
+    "end })\n",
+    "pi.registerCommand('sure', { handler = function(args, ctx)\n",
+    "  if ctx.ui.confirm('Delete it?', 'This cannot be undone.') then ctx.ui.notify('confirmed', 'info')\n",
+    "  else ctx.ui.notify('declined', 'warning') end\n",
+    "end })\n",
+    "pi.registerCommand('ask', { handler = function(args, ctx)\n",
+    "  local v = ctx.ui.input('Your name', 'a name')\n",
+    "  if v == nil then ctx.ui.notify('no name', 'error') else ctx.ui.notify('hello ' .. v, 'info') end\n",
+    "end })\n",
+    "pi.registerCommand('tell', { handler = function(args, ctx)\n",
+    "  ctx.ui.notify('plain note')\n",
+    "  ctx.ui.notify('a warning', 'warning')\n",
+    "  ctx.ui.notify('an error', 'error')\n",
+    "end })\n",
+    0 };
+
+static void ext_ui_rest(void)
+{
+    compare();
+}
+
+/* one capture: the keys typed (a command, then the dialog's), the screen at rest compared with pi's. show: the text on the
+ * screen that says the dialog or the note is up; mr: golden rows (first, last) left out, ended by 0; shift: the capture's row r
+ * is ours at r + shift (a note lands on our row 1, pi leaves a blank one above it) */
+static void ext_ui_case(const char *name, const char **keys, const char *show, const int *mr, int shift)
+{
+    static scen sc;
+    char dir[600];
+    int i, k = 0;
+    memset(&sc, 0, sizeof(sc));
+    sc.name = name;
+    strcpy(dir, aagent);
+    strcat(dir, "/extensions");
+    mkdir(dir, 0777);
+    {
+        char lua[2000];
+        lua[0] = 0;
+        for (i = 0; EXT_UI_LUA[i]; i++)
+            strcat(lua, EXT_UI_LUA[i]);
+        app_write("extensions/t.lua", lua);
+    }
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    cur = &sc;
+    taken = 0;
+    diffs = 0;
+    memset(rowdiff, 0, sizeof(rowdiff));
+    first_diff[0] = 0;
+    load_golden(name);
+    CHECK(want != 0);
+    if (!want)
+        return;
+    for (i = 0; mr[i] && k < 6; i += 2, k++) {
+        sc.masks[k].r0 = mr[i];
+        sc.masks[k].r1 = mr[i + 1];
+        sc.masks[k].c0 = 0;
+        sc.masks[k].c1 = 79;
+        sc.masks[k].why = "the editor border and the footer carry the capture's fake model and its working directory";
+    }
+    rest_any = 1;
+    rest_find = show;
+    cmp_shift = shift;
+    CHECK_INT(app_run(80, want_rows, keys, 0, 0, ext_ui_rest), 0);
+    cmp_shift = 0;
+    rest_any = 0;
+    rest_find = "navigate";
+    CHECK(taken);
+    if (diffs) {
+        printf("  %s: %d cells differ from pi's capture\n%s", name, diffs, first_diff);
+        if (getenv("PI_TUI_DUMP"))
+            for (i = 0; i < want_rows; i++)
+                printf("    %2d|%s\n", i + 1, snap[i]);
+        if (getenv("PI_TUI_ROWS"))
+            for (i = 0; i < want_rows; i++)
+                if (rowdiff[i]) {
+                    printf("    row %2d pi       |%s\n", i + 1, h_row(want, i));
+                    printf("           amiga-pi |%s   (%d cells)\n", snap[i], rowdiff[i]);
+                }
+    }
+    CHECK_INT(diffs, 0);
+    vt_free(want);
+    {
+        char f[600];
+        strcpy(f, aagent);
+        strcat(f, "/extensions/t.lua");
+        unlink(f);
+        rmdir(dir);
+    }
+}
+
+static void test_ext_ui_screen(void)
+{
+    static const char *k_pick[] = { "/pick\r", "\004", 0 };
+    static const char *k_pick_down[] = { "/pick\r", "\033[B", "\033[B", "\004", 0 };
+    static const char *k_pick_done[] = { "/pick\r", "\033[B", "\r", "\004", 0 };
+    static const char *k_pick_esc[] = { "/pick\r", "\033", "\004", 0 };
+    static const char *k_pick_timeout[] = { "/pick x\r", "\004", 0 };
+    static const char *k_sure[] = { "/sure\r", "\004", 0 };
+    static const char *k_sure_yes[] = { "/sure\r", "\r", "\004", 0 };
+    static const char *k_sure_no[] = { "/sure\r", "\033[B", "\r", "\004", 0 };
+    static const char *k_ask[] = { "/ask\r", "Ada", "\004", 0 };
+    static const char *k_ask_done[] = { "/ask\r", "Ada", "\r", "\004", 0 };
+    static const char *k_ask_esc[] = { "/ask\r", "Ada", "\033", "\004", 0 };
+    static const char *k_tell[] = { "/tell\r", "\004", 0 };
+    static const int foot[] = { 29, 30, 0 };      /* the footer: the capture's fake model, directory and window */
+    static const int note[] = { 25, 30, 0 };      /* a note: the editor, whose border and prompt sit on other rows, and the footer */
+    ext_ui_case("ext_ui_select", k_pick, "navigate", foot, 0);
+    ext_ui_case("ext_ui_select_down", k_pick_down, "navigate", foot, 0);
+    ext_ui_case("ext_ui_select_done", k_pick_done, "picked Beta", note, -1);
+    ext_ui_case("ext_ui_select_cancel", k_pick_esc, "nothing picked", note, -1);
+    ext_ui_case("ext_ui_select_timeout", k_pick_timeout, "navigate", foot, 0);
+    ext_ui_case("ext_ui_confirm", k_sure, "navigate", foot, 0);
+    ext_ui_case("ext_ui_confirm_yes", k_sure_yes, "confirmed", note, -1);
+    ext_ui_case("ext_ui_confirm_no", k_sure_no, "declined", note, -1);
+    ext_ui_case("ext_ui_input", k_ask, "enter submit", foot, 0);
+    ext_ui_case("ext_ui_input_done", k_ask_done, "hello Ada", note, -1);
+    ext_ui_case("ext_ui_input_cancel", k_ask_esc, "no name", note, -1);
+    ext_ui_case("ext_ui_notify", k_tell, "an error", note, -1);
+}
+
 /* ---- the trust question as pi's selector (the capture is tests/pi/tui/approval.golden) ---- */
 
 static void approval_rest(void)
@@ -2523,6 +2650,7 @@ void suite_pi_tui(void)
     test_theme_keys_app();
     test_tui_mode_app();
     test_approval();
+    test_ext_ui_screen();
     test_footer_cost();
     test_bash_rows_uncapped();
     test_slash_fuzzy();

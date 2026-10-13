@@ -1,0 +1,19 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "golden": "ui_cancel",
+ "text_files": {
+  "agent/extensions/t.lua": "local function show(v)\n  if v == nil then return \"undefined\" end\n  return tostring(v)\nend\npi.on(\"tool_call\", function(event, ctx)\n  local choice = ctx.ui.select(\"Run it?\", { \"Allow\", \"Block\" })\n  local ok = ctx.ui.confirm(\"Sure?\", \"It runs a command.\")\n  local why = ctx.ui.input(\"Why?\", \"a reason\")\n  ctx.ui.notify(\"decided \" .. show(choice) .. \" \" .. show(ok) .. \" \" .. show(why), \"info\")\n  if choice ~= \"Allow\" then return { block = true, reason = \"Blocked by the user\" } end\nend)\n"
+ }
+}
