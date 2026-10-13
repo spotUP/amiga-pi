@@ -1,5 +1,4 @@
 /* oauth -- see oauth.h. pi references are to vendor/pi-src/packages/ai/src/auth/oauth/ (pi 1.1.0, abe508e1). */
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,16 +9,25 @@
 
 /* ---- small things ---- */
 
-/* err := the parts joined (the last argument is 0) */
-static void say(char *err, long cap, ...)
+/* err := the parts joined (up to ten; a 0 part and the ones after it are left out). No varargs: vbcc's va_start warns */
+static void say(char *err, long cap, const char *a, const char *b, const char *c, const char *d, const char *e,
+                const char *f, const char *g, const char *h, const char *i, const char *j)
 {
-    va_list ap;
-    const char *p;
+    const char *parts[10];
+    int k;
+    parts[0] = a;
+    parts[1] = b;
+    parts[2] = c;
+    parts[3] = d;
+    parts[4] = e;
+    parts[5] = f;
+    parts[6] = g;
+    parts[7] = h;
+    parts[8] = i;
+    parts[9] = j;
     err[0] = 0;
-    va_start(ap, cap);
-    while ((p = va_arg(ap, const char *)) != 0)
-        cl_cat(err, p, cap);
-    va_end(ap);
+    for (k = 0; k < 10 && parts[k]; k++)
+        cl_cat(err, parts[k], cap);
 }
 
 static const char *status_text(int st)
@@ -512,7 +520,7 @@ static int cg_token(oa_io *io, const char *form, hres *r, jv *o, char *err, long
     if (!ok(r)) {
         body_text(&r->body, b, sizeof(b));
         num(r->status, n);
-        say(err, cap, "OpenAI OAuth token request failed (", n, "): ", b[0] ? b : status_text(r->status), (char *)0);
+        say(err, cap, "OpenAI OAuth token request failed (", n, "): ", b[0] ? b : status_text(r->status), 0, 0, 0, 0, 0, 0);
         hfree(r);
         return OA_FAIL;
     }
@@ -673,7 +681,7 @@ static int login_openai(oa_io *io, jw *entry, char *err, long cap)
         return OA_FAIL;
     }
     if (u.query && qget(u.query, u.qn, "error", e, sizeof(e)) && e[0]) {
-        say(err, cap, "ChatGPT authorization failed: ", e, (char *)0);
+        say(err, cap, "ChatGPT authorization failed: ", e, 0, 0, 0, 0, 0, 0, 0, 0);
         return OA_FAIL;
     }
     if (!u.query || !qget(u.query, u.qn, "code", code, sizeof(code)) || !code[0]) {
@@ -788,19 +796,19 @@ static int cx_entry(oa_io *io, hres *r, const char *op, jw *entry, char *err, lo
     if (!ok(r)) {
         body_text(&r->body, b, sizeof(b));
         num(r->status, n);
-        say(err, cap, "OpenAI Codex token ", op, " failed (", n, "): ", b[0] ? b : status_text(r->status), (char *)0);
+        say(err, cap, "OpenAI Codex token ", op, " failed (", n, "): ", b[0] ? b : status_text(r->status), 0, 0, 0, 0);
         return OA_FAIL;
     }
     if (!as_obj(r, &t)) {
         body_text(&r->body, b, sizeof(b));
-        say(err, cap, "OpenAI Codex token ", op, " response missing fields: ", b, (char *)0);
+        say(err, cap, "OpenAI Codex token ", op, " response missing fields: ", b, 0, 0, 0, 0, 0, 0);
         return OA_FAIL;
     }
     access = jstr_ne(t, "access_token");
     refresh = jstr_ne(t, "refresh_token");
     if (!access || !refresh || !json_get(t, "expires_in", &v) || json_type(v) != J_NUM) {
         body_text(&r->body, b, sizeof(b));
-        say(err, cap, "OpenAI Codex token ", op, " response missing fields: ", b, (char *)0);
+        say(err, cap, "OpenAI Codex token ", op, " response missing fields: ", b, 0, 0, 0, 0, 0, 0);
         free(access);
         free(refresh);
         return OA_FAIL;
@@ -877,7 +885,7 @@ static int cx_poll(void *c, dpr *pr)
         char *ac, *cv;
         if (!as_obj(&r, &o) || !(ac = jstr_ne(o, "authorization_code"))) {
             body_text(&r.body, b, sizeof(b));
-            say(pr->msg, sizeof(pr->msg), "Invalid OpenAI Codex device auth token response: ", b, (char *)0);
+            say(pr->msg, sizeof(pr->msg), "Invalid OpenAI Codex device auth token response: ", b, 0, 0, 0, 0, 0, 0, 0, 0);
             pr->st = DP_FAIL;
             hfree(&r);
             return 0;
@@ -886,7 +894,7 @@ static int cx_poll(void *c, dpr *pr)
         if (!cv) {
             free(ac);
             body_text(&r.body, b, sizeof(b));
-            say(pr->msg, sizeof(pr->msg), "Invalid OpenAI Codex device auth token response: ", b, (char *)0);
+            say(pr->msg, sizeof(pr->msg), "Invalid OpenAI Codex device auth token response: ", b, 0, 0, 0, 0, 0, 0, 0, 0);
             pr->st = DP_FAIL;
             hfree(&r);
             return 0;
@@ -922,7 +930,7 @@ static int cx_poll(void *c, dpr *pr)
         } else {
             body_text(&r.body, b, sizeof(b));
             num(r.status, n);
-            say(pr->msg, sizeof(pr->msg), "OpenAI Codex device auth failed with status ", n, b[0] ? ": " : "", b, (char *)0);
+            say(pr->msg, sizeof(pr->msg), "OpenAI Codex device auth failed with status ", n, b[0] ? ": " : "", b, 0, 0, 0, 0, 0, 0);
             pr->st = DP_FAIL;
         }
     }
@@ -954,7 +962,7 @@ static int cx_login_device(oa_io *io, jw *entry, char *err, long cap)
         } else {
             body_text(&r.body, b, sizeof(b));
             num(r.status, n);
-            say(err, cap, "OpenAI Codex device code request failed with status ", n, b[0] ? ": " : "", b, (char *)0);
+            say(err, cap, "OpenAI Codex device code request failed with status ", n, b[0] ? ": " : "", b, 0, 0, 0, 0, 0, 0);
         }
         hfree(&r);
         return OA_FAIL;
@@ -982,7 +990,7 @@ static int cx_login_device(oa_io *io, jw *entry, char *err, long cap)
         }
         if (!did || !uc || !good) {
             body_text(&r.body, b, sizeof(b));
-            say(err, cap, "Invalid OpenAI Codex device code response: ", b, (char *)0);
+            say(err, cap, "Invalid OpenAI Codex device code response: ", b, 0, 0, 0, 0, 0, 0, 0, 0);
             free(did);
             free(uc);
             hfree(&r);
@@ -1119,7 +1127,7 @@ static int refresh_codex(oa_io *io, jv cred, jw *entry, char *err, long cap)
         if (rc == OA_FAIL) {
             char t[300];
             cl_copy(t, err, sizeof(t));
-            say(err, cap, "OpenAI Codex token refresh error: ", t, (char *)0);
+            say(err, cap, "OpenAI Codex token refresh error: ", t, 0, 0, 0, 0, 0, 0, 0, 0);
         }
         return rc;
     }
@@ -1179,7 +1187,7 @@ static void gh_http_err(const hres *r, char *err, long cap)
     char n[16], b[300];
     num(r->status, n);
     body_text(&r->body, b, sizeof(b));
-    say(err, cap, n, " ", status_text(r->status), ": ", b, (char *)0);
+    say(err, cap, n, " ", status_text(r->status), ": ", b, 0, 0, 0, 0, 0);
 }
 
 /* getBaseUrlFromToken / getGitHubCopilotBaseUrl */
@@ -1488,7 +1496,7 @@ static int gh_poll(void *c, dpr *pr)
             desc[0] = 0;
             if (json_get(o, "error_description", &dv) && json_type(dv) == J_STR)
                 json_str(dv, desc, sizeof(desc));
-            say(pr->msg, sizeof(pr->msg), "Device flow failed: ", ec, desc[0] ? ": " : "", desc, (char *)0);
+            say(pr->msg, sizeof(pr->msg), "Device flow failed: ", ec, desc[0] ? ": " : "", desc, 0, 0, 0, 0, 0, 0);
             pr->st = DP_FAIL;
         }
     } else {
@@ -1716,7 +1724,7 @@ static int km_entry(oa_io *io, jv t, const char *op, const hres *r, jw *entry, c
         free(a);
         free(rf);
         body_text(&r->body, b, sizeof(b));
-        say(err, cap, "Kimi Code token ", op, " response missing fields: ", b, (char *)0);
+        say(err, cap, "Kimi Code token ", op, " response missing fields: ", b, 0, 0, 0, 0, 0, 0);
         return OA_FAIL;
     }
     e_open(entry);
@@ -1760,7 +1768,7 @@ static int km_poll(void *c, dpr *pr)
     num(r.status, n);
     if (r.status >= 500) {
         body_text(&r.body, b, sizeof(b));
-        say(pr->msg, sizeof(pr->msg), "Kimi Code device token request failed with status ", n, b[0] ? ": " : "", b, (char *)0);
+        say(pr->msg, sizeof(pr->msg), "Kimi Code device token request failed with status ", n, b[0] ? ": " : "", b, 0, 0, 0, 0, 0, 0);
         pr->st = DP_FAIL;
         hfree(&r);
         return 0;
@@ -1799,8 +1807,7 @@ static int km_poll(void *c, dpr *pr)
             cl_copy(pr->msg, "Kimi Code login was denied.", sizeof(pr->msg));
             pr->st = DP_FAIL;
         } else {
-            say(pr->msg, sizeof(pr->msg), "Kimi Code device token request failed (status ", n, ")", ec[0] ? ": " : "", ec, dsc,
-                (char *)0);
+            say(pr->msg, sizeof(pr->msg), "Kimi Code device token request failed (status ", n, ")", ec[0] ? ": " : "", ec, dsc, 0, 0, 0, 0);
             pr->st = DP_FAIL;
         }
     }
@@ -1833,7 +1840,7 @@ static int login_kimi(oa_io *io, jw *entry, char *err, long cap)
     if (!ok(&r)) {
         body_text(&r.body, b, sizeof(b));
         num(r.status, n);
-        say(err, cap, "Kimi Code device authorization failed with status ", n, b[0] ? ": " : "", b, (char *)0);
+        say(err, cap, "Kimi Code device authorization failed with status ", n, b[0] ? ": " : "", b, 0, 0, 0, 0, 0, 0);
         hfree(&r);
         return OA_FAIL;
     }
@@ -1845,7 +1852,7 @@ static int login_kimi(oa_io *io, jw *entry, char *err, long cap)
     }
     if (!dc || !uc || !vu || !vc || !http_url_ok(vc) || !http_url_ok(vu)) {
         body_text(&r.body, b, sizeof(b));
-        say(err, cap, "Invalid Kimi Code device authorization response: ", b, (char *)0);
+        say(err, cap, "Invalid Kimi Code device authorization response: ", b, 0, 0, 0, 0, 0, 0, 0, 0);
         free(dc);
         free(uc);
         free(vu);
@@ -1917,17 +1924,17 @@ static int refresh_kimi(oa_io *io, jv cred, jw *entry, char *err, long cap)
                     json_str(v, desc, sizeof(desc));
             }
             if (r.status == 401 || r.status == 403 || !strcmp(ec, "invalid_grant")) {
-                say(err, cap, "Kimi Code token refresh unauthorized (status ", n, ")", desc[0] ? ": " : "", desc, (char *)0);
+                say(err, cap, "Kimi Code token refresh unauthorized (status ", n, ")", desc[0] ? ": " : "", desc, 0, 0, 0, 0, 0);
                 hfree(&r);
                 goto out;
             }
             if ((r.status == 429 || r.status >= 500) && attempt < 3) {
-                say(last, sizeof(last), "Kimi Code token refresh failed with status ", n, (char *)0);
+                say(last, sizeof(last), "Kimi Code token refresh failed with status ", n, 0, 0, 0, 0, 0, 0, 0, 0);
                 hfree(&r);
                 continue;
             }
             body_text(&r.body, b, sizeof(b));
-            say(err, cap, "Kimi Code token refresh failed with status ", n, b[0] ? ": " : "", b, (char *)0);
+            say(err, cap, "Kimi Code token refresh failed with status ", n, b[0] ? ": " : "", b, 0, 0, 0, 0, 0, 0);
             hfree(&r);
             goto out;
         }
@@ -1960,7 +1967,7 @@ static int xa_post(oa_io *io, const char *url, const jw *form, hres *r, jv *o, c
         return rc;
     if (!as_obj(r, o)) {
         num(r->status, n);
-        say(err, cap, "xAI OAuth returned invalid JSON (HTTP ", n, ")", (char *)0);
+        say(err, cap, "xAI OAuth returned invalid JSON (HTTP ", n, ")", 0, 0, 0, 0, 0, 0, 0);
         hfree(r);
         return OA_FAIL;
     }
@@ -1978,8 +1985,7 @@ static void xa_fail(const char *action, const hres *r, jv o, char *err, long cap
     if (json_get(o, "error_description", &v) && json_type(v) == J_STR)
         json_str(v, d, sizeof(d));
     num(r->status, n);
-    say(err, cap, "xAI OAuth ", action, " failed (HTTP ", n, ")", e[0] || d[0] ? ": " : "", e, e[0] && d[0] ? ": " : "", d,
-        (char *)0);
+    say(err, cap, "xAI OAuth ", action, " failed (HTTP ", n, ")", e[0] || d[0] ? ": " : "", e, e[0] && d[0] ? ": " : "", d, 0);
 }
 
 /* credentialsFromTokenResponse: the entry; prev: the refresh token a refresh keeps when the answer has none */
@@ -2246,12 +2252,12 @@ static int mt_mint(oa_io *io, const char *identity, jw *entry, char *err, long c
     num(r.status, n);
     mt_detail(&r, det, sizeof(det));
     if (r.status == 401 || r.status == 403) {
-        say(err, cap, "Meta session expired (status ", n, "). Run `/login meta` to sign in again.", det, (char *)0);
+        say(err, cap, "Meta session expired (status ", n, "). Run `/login meta` to sign in again.", det, 0, 0, 0, 0, 0, 0);
         hfree(&r);
         return OA_FAIL;
     }
     if (!ok(&r)) {
-        say(err, cap, "Meta API key mint failed with status ", n, det, (char *)0);
+        say(err, cap, "Meta API key mint failed with status ", n, det, 0, 0, 0, 0, 0, 0, 0);
         hfree(&r);
         return OA_FAIL;
     }
@@ -2262,7 +2268,7 @@ static int mt_mint(oa_io *io, const char *identity, jw *entry, char *err, long c
             free(au);
             au = 0;
         }
-        say(err, cap, "Meta did not issue an API key.", au ? " Complete setup at " : "", au ? au : "", (char *)0);
+        say(err, cap, "Meta did not issue an API key.", au ? " Complete setup at " : "", au ? au : "", 0, 0, 0, 0, 0, 0, 0);
         free(au);
         hfree(&r);
         return OA_FAIL;
@@ -2327,7 +2333,7 @@ static int mt_poll(void *c, dpr *pr)
             cl_copy(pr->msg, "Meta device authorization expired. Please restart login.", sizeof(pr->msg));
             pr->st = DP_FAIL;
         } else {
-            say(pr->msg, sizeof(pr->msg), "Meta device token request failed with status ", n, det, (char *)0);
+            say(pr->msg, sizeof(pr->msg), "Meta device token request failed with status ", n, det, 0, 0, 0, 0, 0, 0, 0);
             pr->st = DP_FAIL;
         }
     }
@@ -2354,7 +2360,7 @@ static int login_meta(oa_io *io, jw *entry, char *err, long cap)
     num(r.status, n);
     if (!ok(&r)) {
         mt_detail(&r, det, sizeof(det));
-        say(err, cap, "Meta device authorization failed with status ", n, det, (char *)0);
+        say(err, cap, "Meta device authorization failed with status ", n, det, 0, 0, 0, 0, 0, 0, 0);
         hfree(&r);
         return OA_FAIL;
     }
@@ -2375,7 +2381,7 @@ static int login_meta(oa_io *io, jw *entry, char *err, long cap)
         show[0] = 0;
     if (!dc || !uc || !show[0]) {
         body_text(&r.body, b, sizeof(b));
-        say(err, cap, "Invalid Meta device authorization response: ", b, (char *)0);
+        say(err, cap, "Invalid Meta device authorization response: ", b, 0, 0, 0, 0, 0, 0, 0, 0);
         free(dc);
         free(uc);
         free(vc);

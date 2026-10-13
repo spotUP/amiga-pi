@@ -217,7 +217,7 @@ void pi_models_list(pi_models *m, const pi_session *s, jw *out)
         jw_rawz(out, "\n");
     }
     if (!n)
-        jw_rawz(out, "No models available: set a provider key (for example ANTHROPIC_API_KEY) or add models to models.json.\n");
+        jw_rawz(out, "No models available: use /login, set a provider key (for example ANTHROPIC_API_KEY) or add models to models.json.\n");
 }
 
 const llm_model *pi_models_nth(pi_models *m, const pi_session *s, int nth)
