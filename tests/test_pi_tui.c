@@ -776,6 +776,79 @@ static void test_steer_ui(void)
 }
 
 
+/* the spinner turns while a request waits (owner report 2026-10-13, rig 3: after "hello" a long delay and pi's braille
+ * spinner stood still): through a slow connect and TLS handshake and through the server's quiet before the first byte,
+ * a new frame every 80 ms as pi's Loader draws them (pi-tui loader.ts DEFAULT_INTERVAL_MS); Esc stops a slow connect */
+static char spin_glyph[8];
+static long spin_turns, spin_waited;
+static void spin_watch(long ms)
+{
+    int r = cs_find("Working");
+    const char *row, *g;
+    cs.clock += (unsigned long)ms;      /* the screen's clock goes as the transport waits */
+    spin_waited += ms;
+    if (r < 0)
+        return;
+    row = cs_row(r);
+    for (g = row; *g && !((unsigned char)g[0] == 0xe2 && ((unsigned char)g[1] & 0xfc) == 0xa0); g++)
+        ;                               /* the braille glyph: U+2800-U+28FF */
+    if (!*g)
+        return;
+    if (memcmp(spin_glyph, g, 3)) {
+        if (spin_glyph[0])
+            spin_turns++;
+        memcpy(spin_glyph, g, 3);
+    }
+}
+
+static long spin_run(long open_ms, long quiet_ms, const char *const *script)
+{
+    static pi_session ses;
+    cl_io io;
+    up_session(&ses, 0);
+    answer("markdown.1.sse");
+    ps.open_ms = open_ms;
+    ps.quiet_ms = quiet_ms;
+    ps.waited = spin_watch;
+    memset(spin_glyph, 0, sizeof(spin_glyph));
+    spin_turns = spin_waited = 0;
+    cs_open(80, 25, (const char **)script);
+    cs_io(&io);
+    pi_ui_set_quiet(1);
+    pi_ui_set_theme(0);
+    pi_ui_set_keybindings(0, 0);
+    pi_ui_set_cwd("~/project");
+    pi_ui_set_commands(0, 0);
+    cs.before_read = 0;
+    taken = 0;
+    cur = 0;
+    CHECK_INT(pi_ui_run(&ses, &io, 0), 0);
+    cs_close();
+    pi_session_free(&ses);
+    return spin_turns;
+}
+
+static void test_spinner_while_waiting(void)
+{
+    static const char *const hello[] = { "hello\r", "\004", 0 };
+    static const char *const esc[] = { "hello\r", "!\033", "\004", 0 };
+    long turns;
+    /* 4 s connecting (a 68020's handshake), no answer meanwhile: 50 frames at 80 ms, a few lost at the edges */
+    turns = spin_run(4000, 0, hello);
+    CHECK_INT(spin_waited, 4000);
+    CHECK(turns >= 45);
+    CHECK_INT(ps.nreq, 1);
+    /* 4 s of the server's quiet before its first byte */
+    turns = spin_run(0, 4000, hello);
+    CHECK(spin_waited >= 4000);
+    CHECK(turns >= 45);
+    /* Esc while connecting: the connect ends at once and no request goes out */
+    spin_run(60000, 0, esc);
+    CHECK_INT(ps.open_broken, 1);
+    CHECK(spin_waited < 1000);
+    CHECK_INT(ps.nreq, 0);
+}
+
 /* the directory name in the title: Unix and Amiga paths, a trailing '/', a volume root (an Amiga path is not cut at '/'
  * only: "DH0:proj" names proj, "Ram Disk:" names the volume) */
 static void test_title_dir_name(void)
@@ -3190,6 +3263,7 @@ void suite_pi_tui(void)
     unsigned i;
     test_queue_agent();
     test_steer_ui();
+    test_spinner_while_waiting();
     test_title_dir_name();
     test_window_title();
     app_sandbox();

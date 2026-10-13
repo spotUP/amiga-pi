@@ -87,7 +87,9 @@ build/amiga/obj/lua_%.o: $(LUA_DIR)/%.c $(wildcard $(LUA_DIR)/*.h)
 	@mkdir -p build/amiga/obj
 	cd $(VTCON_DIR) && $(call vtvar,VC) -dontwarn=65,79,153,172 -I$(CURDIR)/$(LUA_DIR) -c -o $(CURDIR)/$@ $(CURDIR)/$<
 
-build/amiga/amiga-pi: $(PI_CORE) $(PI_HDR) amiga-pi/main_amiga.c $(CLAUDE_PORTABLE) $(CLAUDE_PI) $(CLAUDE_HDR) $(LLM_CORE) $(STB) $(LUA_AMIGA_OBJ)
+# net_amiga.c and the TLS layer are compiled in the recipe: listed here, an edit of either relinks
+build/amiga/amiga-pi: $(PI_CORE) $(PI_HDR) amiga-pi/main_amiga.c $(CLAUDE_PORTABLE) $(CLAUDE_PI) $(CLAUDE_HDR) $(LLM_CORE) $(STB) $(LUA_AMIGA_OBJ) \
+  $(VTCON_DIR)/claude/net_amiga.c $(wildcard $(VTCON_DIR)/claude/tls_*.c)
 	@mkdir -p build/amiga/obj
 	$(MAKE) -s -C $(VTCON_DIR) build/amiga/obj/cpuchk-amiga-pi.o
 	cd $(VTCON_DIR) && $(filter-out -warnings-as-errors -warn=-1,$(call vtvar,VC)) -dontwarn=-1 -I$(CURDIR)/vendor/stb \
