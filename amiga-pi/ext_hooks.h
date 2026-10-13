@@ -26,8 +26,8 @@
  * then blocks the call (agent-session.ts _beforeToolCall: the error's message is the result's text), any other
  * event goes on without the hook and the failure is told (llm_hooks notice, pi's extension_error).
  *
- * Not hooked yet (COMPATIBILITY.md): message_update (the cumulative message and `partial` of pi-ai's streaming parser),
- * turn_end (BoundaryState: entries, context preview), the session events beyond session_start, the model events.
+ * The other events of pi's ExtensionEvent union are named in the same way (vtcon claude/config.c cfg_hook_events) and arrive through
+ * pi_exts_emit (ext_events.h); the answers they read are in COMPATIBILITY.md. A command is killed after its `timeout` (sys run).
  * Portable C89, host-tested (tests/test_pi_hooks.c). */
 #ifndef PI_EXT_HOOKS_H
 #define PI_EXT_HOOKS_H

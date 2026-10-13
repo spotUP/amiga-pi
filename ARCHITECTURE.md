@@ -214,13 +214,32 @@ files with the masks both sides share (tests/pi/rpc/masks.json: timestamps, dura
 
 Differences from pi 1.1.0, on purpose or not yet closed (COMPATIBILITY.md, "extension events"):
 - the hook configuration and the answer format are amiga-pi's; `tool_call` mutation is a whole-object replacement;
-- not hooked: `message_update` (the cumulative partial message and `partial` need pi-ai's streaming parser), `turn_end`
-  (BoundaryState and the context preview), the other session events, the model events, `context`, `before_agent_start`, the
-  provider events -- later items (L7);
-- `input` carries no `images`;
-- in RPC mode a replaced session emits `session_start` twice, as pi 1.1.0 does (rpc-mode.ts binds it in the runtime's
-  finishSessionReplacement and again in the command);
-- `usage` and `parentToolCallId` of the tool events, `terminate` of a blocked call, and `message_end`'s replacement message are not read.
+- the other events (`message_update`, `turn_end`, `agent_before_settle`, `context`, `context_with_system`, `before_agent_start`, the
+  session and model events, `user_bash`, `resources_discover`, `ui_prompt_*`) go through one generic path, `pi_exts_emit` (ext.h):
+  the payload is built once (ext_payload.c, the session-aware callers in ext_events.c), each extension kind delivers it (a hook
+  command's event file, a Lua table) and gives each handler's answer back as a JSON object to a decision function; seven members
+  are not planned, with their reasons, in COMPATIBILITY.md (the provider events, `cache_warming_decision`, `project_trust`,
+  `mcp_servers_change`);
+- `parentToolCallId` of the tool events is set by pi only for calls another tool made (codemode), which amiga-pi has not;
+- a hook command cannot edit an event in place (a Lua handler can: `context`, `before_agent_start`); it answers with the changed part;
+- how a handler error is told is the mode's (`Extension error (<path>): ...` on stderr in print and json mode, an `extension_error`
+  record in RPC mode, the `Extension "<path>" error:` row in the TUI): `pi_exts.report`.
+
+### Custom messages and renderers (Phase L11)
+
+`pi.sendMessage` saves a `custom_message` entry and puts the user-role message `convertToLlm` makes of it into the conversation;
+the AgentMessage itself (role `custom`) is kept beside it (`pi_session.alt`) for events, message lists and extensions' `context`
+handlers. The TUI draws a message with `display` true with the renderer an extension registered (`pi.registerMessageRenderer`: it
+returns a string or lines, `theme.fg(name, text)` gives the colours) or the default box; a session replay and Ctrl+O draw it again
+through the chat item list (show_pi.c PK_CUSTOM). Goldens: tests/pi/tui/ext_msg_*, made by tools/pi_oracle/tui_gen.py with a private
+PITUI_TAG.
+
+### Extension UI beyond the dialogs (Phase L16)
+
+`pi_ext_ui` carries `set_status`, `set_widget`, `set_title`, `set_editor_text`, `set_working_message` and `editor` beside the
+dialogs. RPC mode sends pi's requests; the TUI shows statuses on a footer row and widgets above and below the editor (vtcon
+claude/tui.c); print and json mode have none (pi's no-op context). Line mode reads a dialog's answer within the extension's
+timeout through the console's timed read.
 
 ## What is not in phase A
 
