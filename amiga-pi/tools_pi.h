@@ -75,6 +75,13 @@ const char *pi_tool_list_error(const char *list, char *buf, long cap);
  * ("read,grep"); only +name/-name entries applyToolModifiers on the default selection ("-write" is read, bash, edit).
  * 0, -1 with the problem in err. */
 int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long cap);
+/* toolPatternRegExp: 1 when name matches pattern, '*' any run of characters (--tools, --exclude-tools, MCP toolExposure) */
+int pi_tool_glob(const char *pattern, const char *name);
+/* whether an extension's tool of this name is registered under --tools list (0 none) and --no-tools, as the session
+ * applies them to custom tools (sdk.ts:282-294, agent-session.ts _isAllowedTool): no list and no --no-tools allows it; a
+ * list of plain names and patterns only the ones it names; only +name / -name entries allow every name, or with --no-tools
+ * the ones they add; --no-tools alone none */
+int pi_tools_ext_allowed(const pi_tools *p, const char *list, const char *name);
 /* PT_*, -1 not one of these */
 int pi_tools_kind(const char *name);
 /* C:Claude's tool (T_*) and its input for a pi call (the gate decides on

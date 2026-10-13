@@ -1,0 +1,28 @@
+{
+ "mode": "json",
+ "args": [
+  "greet Ada"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.registerTool({\n  name = \"greet\", label = \"greet\", description = \"greet tool.\",\n  promptSnippet = \"Greet a person by name\", promptGuidelines = { \"Use greet when asked to greet someone.\" },\n  parameters = { type = \"object\", properties = { name = { type = \"string\", description = \"Who to greet\" } }, required = { \"name\" } },\n  execute = function(toolCallId, params, signal, onUpdate, ctx)\n    print(json.encode({ toolCallId = toolCallId, params = params }))\n    onUpdate({ content = { { type = \"text\", text = \"greeting \" .. params.name } }, details = { step = 1 } })\n    return { content = { { type = \"text\", text = \"Hello, \" .. params.name .. \"!\" } }, details = { greeted = params.name } }\n  end,\n})\npi.registerTool({\n  name = \"flaky\", label = \"flaky\", description = \"flaky tool.\",\n  parameters = { type = \"object\", properties = {} },\n  execute = function(toolCallId, params, signal, onUpdate, ctx)\n    return { content = { { type = \"text\", text = \"flaked\" } }, details = { code = 7 }, isError = true }\n  end,\n})\npi.registerTool({\n  name = \"boom\", label = \"boom\", description = \"boom tool.\",\n  parameters = { type = \"object\", properties = {} },\n  execute = function(toolCallId, params, signal, onUpdate, ctx)\n    error(\"boom\", 0)\n  end,\n})\npi.registerTool({\n  name = \"soft\", label = \"soft\", description = \"soft tool.\",\n  parameters = { type = \"object\", properties = {} },\n  execute = function(toolCallId, params, signal, onUpdate, ctx)\n    return { content = { { type = \"text\", text = \"soft failure\" } }, isError = true }\n  end,\n})\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "exec.jsonl",
+  "session.jsonl"
+ ],
+ "requests": true,
+ "golden": "ext_tool",
+ "lua_dump": "exec.jsonl",
+ "canonical": true
+}

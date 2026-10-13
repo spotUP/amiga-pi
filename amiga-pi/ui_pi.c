@@ -28,6 +28,8 @@ typedef struct pi_ui {
     pi_pstatus pst;             /* OSC 7501 program status (pstatus.h) */
     int pst_on;                 /* the screen is up and reports go through pst */
     char name[160];             /* the session's name as pst_name last read it from the store */
+    cl_cmd *xmenu;              /* the extensions' commands (slot 1) and their strings */
+    char *xmenu_text;
     cl_cmd *menu;               /* the slash menu: the commands, then /skill:name for each skill (settings.json enableSkillCommands) */
     char *menu_text;            /* its strings */
     cl_cmd *all;                /* the slash menu as the screen gets it: the built-in rows, then each slot's (ui_menu) */
@@ -847,10 +849,81 @@ int pi_ui_print(pi_session *s, cl_io *io, const char *prompt)
     jw_free(&t);
     p.print = 0;
     say_end(&p);
-    return stop == LS_STOP ? 0 : 1;
+    /* print-mode.ts: the exit code is 1 only when the last answer is an error or was aborted -- a prompt an extension handled (a
+     * command, the input event) ran no answer and exits 0 */
+    return stop == LS_STOP || (stop == LS_NONE && !s->err[0]) ? 0 : 1;
 }
 
 /* C:Claude's screen without its REPL (claude/repl.c repl_screen's part that is the screen's), in pi's look */
+/* pi's autocomplete rows for the commands extensions registered (interactive-mode.ts:793-802): the invocation name with
+ * "[u] description" ("[u]" alone without one; u user, p project, t temporary: getAutocompleteSourceTag); a command named like
+ * a built-in one is left out. The rows and their strings are malloc'ed (the caller frees both); the count, 0 and nothing
+ * allocated when there are none. */
+int pi_ui_ext_menu(const pi_exts *x, cl_cmd **menu, char **menu_text)
+{
+    pi_ext_rcmd *r = (pi_ext_rcmd *)malloc(sizeof(*r) * PI_EXT_CMDS);
+    int n = r ? pi_exts_commands(x, r, PI_EXT_CMDS) : 0, i, k = 0, j;
+    long at = 0, text = 0;
+    cl_cmd *rows = 0;
+    char *txt = 0;
+    *menu = 0;
+    *menu_text = 0;
+    for (i = 0; i < n; i++)
+        text += (long)strlen(r[i].invocation) + (r[i].c->description ? (long)strlen(r[i].c->description) : 0) + 16;
+    if (n) {
+        rows = (cl_cmd *)malloc(sizeof(cl_cmd) * (size_t)n);
+        txt = (char *)malloc((size_t)text);
+    }
+    if (!rows || !txt) {
+        free(rows);
+        free(txt);
+        free(r);
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        const char *scope = r[i].c->owner->scope;
+        char *name = txt + at, *help;
+        int builtin = 0;
+        for (j = 0; j < ui_ncmds; j++)
+            if (ui_cmds[j].name[0] == '/' && !strcmp(ui_cmds[j].name + 1, r[i].c->name))
+                builtin = 1;
+        if (builtin)
+            continue;
+        name[0] = '/';
+        strcpy(name + 1, r[i].invocation);
+        help = name + strlen(name) + 1;
+        strcpy(help, scope && !strcmp(scope, "user") ? "[u]" : scope && !strcmp(scope, "project") ? "[p]" : "[t]");
+        if (r[i].c->description) {
+            strcat(help, " ");
+            strcat(help, r[i].c->description);
+        }
+        rows[k].name = name;
+        rows[k].help = help;
+        k++;
+        at = (long)(help + strlen(help) + 1 - txt);
+    }
+    free(r);
+    if (!k) {
+        free(rows);
+        free(txt);
+        return 0;
+    }
+    *menu = rows;
+    *menu_text = txt;
+    return k;
+}
+
+/* the rows of pi_ui_ext_menu as slot 1 of the extra commands (after the templates, before the skills); freed when the run ends */
+static void build_ext_rows(pi_ui *p)
+{
+    int k;
+    pi_ui_set_extra_commands(1, 0, 0);
+    free(p->xmenu);
+    free(p->xmenu_text);
+    k = pi_ui_ext_menu(&p->s->ext, &p->xmenu, &p->xmenu_text);
+    pi_ui_set_extra_commands(1, p->xmenu, k);
+}
+
 /* pi's autocomplete rows for skills (interactive-mode.ts:804-822): skill:<name> with "[u] description", registered as slot 3 of the
  * extra commands (after the templates and extensions, pi's order); freed when the run ends */
 static void build_skill_rows(pi_ui *p)
@@ -915,6 +988,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     t->exit_hint_only = ui_hint_only;
     t->scrollbar = ui_bar;
     t->pith = &p->theme;
+    build_ext_rows(p);
     build_skill_rows(p);
     t->cmds = ui_menu(p, &t->ncmds);
     t->slash_filter = pi_slash_filter;      /* pi-tui's fuzzy filter and order, not C:Claude's prefix match (autocomplete.ts:343-372) */
@@ -1244,10 +1318,15 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
     free(line);
     free(p.menu);
     free(p.menu_text);
+    free(p.xmenu);
+    free(p.xmenu_text);
     free(p.all);
     p.menu = 0;
     p.menu_text = 0;
+    p.xmenu = 0;
+    p.xmenu_text = 0;
     p.all = 0;
+    pi_ui_set_extra_commands(1, 0, 0);
     pi_ui_set_extra_commands(3, 0, 0);
     return 0;
 }

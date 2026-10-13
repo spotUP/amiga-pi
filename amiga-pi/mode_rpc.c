@@ -821,6 +821,33 @@ static void cmd_get_commands(const cmd *c)
     int i;
     jw_init(&d);
     jw_rawz(&d, "{\"commands\":[");
+    {
+        pi_ext_rcmd *xc = (pi_ext_rcmd *)malloc(sizeof(*xc) * PI_EXT_CMDS);
+        int nx = xc ? pi_exts_commands(&c->r->s->ext, xc, PI_EXT_CMDS) : 0;
+        for (i = 0; i < nx; i++) {
+            const pi_ext *o = xc[i].c->owner;
+            jw_rawz(&d, i ? ",{\"name\":" : "{\"name\":");
+            jw_strz(&d, xc[i].invocation);
+            if (xc[i].c->description) {
+                jw_rawz(&d, ",\"description\":");
+                jw_strz(&d, xc[i].c->description);
+            }
+            /* the sourceInfo of an extension found in a default directory: "auto" of its scope (loader.ts createSourceInfo) */
+            jw_rawz(&d, ",\"source\":\"extension\",\"sourceInfo\":{\"path\":");
+            jw_strz(&d, o->path ? o->path : "");
+            jw_rawz(&d, ",\"source\":\"auto\",\"scope\":");
+            jw_strz(&d, o->scope ? o->scope : "temporary");
+            jw_rawz(&d, ",\"origin\":\"top-level\"");
+            if (o->base_dir) {
+                jw_rawz(&d, ",\"baseDir\":");
+                jw_strz(&d, o->base_dir);
+            }
+            jw_rawz(&d, "}}");
+        }
+        free(xc);
+        if (nx && ((ts && ts->n) || (c->r->s->res && c->r->s->res->skills.n)))
+            jw_raw(&d, ",", 1);
+    }
     for (i = 0; ts && i < ts->n; i++) {
         const pi_tmpl *t = &ts->t[i];
         const char *base = t->scope == PI_TMPL_PROJECT ? ts->base_project : t->scope == PI_TMPL_USER ? ts->base_user : t->base;

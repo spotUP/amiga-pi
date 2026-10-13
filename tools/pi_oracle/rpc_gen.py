@@ -338,6 +338,79 @@ sc('ext_rpc_new', steps=[('cmd', {'type': 'new_session'})], answers=[], ext=EXT_
    collect=['dump.jsonl'], session=True)
 
 
+# ---- L4: tools and commands an extension registers (pi.registerTool, pi.registerCommand) ----
+# The extensions sit in <agent dir>/extensions/ (pi finds them there: sourceInfo source "auto", scope "user"), as the Lua twins of
+# gen_lua_scenarios.py do. A tool's execute writes what it was handed to exec.jsonl; the requests the model got are kept
+# (<name>.req.N.json: tools and messages).
+def tool_def(name, snippet, schema, body):
+    return '''  pi.registerTool({
+    name: "%s", label: "%s", description: "%s tool.",%s
+    parameters: %s,
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+%s
+    },
+  });
+''' % (name, name, name, snippet, schema, body)
+
+
+GREET_SCHEMA = '{ type: "object", properties: { name: { type: "string", description: "Who to greet" } }, required: ["name"] }'
+EXT_TOOLS = '''import { appendFileSync } from "node:fs";
+export default function (pi) {
+''' + tool_def('greet', ' promptSnippet: "Greet a person by name", promptGuidelines: ["Use greet when asked to greet someone."],', GREET_SCHEMA,
+'''      appendFileSync("exec.jsonl", JSON.stringify({ toolCallId, params }) + "\\n");
+      onUpdate({ content: [{ type: "text", text: "greeting " + params.name }], details: { step: 1 } });
+      return { content: [{ type: "text", text: "Hello, " + params.name + "!" }], details: { greeted: params.name } };''') + tool_def(
+    'flaky', '', '{ type: "object", properties: {} }',
+'''      return { content: [{ type: "text", text: "flaked" }], details: { code: 7 }, isError: true };''') + tool_def(
+    'boom', '', '{ type: "object", properties: {} }',
+'''      throw new Error("boom");''') + tool_def(
+    'soft', '', '{ type: "object", properties: {} }',
+'''      return { content: [{ type: "text", text: "soft failure" }], isError: true };''') + "}\n"
+EXT_FILES = {'agent/extensions/t.ts': EXT_TOOLS}
+sc('ext_tool', mode='json', args=['greet Ada'], answers=[TOOL('greet', {'name': 'Ada'}), A('Greeted.')], text_files=EXT_FILES,
+   requests=True, session=True, collect=['exec.jsonl', 'session.jsonl'])
+sc('ext_tool_results', mode='json', args=['try them'], text_files=EXT_FILES, requests=True,
+   answers=[TOOL('flaky', {}, tid='toolu_1'), TOOL('boom', {}, tid='toolu_2'), TOOL('soft', {}, tid='toolu_3'), A('Tried.')])
+# --tools and --no-tools on an extension's tools (sdk.ts:282-294, agent-session.ts _isAllowedTool)
+for nm, args in (('allow', ['--tools', 'read']), ('named', ['--tools', 'read,greet']), ('only', ['--tools', 'greet']),
+                 ('none', ['--no-tools']), ('minus', ['--tools', '-greet']), ('plus_none', ['--no-tools', '--tools', '+greet']),
+                 ('pattern', ['--tools', 'read,gre*'])):
+    sc('ext_tool_' + nm, mode='json', args=args + ['greet Ada'], answers=[TOOL('greet', {'name': 'Ada'}), A('Greeted.')],
+       text_files=EXT_FILES, requests=True)
+sc('ext_tool_default', mode='json', args=['greet Ada'], answers=[TOOL('greet', {'name': 'Ada'}), A('Greeted.')],
+   text_files=EXT_FILES, requests=True, settings={'defaultTools': ['read']})
+
+EXT_CMDS = '''import { appendFileSync } from "node:fs";
+export default function (pi) {
+  pi.registerCommand("hello", { description: "Say hello", async handler(args, ctx) {
+    appendFileSync("cmd.jsonl", JSON.stringify({ command: "hello", args }) + "\\n");
+  } });
+  pi.registerCommand("quiet", { async handler(args, ctx) {
+    appendFileSync("cmd.jsonl", JSON.stringify({ command: "quiet", args }) + "\\n");
+  } });
+}
+'''
+sc('ext_cmd', steps=[('cmd', {'type': 'get_commands'}), ('send', P('/hello two  words')), ('send', P('/quiet')), ('prompt', 'hi')],
+   answers=[A('Hi.')], text_files={'agent/extensions/t.ts': EXT_CMDS}, collect=['cmd.jsonl'])
+# two extensions with the same command name: invocation names hello:1 and hello:2 (runner.ts resolveRegisteredCommands)
+EXT_DUP = '''import { appendFileSync } from "node:fs";
+export default function (pi) {
+  pi.registerCommand("hello", { description: "Say hello from %s", async handler(args, ctx) {
+    appendFileSync("cmd.jsonl", JSON.stringify({ command: "hello", from: "%s", args }) + "\\n");
+  } });
+}
+'''
+sc('ext_cmd_dup', steps=[('cmd', {'type': 'get_commands'}), ('send', P('/hello:2 x')), ('send', P('/hello:1 y')), ('prompt', '/hello z')],
+   answers=[A('Hi.')], text_files={'agent/extensions/a.ts': EXT_DUP % ('a', 'a'), 'agent/extensions/b.ts': EXT_DUP % ('b', 'b')},
+   collect=['cmd.jsonl'])
+# a trusted project's extension (scope "project", found first) and a directory extension with an index file
+sc('ext_cmd_scope', steps=[('cmd', {'type': 'get_commands'}), ('send', P('/hello:1 x')), ('send', P('/hello:2 y')), ('sleep', 0.5)], answers=[],
+   settings={'defaultProjectTrust': 'always'},
+   text_files={'project/.pi/extensions/p.ts': EXT_DUP % ('project', 'project'), 'agent/extensions/dirx/index.ts': EXT_DUP % ('user', 'user')},
+   collect=['cmd.jsonl'])
+
+
+
 class Trickle(T.Fake):
     """T.Fake with the SSE events sent one at a time, a pause between them: pi puts the usage of the stream so far into
     every message_update, and in a stream that arrives in one piece it serializes them after the stream is done (the
@@ -540,6 +613,12 @@ def run(name, s, keep):
         for f in s.get('collect', []):                  # files the scenario's extension wrote in the project directory
             if os.path.exists(os.path.join(proj, f)):
                 shutil.copy(os.path.join(proj, f), os.path.join(OUT, name + '.' + f))
+        if s.get('requests'):                           # L4: what pi asked the model (its tools and messages), request by request
+            for i, body in enumerate(T.Fake.served):
+                b = json.loads(body)
+                with open(os.path.join(OUT, '%s.req.%d.json' % (name, i + 1)), 'w') as f:
+                    json.dump({'tools': b.get('tools', []), 'messages': b.get('messages', [])}, f, indent=1)
+                    f.write('\n')
         out = pi.snapshot()
         with open(os.path.join(OUT, name + '.out'), 'w') as f:
             f.write(''.join(l + '\n' for l in out))
@@ -551,6 +630,8 @@ def run(name, s, keep):
                'retry': bool(s.get('retry')), 'settings': s.get('settings', {}),
                'session': ('new' if sess is True else sess) if sess else None, 'files': s.get('files', {}), 'text_files': s.get('text_files', {}),
                'answers': [a[0] for a in s['answers']], 'tools': 'read,bash,edit,write', 'collect': s.get('collect', [])}
+        if s.get('requests'):
+            cfg['requests'] = True
         with open(os.path.join(OUT, name + '.cfg.json'), 'w') as f:
             json.dump(cfg, f, indent=1)
             f.write('\n')

@@ -205,6 +205,17 @@ static int http_error_text(jv v)
 
 static void m_val(jv v, int flags, jw *o, const char *cwd);
 
+static int str_is(jv obj, const char *key, const char *want);
+
+/* a get_commands row of pi's built-in extensions (mcp, llama: sourceInfo.source "builtin"): amiga-pi has none, the rows are left out
+ * on both sides (masks.json, rules) */
+static int builtin_command_row(jv e)
+{
+    jv si;
+    return json_type(e) == J_OBJ && str_is(e, "source", "extension") && json_get(e, "sourceInfo", &si) &&
+           json_type(si) == J_OBJ && str_is(si, "source", "builtin");
+}
+
 static void m_str(jv v, jw *o, const char *cwd)
 {
     long n, cl = (long)strlen(cwd), i;
@@ -228,6 +239,14 @@ static void m_str(jv v, jw *o, const char *cwd)
             i += (long)strlen(GOLD_AGENT);
         } else
             jw_raw(&t, z + i++, 1);
+    }
+    /* an extension is a .ts file for pi and a .lua file here, in the same place (the file's path in a sourceInfo) */
+    if (t.p && strstr(t.p, "/extensions/") && t.n > 3 && !strcmp(t.p + t.n - 3, ".ts")) {
+        t.n -= 3;
+        jw_rawz(&t, ".<ext>");
+    } else if (t.p && strstr(t.p, "/extensions/") && t.n > 4 && !strcmp(t.p + t.n - 4, ".lua")) {
+        t.n -= 4;
+        jw_rawz(&t, ".<ext>");
     }
     jw_str(o, t.p, t.n);
     jw_free(&t);
@@ -327,6 +346,8 @@ static void m_val(jv v, int flags, jw *o, const char *cwd)
         jw_rawz(o, "[");
         json_iter(v, &it);
         while (json_next(&it, 0, &e)) {
+            if (builtin_command_row(e))
+                continue;
             if (!first)
                 jw_rawz(o, ",");
             first = 0;
@@ -921,6 +942,57 @@ static char *canon_text(const char *text)
     return o.p;
 }
 
+/* L4: the tools and the messages of request N that amiga-pi sent, against pi's (<name>.req.N.json), both with sorted keys:
+ * a schema written as a Lua table has no key order. A request without tools has no "tools" in ours; pi's file has []. */
+static int compare_requests(const char *name)
+{
+    int k, ok = 1;
+    for (k = 1;; k++) {
+        char ext[40], num[8];
+        char *want;
+        long wn;
+        jv wv, gv, w, g;
+        int f;
+        cl_ltoa(k, num);
+        strcpy(ext, ".req.");
+        strcat(ext, num);
+        strcat(ext, ".json");
+        want = slurp_rpc(name, ext, &wn);
+        if (!want)
+            break;
+        if (k > ps.nreq || json_parse(want, wn, &wv) || json_parse(ps.body[k - 1], (long)strlen(ps.body[k - 1]), &gv)) {
+            printf("  %s: request %d missing or not JSON\n", name, k);
+            CHECK(0);
+            ok = 0;
+            free(want);
+            break;
+        }
+        for (f = 0; f < 2; f++) {
+            const char *key = f ? "messages" : "tools";
+            jw cw, cg;
+            int same;
+            jw_init(&cw);
+            jw_init(&cg);
+            if (json_get(wv, key, &w))
+                canon_val(w, &cw);
+            if (json_get(gv, key, &g))
+                canon_val(g, &cg);
+            else
+                jw_rawz(&cg, "[]");
+            same = cw.p && cg.p && !strcmp(cw.p, cg.p);
+            CHECK(same);
+            if (!same) {
+                printf("  %s: request %d, %s differ\n   pi:  %.600s\n   ours: %.600s\n", name, k, key, cw.p ? cw.p : "", cg.p ? cg.p : "");
+                ok = 0;
+            }
+            jw_free(&cw);
+            jw_free(&cg);
+        }
+        free(want);
+    }
+    return ok;
+}
+
 static char lua_dump_file[80];
 
 static void lua_dump_notice(void *u, const char *text)
@@ -1149,6 +1221,8 @@ static int scenario(const char *name, run_opts *ro)
         ro->rounds = ro->host ? host_rounds : pi_agent_rounds - r0;
     jw_free(&wmask);
     jw_free(&gmask);
+    if (json_get(cfg, "requests", &v) && json_type(v) == J_TRUE && !compare_requests(name))
+        ok = 0;
     /* the files the scenario's extension wrote in the project directory (pi) and its hook commands wrote (amiga-pi): the
      * same masks on both, line by line (L2) */
     if (json_get(cfg, "collect", &v) && json_type(v) == J_ARR) {
@@ -1337,7 +1411,7 @@ static int ext_tool_call(void *u, const char *id, const char *name, jw *args, ch
     return 0;
 }
 
-static pi_ext ui_ext = { "ui-test", 0, 0, ext_tool_call, 0, 0, 0, 0 };
+static pi_ext ui_ext = { "ui-test", 0, 0, ext_tool_call, 0, 0, 0, 0, 0, 0, 0, 0 };
 static long ui_ready_calls;
 
 static void ui_ready(pi_session *s)
@@ -1833,6 +1907,30 @@ static void test_gate_in_list(void)
     }
 }
 
+/* L4: tools and commands a Lua extension registers, against pi 1.1.0 running the TypeScript twin
+ * (tools/pi_oracle/rpc_gen.py ext_tool*, ext_cmd*; the Lua extensions are in gen_lua_scenarios.py): the records pi
+ * prints, the tools and messages of each request, what execute and the handlers were handed, the session file */
+static void test_lua_register(void)
+{
+    static const char *const names[] = { "ext_lua_tool", "ext_lua_tool_results", "ext_lua_tool_allow", "ext_lua_tool_named",
+                                         "ext_lua_tool_only", "ext_lua_tool_none", "ext_lua_tool_minus", "ext_lua_tool_plus_none",
+                                         "ext_lua_tool_pattern", "ext_lua_tool_default", "ext_lua_cmd", "ext_lua_cmd_dup",
+                                         "ext_lua_cmd_scope", 0 };
+    group(names);
+}
+
+/* L4 reachability: pi_app discovers t.lua, which registers the tool "greet"; the fake model calls it, so the agent loop runs its
+ * execute function (the sentinel counts that one call) and its result is the toolResult of the session file (the golden is pi's
+ * run of the TypeScript twin: same records, same requests, same file) */
+static void test_lua_tool_reach(void)
+{
+    long c0 = pi_lua_tool_calls;
+    if (getenv("PI_MODES_ONLY") && strcmp(getenv("PI_MODES_ONLY"), "ext_lua_tool"))
+        return;
+    CHECK(scenario("ext_lua_tool", 0));
+    CHECK_INT(pi_lua_tool_calls - c0, 1);
+}
+
 void suite_pi_modes(void)
 {
     CHECK(load_masks());
@@ -1865,5 +1963,7 @@ void suite_pi_modes(void)
     test_hooks_reach();
     test_lua_pi();
     test_lua_reach();
+    test_lua_register();
+    test_lua_tool_reach();
     test_gate_in_list();
 }

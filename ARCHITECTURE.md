@@ -128,12 +128,34 @@ list (runner.ts snapshotEventHandlers), so `pi.on`'s unsubscribe function cannot
 Errors: a file that does not load is told as pi's main.ts:802 and left out; a handler that throws is told as pi's interactive
 showExtensionError and its extension is disabled (its state closed); the loop goes on. The tool_call case blocks with the error's
 message (agent-session.ts:679). Differences from pi 1.1.0 and what is open are the three Lua rows of COMPATIBILITY.md
-("extensions"): 32-bit numbers, `ctx` is cwd, hasUI and isProjectTrusted only, the rest of `pi.*` (registerTool, registerCommand,
-exec, appendEntry, ctx.ui) comes with L4 to L6. Proof against pi: the ten L1/L2 golden scenarios of pi 1.1.0 rerun with the same
+("extensions"): 32-bit numbers, `ctx` is cwd, hasUI and isProjectTrusted only, the rest of `pi.*` (exec, sendMessage, ctx.ui)
+comes later; registerTool and registerCommand are the next section. Proof against pi: the ten L1/L2 golden scenarios of pi 1.1.0 rerun with the same
 behaviour as a Lua extension (`tests/pi/rpc/ext_lua_*.cfg.json`, made by `tools/pi_oracle/gen_lua_scenarios.py`; the event
 recorders compare payloads with sorted keys on both sides), the block scenario doubling as the L9-shaped reachability test (the
 sentinel `pi_lua_calls`). Size: the Amiga binary grew from 1,344,904 to 1,520,672 bytes (+175,768) with Lua linked; not run on the
 rig yet (L10).
+
+## Tools and commands from Lua (Phase L4)
+
+`pi.registerTool(def)` fills a `pi_lua_tool` (ext_lua.h; a `pi_tool` of agent.h plus the strings it points to) and keeps the
+`execute` function in the extension's registry table `pi.tools`; the tool is added to `s->tools` once the file has loaded (a file
+that fails after registering leaves nothing behind) and when `tool_allowed` says so: app.c gives it `pi_tools_ext_allowed` over
+`--tools` / `--no-tools` (tools_pi.c, sdk.ts:282-294), so an extension's tool is filtered exactly as pi filters custom tools, and the
+same glob (`pi_tool_glob`, createToolNameMatcher) selects built-in tools by pattern and serves MCP's `toolExposure`. A call is
+`lt_run`: the arguments checked by claude/schema.c (as every other tool), `execute(toolCallId, params, nil, onUpdate, ctx)` under the
+extension's limits, the returned table as content / details / structuredContent / isError (`s->result_error` marks a returned error
+so the loop does not give it a thrown error's `details {}`), a raised error as the tool's error result. The model sees the tool
+because the request builders read `s->tools`; nothing else knows it is Lua.
+
+`pi.registerCommand` is kept in `pi_exts` (ext.h): `pi_exts_add_command` per owner, `pi_exts_commands` resolves the invocation names
+in list order (runner.ts resolveRegisteredCommands), `pi_exts_run_command` is `_tryExecuteExtensionCommand`, called first in
+`pi_prompt` (agent.c) so the line never reaches the input event. RPC `get_commands` and the slash menu (`pi_ui_ext_menu`, slot 1 of
+the extra commands) read the same resolved list.
+
+Proof: `tools/pi_oracle/rpc_gen.py` runs the same tools and commands as TypeScript extensions in pi 1.1.0 (ext_tool*,
+ext_cmd*; the records, `<name>.req.N.json` with the tools and messages of each request, what execute and the handlers were
+handed, the session file), `gen_lua_scenarios.py` holds the Lua twins, `tests/test_pi_modes.c` compares; the reachability test is
+ext_lua_tool (the fake model calls the Lua tool, sentinel `pi_lua_tool_calls`, the result is in the session file).
 
 ## Hook commands on pi's events (Phase L1, L2)
 

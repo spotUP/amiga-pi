@@ -20,6 +20,8 @@
   "message_start usage and responseId": "pi serializes the shared partial message when its consumer runs: the first counts and the response id (both set by the stream's message_start event) are in or not from run to run of pi itself",
   "baseUrl": "the fixture's port",
   "parse error text": "V8's JSON.parse message",
+  "get_commands rows of pi's built-in extensions": "pi lists `mcp` and `llama` (sourceInfo.source builtin) after the extension commands; amiga-pi has no such commands (COMPATIBILITY.md, extensions); the rows are left out on both sides",
+  "extension file suffix": "a scenario's extension is t.ts (or a.ts, dirx/index.ts) for pi and t.lua here; in a path under /extensions/ the suffix .ts or .lua is compared as .<ext>",
   "get_available_models": "compared for the fixture's provider only (the catalog's plain-http providers are available here without a key)"
  },
  "fixtureProvider": "fake"

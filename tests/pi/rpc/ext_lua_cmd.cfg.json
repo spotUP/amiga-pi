@@ -1,0 +1,23 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.registerCommand(\"hello\", { description = \"Say hello\", handler = function(args, ctx)\n  print(json.encode({ command = \"hello\", args = args }))\nend })\npi.registerCommand(\"quiet\", { handler = function(args, ctx)\n  print(json.encode({ command = \"quiet\", args = args }))\nend })\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "cmd.jsonl"
+ ],
+ "golden": "ext_cmd",
+ "lua_dump": "cmd.jsonl",
+ "canonical": true
+}

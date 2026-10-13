@@ -1,0 +1,5 @@
+{"id":"1","type":"get_commands"}
+{"id":"2","type":"prompt","message":"/hello:2 x"}
+{"id":"3","type":"prompt","message":"/hello:1 y"}
+{"id":"4","type":"prompt","message":"/hello z"}
+#after agent_settled

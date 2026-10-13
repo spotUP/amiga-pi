@@ -4,6 +4,7 @@
 #include "mcp.h"
 #include "sha256.h"
 #include "truncate.h"
+#include "tools_pi.h"
 #include "claude/util.h"
 #include "claude/http.h"
 #include "claude/schema.h"
@@ -769,22 +770,7 @@ static int initialize(mcp_server *s)
     return 0;
 }
 
-/* toolExposure: an exact name first, then the first pattern ('*' any characters) that matches */
-static int glob_match(const char *p, const char *s)
-{
-    if (!*p)
-        return !*s;
-    if (*p == '*') {
-        for (;; s++) {
-            if (glob_match(p + 1, s))
-                return 1;
-            if (!*s)
-                return 0;
-        }
-    }
-    return *s && *p == *s && glob_match(p + 1, s + 1);
-}
-
+/* toolExposure: an exact name first, then the first pattern ('*' any characters; pi_tool_glob) that matches */
 static int tool_exposure(const mcp_server *s, const char *tool)
 {
     int e = s->exposure;
@@ -803,7 +789,7 @@ static int tool_exposure(const mcp_server *s, const char *tool)
             while (json_next(&it, &k, &v)) {
                 char pat[128];
                 json_str(k, pat, sizeof(pat));
-                if (strchr(pat, '*') && glob_match(pat, tool)) {
+                if (strchr(pat, '*') && pi_tool_glob(pat, tool)) {
                     e = exposure_of(v);
                     break;
                 }

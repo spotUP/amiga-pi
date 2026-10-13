@@ -446,7 +446,7 @@ static void ext_result(void *u, const char *id, const char *name, const char *ar
     }
 }
 
-static const pi_ext test_ext = { "test", 0, ext_ev, ext_call, ext_result, 0, 0, 0 };
+static const pi_ext test_ext = { "test", 0, ext_ev, ext_call, ext_result, 0, 0, 0, 0, 0, 0, 0 };
 
 static void test_ext_dispatch(void)
 {

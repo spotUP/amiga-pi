@@ -1,0 +1,21 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/a.ts": "import { appendFileSync } from \"node:fs\";\nexport default function (pi) {\n  pi.registerCommand(\"hello\", { description: \"Say hello from a\", async handler(args, ctx) {\n    appendFileSync(\"cmd.jsonl\", JSON.stringify({ command: \"hello\", from: \"a\", args }) + \"\\n\");\n  } });\n}\n",
+  "agent/extensions/b.ts": "import { appendFileSync } from \"node:fs\";\nexport default function (pi) {\n  pi.registerCommand(\"hello\", { description: \"Say hello from b\", async handler(args, ctx) {\n    appendFileSync(\"cmd.jsonl\", JSON.stringify({ command: \"hello\", from: \"b\", args }) + \"\\n\");\n  } });\n}\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "cmd.jsonl"
+ ]
+}

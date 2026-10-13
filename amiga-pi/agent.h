@@ -145,6 +145,8 @@ typedef struct pi_session {
      * entry); 0, -1 */
     int (*omit)(void *u, struct pi_session *s, int i);
     void *omit_u;
+    int result_error;           /* the tool running now returned a result with isError set, which is no thrown error (an extension's
+                                 * tool; its details stay as it gave them): reset by the loop before each call */
     int active;                 /* a prompt is running (pi's isStreaming) */
     int retry_waiting;          /* the run waits out a retry delay (abort_retry cuts only this) */
     int aborted;                /* pi's _agentRunAbortRequested (agent-session.ts abort(), 1.1.0): set by the abort of a run in

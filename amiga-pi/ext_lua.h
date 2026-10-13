@@ -19,6 +19,17 @@
  * table an array), `print` (a notice). The libraries: base (no dofile / loadfile; load accepts text only), coroutine,
  * table, string, math, utf8. No io, os, package, debug: files and processes come with pi.exec (L4).
  *
+ * Also (L4): `pi.registerTool(def)` -- def is pi's ToolDefinition (core/extensions/types.ts:573) as a table: name,
+ * description, parameters (a JSON schema table, type "object"), promptSnippet, promptGuidelines (an array), constrainedSampling
+ * and execute(toolCallId, params, signal, onUpdate, ctx), which returns { content, details, structuredContent, isError } or
+ * raises an error (the model gets its message as the tool's error); `signal` is nil (nothing aborts a Lua call but Ctrl+C
+ * before it starts), onUpdate({ content, details }) is a tool_execution_update. The tool joins the tools the model sees after
+ * the built-in ones, as --tools / --no-tools allow it (pi_tools_ext_allowed). `pi.registerCommand(name, { description,
+ * handler })` registers /name: handler(args, ctx) runs when the line "/name args" is entered, in the slash menu and in RPC
+ * get_commands (ext.h).
+ * Not read: label, renderShell, prepareArguments, outputSchema, exposure, namespace, annotations, defaultActive,
+ * prepareLoadout, executionMode, renderCall / renderResult, getArgumentCompletions (COMPATIBILITY.md).
+ *
  * Each file is its own Lua state and its own entry in the session's single ordered extension list (ext.h): project
  * extensions (<cwd>/.pi/extensions, only when the project is trusted), then the user's (<agent dir>/extensions, the data
  * dir's too), in file name order -- pi's order (loader.ts discoverAndLoadExtensions: project, then global). A load error
@@ -42,11 +53,24 @@
 struct lua_State;
 
 #define PI_LUA_MAX 8                    /* extensions loaded; a ninth is reported and left out */
+#define PI_LUA_TOOLS 16                 /* tools one extension registers at most */
+#define PI_LUA_CMDS 16                  /* commands one extension registers at most */
 #define PI_LUA_MEM (4L * 1024 * 1024)   /* bytes of Lua memory per extension */
 #define PI_LUA_INSTR 5000000L           /* VM instructions per call */
 #define PI_LUA_MS 10000L                /* milliseconds per call (when the session has a clock) */
 
 struct pi_lua;
+struct pi_lua_ext;
+
+/* a tool the extension registered: the session's pi_tool (first member) and the strings it points to */
+typedef struct pi_lua_tool {
+    pi_tool t;
+    struct pi_lua_ext *x;
+    int idx;                            /* its execute function is registry pi.tools[idx + 1] */
+    char *name, *desc, *params, *snippet, *constrained;
+    char **guide;                       /* the guidelines, a 0-ended array of strings, 0 none */
+    int in_session;                     /* it was added to the session's tools */
+} pi_lua_tool;
 
 typedef struct pi_lua_ext {
     pi_ext ext;                         /* the entry in the session's list (first member) */
@@ -58,6 +82,14 @@ typedef struct pi_lua_ext {
     long mem;                           /* bytes of Lua memory now */
     long ticks;                         /* count-hook ticks (1000 instructions) in this call */
     unsigned long t0;                   /* the clock when the call began */
+    const char *scope;                  /* pi's SourceInfo scope of the file: "user", "project", "temporary" */
+    char base[300];                     /* its baseDir */
+    int loading;                        /* the factory is running: pi.appendEntry is not available yet, registrations wait */
+    int loaded;                         /* registered in the session's list: what it registers now joins at once */
+    pi_lua_tool tool[PI_LUA_TOOLS];
+    int ntool;
+    char *cmd[PI_LUA_CMDS], *cmd_desc[PI_LUA_CMDS];     /* registered commands: name and description (0 none); handler pi.commands[i + 1] */
+    int ncmd;
 } pi_lua_ext;
 
 typedef struct pi_lua {
@@ -68,6 +100,9 @@ typedef struct pi_lua {
     pi_lua_ext x[PI_LUA_MAX];
     int n;
     long errors;                        /* extension errors reported (load and handler) */
+    /* whether a tool of that name may join the session (--tools, --no-tools: pi_tools_ext_allowed); 0 allows every tool */
+    int (*tool_allowed)(void *u, const char *name);
+    void *tool_u;
     /* the limits (the defaults above; the tests lower them) */
     long mem_cap, instr_cap;
     unsigned long ms_cap;
@@ -86,5 +121,6 @@ int pi_lua_active(const pi_lua *h);
 void pi_lua_free(pi_lua *h);
 
 extern long pi_lua_calls;               /* handler calls made (the reachability tests' sentinel) */
+extern long pi_lua_tool_calls;          /* execute functions of registered tools run */
 
 #endif

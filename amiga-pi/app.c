@@ -598,6 +598,12 @@ static pi_session s;
 static pi_models models;
 static pi_tools tools;
 static pi_gate gate;
+
+/* --tools and --no-tools on the tools Lua extensions register (ext_lua.h tool_allowed; tools_pi.h) */
+static int ext_tool_allowed(void *u, const char *name)
+{
+    return pi_tools_ext_allowed((const pi_tools *)u, a.tools, name);
+}
 static pi_hooks hooks;
 static pi_lua lua;
 static pi_store store;
@@ -811,6 +817,8 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         s.res = &res;
         /* Lua extensions (ext_lua.h): the project's when it is trusted, then the user's; -ne leaves discovery out */
         pi_lua_init(&lua, &s, pl->sys, pl->cwd, trusted);
+        lua.tool_allowed = ext_tool_allowed;
+        lua.tool_u = &tools;
         if (!a.no_extensions)
             pi_lua_discover(&lua, pl->agent_dir, pl->data_dir);
     }
