@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "templates.h"
+#include "frontmatter.h"
 #include "claude/commands.h"
 #include "claude/path.h"
 #include "claude/util.h"
@@ -18,35 +19,8 @@ static char *dupn(const char *s, long n)
     return d;
 }
 
-/* JavaScript's \s at p (the bytes of its UTF-8): the length, 0 when p is not a space */
-static int sp_len(const unsigned char *p)
-{
-    if (p[0] == ' ' || (p[0] >= 9 && p[0] <= 13))
-        return 1;
-    if (p[0] == 0xC2 && p[1] == 0xA0)
-        return 2;
-    if (p[0] == 0xE1 && p[1] == 0x9A && p[2] == 0x80)
-        return 3;
-    if (p[0] == 0xE2 && p[1] == 0x80 && ((p[2] >= 0x80 && p[2] <= 0x8A) || p[2] == 0xA8 || p[2] == 0xA9 || p[2] == 0xAF))
-        return 3;
-    if (p[0] == 0xE2 && p[1] == 0x81 && p[2] == 0x9F)
-        return 3;
-    if (p[0] == 0xE3 && p[1] == 0x80 && p[2] == 0x80)
-        return 3;
-    if (p[0] == 0xEF && p[1] == 0xBB && p[2] == 0xBF)
-        return 3;
-    return 0;
-}
-
-/* the length of the space that ends at e (not before s), 0 when none */
-static int sp_back(const unsigned char *s, const unsigned char *e)
-{
-    int k;
-    for (k = 1; k <= 3 && e - k >= s; k++)
-        if (sp_len(e - k) == k)
-            return k;
-    return 0;
-}
+#define sp_len pi_js_space_len   /* the same table as JavaScript's trim() (frontmatter.h) */
+#define sp_back pi_js_space_back
 
 int pi_tmpl_args(const char *str, char ***out, int *n)
 {

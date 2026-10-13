@@ -194,6 +194,72 @@ L.nested = {
 	expand: [],
 	tools: [["read"]],
 };
+L.yaml_errors = {
+	// I8: every YAML error the yaml package reports (not only the nested mapping one) skips a SKILL.md with its message; a loose
+	// .md with broken YAML is skipped silently; valid YAML the old subset got wrong loads
+	cwd: "w/proj",
+	trusted: false,
+	files: {
+		"agent/skills/dupkey/SKILL.md": "---\nname: dupkey\ndescription: One\nname: again\n---\nBody\n",
+		"agent/skills/unclosed/SKILL.md": '---\nname: unclosed\ndescription: "never closed\n---\nBody\n',
+		"agent/skills/unclosed1/SKILL.md": "---\nname: unclosed1\ndescription: 'never closed\n---\nBody\n",
+		"agent/skills/tabs/SKILL.md": "---\nname: tabs\ndescription: x\n\tindented: with a tab\n---\nBody\n",
+		"agent/skills/flow/SKILL.md": "---\nname: flow\ndescription: [a, b\n---\nBody\n",
+		"agent/skills/flowmap/SKILL.md": "---\nname: flowmap\ndescription: {a: b\n---\nBody\n",
+		"agent/skills/at/SKILL.md": "---\nname: at\ndescription: @reserved\n---\nBody\n",
+		"agent/skills/hdr/SKILL.md": "---\nname: hdr\ndescription: |0\n  text\n---\nBody\n",
+		"agent/skills/escape/SKILL.md": '---\nname: escape\ndescription: "bad \\q escape"\n---\nBody\n',
+		"agent/skills/alias/SKILL.md": "---\nname: alias\ndescription: *nothing\n---\nBody\n",
+		"agent/skills/indent/SKILL.md": "---\nname: indent\ndescription: |\n   three\n  two\n---\nBody\n",
+		"agent/skills/seqkey/SKILL.md": "---\n- not a mapping\nname: seqkey\n---\nBody\n",
+		"agent/skills/multidoc/SKILL.md": "---\nname: multidoc\ndescription: One\n...\nname: two\n---\nBody\n",
+		"agent/skills/loose-bad.md": "---\ndescription: dup\ndescription: dup\n---\nA loose file with broken YAML: skipped silently.\n",
+		"agent/skills/anchor/SKILL.md": "---\nname: &n anchor\ndescription: *n\n---\nBody\n",
+		"agent/skills/tagged/SKILL.md": "---\nname: !!str 123\ndescription: !!str true\n---\nBody\n",
+		"agent/skills/keep/SKILL.md": "---\nname: keep\ndescription: |+\n  kept\n\n---\nBody\n",
+		"agent/skills/foldedmore/SKILL.md": "---\nname: foldedmore\ndescription: >\n  a\n    more indented\n  b\n---\nBody\n",
+		"agent/skills/explicit/SKILL.md": "---\n? name\n: explicit\n? description\n: An explicit key\n---\nBody\n",
+		"agent/skills/flowtop/SKILL.md": "---\n{name: flowtop, description: A flow mapping}\n---\nBody\n",
+		"agent/skills/comment-only/SKILL.md": "---\n# only a comment\n---\nBody\n",
+		"agent/skills/nonascii/SKILL.md": "---\nname: nonascii\ndescription: \"caf\\u00e9 \\U0001F600 \\x41\"\n---\nBody\n",
+		"agent/skills/nested-map/SKILL.md": "---\nname: nested-map\ndescription: Use when: this\n---\nBody\n",
+	},
+	expand: ["/skill:anchor", "/skill:tagged", "/skill:keep", "/skill:explicit"],
+	tools: [["read"]],
+};
+L.order = {
+	// I8: pi lists a directory in the order libuv's scandir gives it, sorted by bytes (not by case, not in creation order)
+	cwd: "w/proj",
+	trusted: false,
+	files: {
+		"agent/skills/z.md": sk("zz", "Lower z"),
+		"agent/skills/b.md": sk("bb", "Lower b"),
+		"agent/skills/a.md": sk("aa", "Lower a"),
+		"agent/skills/_u/SKILL.md": sk("under", "Underscore"),
+		"agent/skills/Z/SKILL.md": sk("ZZ-up", "Upper Z directory"),
+		"agent/skills/B.md": sk("bb-up", "Upper B"),
+		"agent/skills/A.md": sk("aa-up", "Upper A"),
+		"agent/skills/10/SKILL.md": sk("ten", "Ten"),
+		"agent/skills/9/SKILL.md": sk("nine", "Nine"),
+		"agent/skills/\u00e9/SKILL.md": sk("eacute", "Latin small e with acute"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
+L.ignore_case = {
+	// I8: pi's ignore package matches without regard to case (its ignorecase option is on by default)
+	cwd: "w/proj",
+	trusted: false,
+	files: {
+		"agent/skills/.gitignore": "IGNORED-DIR/\n*.TMP.MD\n!KEEP.tmp.md\n",
+		"agent/skills/ok/SKILL.md": sk("ok", "Fine"),
+		"agent/skills/ignored-dir/SKILL.md": sk("ignored-dir", "Hidden by a pattern in capitals"),
+		"agent/skills/skip.tmp.md": sk("skip-tmp", "Hidden by *.TMP.MD"),
+		"agent/skills/keep.tmp.md": sk("keep-tmp", "Brought back by !KEEP.tmp.md"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
 L.cli = {
 	cwd: "w/proj",
 	trusted: true,
