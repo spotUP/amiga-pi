@@ -1,0 +1,24 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "export default function (pi) { pi.on(\"before_provider_headers\", async (event) => { event.headers[\"x-test\"] = \"1\"; delete event.headers[\"x-gone\"]; }); }\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "xtest": true,
+ "provider_headers": {
+  "x-gone": "g"
+ }
+}

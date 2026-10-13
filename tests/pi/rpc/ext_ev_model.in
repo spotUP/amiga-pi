@@ -1,0 +1,5 @@
+{"id":"1","type":"set_model","provider":"fake","modelId":"fake-think"}
+{"id":"2","type":"set_thinking_level","level":"high"}
+{"id":"3","type":"set_session_name","name":"my session"}
+{"id":"4","type":"set_model","provider":"fake","modelId":"fake-model"}
+{"id":"5","type":"cycle_thinking_level"}

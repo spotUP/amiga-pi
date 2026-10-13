@@ -1,0 +1,6 @@
+{"id":"1","type":"prompt","message":"hello"}
+#after agent_settled
+{"id":"2","type":"prompt","message":"and again"}
+#after agent_settled
+{"id":"3","type":"compact"}
+{"id":"4","type":"get_state"}

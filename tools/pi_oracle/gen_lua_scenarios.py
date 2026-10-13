@@ -41,11 +41,13 @@ for f in sorted(os.listdir(D)):
         continue
     name = m.group(1)
     cfg = json.load(open(os.path.join(D, f)))
+    if 'hooks' not in cfg.get('settings', {}):
+        continue                     # no hook-command twin: the L7 section below writes its Lua by hand
     lua = lua_of(cfg)
     del cfg['settings']['hooks']
     cfg['golden'] = name
     cfg['text_files'] = {'agent/extensions/t.lua': lua}
-    if cfg.get('collect'):
+    if cfg.get('collect') and cfg['collect'][0] == 'dump.jsonl':     # the event recorders; session.jsonl is the session file
         cfg['lua_dump'] = cfg['collect'][0]
         cfg['canonical'] = True
     open(os.path.join(D, 'ext_lua_' + name[4:] + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
@@ -195,3 +197,101 @@ for name, lua in L5.items():
     twin = 'ext_lua_' + (name if name.startswith('ui_') else name[4:])
     open(os.path.join(D, twin + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
     print('wrote ' + twin)
+
+
+# ---- L7: the handlers that edit in place or keep state (no hook-command twin); the golden is pi's run of the TypeScript one ----
+L7 = {
+    'ext_prov_payload': '''pi.on("before_provider_request", function(event, ctx)
+  event.payload.messages[1].content[1].text = event.payload.messages[1].content[1].text .. " [p]"
+  return event.payload
+end)
+''',
+    'ext_prov_headers': '''pi.on("before_provider_headers", function(event, ctx)
+  event.headers["x-test"] = "1"
+  event.headers["x-gone"] = nil
+end)
+''',
+    'ext_ui_misc': '''pi.on("tool_call", function(event, ctx)
+  ctx.ui.setStatus("b-key", "second")
+  ctx.ui.setStatus("a-key", "first")
+  ctx.ui.setStatus("a-key", nil)
+  ctx.ui.setWidget("w1", { "line one", "line two" })
+  ctx.ui.setWidget("w2", { "below" }, { placement = "belowEditor" })
+  ctx.ui.setWidget("w1", nil)
+  ctx.ui.setTitle("My title")
+  ctx.ui.setEditorText("draft")
+  ctx.ui.setWorkingMessage("Busy")
+  local v = ctx.ui.editor("Edit it", "prefill")
+  return { block = true, reason = "done " .. tostring(v) .. " [" .. ctx.ui.getEditorText() .. "]" }
+end)
+''',
+    'ext_error_json': 'pi.on("input", function() error("boom", 0) end)\n',
+    'ext_error_rpc': 'pi.on("input", function() error("boom", 0) end)\n',
+    'ext_tool_usage': '''pi.registerTool({
+  name = "usagey", label = "usagey", description = "usagey tool.",
+  parameters = { type = "object", properties = {} },
+  execute = function(toolCallId, params, signal, onUpdate, ctx)
+    return { content = { { type = "text", text = "ok" } }, details = {}, terminate = true,
+             usage = { input = 5, output = 6, cacheRead = 0, cacheWrite = 0, totalTokens = 11,
+                       cost = { input = 0, output = 0, cacheRead = 0, cacheWrite = 0, total = 0 } } }
+  end,
+})
+pi.on("tool_result", function(event, ctx) print(json.encode(event)) end)
+pi.on("tool_execution_end", function(event, ctx) print(json.encode(event)) end)
+''',
+    'ext_msg_end': '''pi.on("message_end", function(event, ctx)
+  if event.message.role == "assistant" then
+    event.message.content = { { type = "text", text = "replaced" } }
+    return { message = event.message }
+  end
+end)
+''',
+    'ext_msg_end_role': '''pi.on("message_end", function(event, ctx)
+  if event.message.role == "assistant" then return { message = { role = "user", content = "x", timestamp = 1 } } end
+end)
+''',
+    'ext_ctx_inplace': '''pi.on("context_with_system", function(event, ctx)
+  for _, m in ipairs(event.messages) do
+    if m.role == "user" then m.content[1].text = m.content[1].text .. " [seen]" end
+  end
+end)
+''',
+    'ext_compact_own': '''pi.on("session_before_compact", function(event, ctx)
+  return { compaction = { summary = "by the extension", firstKeptEntryId = event.preparation.firstKeptEntryId, tokensBefore = 777 } }
+end)
+''',
+    'ext_settle_continue': '''local n = 0
+pi.on("agent_before_settle", function(event, ctx)
+  n = n + 1
+  if n == 1 then
+    return { entries = { { type = "custom_message", customType = "more", content = "keep going", display = true } }, continue = true }
+  end
+end)
+''',
+    'ext_resources': '''pi.on("resources_discover", function(event, ctx)
+  return { promptPaths = { event.cwd .. "/extra" } }
+end)
+''',
+}
+for name, lua in L7.items():
+    cfg = json.load(open(os.path.join(D, name + '.cfg.json')))
+    cfg['golden'] = name
+    cfg['text_files'] = dict(cfg.get('text_files', {}), **{'agent/extensions/t.lua': lua})
+    cfg['text_files'].pop('agent/extensions/t.ts', None)
+    if cfg.get('collect') and cfg['collect'][0] == 'dump.jsonl':
+        cfg['lua_dump'] = 'dump.jsonl'
+        cfg['canonical'] = True
+    open(os.path.join(D, 'ext_lua_' + name[4:] + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
+    print('wrote ext_lua_' + name[4:])
+
+
+# ---- L7: ui_prompt_start / ui_prompt_end around the dialogs of LUA_UI (the TypeScript one is rpc_gen.py's ext_ev_ui) ----
+cfg = json.load(open(os.path.join(D, 'ext_ev_ui.cfg.json')))
+cfg['golden'] = 'ext_ev_ui'
+cfg['text_files'] = {'agent/extensions/t.lua': LUA_UI + '''pi.on("ui_prompt_start", function(event) print(json.encode(event)) end)
+pi.on("ui_prompt_end", function(event) print(json.encode(event)) end)
+'''}
+cfg['lua_dump'] = 'dump.jsonl'
+cfg['canonical'] = True
+open(os.path.join(D, 'ext_lua_ev_ui.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
+print('wrote ext_lua_ev_ui')

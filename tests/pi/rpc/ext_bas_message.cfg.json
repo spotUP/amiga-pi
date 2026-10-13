@@ -1,0 +1,34 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "hooks": {
+   "before_agent_start": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "printf '{\"message\":{\"customType\":\"note\",\"content\":\"extra context\",\"display\":true}}'"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "session": "new",
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "requests": true
+}

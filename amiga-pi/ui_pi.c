@@ -19,6 +19,9 @@
 #include "context.h"
 #include "login.h"
 
+#define XU_KEYS 16                  /* statuses and widgets an extension session keeps at most */
+#define XU_MAX_WIDGET_LINES 10      /* interactive-mode.ts MAX_WIDGET_LINES */
+
 typedef struct pi_ui {
     cl_ui ui;
     cl_render render;
@@ -36,6 +39,13 @@ typedef struct pi_ui {
     cl_cmd *menu;               /* the slash menu: the commands, then /skill:name for each skill (settings.json enableSkillCommands) */
     char *menu_text;            /* its strings */
     cl_cmd *all;                /* the slash menu as the screen gets it: the built-in rows, then each slot's (ui_menu) */
+    /* what extensions put on the screen: statuses (footer row) and widgets (above or below the editor), by key */
+    struct { char key[64]; char *text; } xstat[XU_KEYS];
+    int nxstat;
+    struct { char key[64]; char *lines; int n, below; } xwid[XU_KEYS];
+    int nxwid;
+    int xwork;                  /* an extension set the loader's label (setWorkingMessage) */
+    char xwork_text[96];
 } pi_ui;
 
 /* the slash commands the menu offers: pi's own names and descriptions (core/slash-commands.js, in its order) of
@@ -266,6 +276,13 @@ static int u_poll(void *u)
     return ui_poll(&p->ui);
 }
 
+/* an extension's message renderer for pshow (pi_show.render) */
+static int ps_render(void *u, const char *type, const char *msg, long n, const pi_ext_render *r, jw *lines)
+{
+    pi_ui *p = (pi_ui *)u;
+    return pi_exts_render(&p->s->ext, type, msg, n, r, lines);
+}
+
 static void on_event(void *u, const pi_event *e)
 {
     pi_ui *p = (pi_ui *)u;
@@ -277,7 +294,7 @@ static void on_event(void *u, const pi_event *e)
     switch (e->type) {
     case PE_AGENT_START:
         if (p->look)
-            cl_copy(p->ui.tui->pi_work, "Working", sizeof(p->ui.tui->pi_work));
+            cl_copy(p->ui.tui->pi_work, p->xwork ? p->xwork_text : "Working", sizeof(p->ui.tui->pi_work));
         ui_busy(&p->ui, 1);
         break;
     case PE_AGENT_END:
@@ -301,6 +318,45 @@ static void on_event(void *u, const pi_event *e)
         }
         break;
     case PE_MESSAGE_END:
+        if (e->role == PI_ROLE_CUSTOM && p->look && e->msg) {
+            /* a custom message made in the run (pi.sendMessage, before_agent_start): shown when display is true (interactive-mode.ts
+             * addMessageToChat "custom") */
+            jv m, v, c, b, t, x;
+            jit it;
+            jw txt;
+            char ty[200];
+            ty[0] = 0;
+            if (!json_parse(e->msg, e->msg_n, &m) && json_get(m, "display", &v) && json_type(v) == J_TRUE) {
+                jw_init(&txt);
+                if (json_get(m, "customType", &v))
+                    json_str(v, ty, sizeof(ty));
+                if (json_get(m, "content", &c) && json_type(c) == J_STR) {
+                    long n;
+                    char *z = json_strdup(c, &n);
+                    if (z)
+                        jw_raw(&txt, z, n);
+                    free(z);
+                } else if (json_get(m, "content", &c) && json_type(c) == J_ARR) {
+                    int any = 0;
+                    json_iter(c, &it);
+                    while (json_next(&it, 0, &b))
+                        if (json_get(b, "type", &t) && json_streq(t, "text") && json_get(b, "text", &x)) {
+                            long n;
+                            char *z = json_strdup(x, &n);
+                            if (z) {
+                                if (any)
+                                    jw_raw(&txt, "\n", 1);
+                                jw_raw(&txt, z, n);
+                                any = 1;
+                            }
+                            free(z);
+                        }
+                }
+                pshow_custom(&p->ps, ty, txt.p ? txt.p : "", txt.n, e->msg, e->msg_n);
+                jw_free(&txt);
+                status(p);
+            }
+        }
         if (e->role == LR_USER && p->look) {
             /* the user's message is in the conversation now (a typed prompt, or a queued one delivered): it
              * leaves the waiting list and shows in the transcript */
@@ -332,7 +388,7 @@ static void on_event(void *u, const pi_event *e)
         if (p->look) {
             p->ui.tui->pi_work[0] = 0;
             if (p->s->em.count[PE_AGENT_START] > p->s->em.count[PE_AGENT_END])
-                cl_copy(p->ui.tui->pi_work, "Working", sizeof(p->ui.tui->pi_work));
+                cl_copy(p->ui.tui->pi_work, p->xwork ? p->xwork_text : "Working", sizeof(p->ui.tui->pi_work));
             if (!e->is_error && e->result && p->s->command_u) {
                 jv o, v;
                 if (!json_parse(e->result, e->result_n, &o) && json_get(o, "tokensBefore", &v) && json_type(v) == J_NUM) {
@@ -451,13 +507,43 @@ static void xu_blocked(pi_ui *p, int kind, const char *title)
         pi_pstatus_blocked(&p->pst, kind, kind == PSK_NONE ? 0 : title);
 }
 
-/* the screen without pi's look (line mode): the question printed, the answer a line */
-static int xu_line(pi_ui *p, const char *question, char *ans, long cap)
+/* the screen without pi's look (line mode): the question printed, the answer a line. With timeout_ms the line is read in slices of the
+ * console's timed read (io->read; AmigaDOS WaitForChar, the host's poll) until the time is up: -2, as pi's dialog timeout
+ * (ExtensionUIDialogOptions.timeout) gives undefined; a console without one waits as long as it takes. -1 at the end of input */
+static int xu_line(pi_ui *p, const char *question, char *ans, long cap, long timeout_ms)
 {
     long n;
     ui_puts(&p->ui, "\033[1m");
     ui_puts(&p->ui, question);
     ui_puts(&p->ui, "\033[0m ");
+    if (timeout_ms > 0 && p->ui.io->read && p->ui.io->ms) {
+        unsigned long t0 = p->ui.io->ms(p->ui.io->u);
+        long have = 0;
+        for (;;) {
+            char buf[64];
+            long left = timeout_ms - (long)(p->ui.io->ms(p->ui.io->u) - t0), got, i;
+            if (left <= 0) {
+                p->ui.col0 = 0;
+                ui_line(&p->ui, "");
+                p->ui.col0 = 1;
+                return -2;
+            }
+            got = p->ui.io->read(p->ui.io->u, buf, sizeof(buf), left > 100 ? 100 : left);
+            if (got < 0)
+                return -1;
+            if (p->ui.io->brk && p->ui.io->brk(p->ui.io->u))
+                return -1;
+            for (i = 0; i < got; i++) {
+                if (buf[i] == '\n' || buf[i] == '\r') {
+                    ans[have] = 0;
+                    p->ui.col0 = 1;
+                    return (int)have;
+                }
+                if (have < cap - 1)
+                    ans[have++] = buf[i];
+            }
+        }
+    }
     n = p->ui.io->read_line(p->ui.io->u, ans, cap);
     p->ui.col0 = 1;
     return n < 0 ? -1 : (int)n;
@@ -484,7 +570,7 @@ static int xu_select(void *u, const char *title, const char *const *opt, int n, 
             ui_puts(&p->ui, ans);
             ui_line(&p->ui, opt[i]);
         }
-        c = xu_line(p, "Number (empty cancels):", ans, sizeof(ans));
+        c = xu_line(p, "Number (empty cancels):", ans, sizeof(ans), timeout_ms);
         if (c <= 0)
             return 0;
         c = atoi(ans) - 1;
@@ -513,7 +599,7 @@ static int xu_confirm(void *u, const char *title, const char *message, long time
     } else {
         char ans[16];
         ui_line(&p->ui, both);
-        return xu_line(p, "Yes (y) or No (n):", ans, sizeof(ans)) > 0 && (ans[0] == 'y' || ans[0] == 'Y');
+        return xu_line(p, "Yes (y) or No (n):", ans, sizeof(ans), timeout_ms) > 0 && (ans[0] == 'y' || ans[0] == 'Y');
     }
 }
 
@@ -529,7 +615,7 @@ static int xu_input(void *u, const char *title, const char *placeholder, long ti
         return r == 1;
     }
     ui_line(&p->ui, title);
-    return xu_line(p, ">", value, cap) >= 0;
+    return xu_line(p, ">", value, cap, timeout_ms) >= 0;
 }
 
 /* showExtensionNotify: info is showStatus, warning and error their own rows with pi's prefixes */
@@ -559,7 +645,161 @@ static void xu_notify(void *u, const char *message, const char *type)
         ui_line(&p->ui, message);
 }
 
-static pi_ext_ui xu_ui = { 0, xu_select, xu_confirm, xu_input, xu_notify };
+/* the extension statuses as footer.ts draws them: sorted by key (localeCompare), line breaks and tabs spaces, runs of spaces one, trimmed,
+ * joined by a space */
+static int xu_keycmp(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++) {
+        int x = *a >= 'A' && *a <= 'Z' ? *a + 32 : *a, y = *b >= 'A' && *b <= 'Z' ? *b + 32 : *b;
+        if (x != y)
+            return x < y ? -1 : 1;
+    }
+    return *a ? 1 : *b ? -1 : 0;
+}
+
+static void xu_refresh(pi_ui *p)
+{
+    char line[240];
+    int i, j, order[XU_KEYS];
+    jw above, below;
+    int cut_a = 0, cut_b = 0;
+    if (!p->look || !p->ui.tui)
+        return;
+    for (i = 0; i < p->nxstat; i++)
+        order[i] = i;
+    for (i = 1; i < p->nxstat; i++)
+        for (j = i; j > 0 && xu_keycmp(p->xstat[order[j - 1]].key, p->xstat[order[j]].key) > 0; j--) {
+            int t = order[j];
+            order[j] = order[j - 1];
+            order[j - 1] = t;
+        }
+    line[0] = 0;
+    for (i = 0; i < p->nxstat; i++) {
+        const char *t = p->xstat[order[i]].text;
+        char one[240];
+        long k = 0;
+        int sp = 1;
+        for (; *t && k < (long)sizeof(one) - 1; t++) {
+            char c = *t == '\r' || *t == '\n' || *t == '\t' ? ' ' : *t;
+            if (c == ' ' && sp)
+                continue;
+            sp = c == ' ';
+            one[k++] = c;
+        }
+        while (k && one[k - 1] == ' ')
+            k--;
+        one[k] = 0;
+        if (line[0])
+            cl_cat(line, " ", sizeof(line));
+        cl_cat(line, one, sizeof(line));
+    }
+    tui_pi_ext_status(p->ui.tui, line);
+    jw_init(&above);
+    jw_init(&below);
+    for (i = 0; i < p->nxwid; i++) {
+        jw *to = p->xwid[i].below ? &below : &above;
+        if (p->xwid[i].n > XU_MAX_WIDGET_LINES) {
+            if (p->xwid[i].below)
+                cut_b = 1;
+            else
+                cut_a = 1;
+        }
+        jw_rawz(to, p->xwid[i].lines);
+    }
+    tui_pi_widgets(p->ui.tui, above.n ? above.p : 0, cut_a, below.n ? below.p : 0, cut_b);
+    jw_free(&above);
+    jw_free(&below);
+    tui_frame(p->ui.tui);
+}
+
+static void xu_status(void *u, const char *key, const char *text)
+{
+    pi_ui *p = (pi_ui *)u;
+    int i;
+    for (i = 0; i < p->nxstat && strcmp(p->xstat[i].key, key); i++)
+        ;
+    if (!text) {
+        if (i < p->nxstat) {
+            free(p->xstat[i].text);
+            p->xstat[i] = p->xstat[--p->nxstat];
+        }
+    } else {
+        char *c = (char *)malloc(strlen(text) + 1);
+        if (!c)
+            return;
+        strcpy(c, text);
+        if (i == p->nxstat) {
+            if (p->nxstat == XU_KEYS) {
+                free(c);
+                return;
+            }
+            p->nxstat++;
+            cl_copy(p->xstat[i].key, key, sizeof(p->xstat[i].key));
+        } else
+            free(p->xstat[i].text);
+        p->xstat[i].text = c;
+    }
+    xu_refresh(p);
+}
+
+static void xu_widget(void *u, const char *key, const char *const *lines, int n, const char *placement)
+{
+    pi_ui *p = (pi_ui *)u;
+    int i;
+    for (i = 0; i < p->nxwid && strcmp(p->xwid[i].key, key); i++)
+        ;
+    if (i < p->nxwid) {
+        free(p->xwid[i].lines);         /* the widgets keep the order they were set in (a Map's insertion order) */
+        memmove(&p->xwid[i], &p->xwid[i + 1], sizeof(p->xwid[0]) * (size_t)(p->nxwid - i - 1));
+        p->nxwid--;
+    }
+    if (n >= 0) {
+        jw w;
+        int k, cap = n > XU_MAX_WIDGET_LINES ? XU_MAX_WIDGET_LINES : n;
+        if (p->nxwid == XU_KEYS)
+            return;
+        jw_init(&w);
+        for (k = 0; k < cap; k++) {
+            jw_rawz(&w, lines[k]);
+            jw_rawz(&w, "\n");
+        }
+        if (w.n)
+            w.n--;                                  /* no line feed after the last line */
+        i = p->nxwid++;
+        cl_copy(p->xwid[i].key, key, sizeof(p->xwid[i].key));
+        p->xwid[i].lines = (char *)malloc((size_t)w.n + 1);
+        if (p->xwid[i].lines) {
+            memcpy(p->xwid[i].lines, w.p ? w.p : "", (size_t)w.n);
+            p->xwid[i].lines[w.n] = 0;
+        }
+        p->xwid[i].n = n;
+        p->xwid[i].below = placement && !strcmp(placement, "belowEditor");
+        jw_free(&w);
+    }
+    xu_refresh(p);
+}
+
+static void xu_title(void *u, const char *title)
+{
+    pi_ui *p = (pi_ui *)u;
+    if (p->look && p->ui.tui)
+        tui_title(p->ui.tui, title);
+}
+
+static void xu_working(void *u, const char *message)
+{
+    pi_ui *p = (pi_ui *)u;
+    if (p->look && p->ui.tui) {
+        p->xwork = message != 0;
+        cl_copy(p->xwork_text, message ? message : "", sizeof(p->xwork_text));
+        if (p->ui.tui->pi_work[0]) {                    /* the agent is working: the label changes now */
+            cl_copy(p->ui.tui->pi_work, message ? message : "Working", sizeof(p->ui.tui->pi_work));
+            tui_frame(p->ui.tui);
+        }
+    }
+}
+
+static pi_ext_ui xu_ui = { 0, xu_select, xu_confirm, xu_input, xu_notify, xu_status, xu_widget, xu_title, 0, xu_working, 0 };
 
 /* a user message's text blocks, joined */
 static void user_text(const char *json, long n, jw *out)
@@ -1144,6 +1384,8 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     else
         km_init_pi(&t->km);
     pshow_init(&p->ps, t, &p->theme);
+    p->ps.render = ps_render;
+    p->ps.render_u = p;
     pshow_set_pad(&p->ps, ui_pad);
     pshow_render(&p->ps, &p->render);
     footer(p);
@@ -1226,7 +1468,7 @@ static void tree_command(pi_ui *p, cl_tui *t)
 static int bang(pi_ui *p, const char *line)
 {
     pi_session *s = p->s;
-    int excl = line[1] == '!', code = 0, stopped = 0;
+    int excl = line[1] == '!', code = 0, stopped = 0, by_ext = 0;
     const char *cmd = line + (excl ? 2 : 1);
     jw text;
     while (*cmd == ' ' || *cmd == '\t')
@@ -1234,7 +1476,7 @@ static int bang(pi_ui *p, const char *line)
     if (!*cmd)
         return 0;
     jw_init(&text);
-    if (pi_bash_exec(s, cmd, &text, &code, &stopped)) {
+    if (pi_bash_user(s, cmd, excl, &text, &code, &stopped, &by_ext)) {
         pshow_error(&p->ps, "The bash tool is not available");
         jw_free(&text);
         return 1;

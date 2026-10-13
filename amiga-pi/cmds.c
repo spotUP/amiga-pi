@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "store.h"
+#include "ext_events.h"
 #include "resources.h"
 #include "compact.h"
 #include "export.h"
@@ -338,24 +339,69 @@ static void navigate(pi_store *st, int target, int summarize, const char *instr,
                      jw *reply, jw *editor)
 {
     pi_s3 *s = &st->s3;
-    int new_leaf, role_user, *ent = 0, anc, n = 0;
+    int new_leaf, role_user, *ent = 0, anc = -1, n = 0, from_ext = 0, old_leaf = s->leaf;
     jw sum, details, usage;
+    pi_tree_dec dec;
     int have_sum = 0, has_usage = 0;
+    char old_id[48];
     if (target == s->leaf) {
         jw_rawz(reply, "[INFO] Already there.");
         return;
     }
+    old_id[0] = 0;
+    if (old_leaf >= 0)
+        cl_copy(old_id, s3_id(s, old_leaf), sizeof(old_id));
     jw_init(&sum);
     jw_init(&details);
     jw_init(&usage);
-    if (summarize) {
-        char err[200];
-        cp_branch b;
-        n = cp_collect(s, s->leaf, target, &ent, &anc);
-        if (n < 0) {
-            jw_rawz(reply, "[ERROR] out of memory");
+    pi_tree_dec_init(&dec);
+    /* navigateTree collects the entries to summarize whether or not the user wants a summary: the extensions see them */
+    n = cp_collect(s, s->leaf, target, &ent, &anc);
+    if (n < 0) {
+        jw_rawz(reply, "[ERROR] out of memory");
+        goto done;
+    }
+    if (pi_exts_has(&st->s->ext, "session_before_tree")) {
+        jw entries;
+        int i;
+        jw_init(&entries);
+        jw_rawz(&entries, "[");
+        for (i = 0; i < n; i++) {
+            long ln;
+            const char *line = s3_text(s, ent[i], &ln);
+            if (i)
+                jw_rawz(&entries, ",");
+            jw_raw(&entries, line ? line : "null", line ? ln : 4);
+        }
+        jw_rawz(&entries, "]");
+        pi_ev_before_tree(st->s, s3_id(s, target), s->leaf >= 0 ? s3_id(s, s->leaf) : 0, anc >= 0 ? s3_id(s, anc) : 0, entries.p,
+                          summarize, instr, replace != 0, replace, label && *label ? label : 0, &dec);
+        jw_free(&entries);
+        if (dec.cancel) {
+            jw_rawz(reply, "[INFO] Stopped.");
             goto done;
         }
+        if (dec.has_instr)
+            instr = dec.instr.p ? dec.instr.p : "";
+        if (dec.has_replace)
+            replace = dec.replace;
+        if (dec.has_label)
+            label = dec.label.p ? dec.label.p : "";
+        if (dec.has_summary && summarize) {
+            jw_raw(&sum, dec.summary.p ? dec.summary.p : "", dec.summary.n);
+            if (dec.details.n)
+                jw_raw(&details, dec.details.p, dec.details.n);
+            if (dec.usage.n) {
+                jw_raw(&usage, dec.usage.p, dec.usage.n);
+                has_usage = 1;
+            }
+            have_sum = 1;
+            from_ext = 1;
+        }
+    }
+    if (summarize && !have_sum) {
+        char err[200];
+        cp_branch b;
         if (n > 0) {
             int rc;
             rc = cp_branch_summary(s, ent, n, st->s->model.context_window, CP_RESERVE, st->s->model.max_tokens, instr, replace,
@@ -386,7 +432,7 @@ static void navigate(pi_store *st, int target, int summarize, const char *instr,
     } else
         new_leaf = target;
     if (have_sum) {
-        int sidx = s3_branch_summary(s, new_leaf, sum.p, details.p, has_usage ? usage.p : 0, 0);
+        int sidx = s3_branch_summary(s, new_leaf, sum.p, details.n ? details.p : 0, has_usage ? usage.p : 0, from_ext);
         if (sidx < 0) {
             jw_rawz(reply, "[ERROR] ");
             jw_rawz(reply, s->err[0] ? s->err : "the summary could not be recorded");
@@ -404,7 +450,13 @@ static void navigate(pi_store *st, int target, int summarize, const char *instr,
         goto done;
     }
     jw_rawz(reply, have_sum ? "[INFO] Moved, with a summary of the branch left." : "[INFO] Moved.");
+    {
+        long sn = 0;
+        const char *sline = have_sum && s->leaf >= 0 ? s3_text(s, s->leaf, &sn) : 0;
+        pi_ev_tree(st->s, s->leaf >= 0 ? s3_id(s, s->leaf) : 0, old_id[0] ? old_id : 0, have_sum ? sline : 0, sn, from_ext);
+    }
 done:
+    pi_tree_dec_free(&dec);
     free(ent);
     jw_free(&sum);
     jw_free(&details);
@@ -451,13 +503,17 @@ static void fork_list(pi_store *st, jw *reply)
 
 /* a new session from the branch ending at leaf; -1 a fork at the root: a new empty session with parentSession.
  * 0, or -1 with the reason in reply ("[ERROR] ...") */
-int pi_store_branch(pi_store *st, int leaf, jw *reply)
+int pi_store_branch(pi_store *st, int leaf, const char *entry_id, const char *position, jw *reply)
 {
     pi_s3 *s = &st->s3;
+    char prev[320];
+    if (pi_ev_before_fork(st->s, entry_id, position))   /* agent-session-runtime.ts fork: a handler may cancel */
+        return 1;
     if (s->persist && !s->flushed) {
         jw_rawz(reply, "[ERROR] This session has not been saved yet. Send a message before cloning or forking it.");
         return -1;
     }
+    cl_copy(prev, s->persist ? s->file : "", sizeof(prev));
     if (leaf < 0) {
         char old[320], dir[256], cwd[256];
         cl_copy(old, s->persist ? s->file : "", sizeof(old));
@@ -472,10 +528,14 @@ int pi_store_branch(pi_store *st, int leaf, jw *reply)
         jw_rawz(reply, s->err[0] ? s->err : "Failed to create forked session");
         return -1;
     }
-    if (pi_store_reload(st)) {
+    if (st->s)
+        pi_ev_shutdown(st->s, "fork", s->persist ? s->file : 0);        /* teardownCurrent("fork", the new session's file) */
+    if (pi_store_restore(st, leaf >= 0) || pi_store_reload(st)) {
         jw_rawz(reply, "[ERROR] the session could not be reloaded");
         return -1;
     }
+    if (st->s)
+        pi_exts_session_start(&st->s->ext, "fork", prev[0] ? prev : 0);
     return 0;
 }
 
@@ -561,7 +621,7 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
                 return 1;
             }
             message_text(s, pick, editor);
-            if (pi_store_branch(st, s->e[pick].parent, reply))
+            if (pi_store_branch(st, s->e[pick].parent, s3_id(s, pick), "before", reply))
                 return 1;
             jw_rawz(reply, "[INFO] Forked into a new session.");
         }
@@ -572,7 +632,7 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
             jw_rawz(reply, "[ERROR] Nothing to clone yet");
             return 1;
         }
-        if (pi_store_branch(st, s->leaf, reply))
+        if (pi_store_branch(st, s->leaf, s3_id(s, s->leaf), "at", reply))
             return 1;
         jw_rawz(reply, "[INFO] Cloned into a new session.");
         return 1;

@@ -37,8 +37,11 @@ typedef struct ps_item {
     int kind;
     long a, b, c;               /* role, kind, token count, exit code, cancelled, excluded; PK_RESET: a conversation drawn again begins */
     jw x, y;                    /* the texts */
+    jw z;                       /* PK_CUSTOM: the message itself (JSON), for an extension's renderer */
     ps_box tool;                /* PK_TOOL */
 } ps_item;
+
+struct pi_ext_render;
 
 typedef struct pi_show {
     cl_tui *t;
@@ -56,6 +59,9 @@ typedef struct pi_show {
     int pad;                    /* outputPad: 1 (pi's default) or 0 */
     int expanded;               /* pi's toolOutputExpanded (ctrl+o): the summaries show their text; drawn from here on, redraw_chat redraws the rest */
     int replay;                 /* tool results of an earlier run: no duration */
+    /* an extension's renderer for a custom message (ext.h pi_exts_render): 1 when it drew lines into lines, 0 the default box */
+    int (*render)(void *u, const char *type, const char *msg, long n, const struct pi_ext_render *r, jw *lines);
+    void *render_u;
     /* the tool boxes still waiting for their result (pi's ToolExecutionComponents in pendingTools), oldest first. The
      * transcript is lines already on the screen, so a box that is not the last thing there is drawn again from a copy
      * (shadow) of everything written since the oldest of them began: base is the transcript's line count at that
@@ -109,7 +115,7 @@ void pshow_bash(pi_show *s, const char *command, const char *output, int exit_co
  * and CustomMessageComponent (display true; the text as Markdown): a Box over customMessageBg, outputPad wide */
 void pshow_compaction_summary(pi_show *s, long tokens_before, const char *summary, long n);
 void pshow_branch_summary(pi_show *s, const char *summary, long n);
-void pshow_custom(pi_show *s, const char *type, const char *text, long n);
+void pshow_custom(pi_show *s, const char *type, const char *text, long n, const char *msg, long msg_n);
 /* pi's loaded-resources block at the start (showLoadedResources): "[title]" in a role's colour, the lines of a skills report
  * (resreport.h RRL_*; mode RRM_*: the form of the block the line belongs to, Ctrl+O switches), then the blank row that ends it;
  * pshow_blank is the row between the header and the block */

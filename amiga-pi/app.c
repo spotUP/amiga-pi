@@ -3,6 +3,7 @@
 #include "themes_builtin.h"
 #include <string.h>
 #include "app.h"
+#include "ext_events.h"
 #include "login.h"
 #include "args.h"
 #include "prompt.h"
@@ -659,6 +660,42 @@ static const char *pl_home(const pi_platform *pl)
     return home;
 }
 
+/* an extension's error, the way pi's mode tells it (runner.ts emitError; print-mode.ts:101: console.error `Extension error (<path>):
+ * <message>`, json mode alike; rpc-mode.ts:348: an extension_error record). Interactive mode has its own text (the notice). */
+static void ext_report(void *u, const char *path, const char *event, const char *msg)
+{
+    pi_rt *rt = (pi_rt *)u;
+    jw w;
+    if (rt->mode == PI_MODE_RPC) {
+        jw_init(&w);
+        jw_rawz(&w, "{\"type\":\"extension_error\",\"extensionPath\":");
+        jw_strz(&w, path);
+        jw_rawz(&w, ",\"event\":");
+        jw_strz(&w, event);
+        jw_rawz(&w, ",\"error\":");
+        jw_strz(&w, msg);
+        jw_rawz(&w, "}");
+        if (!w.oom && rt->io)
+            pi_jout_line(rt->io, w.p, w.n);
+        jw_free(&w);
+        return;
+    }
+    {
+        char line[1024];
+        cl_copy(line, "Extension error (", sizeof(line));
+        cl_cat(line, path, sizeof(line));
+        cl_cat(line, "): ", sizeof(line));
+        cl_cat(line, msg, sizeof(line));
+        diag_out(&rt->pl, line);
+    }
+}
+
+/* resources_discover's paths (see ext_discovered below) */
+static char ext_paths[2][8][300];
+static char ext_src[8][100], ext_base[8][300];
+static const char *ext_tp[8], *ext_ts[8], *ext_tb[8];
+static int next_paths[2];
+
 static pi_tmpls tmpls;
 
 /* the skills (skills.h): default directories, settings.json, packages, --skill; --no-skills leaves out all but --skill */
@@ -690,7 +727,70 @@ static void load_templates(const pi_platform *pl, int trusted)
     to.host = host_paths(pl);
     to.paths = a.tmpl_paths;
     to.npaths = a.ntmpl_paths;
+    to.ext_paths = ext_tp;
+    to.ext_src = ext_ts;
+    to.ext_base = ext_tb;
+    to.next = next_paths[1];
     pi_tmpl_load(&tmpls, pl->sys, &to);
+}
+
+/* resources_discover's paths (ext.h pi_exts.discovered): kept with the command line's --skill paths and the templates' own, with the
+ * extension that named each; the skills and templates are read again once all are in */
+
+/* pi's name for an extension in a source: the file's name without its suffix, a directory's index file its directory's */
+static void ext_name(const pi_ext *e, char *out, long cap)
+{
+    char tmp[300], *b, *dot;
+    cl_copy(tmp, e && e->path ? e->path : "", sizeof(tmp));
+    b = strrchr(tmp, '/');
+    if (b)
+        *b++ = 0;
+    else
+        b = tmp;
+    dot = strrchr(b, '.');
+    if (dot)
+        *dot = 0;
+    if (!strcmp(b, "index") && b != tmp) {
+        char *p2 = strrchr(tmp, '/');
+        b = p2 ? p2 + 1 : tmp;
+    }
+    cl_copy(out, "extension:", cap);
+    cl_cat(out, b, cap);
+}
+
+static void ext_discovered(void *u, const char *kind, const char *path, const pi_ext *from)
+{
+    pi_rt *rt = (pi_rt *)u;
+    int k;
+    if (!kind) {
+        if (next_paths[0] || next_paths[1]) {
+            load_skills(&rt->pl, rt->trusted);
+            pi_tmpl_free(&tmpls);
+            memset(&tmpls, 0, sizeof(tmpls));
+            load_templates(&rt->pl, rt->trusted);
+        }
+        return;
+    }
+    k = !strcmp(kind, "prompt");
+    if (k) {
+        if (next_paths[1] < 8) {
+            int n = next_paths[1]++;
+            cl_copy(ext_paths[1][n], path, sizeof(ext_paths[1][0]));
+            ext_name(from, ext_src[n], sizeof(ext_src[0]));
+            cl_copy(ext_base[n], from && from->path ? from->path : "", sizeof(ext_base[0]));    /* the extension's directory */
+            {
+                char *sl = strrchr(ext_base[n], '/');
+                if (sl)
+                    *sl = 0;
+            }
+            ext_tp[n] = ext_paths[1][n];
+            ext_ts[n] = ext_src[n];
+            ext_tb[n] = ext_base[n];
+        }
+    } else if (a.nskills < PI_ARG_SKILLS && next_paths[0] < 8) {
+        cl_copy(ext_paths[0][next_paths[0]], path, sizeof(ext_paths[0][0]));
+        a.skills[a.nskills++] = ext_paths[0][next_paths[0]++];
+    }
 }
 
 /* /reload (interactive-mode.ts handleReloadCommand, agent-session.ts reload(): settingsManager.reload() and resourceLoader.reload()): the
@@ -700,11 +800,11 @@ static int reload_resources(void *u, pi_session *sess, char *err, long cap)
 {
     pi_rt *rt = (pi_rt *)u;
     const pi_platform *pl = &rt->pl;
-    (void)sess;
     if (!pl->sys) {
         cl_copy(err, "no file system", cap);
         return -1;
     }
+    pi_ev_shutdown(sess, "reload", 0);                  /* agent-session.ts reload(): the old extensions are told first */
     pi_res_free(&res);
     memset(&res, 0, sizeof(res));
     pi_res_load(&res, pl->sys, pl->agent_dir, pl->cwd, rt->trusted);
@@ -712,6 +812,7 @@ static int reload_resources(void *u, pi_session *sess, char *err, long cap)
     pi_tmpl_free(&tmpls);
     memset(&tmpls, 0, sizeof(tmpls));
     load_templates(pl, rt->trusted);
+    pi_exts_session_start(&sess->ext, "reload", 0);     /* then the new ones: session_start, resources_discover */
     return 0;
 }
 
@@ -970,6 +1071,14 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     }
     if (a.name[0])
         s3_session_info(&store.s3, a.name);
+    s.ext.cwd = pl->cwd;
+    if (rt->mode == PI_MODE_RPC || rt->mode == PI_MODE_JSON || a.print) {
+        s.ext.report = ext_report;
+        s.ext.report_u = rt;
+    }
+    rt->trusted = trusted;
+    s.ext.discovered = ext_discovered;
+    s.ext.discovered_u = rt;
     pi_exts_session_start(&s.ext, "startup", 0);       /* agent-session.ts bindExtensions: the extensions' session_start */
     rt->a = &a;
     rt->s = &s;
@@ -1034,6 +1143,7 @@ int pi_rt_run(pi_rt *rt)
 
 void pi_rt_close(pi_rt *rt)
 {
+    pi_ev_shutdown(&s, "quit", 0);                      /* main.ts at exit: the extensions are told before they are torn down */
     pi_store_free(&store);
     pi_session_free(&s);
     mcp_free(&mc);

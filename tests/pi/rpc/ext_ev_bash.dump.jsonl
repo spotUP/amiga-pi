@@ -1,0 +1,5 @@
+{"type":"session_start","reason":"startup"}
+{"type":"resources_discover","cwd":"/private/tmp/pirpc/project","reason":"startup"}
+{"type":"user_bash","command":"echo hi","excludeFromContext":false,"cwd":"/private/tmp/pirpc/project"}
+{"type":"user_bash","command":"echo quiet","excludeFromContext":true,"cwd":"/private/tmp/pirpc/project"}
+{"type":"session_shutdown","reason":"quit"}

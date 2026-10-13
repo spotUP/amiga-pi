@@ -24,6 +24,8 @@ typedef struct pi_img {
     long ow, oh, w, h;          /* original and sent size (w, h 0: not decoded) */
 } pi_img;
 
+/* base64 text (RFC 4648, padded or not, white space ignored) decoded: a malloc'ed buffer and its length, 0 when it is not base64 */
+unsigned char *pi_b64_decode(const char *s, long n, long *out_n);
 /* pi's detectSupportedImageMimeType: "image/png" ... "image/bmp", 0 none */
 const char *pi_image_type(const unsigned char *b, long n);
 /* pi's processImage: 0 sent (r->data), 1 omitted (r->note says why) */

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "show_pi.h"
+#include "ext.h"
 #include "resreport.h"
 #include "ansi.h"
 #include "claude/util.h"
@@ -191,6 +192,7 @@ static void item_free(ps_item *it)
 {
     jw_free(&it->x);
     jw_free(&it->y);
+    jw_free(&it->z);
     if (it->kind == PK_TOOL) {
         jw_free(&it->tool.args);
         jw_free(&it->tool.partial);
@@ -217,6 +219,7 @@ static ps_item *item_new(pi_show *s, int kind)
     it->kind = kind;
     jw_init(&it->x);
     jw_init(&it->y);
+    jw_init(&it->z);
     jw_init(&it->tool.args);
     jw_init(&it->tool.partial);
     jw_init(&it->tool.result);
@@ -1400,11 +1403,49 @@ static void d_blank(pi_show *s)
     out(s);
 }
 
-/* a custom message (a session's custom_message entry) with display true: its customType as the label, its text as
- * Markdown. Extension message renderers (custom-message.ts:80-98) are not run. */
-static void d_custom(pi_show *s, const char *type, const char *text, long n)
+/* the SGR sequence of a theme colour by its name (pi_role_names: "accent", "customMessageLabel", ...), for an extension's renderer */
+static int role_sgr(void *u, const char *name, int bg, char *buf, long cap)
 {
-    long from = box_begin(s, type);
+    const pi_show *s = (const pi_show *)u;
+    char b[48];
+    int i;
+    (void)bg;
+    for (i = 0; i < PR_COUNT; i++)
+        if (!strcmp(pi_role_names[i], name)) {
+            cl_copy(buf, sg(s, i, b), cap);
+            return 1;
+        }
+    return 0;
+}
+
+/* a custom message (a session's custom_message entry) with display true. An extension's renderer for its customType draws it
+ * (custom-message.ts:80-98: a Spacer(1), then the component the renderer made, which does its own styling); else its customType is
+ * the label and its text Markdown over customMessageBg */
+static void d_custom(pi_show *s, const char *type, const char *text, long n, const char *msg, long msg_n)
+{
+    long from;
+    if (s->render && msg && msg_n) {
+        pi_ext_render r;
+        jw lines;
+        int made;
+        jw_init(&lines);
+        r.width = s->t->cols;
+        r.expanded = s->expanded;
+        r.pad = s->pad;
+        r.sgr = role_sgr;
+        r.u = s;
+        made = s->render(s->render_u, type, msg, msg_n, &r, &lines);
+        if (made && !lines.oom) {
+            blank(s);                       /* the component's Spacer(1), as box_begin's */
+            s->any = 1;
+            jw_raw(&s->batch, lines.p, lines.n);
+            out(s);
+            jw_free(&lines);
+            return;
+        }
+        jw_free(&lines);
+    }
+    from = box_begin(s, type);
     mdbox_text(s, text, n);
     box_end(s, from);
 }
@@ -1551,7 +1592,7 @@ void pshow_replay_msgs(pi_show *s, char *const *msg, const long *msg_n, int nmsg
                             }
                     }
                 }
-                pshow_custom(s, ty, w.p ? w.p : "", w.n);
+                pshow_custom(s, ty, w.p ? w.p : "", w.n, msg[i], msg_n[i]);
                 jw_free(&w);
             }
         } else if (!strcmp(role, "toolResult")) {
@@ -1690,7 +1731,7 @@ static void item_draw(pi_show *s, ps_item *it)
         d_branch(s, x, it->x.n);
         break;
     case PK_CUSTOM:
-        d_custom(s, x, y, it->y.n);
+        d_custom(s, x, y, it->y.n, it->z.p, it->z.n);
         break;
     case PK_RTITLE:
         d_rtitle(s, (int)it->a, x);
@@ -1802,12 +1843,15 @@ void pshow_branch_summary(pi_show *s, const char *summary, long n)
     d_branch(s, summary, n);
 }
 
-void pshow_custom(pi_show *s, const char *type, const char *text, long n)
+void pshow_custom(pi_show *s, const char *type, const char *text, long n, const char *msg, long msg_n)
 {
     ps_item *it = item_text(s, PK_CUSTOM, 0, type, (long)strlen(type), 0);
-    if (it)
+    if (it) {
         jw_raw(&it->y, text, n);
-    d_custom(s, type, text, n);
+        if (msg)
+            jw_raw(&it->z, msg, msg_n);
+    }
+    d_custom(s, type, text, n, msg, msg_n);
 }
 
 void pshow_resource_title(pi_show *s, int role, const char *title)

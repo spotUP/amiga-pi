@@ -1,0 +1,4 @@
+{"id":"1","type":"response","command":"fork","success":true,"data":{"text":"approach B","cancelled":false}}
+{"id":"2","type":"response","command":"clone","success":true,"data":{"cancelled":false}}
+{"id":"3","type":"response","command":"new_session","success":true,"data":{"cancelled":false}}
+{"id":"4","type":"response","command":"switch_session","success":true,"data":{"cancelled":false}}

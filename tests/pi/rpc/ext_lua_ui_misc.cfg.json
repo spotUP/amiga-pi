@@ -1,0 +1,20 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"tool_call\", function(event, ctx)\n  ctx.ui.setStatus(\"b-key\", \"second\")\n  ctx.ui.setStatus(\"a-key\", \"first\")\n  ctx.ui.setStatus(\"a-key\", nil)\n  ctx.ui.setWidget(\"w1\", { \"line one\", \"line two\" })\n  ctx.ui.setWidget(\"w2\", { \"below\" }, { placement = \"belowEditor\" })\n  ctx.ui.setWidget(\"w1\", nil)\n  ctx.ui.setTitle(\"My title\")\n  ctx.ui.setEditorText(\"draft\")\n  ctx.ui.setWorkingMessage(\"Busy\")\n  local v = ctx.ui.editor(\"Edit it\", \"prefill\")\n  return { block = true, reason = \"done \" .. tostring(v) .. \" [\" .. ctx.ui.getEditorText() .. \"]\" }\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_ui_misc"
+}

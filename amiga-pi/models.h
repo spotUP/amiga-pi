@@ -43,8 +43,10 @@ int pi_models_start_level(const llm_model *model, int want);
 
 /* pi's setModel: 0, or -1 with err ("No API key for provider/id") */
 int pi_model_switch(pi_models *m, pi_session *s, const llm_model *to, char *err, long cap);
-/* the same with the level the model starts at given (a scoped model's ":level"; -1: the usual rule) */
-int pi_model_switch_level(pi_models *m, pi_session *s, const llm_model *to, int explicit_level, char *err, long cap);
+/* the same with the level the model starts at given (a scoped model's ":level"; -1: the usual rule); source is the model_select
+ * event's "set" or "cycle" */
+int pi_model_switch_level(pi_models *m, pi_session *s, const llm_model *to, int explicit_level, const char *source, char *err,
+                          long cap);
 /* pi's setThinkingLevel: the level in effect afterwards, -1 when the session file cannot take the entry (the level is unchanged) */
 int pi_thinking_set(pi_models *m, pi_session *s, int level);
 /* "provider/id" of the model */

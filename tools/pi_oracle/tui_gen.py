@@ -454,6 +454,52 @@ SCENARIOS.update({
     'ext_ui_notify': dict(steps=[('type', '/tell'), ('enter',), ('wait', 'an error')], answers=[], agent_files=UI_FILES, rows=30),
 })
 
+# L11: pi.sendMessage with display true, drawn by an extension's registerMessageRenderer or by the default box (custom-message.ts); a
+# message with display false is in the session only. Ctrl+O sets expanded for the renderer.
+EXT_MSG = r'''import { Text } from "@earendil-works/pi-tui";
+export default function (pi) {
+  pi.registerMessageRenderer("note", (message, options, theme) => {
+    const body = typeof message.content === "string" ? message.content : "";
+    return new Text(theme.fg("accent", "Note: " + body) + (options.expanded ? " (expanded)" : ""), 1, 0);
+  });
+  pi.registerCommand("note", { handler: async () => { pi.sendMessage({ customType: "note", content: "hello there", display: true }); } });
+  pi.registerCommand("plain", { handler: async () => { pi.sendMessage({ customType: "plain", content: "some **bold** text", display: true }); } });
+  pi.registerCommand("quiet", { handler: async () => { pi.sendMessage({ customType: "quiet", content: "hidden", display: false }); } });
+  pi.registerCommand("multi", { handler: async () => { pi.sendMessage({ customType: "multi", content: "one", display: true }); pi.sendMessage({ customType: "note", content: "two", display: true }); } });
+}
+'''
+MSG_FILES = {'extensions/t.ts': EXT_MSG}
+SCENARIOS.update({
+    'ext_msg_render': dict(steps=[('type', '/note'), ('enter',), ('wait', 'Note:')], answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_plain': dict(steps=[('type', '/plain'), ('enter',), ('wait', 'bold')], answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_hidden': dict(steps=[('type', '/quiet'), ('enter',), ('sleep', 1.0), ('type', '/note'), ('enter',), ('wait', 'Note:')],
+                           answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_expanded': dict(steps=[('type', '/note'), ('enter',), ('wait', 'Note:'), ('key', 'C-o'), ('sleep', 1.0)],
+                             answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_multi': dict(steps=[('type', '/multi'), ('enter',), ('wait', 'two')], answers=[], agent_files=MSG_FILES, rows=30),
+})
+
+# L16: ctx.ui.setStatus (the footer's extra row), setWidget (lines above or below the editor) and setWorkingMessage from an extension's command
+EXT_UIX = r'''export default function (pi) {
+  pi.registerCommand("stat", { handler: async (args, ctx) => { ctx.ui.setStatus("b", "second"); ctx.ui.setStatus("a", "first"); } });
+  pi.registerCommand("above", { handler: async (args, ctx) => { ctx.ui.setWidget("w", ["widget line one", "widget line two"]); } });
+  pi.registerCommand("below", { handler: async (args, ctx) => { ctx.ui.setWidget("wb", ["under the editor"], { placement: "belowEditor" }); } });
+  pi.registerCommand("many", { handler: async (args, ctx) => { ctx.ui.setWidget("m", Array.from({ length: 12 }, (_, i) => "row " + (i + 1))); } });
+  pi.registerCommand("clear", { handler: async (args, ctx) => { ctx.ui.setStatus("a", undefined); ctx.ui.setStatus("b", undefined); ctx.ui.setWidget("w", undefined); ctx.ui.setWidget("wb", undefined); } });
+}
+'''
+UIX_FILES = {'extensions/t.ts': EXT_UIX}
+SCENARIOS.update({
+    'ext_ui_status': dict(steps=[('type', '/stat'), ('enter',), ('wait', 'first')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_above': dict(steps=[('type', '/above'), ('enter',), ('wait', 'widget line')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_below': dict(steps=[('type', '/below'), ('enter',), ('wait', 'under the')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_many': dict(steps=[('type', '/many'), ('enter',), ('wait', 'truncated')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_clear': dict(steps=[('type', '/above'), ('enter',), ('wait', 'widget line'), ('type', '/stat'), ('enter',), ('wait', 'first'),
+                                       ('type', '/clear'), ('enter',), ('sleep', 1.0)], answers=[], agent_files=UIX_FILES, rows=30),
+})
+
+
+
 
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []

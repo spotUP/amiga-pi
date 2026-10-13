@@ -94,7 +94,7 @@ static int hk_of(int type)
     case PE_AGENT_START: return HK_PI_AGENT_START;
     case PE_TURN_START: return HK_PI_TURN_START;
     case PE_MESSAGE_START: return HK_PI_MESSAGE_START;
-    case PE_MESSAGE_END: return HK_PI_MESSAGE_END;
+    case PE_MESSAGE_UPDATE: return HK_PI_MESSAGE_UPDATE;
     case PE_TOOL_START: return HK_PI_TOOL_EXEC_START;
     case PE_TOOL_UPDATE: return HK_PI_TOOL_EXEC_UPDATE;
     case PE_TOOL_END: return HK_PI_TOOL_EXEC_END;
@@ -162,7 +162,7 @@ static int call_done(void *u, const cl_hook *kk, int st, long rc, const char *ou
     }
     if (!answer(out, n, &o))
         return 0;
-    if (pi_ext_decide_call(o, c->args, c->reason, c->cap)) {
+    if (pi_ext_decide_call(o, c->args, c->reason, c->cap, &c->k->s->ext.terminate)) {
         c->blocked = 1;
         return 1;
     }
@@ -239,7 +239,7 @@ static void hk_tool_result(void *u, const char *id, const char *name, const char
 
 static int build_input(hk_ctx *c)
 {
-    pi_ext_payload_input(&c->body, c->text, c->source, c->streaming);
+    pi_ext_payload_input(&c->body, c->text, c->k->s->ext.images, c->source, c->streaming);
     return 1;
 }
 
@@ -255,7 +255,7 @@ static int input_done(void *u, const cl_hook *kk, int st, long rc, const char *o
     }
     if (!answer(out, n, &o))
         return 0;
-    if (pi_ext_decide_input(o, c->text)) {
+    if (pi_ext_decide_input(o, c->text, c->k->s->ext.images)) {
         c->handled = 1;
         return 1;
     }
@@ -304,6 +304,78 @@ static void hk_session_start(void *u, const char *reason, const char *prev)
     jw_free(&c.body);
 }
 
+/* ---- the other events (pi_ext.has / pi_ext.emit): the payload is the hook's input file, the answer the object it prints ---- */
+
+static int hk_find(const char *type)
+{
+    int ev;
+    for (ev = HK_PI_SESSION_START; ev < HK_COUNT; ev++)
+        if (!strcmp(cfg_hook_events[ev], type))
+            return ev;
+    return -1;
+}
+
+static int hk_has(void *u, const char *type)
+{
+    pi_hooks *k = (pi_hooks *)u;
+    int ev = hk_find(type);
+    return ev >= 0 && hooks_any(&k->h, ev, "");
+}
+
+typedef struct hk_gen {
+    hk_ctx c;
+    jw *payload;
+    pi_ext_apply fn;
+    void *fu;
+    int stopped;
+} hk_gen;
+
+static int build_payload(hk_ctx *c)
+{
+    hk_gen *g = (hk_gen *)c;
+    jw_raw(&c->body, g->payload->p ? g->payload->p : "{}", g->payload->p ? g->payload->n : 2);
+    return 1;
+}
+
+static int gen_done(void *u, const cl_hook *kk, int st, long rc, const char *out, long n)
+{
+    hk_gen *g = (hk_gen *)u;
+    jv o, none;
+    if (bad(&g->c, st, rc)) {
+        char m[400];
+        failure(kk, st, rc, out, n, g->c.k->h.sys, m, sizeof(m));
+        told(g->c.k, m);
+        return 0;
+    }
+    none.p = 0;
+    none.n = 0;
+    if (g->fn && answer(out, n, &o) && g->fn(g->fu, o, none, g->payload)) {
+        g->stopped = 1;
+        return 1;
+    }
+    return 0;
+}
+
+static int hk_emit(void *u, const char *type, jw *payload, int flags, pi_ext_apply fn, void *fu)
+{
+    pi_hooks *k = (pi_hooks *)u;
+    int ev = hk_find(type);
+    hk_gen g;
+    (void)flags;                /* a command cannot change the event in place: it answers with the changed part */
+    if (ev < 0 || !hooks_any(&k->h, ev, ""))
+        return 0;
+    memset(&g, 0, sizeof(g));
+    g.c.k = k;
+    g.c.build = build_payload;
+    g.payload = payload;
+    g.fn = fn;
+    g.fu = fu;
+    jw_init(&g.c.body);
+    pi_hook_runs += hooks_run_raw(&k->h, ev, "", hk_body, gen_done, &g);
+    jw_free(&g.c.body);
+    return g.stopped;
+}
+
 /* ---- setup ---- */
 
 void pi_hooks_init(pi_hooks *k, pi_session *s, cl_sys *sys, const char *tmp, const char *cwd)
@@ -324,6 +396,8 @@ void pi_hooks_init(pi_hooks *k, pi_session *s, cl_sys *sys, const char *tmp, con
     k->ext.tool_result = hk_tool_result;
     k->ext.input = hk_input;
     k->ext.session_start = hk_session_start;
+    k->ext.has = hk_has;
+    k->ext.emit = hk_emit;
 }
 
 void pi_hooks_free(pi_hooks *k)

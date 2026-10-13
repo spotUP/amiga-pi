@@ -1,0 +1,32 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "hooks": {
+   "user_bash": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "printf '{\"result\":{\"output\":\"from the extension\",\"exitCode\":3,\"cancelled\":false,\"truncated\":false}}'"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "session": "new",
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "requests": true
+}

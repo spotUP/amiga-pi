@@ -1,0 +1,24 @@
+{
+ "mode": "rpc",
+ "args": [
+  "--no-prompt-templates"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "defaultProjectTrust": "always"
+ },
+ "session": null,
+ "files": {},
+ "text_files": {
+  "project/extra/ext.md": "Extra $2 then $1\n",
+  "agent/extensions/t.lua": "pi.on(\"resources_discover\", function(event, ctx)\n  return { promptPaths = { event.cwd .. \"/extra\" } }\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_resources"
+}

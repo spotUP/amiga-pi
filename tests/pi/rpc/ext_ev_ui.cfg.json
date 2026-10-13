@@ -1,0 +1,21 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "\nimport { appendFileSync } from \"node:fs\";\nexport default function (pi) {\n  for (const name of [\"ui_prompt_start\", \"ui_prompt_end\"]) pi.on(name, async (event) => { appendFileSync(\"dump.jsonl\", JSON.stringify(event) + \"\\n\"); });\n  pi.on(\"tool_call\", async (event, ctx) => {\n    const choice = await ctx.ui.select(\"Run it?\", [\"Allow\", \"Block\"]);\n    const ok = await ctx.ui.confirm(\"Sure?\", \"It runs a command.\");\n    const why = await ctx.ui.input(\"Why?\", \"a reason\");\n    ctx.ui.notify(\"decided \" + choice + \" \" + ok + \" \" + why, \"info\");\n    if (choice !== \"Allow\") return { block: true, reason: \"Blocked by the user\" };\n  });\n}\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl"
+ ]
+}

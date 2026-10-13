@@ -1,0 +1,1 @@
+Extension error (/private/tmp/pirpc/agent/extensions/t.ts): message_end handlers must return a message with the same role

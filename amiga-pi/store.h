@@ -85,21 +85,30 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor);
 int pi_store_bash(pi_store *st, const char *command, const char *output, int exit_code, int cancelled, int exclude);
 
 /* /fork N and /clone: a new session from the branch ending at entry leaf (-1: an empty one with this as parentSession),
- * the session continued there. 0, or -1 with the reason in reply ("[ERROR] ...") */
-int pi_store_branch(pi_store *st, int leaf, jw *reply);
+ * the session continued there. entry_id and position ("before" a forked user message, "at" a clone's leaf) are what the
+ * session_before_fork event carries. 0, -1 with the reason in reply ("[ERROR] ..."), 1 an extension cancelled it */
+int pi_store_branch(pi_store *st, int leaf, const char *entry_id, const char *position, jw *reply);
 /* the text of the user message entry i, as the input takes it back (the text blocks joined) */
 void pi_user_text(pi_s3 *s, int i, jw *out);
 /* pi's newSession: an empty session in the same directory (parentSession: parent, "" none), the agent's conversation
- * cleared and the session's model and thinking level recorded again. 0, -1 with err */
+ * cleared and the session's model and thinking level recorded again. 0, -1 with err, 1 an extension cancelled it
+ * (session_before_switch) */
 int pi_store_new_session(pi_store *st, const char *parent);
+/* pi's createAgentSession on a session it opened (sdk.ts:212-260, 450-458): an existing one gives the agent its model and
+ * thinking level (and records the level when the branch has none); a new one records the agent's. 0, -1 */
+int pi_store_restore(pi_store *st, int existing);
 /* pi's switchSession: the session file opened and its conversation loaded; the model and thinking level it names are
- * restored. 0, -1 with err (the current session is kept) */
-int pi_store_switch(pi_store *st, const char *path);
+ * restored. 0, -1 with err (the current session is kept), 1 an extension cancelled it. given is the path as the user wrote it
+ * (session_before_switch's targetSessionFile), 0 the same as path */
+int pi_store_switch(pi_store *st, const char *path, const char *given);
 /* pi's setSessionName: a session_info entry and the session_info_changed event. 0, -1 */
 int pi_store_name(pi_store *st, const char *name);
 /* a bash command run through the session's bash tool and recorded as !cmd is (pi executeBash): its output in text, the
  * exit code, whether it was stopped. 0, -1 when there is no bash tool */
-int pi_store_bash_run(pi_store *st, const char *command, int exclude, jw *text, int *code, int *stopped);
+int pi_store_bash_run(pi_store *st, const char *command, int exclude, jw *text, int *code, int *stopped, int *by_ext);
+
+/* user bash as pi runs it (the user_bash event first: a handler's {result} stands for the run): the same outputs as pi_bash_exec */
+int pi_bash_user(pi_session *s, const char *command, int exclude, jw *text, int *code, int *stopped, int *by_ext);
 
 /* a command run through the session's bash tool: its output in text, the exit code (pi keeps it apart from the text), whether
  * it was stopped. 0, -1 when there is no bash tool. Nothing is recorded (pi_store_bash_run does that) */

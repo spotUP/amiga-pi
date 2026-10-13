@@ -1,0 +1,32 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "hooks": {
+   "context": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "printf '{\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"rewritten\"}],\"timestamp\":1}]}'"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "session": null,
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "requests": true
+}

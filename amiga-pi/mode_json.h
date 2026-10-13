@@ -17,6 +17,13 @@
 /* the event as pi's JSON record (no line feed) appended to w: 1, or 0 when pi writes no record for it */
 int pi_json_event(const pi_session *s, const pi_event *e, jw *w);
 
+/* the answer so far (pi-ai's partial AssistantMessage: blocks so far, a block still open with its `index`, a tool call with
+ * `partialJson`), and pi's assistantMessageEvent for the stream event (with_partial: plus the cumulative `partial`) */
+void pi_partial_message(const pi_session *s, const struct llm_acc *a, jw *w);
+int pi_assistant_event(const pi_session *s, const pi_event *e, int with_partial, jw *w);
+/* pi's Model object as JSON appended to w (RPC get_state / set_model, the model_select event) */
+void pi_model_json(const llm_model *m, jw *w);
+
 /* a listener that writes every event as a record on io (pi_subscribe it); u is a pi_jout */
 typedef struct pi_jout {
     pi_session *s;

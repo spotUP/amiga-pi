@@ -25,6 +25,10 @@ enum {
     PE_RETRY_START, PE_RETRY_END, PE_N
 };
 
+/* pi_event.role of a custom message (role "custom": pi.sendMessage, before_agent_start's message); the persisting listener leaves it
+ * out, the entry is written when the message is made (agent.h pi_session_custom) */
+#define PI_ROLE_CUSTOM 10
+
 #define PI_SUBS 8
 
 typedef struct pi_event {
@@ -70,6 +74,10 @@ typedef struct pi_event {
     long duration_ms;
     int result_error;           /* tool_execution_end: the tool's result carries isError (agent.h result_error) */
     int thrown;                 /* tool_execution_end: the tool itself failed (a thrown error: details {}), not just isError set by an extension */
+    const char *usage;          /* tool_execution_end: the result's usage (a JSON object), 0 none */
+    long usage_n;
+    int usage_early;            /* tool_execution_end: the tool itself gave the usage (it sits before structuredContent), else a handler added it (last) */
+    int terminate;              /* tool_execution_end: the result says terminate (a blocked call or a tool's own) */
     long n1, n2, n3;
 } pi_event;
 

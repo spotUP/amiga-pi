@@ -1,0 +1,29 @@
+{
+ "mode": "json",
+ "args": [
+  "run it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"before_provider_request\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"before_provider_headers\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"after_provider_response\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"provider_stream_event\", function(event, ctx)\n  print(json.encode(event))\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl"
+ ],
+ "provider_headers": {
+  "x-gone": "g"
+ },
+ "golden": "ext_prov_events",
+ "lua_dump": "dump.jsonl",
+ "canonical": true
+}

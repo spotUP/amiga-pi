@@ -89,6 +89,7 @@ typedef struct pi_lua_ext {
     int ntool;
     char *cmd[PI_LUA_CMDS], *cmd_desc[PI_LUA_CMDS];     /* registered commands: name and description (0 none); handler pi.commands[i + 1] */
     int ncmd;
+    const char *event;                  /* the event being dispatched (an error is told with it) */
 } pi_lua_ext;
 
 typedef struct pi_lua {

@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include "pi_test.h"
 #include "claude/util.h"
@@ -176,6 +177,35 @@ static void test_call_failure(void)
     CHECK(strstr(reason, "ran out of time") != 0);
     down();
     use_sys = 0;
+    jw_free(&s);
+    jw_free(&args);
+}
+
+/* the host's own run honours a hook's timeout (L12): a hook that sleeps past it is killed, with what it started, and the call is
+ * blocked as a handler that throws; one that answers in time is not touched */
+static void test_real_timeout(void)
+{
+    jw s, args;
+    char reason[300];
+    time_t t0;
+    jw_init(&s);
+    jw_init(&args);
+    jw_rawz(&args, "{\"command\":\"ls\"}");
+    put("slow.sh", "cat >/dev/null\nsleep 30\necho '{\"block\":false}'\n");
+    settings_for(&s, "tool_call", 0, "slow.sh", 0, 1);
+    up(s.p);
+    t0 = time(0);
+    CHECK_INT(pi_exts_tool_call(&ses.ext, "t1", "bash", &args, reason, sizeof(reason)), 1);
+    CHECK(strstr(reason, "ran out of time") != 0);
+    CHECK(time(0) - t0 < 10);
+    down();
+    jw_reset(&s);
+    put("quick.sh", "cat >/dev/null\necho '{\"block\":true,\"reason\":\"quick\"}'\n");
+    settings_for(&s, "tool_call", 0, "quick.sh", 0, 5);
+    up(s.p);
+    CHECK_INT(pi_exts_tool_call(&ses.ext, "t1", "bash", &args, reason, sizeof(reason)), 1);
+    CHECK_STR(reason, "quick");
+    down();
     jw_free(&s);
     jw_free(&args);
 }
@@ -424,6 +454,7 @@ void suite_pi_hooks(void)
     }
     sys_posix_init(&sp, &sys);
     test_call_failure();
+    test_real_timeout();
     test_call_order();
     test_no_decision_and_matcher();
     test_input();

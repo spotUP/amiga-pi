@@ -1,0 +1,21 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"session_start\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"session_before_switch\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"session_before_fork\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"session_shutdown\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"model_select\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"thinking_level_select\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"session_info_changed\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"user_bash\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"session_before_compact\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"session_compact\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"session_compact_failed\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"resources_discover\", function(event, ctx)\n  print(json.encode(event))\nend)\n"
+ },
+ "answers": [],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl"
+ ],
+ "golden": "ext_ev_bash",
+ "lua_dump": "dump.jsonl",
+ "canonical": true
+}

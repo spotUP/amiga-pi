@@ -523,3 +523,40 @@ void pi_image_free(pi_img *r)
     free(r->data);
     r->data = 0;
 }
+
+unsigned char *pi_b64_decode(const char *s, long n, long *out_n)
+{
+    unsigned char *o = (unsigned char *)malloc((size_t)n * 3 / 4 + 4);
+    long i, k = 0;
+    unsigned long acc = 0;
+    int bits = 0;
+    if (!o)
+        return 0;
+    for (i = 0; i < n; i++) {
+        int c = (unsigned char)s[i], v;
+        if (c >= 'A' && c <= 'Z')
+            v = c - 'A';
+        else if (c >= 'a' && c <= 'z')
+            v = c - 'a' + 26;
+        else if (c >= '0' && c <= '9')
+            v = c - '0' + 52;
+        else if (c == '+' || c == '-')
+            v = 62;
+        else if (c == '/' || c == '_')
+            v = 63;
+        else if (c == '=' || c == ' ' || c == '\n' || c == '\r' || c == '\t')
+            continue;
+        else {
+            free(o);
+            return 0;
+        }
+        acc = (acc << 6) | (unsigned long)v;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            o[k++] = (unsigned char)((acc >> bits) & 0xff);
+        }
+    }
+    *out_n = k;
+    return o;
+}

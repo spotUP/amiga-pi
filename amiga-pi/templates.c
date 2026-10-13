@@ -522,6 +522,12 @@ int pi_tmpl_load(pi_tmpls *ts, cl_sys *sys, const pi_tmpl_opts *o)
             continue;
         rc = mp_add(&merged, sys, p, 1);
     }
+    for (i = 0; i < o->next && i < PI_TMPL_EXT && rc == 0; i++) {
+        char p[300];
+        if (!o->cwd || pm_path(&po, o->ext_paths[i], o->cwd, 0, p, sizeof(p)) || pm_path(&po, p, o->cwd, 1, p, sizeof(p)))
+            continue;
+        rc = mp_add(&merged, sys, p, 1);
+    }
     /* loadPromptTemplates: a directory's .md files, a .md file; a path that is not there is passed over */
     for (i = 0; i < merged.n && rc == 0; i++) {
         int kind = sys->kind(sys->u, merged.v[i]);
@@ -529,6 +535,27 @@ int pi_tmpl_load(pi_tmpls *ts, cl_sys *sys, const pi_tmpl_opts *o)
             rc = load_dir(&L, merged.v[i]);
         else if (kind == 1 && strlen(merged.v[i]) > 3 && !strcmp(merged.v[i] + strlen(merged.v[i]) - 3, ".md"))
             rc = load_file(&L, merged.v[i], 0);
+    }
+    /* the templates under a path an extension named carry that extension as their source */
+    for (i = 0; i < o->next && i < PI_TMPL_EXT; i++) {
+        char canon[300];
+        size_t cl;
+        if (sys->canon(sys->u, o->ext_paths[i], canon, sizeof(canon)))
+            cl_copy(canon, o->ext_paths[i], sizeof(canon));
+        cl = strlen(canon);
+        for (j = 0; j < ts->n; j++) {
+            pi_tmpl *t = &ts->t[j];
+            char tc[300];
+            if (sys->canon(sys->u, t->path, tc, sizeof(tc)))
+                cl_copy(tc, t->path, sizeof(tc));
+            if (!strncmp(tc, canon, cl) && (tc[cl] == '/' || tc[cl] == 0)) {
+                t->scope = PMS_TEMP;
+                t->kind = PMK_PACKAGE;
+                t->ext = 1;
+                cl_copy(t->psrc, o->ext_src[i], sizeof(t->psrc));
+                cl_copy(t->base, o->ext_base[i] ? o->ext_base[i] : "", sizeof(t->base));
+            }
+        }
     }
     /* dedupePrompts: the first of two templates with one name keeps it; the other is a collision */
     for (i = 0; i < ts->n && rc == 0;) {
@@ -683,7 +710,7 @@ int pi_tmpls_commands(const pi_tmpls *ts, jw *out)
         else
             jw_rawz(out, t->kind == PMK_AUTO ? "\"auto\"" : "\"local\"");
         jw_rawz(out, t->scope == PMS_PROJECT ? ",\"scope\":\"project\"" : t->scope == PMS_USER ? ",\"scope\":\"user\"" : ",\"scope\":\"temporary\"");
-        jw_rawz(out, t->kind == PMK_PACKAGE ? ",\"origin\":\"package\"" : ",\"origin\":\"top-level\"");
+        jw_rawz(out, t->kind == PMK_PACKAGE && !t->ext ? ",\"origin\":\"package\"" : ",\"origin\":\"top-level\"");
         if (t->base[0]) {
             jw_rawz(out, ",\"baseDir\":");
             jw_strz(out, t->base);

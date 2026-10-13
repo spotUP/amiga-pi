@@ -22,7 +22,7 @@ LUA_AMIGA_OBJ := $(patsubst $(LUA_DIR)/%.c,build/amiga/obj/lua_%.o,$(LUA_SRC))
 # amiga-pi itself (plan phase C): the agent loop, its events and extensions, the
 # system prompt, the command line, the prompt on C:Claude's screen code
 PI_CORE := amiga-pi/events.c amiga-pi/ext.c amiga-pi/agent.c amiga-pi/prompt.c amiga-pi/args.c amiga-pi/app.c \
-           amiga-pi/ui_pi.c amiga-pi/truncate.c amiga-pi/tools_pi.c amiga-pi/ext_gate.c amiga-pi/ext_hooks.c amiga-pi/ext_payload.c amiga-pi/ext_lua.c amiga-pi/image.c amiga-pi/session3.c amiga-pi/context.c amiga-pi/store.c amiga-pi/compact.c amiga-pi/cp_prompts.c amiga-pi/cmds.c amiga-pi/models.c \
+           amiga-pi/ui_pi.c amiga-pi/truncate.c amiga-pi/tools_pi.c amiga-pi/ext_gate.c amiga-pi/ext_hooks.c amiga-pi/ext_payload.c amiga-pi/ext_events.c amiga-pi/ext_lua.c amiga-pi/image.c amiga-pi/session3.c amiga-pi/context.c amiga-pi/store.c amiga-pi/compact.c amiga-pi/cp_prompts.c amiga-pi/cmds.c amiga-pi/models.c \
            amiga-pi/resources.c amiga-pi/skills.c amiga-pi/yaml.c amiga-pi/yaml_lex.c amiga-pi/yaml_cst.c amiga-pi/frontmatter.c amiga-pi/pkgres.c amiga-pi/resreport.c amiga-pi/mcp.c amiga-pi/mcp_http.c amiga-pi/mcp_stdio.c amiga-pi/show_pi.c amiga-pi/tree_pi.c amiga-pi/export.c amiga-pi/okcolor.c amiga-pi/mode_json.c amiga-pi/mode_rpc.c amiga-pi/piapi.c amiga-pi/ansi.c amiga-pi/fuzzy.c amiga-pi/pstatus.c amiga-pi/templates.c amiga-pi/oauth.c amiga-pi/login.c amiga-pi/authstore.c
 # stb_image / stb_image_write (vendor/stb) for read's images: built on their own, warnings off
 STB := amiga-pi/stb_impl.c vendor/stb/stb_image.h vendor/stb/stb_image_write.h
