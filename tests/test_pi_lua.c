@@ -553,8 +553,8 @@ static int c_call(void *u, const char *id, const char *name, jw *args, char *rea
 
 static void test_order(void)
 {
-    static const pi_ext first = { "c-first", (void *)"1", 0, c_call, 0, 0, 0 };
-    static const pi_ext last = { "c-last", (void *)"3", 0, c_call, 0, 0, 0 };
+    static const pi_ext first = { "c-first", (void *)"1", 0, c_call, 0, 0, 0, 0 };
+    static const pi_ext last = { "c-last", (void *)"3", 0, c_call, 0, 0, 0, 0 };
     jw args;
     char reason[100];
     jw_init(&args);
@@ -575,6 +575,34 @@ static void test_order(void)
     CHECK_INT(told_n, 1);
     CHECK_INT(ses.ext.n, 4);
     down();
+    jw_free(&args);
+}
+
+/* L8: the order is read from the list. The gate, a Lua extension and the hook commands announce their ranks and are added in
+ * the wrong order (gate first, hooks last): pi_ext_add puts each in place, so the list is hooks, Lua, gate; an extension with no
+ * rank goes to the end in the order it was added */
+static void test_rank(void)
+{
+    static const pi_ext gate = { "gate", (void *)"g", 0, c_call, 0, 0, 0, PI_EXT_GATE };
+    static const pi_ext lua2 = { "lua2", (void *)"L", 0, c_call, 0, 0, 0, PI_EXT_LUA };
+    static const pi_ext lua1 = { "lua1", (void *)"l", 0, c_call, 0, 0, 0, PI_EXT_LUA };
+    static const pi_ext plain = { "plain", (void *)"p", 0, c_call, 0, 0, 0, 0 };
+    static const pi_ext hooks = { "hooks", (void *)"h", 0, c_call, 0, 0, 0, PI_EXT_HOOKS };
+    pi_exts x;
+    jw args;
+    char reason[100];
+    pi_exts_init(&x);
+    jw_init(&args);
+    jw_rawz(&args, "{}");
+    pi_ext_add(&x, &gate);
+    pi_ext_add(&x, &plain);
+    pi_ext_add(&x, &lua1);
+    pi_ext_add(&x, &lua2);
+    pi_ext_add(&x, &hooks);
+    seen[0] = 0;
+    CHECK_INT(pi_exts_tool_call(&x, "c", "read", &args, reason, sizeof(reason)), 0);
+    CHECK_STR(seen, "hlLgp");                           /* hooks, Lua in the order loaded, gate, the unranked one last */
+    CHECK_INT(x.n, 5);
     jw_free(&args);
 }
 
@@ -718,6 +746,7 @@ void suite_pi_lua(void)
     test_env();
     test_events_and_api();
     test_order();
+    test_rank();
     jw_init(&out);
     test_app();
     jw_free(&out);

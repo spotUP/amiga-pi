@@ -13,9 +13,13 @@
  *               {action: "transform", text}) or consume it ({action:
  *               "handled"}: no run); the first "handled" wins;
  *   session_start the session began (startup) or was replaced (new, resume).
- * One ordered list: the built-in gate, the hook commands (ext_hooks.h) and later
- * extensions are dispatched in the order they were added (plan L8: the gate joins
- * the same list). Portable C89. */
+ * One ordered list (plan L8), kept here and nowhere else: the hook commands (ext_hooks.h),
+ * the Lua extensions (ext_lua.h) in load order, then the permission gate (ext_gate.h). An
+ * extension names its rank (PI_EXT_HOOKS, PI_EXT_LUA, PI_EXT_GATE) and pi_ext_add puts it
+ * in place, so the order does not depend on who registers first; an extension without a rank
+ * (0) goes to the end in the order it was added. A hook that rewrites a call's arguments is
+ * seen by the gate's decision, as Claude Code's PreToolUse hooks come before its permission
+ * check. Portable C89. */
 #ifndef PI_EXT_H
 #define PI_EXT_H
 
@@ -23,6 +27,11 @@
 #include "events.h"
 
 #define PI_EXTS 16
+
+/* pi_ext.rank: where pi_ext_add puts the extension (0: no rank, the end) */
+#define PI_EXT_HOOKS 1
+#define PI_EXT_LUA 2
+#define PI_EXT_GATE 3
 
 typedef struct pi_ext {
     const char *name;
@@ -39,6 +48,7 @@ typedef struct pi_ext {
     int (*input)(void *u, const char *source, const char *streaming, jw *text);
     /* pi's SessionStartEvent: reason "startup", "reload", "new", "resume", "fork"; prev the previous session file, 0 none */
     void (*session_start)(void *u, const char *reason, const char *prev);
+    int rank;                   /* PI_EXT_*: the place in the list */
 } pi_ext;
 
 typedef struct pi_exts {
@@ -56,7 +66,7 @@ typedef struct pi_exts {
 } pi_exts;
 
 void pi_exts_init(pi_exts *x);
-/* registered after the ones before it: 0, -1 full */
+/* put in its place by rank (after the ones of its rank before it); no rank: at the end. 0, -1 full */
 int pi_ext_add(pi_exts *x, const pi_ext *e);
 /* the emitter's listener (u: the pi_exts) */
 void pi_exts_event(void *u, const pi_event *e);

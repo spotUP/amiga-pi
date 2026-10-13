@@ -102,6 +102,7 @@ void pi_gate_init(pi_gate *g, pi_tools *tools, pi_session *s)
     g->s = s;
     cfg_init(&g->cfg);
     g->ext.name = "permission-gate";
+    g->ext.rank = PI_EXT_GATE;
     g->ext.u = g;
     g->ext.tool_call = gate_call;
 }

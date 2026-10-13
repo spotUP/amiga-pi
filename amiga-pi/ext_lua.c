@@ -919,6 +919,7 @@ int pi_lua_load(pi_lua *h, const char *path)
     x->host = h;
     cl_copy(x->path, path, sizeof(x->path));
     x->ext.name = base_name(x->path);
+    x->ext.rank = PI_EXT_LUA;
     x->ext.u = x;
     x->ext.event = lx_event;
     x->ext.tool_call = lx_tool_call;

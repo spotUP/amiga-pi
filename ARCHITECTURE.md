@@ -114,7 +114,9 @@ C stack is 32 KB). `pi_rt_open` loads, after the trust decision, `<cwd>/.pi/exte
 `--no-extensions` skips it. Each file is a Lua state of its own with a memory cap and an instruction and clock limit
 (`PI_LUA_MEM` 4 MB, `PI_LUA_INSTR` 5,000,000 instructions, `PI_LUA_MS` 10 s, per call; ext_lua.h), and one entry in `pi_exts`
 (ext.c), the single ordered list: hook commands, Lua extensions in load order, then the permission gate (so the gate decides on
-the arguments an extension produced). pi's order is the load order too (runner.ts iterates `this.extensions`).
+the arguments an extension produced). pi's order is the load order too (runner.ts iterates `this.extensions`). The order is
+kept in `pi_ext_add` and nowhere else (L8): each entry names its rank (`PI_EXT_HOOKS`, `PI_EXT_LUA`, `PI_EXT_GATE`), an entry with
+no rank goes to the end, so `pi_rt_open` registers the gate at its own pace and a Lua tool_call block still comes first.
 
 The event an extension is handed is built once, for every extension kind, by `ext_payload.c` (pi's types.ts payloads as JSON);
 `ext_lua.c` turns it into a table (`json.decode` semantics) and the handler's returned table back into JSON for the decision

@@ -1337,7 +1337,7 @@ static int ext_tool_call(void *u, const char *id, const char *name, jw *args, ch
     return 0;
 }
 
-static pi_ext ui_ext = { "ui-test", 0, 0, ext_tool_call, 0, 0, 0 };
+static pi_ext ui_ext = { "ui-test", 0, 0, ext_tool_call, 0, 0, 0, 0 };
 static long ui_ready_calls;
 
 static void ui_ready(pi_session *s)
@@ -1803,6 +1803,36 @@ static void test_lua_reach(void)
     CHECK_INT(pi_lua_calls - c0, 1);
 }
 
+/* L8: the gate is the last entry of the one extension list (ext.h ranks), so a Lua tool_call extension that blocks bash decides
+ * before it and the gate asks nothing; the same run with -ne (no extension) shows the gate does ask for bash with --gate */
+static void test_gate_in_list(void)
+{
+    static const char *const flag[] = { 0, "--no-extensions" };
+    int i;
+    for (i = 0; i < 2; i++) {
+        run_opts ro;
+        char in[600];
+        memset(&ro, 0, sizeof(ro));
+        ro.nocmp = 1;
+        ro.force_mode = "rpc";
+        ro.more_args = "--gate";
+        ro.more_argv[0] = flag[i];
+        strcpy(in, "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"run it\"}\n");
+        if (i)
+            strcat(in, "#after extension_ui_request\n{\"type\":\"extension_ui_response\",\"id\":\"$ui:1\",\"value\":\"No\"}\n");
+        ro.inline_in = in;
+        scenario("ext_lua_block", &ro);
+        CHECK(has(ro.out, "\"type\":\"agent_settled\""));
+        if (i) {
+            CHECK(has(ro.out, "\"method\":\"select\",\"title\":\"Allow bash"));
+        } else {
+            CHECK(!has(ro.out, "extension_ui_request"));
+            CHECK(has(ro.out, "no shell today"));
+        }
+        free(ro.out);
+    }
+}
+
 void suite_pi_modes(void)
 {
     CHECK(load_masks());
@@ -1835,4 +1865,5 @@ void suite_pi_modes(void)
     test_hooks_reach();
     test_lua_pi();
     test_lua_reach();
+    test_gate_in_list();
 }

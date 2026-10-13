@@ -9,9 +9,18 @@ void pi_exts_init(pi_exts *x)
 
 int pi_ext_add(pi_exts *x, const pi_ext *e)
 {
+    int at = x->n, i;
     if (x->n == PI_EXTS)
         return -1;
-    x->e[x->n++] = e;
+    if (e->rank)
+        for (i = 0; i < x->n; i++)
+            if (x->e[i]->rank > e->rank) {
+                at = i;
+                break;
+            }
+    memmove(&x->e[at + 1], &x->e[at], sizeof(x->e[0]) * (size_t)(x->n - at));
+    x->e[at] = e;
+    x->n++;
     return 0;
 }
 
