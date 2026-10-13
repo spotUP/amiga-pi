@@ -218,6 +218,9 @@ int pi_req_auth(pi_session *s, llm_req *q, jw *hdr);
  * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it). A retryable failure (agent-session.js
  * isRetryableAssistantError) is retried as pi does when s->retry_on; agent_settled is the last event. */
 int pi_prompt(pi_session *s, const char *text);
+/* the same with images: a JSON array of ImageContent ({type, data (base64), mimeType}), 0 none. They go through the input event
+ * (a handler may replace them), pi's processImage (resized or left out with a hint after the text), and join the message */
+int pi_prompt_images(pi_session *s, const char *text, const char *images);
 /* the conversation from message m0 and system message sys0 on, as a JSON array of pi-ai messages (the transcript's system
  * messages in their places) */
 void pi_messages_json(const pi_session *s, int m0, int sys0, jw *w);
@@ -233,6 +236,8 @@ int pi_context_overflow(const char *error_message);
  * at pi's points (see pi_session.steer) */
 int pi_steer(pi_session *s, const char *text);
 int pi_follow_up(pi_session *s, const char *text);
+int pi_steer_images(pi_session *s, const char *text, const char *images);
+int pi_follow_up_images(pi_session *s, const char *text, const char *images);
 /* every queued message (steering first) taken out of the queues: the texts malloc'ed into out (at most max),
  * their count; the caller frees them */
 int pi_queue_take(pi_session *s, char **out, int max);

@@ -3,6 +3,7 @@
 #include <string.h>
 #include "agent.h"
 #include "context.h"
+#include "image.h"
 #include "ext_events.h"
 #include "templates.h"
 #include "llm/transform.h"
@@ -961,19 +962,77 @@ static int run_end(pi_session *s, int answered)
     return s->stop;
 }
 
-/* a user message (pi: a prompt's content is an array of blocks, the text first -- agent-session.js prompt) kept
- * and announced: its index, -1 out of memory */
-static int add_user(pi_session *s, const char *text)
+/* agent-session.ts _normalizePromptImages: each image of the prompt (a JSON array of ImageContent) decoded and run through
+ * processImage; the blocks that go into the message are appended to blocks (each led by a comma), the hints (or the reason an
+ * image was left out) to hints, one per line */
+static void normalize_images(const char *images, jw *blocks, jw *hints)
 {
-    jw w, c;
+    jv arr, el, v;
+    jit it;
+    if (!images || json_parse(images, (long)strlen(images), &arr) || json_type(arr) != J_ARR)
+        return;
+    json_iter(arr, &it);
+    while (json_next(&it, 0, &el)) {
+        long dn, bn;
+        char *data = json_get(el, "data", &v) && json_type(v) == J_STR ? json_strdup(v, &dn) : 0;
+        unsigned char *bin = data ? pi_b64_decode(data, dn, &bn) : 0;
+        char mt[40];
+        const char *mime;
+        pi_img im;
+        mt[0] = 0;
+        if (json_get(el, "mimeType", &v) && json_type(v) == J_STR)
+            json_str(v, mt, sizeof(mt));
+        free(data);
+        if (!bin)
+            continue;
+        mime = pi_image_type(bin, bn);
+        if (!mime)
+            mime = mt[0] ? mt : "image/png";
+        if (pi_image_process(bin, bn, mime, &im) == 0) {
+            jw d;
+            jw_init(&d);
+            jw_base64(&d, im.data, im.n);
+            jw_rawz(blocks, ",");
+            llm_b_image(blocks, d.p ? d.p : "", im.mime);
+            jw_free(&d);
+        }
+        if (im.note[0]) {
+            if (hints->n)
+                jw_rawz(hints, "\n");
+            jw_rawz(hints, im.note);
+        }
+        pi_image_free(&im);
+        free(bin);
+    }
+}
+
+/* a user message (pi: a prompt's content is an array of blocks, the text first -- agent-session.js prompt) kept
+ * and announced: its index, -1 out of memory. images: the prompt's images (a JSON array), 0 none; their hints follow the text */
+static int add_user(pi_session *s, const char *text, const char *images)
+{
+    jw w, c, blocks, hints, full;
     int i;
+    jw_init(&blocks);
+    jw_init(&hints);
+    jw_init(&full);
+    normalize_images(images, &blocks, &hints);
+    jw_rawz(&full, text);
+    if (hints.n) {
+        jw_rawz(&full, "\n\n");
+        jw_raw(&full, hints.p, hints.n);
+    }
     jw_init(&c);
     jw_rawz(&c, "[");
-    llm_b_text(&c, text, (long)strlen(text), 0);
+    llm_b_text(&c, full.p ? full.p : "", full.n, 0);
+    if (blocks.n)
+        jw_raw(&c, blocks.p, blocks.n);
     jw_rawz(&c, "]");
     jw_init(&w);
     llm_m_user(&w, c.p, c.n, now(s));
     jw_free(&c);
+    jw_free(&blocks);
+    jw_free(&hints);
+    jw_free(&full);
     i = keep(s, &w);
     jw_free(&w);
     if (i >= 0) {
@@ -1025,14 +1084,19 @@ int pi_session_custom(pi_session *s, const char *custom_type, const char *conten
     return rc;
 }
 
-static int queue_add(char **q, int *n, const char *text)
+/* a queued message is its text, a NUL, then the images of the message (a JSON array, "" none), a NUL */
+static int queue_add(char **q, int *n, const char *text, const char *images)
 {
-    char *c = (char *)malloc(strlen(text) + 1);
+    size_t tl = strlen(text), il = images ? strlen(images) : 0;
+    char *c = (char *)malloc(tl + 1 + il + 1);
     if (!c || *n == PI_QUEUE) {
         free(c);
         return -1;
     }
-    strcpy(c, text);
+    memcpy(c, text, tl + 1);
+    if (il)
+        memcpy(c + tl + 1, images, il);
+    c[tl + 1 + il] = 0;
     q[(*n)++] = c;
     return 0;
 }
@@ -1061,25 +1125,32 @@ static const char *expand_input(const pi_session *s, const char *text, jw *buf)
 
 /* agent-session.ts _queueUserInput (2173-2199): the extensions' input event first (streamingBehavior "steer" or
  * "followUp"; "handled" queues nothing), then the skill command and the prompt template expand, then the message is queued */
-static int queue_input(pi_session *s, const char *text, int follow)
+static int queue_input(pi_session *s, const char *text, int follow, const char *images)
 {
-    jw t, ex;
+    jw t, ex, im;
     int rc;
     jw_init(&t);
+    jw_init(&im);
     jw_rawz(&t, text);
+    if (images && images[0])
+        jw_rawz(&im, images);
     if (s->ext.n) {
         int handled;
         s->ext.streaming = follow ? "followUp" : "steer";
+        s->ext.images = &im;
         handled = pi_exts_input(&s->ext, &t);
+        s->ext.images = 0;
         s->ext.streaming = 0;
         if (handled) {
             jw_free(&t);
+            jw_free(&im);
             return 0;
         }
     }
-    rc = follow ? queue_add(s->follow, &s->nfollow, expand_input(s, t.p ? t.p : "", &ex))
-                : queue_add(s->steer, &s->nsteer, expand_input(s, t.p ? t.p : "", &ex));
+    rc = follow ? queue_add(s->follow, &s->nfollow, expand_input(s, t.p ? t.p : "", &ex), im.n ? im.p : 0)
+                : queue_add(s->steer, &s->nsteer, expand_input(s, t.p ? t.p : "", &ex), im.n ? im.p : 0);
     jw_free(&ex);
+    jw_free(&im);
     jw_free(&t);
     if (rc)
         return -1;
@@ -1087,14 +1158,24 @@ static int queue_input(pi_session *s, const char *text, int follow)
     return 0;
 }
 
+int pi_steer_images(pi_session *s, const char *text, const char *images)
+{
+    return queue_input(s, text, 0, images);
+}
+
+int pi_follow_up_images(pi_session *s, const char *text, const char *images)
+{
+    return queue_input(s, text, 1, images);
+}
+
 int pi_steer(pi_session *s, const char *text)
 {
-    return queue_input(s, text, 0);
+    return queue_input(s, text, 0, 0);
 }
 
 int pi_follow_up(pi_session *s, const char *text)
 {
-    return queue_input(s, text, 1);
+    return queue_input(s, text, 1, 0);
 }
 
 int pi_queue_take(pi_session *s, char **out, int max)
@@ -1141,7 +1222,7 @@ static void deliver(pi_session *s)
         memmove(s->pend, s->pend + 1, sizeof(s->pend[0]) * (size_t)(s->npend - 1));
         s->npend--;
         emit_queue(s);
-        add_user(s, m);
+        add_user(s, m, m + strlen(m) + 1);
         free(m);
     }
 }
@@ -1175,7 +1256,7 @@ static void flush_next_custom(pi_session *s)
 }
 
 /* the run: text the user's message, 0 to go on with the conversation as it is (a retry) */
-static int run(pi_session *s, const char *text)
+static int run(pi_session *s, const char *text, const char *images)
 {
     int i, round;
     s->retry_next = 0;
@@ -1186,7 +1267,7 @@ static int run(pi_session *s, const char *text)
     emit_simple(s, PE_TURN_START);
     announce_system(s);
     if (text) {
-        i = add_user(s, text);
+        i = add_user(s, text, images);
         if (i < 0) {
             s->stop = LS_ERROR;
             cl_copy(s->err, "out of memory", sizeof(s->err));
@@ -1283,7 +1364,7 @@ static int retry_wait(pi_session *s, long ms)
     return s->retry_stop;
 }
 
-static int prompt_run(pi_session *s, const char *typed)
+static int prompt_run(pi_session *s, const char *typed, const char *images)
 {
     int rc;
     jw ex;
@@ -1304,7 +1385,7 @@ static int prompt_run(pi_session *s, const char *typed)
         s->started = 0;
         f(s->started_u);
     }
-    rc = run(s, text);
+    rc = run(s, text, images);
     jw_free(&ex);
     /* a failed answer pi retries after its delay; a context overflow the store compacted is asked again at once, and
      * only once (the store keeps count: its second overflow ends the run, as pi's _overflowRecoveryAttempted) */
@@ -1317,11 +1398,11 @@ static int prompt_run(pi_session *s, const char *typed)
                 /* the run would settle: agent_before_settle may ask for one more request (_runBeforeSettleBoundary) */
                 if (s->aborted || !pi_ev_before_settle(s))
                     break;
-                rc = run(s, 0);
+                rc = run(s, 0, 0);
                 continue;
             }
             s->recover = 0;
-            rc = run(s, 0);
+            rc = run(s, 0, 0);
             continue;
         }
         delay = s->retry_base;
@@ -1349,7 +1430,7 @@ static int prompt_run(pi_session *s, const char *typed)
             emit_retry_end(s, 0, "Retry cancelled");
             break;
         }
-        rc = run(s, 0);
+        rc = run(s, 0, 0);
     }
     s->retry_stop = 0;
     s->active = 0;
@@ -1380,23 +1461,36 @@ static int prompt_handled(pi_session *s)
 /* agent-session.ts prompt(): a registered extension command runs first (1977-1983), then the extensions' input event (1993)
  * comes before the skill command and the prompt template expand (2005-2010; prompt_run) and before the compaction check;
  * "handled" ends the call with no run, "transform" is the new text */
-int pi_prompt(pi_session *s, const char *text)
+int pi_prompt_images(pi_session *s, const char *text, const char *images)
 {
-    jw t;
+    jw t, im;
     int rc;
     if (text && text[0] == '/' && pi_exts_run_command(&s->ext, text))
         return prompt_handled(s);
     if (!text || !s->ext.n)
-        return prompt_run(s, text);
+        return prompt_run(s, text, images);
     jw_init(&t);
+    jw_init(&im);
     jw_rawz(&t, text);
+    if (images && images[0])
+        jw_rawz(&im, images);
+    s->ext.images = &im;
     if (pi_exts_input(&s->ext, &t)) {
+        s->ext.images = 0;
         jw_free(&t);
+        jw_free(&im);
         return prompt_handled(s);
     }
-    rc = prompt_run(s, t.p ? t.p : "");
+    s->ext.images = 0;
+    rc = prompt_run(s, t.p ? t.p : "", im.n ? im.p : 0);
     jw_free(&t);
+    jw_free(&im);
     return rc;
+}
+
+int pi_prompt(pi_session *s, const char *text)
+{
+    return pi_prompt_images(s, text, 0);
 }
 
 long pi_last_text(const pi_session *s, jw *out)

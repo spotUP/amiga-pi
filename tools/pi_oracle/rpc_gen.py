@@ -506,6 +506,24 @@ sc('ext_ev_ui', steps=[('send', P('run it')), ('gate', 'extension_ui_request'), 
    answers=[TOOL('read', {'path': 'notes.txt'}), A('Ran it.')], text_files={'agent/extensions/t.ts': EXT_UI_PROMPTS},
    collect=['dump.jsonl'])
 
+# L12: images in the input event and in the message (a 2x2 PNG), through a prompt and a steer typed during the run
+import base64, struct, zlib
+
+
+def _png(w, h):
+    raw = b''.join(b'\x00' + b'\xff\x00\x00' * w for _ in range(h))
+    def chunk(t, d):
+        c = struct.pack('>I', len(d)) + t + d
+        return c + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
+
+
+IMG = {'type': 'image', 'data': base64.b64encode(_png(2, 2)).decode(), 'mimeType': 'image/png'}
+sc('ext_input_images', steps=[('send', P('read it', images=[IMG])), ('gate', 'turn_end'),
+                              ('cmd', {'type': 'steer', 'message': 'go left', 'images': [IMG]}), ('settle',)],
+   answers=[R1(), SLOW(2, A('Read it.')), A('Left it is.')], model='fake-think', requests=True,
+   ext=dump_ext(['input']), settings={'hooks': dump_hooks(['input'])}, collect=['dump.jsonl'])
+
 
 # ---- L7: what handlers of the other events decide (hook-command twins answer with printf, the Lua twins are made from them) ----
 REWRITE = {'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': 'rewritten'}], 'timestamp': 1}]}

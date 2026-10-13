@@ -23,8 +23,8 @@ void pi_ext_payload_call(jw *b, const char *name, const char *id, const jw *args
 /* ToolResultEvent (agent-session.ts:690): details and structuredContent are the running tool's (x->details, x->structured) */
 void pi_ext_payload_result(jw *b, const pi_exts *x, const char *name, const char *id, const char *args, long an,
                            const jw *content, int is_error);
-/* InputEvent (agent-session.ts:1927) */
-void pi_ext_payload_input(jw *b, const jw *text, const char *source, const char *streaming);
+/* InputEvent (agent-session.ts:1927): images 0 or empty leaves the member out (undefined) */
+void pi_ext_payload_input(jw *b, const jw *text, const jw *images, const char *source, const char *streaming);
 /* SessionStartEvent */
 void pi_ext_payload_start(jw *b, const char *reason, const char *prev);
 
@@ -57,6 +57,6 @@ int pi_ext_decide_call(jv answer, jw *args, char *reason, long cap);
  * structuredContent drops the structured content (runner.ts emitToolResult) */
 void pi_ext_decide_result(jv answer, pi_exts *x, jw *content, int *is_error);
 /* input: {"action":"transform","text"} rewrites text, {"action":"handled"} -> 1 (runner.ts emitInput) */
-int pi_ext_decide_input(jv answer, jw *text);
+int pi_ext_decide_input(jv answer, jw *text, jw *images);
 
 #endif

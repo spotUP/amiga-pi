@@ -114,6 +114,8 @@ typedef struct pi_exts {
     long calls, blocks;         /* tool_call dispatches, blocks (the tests count them) */
     int replace_binds;          /* how many times the mode binds a replaced session (session_start per new / resume): 0 or 1 once; RPC 2 */
     const char *streaming;      /* the input event's streamingBehavior ("steer", "followUp") while a queued message is dispatched, else 0 */
+    jw *images;                 /* the input event's images (a JSON array of ImageContent) while a prompt or queued message is dispatched, 0 none;
+                                 * a handler's transform may replace them */
     const char *source;         /* the input event's source for the prompt now running (0: "interactive") */
     /* the running tool's structured content and details, for a tool_result extension that replaces the content
      * (pi: structuredContent is dropped unless the handler returns it too); set by the loop, 0 outside it */

@@ -1,0 +1,2 @@
+{"type":"input","text":"read it","images":[{"type":"image","data":"iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP4z8AARAwQCgAf7gP9i18U1AAAAABJRU5ErkJggg==","mimeType":"image/png"}],"source":"rpc"}
+{"type":"input","text":"go left","images":[{"type":"image","data":"iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP4z8AARAwQCgAf7gP9i18U1AAAAABJRU5ErkJggg==","mimeType":"image/png"}],"source":"rpc","streamingBehavior":"steer"}

@@ -691,45 +691,67 @@ static void prompt_started(void *u)
     ok(c, c->r->s->disposition ? "{\"disposition\":\"handled\"}" : "{\"disposition\":\"started\"}");
 }
 
+/* the command's "images" array (ImageContent[]) as malloc'ed JSON text, 0 when it has none */
+static char *images_of(jv obj)
+{
+    jv v;
+    char *z;
+    if (!json_get(obj, "images", &v) || json_type(v) != J_ARR)
+        return 0;
+    z = (char *)malloc((size_t)v.n + 1);
+    if (z) {
+        memcpy(z, v.p, (size_t)v.n);
+        z[v.n] = 0;
+    }
+    return z;
+}
+
 static void cmd_prompt(const cmd *c)
 {
     pi_rpc *r = c->r;
     pi_session *s = r->s;
     long n;
-    char *msg = str_of(c->obj, "message", &n), *sb;
+    char *msg = str_of(c->obj, "message", &n), *sb, *imgs;
     long bn;
     if (!msg) {
         fail(c, "Missing message");
         return;
     }
     sb = str_of(c->obj, "streamingBehavior", &bn);
+    imgs = images_of(c->obj);
     if (s->active) {
         int rc = -1;
+        s->ext.source = "rpc";
         if (sb && !strcmp(sb, "steer"))
-            rc = pi_steer(s, msg);
+            rc = pi_steer_images(s, msg, imgs);
         else if (sb && !strcmp(sb, "followUp"))
-            rc = pi_follow_up(s, msg);
+            rc = pi_follow_up_images(s, msg, imgs);
         else {
+            s->ext.source = 0;
             fail(c, "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.");
             free(msg);
             free(sb);
+            free(imgs);
             return;
         }
+        s->ext.source = 0;
         if (rc)
             fail(c, "The queue is full");
         else
             ok(c, "{\"disposition\":\"queued\"}");
         free(msg);
         free(sb);
+        free(imgs);
         return;
     }
     free(sb);
     s->started = prompt_started;        /* the response follows the check before the prompt, as pi's preflightResult */
     s->started_u = (void *)c;
     s->ext.source = "rpc";              /* the input event's InputSource (rpc-mode.ts: source: "rpc") */
-    pi_prompt(s, msg);
+    pi_prompt_images(s, msg, imgs);
     s->ext.source = 0;
     free(msg);
+    free(imgs);
     r->abort_req = 0;
     if (r->abort_wait) {
         r->abort_wait = 0;
@@ -740,14 +762,18 @@ static void cmd_prompt(const cmd *c)
 static void cmd_queue(const cmd *c, int follow)
 {
     long n;
-    char *msg = str_of(c->obj, "message", &n);
+    char *msg = str_of(c->obj, "message", &n), *imgs = images_of(c->obj);
     int rc;
     if (!msg) {
         fail(c, "Missing message");
+        free(imgs);
         return;
     }
-    rc = follow ? pi_follow_up(c->r->s, msg) : pi_steer(c->r->s, msg);
+    c->r->s->ext.source = "rpc";        /* rpc-mode.ts: session.steer(message, images, { source: "rpc" }) */
+    rc = follow ? pi_follow_up_images(c->r->s, msg, imgs) : pi_steer_images(c->r->s, msg, imgs);
+    c->r->s->ext.source = 0;
     free(msg);
+    free(imgs);
     if (rc)
         fail(c, "The queue is full");
     else

@@ -240,7 +240,7 @@ static void hk_tool_result(void *u, const char *id, const char *name, const char
 
 static int build_input(hk_ctx *c)
 {
-    pi_ext_payload_input(&c->body, c->text, c->source, c->streaming);
+    pi_ext_payload_input(&c->body, c->text, c->k->s->ext.images, c->source, c->streaming);
     return 1;
 }
 
@@ -256,7 +256,7 @@ static int input_done(void *u, const cl_hook *kk, int st, long rc, const char *o
     }
     if (!answer(out, n, &o))
         return 0;
-    if (pi_ext_decide_input(o, c->text)) {
+    if (pi_ext_decide_input(o, c->text, c->k->s->ext.images)) {
         c->handled = 1;
         return 1;
     }

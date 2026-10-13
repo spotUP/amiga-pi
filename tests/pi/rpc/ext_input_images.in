@@ -1,0 +1,4 @@
+{"id":"1","type":"prompt","message":"read it","images":[{"type":"image","data":"iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP4z8AARAwQCgAf7gP9i18U1AAAAABJRU5ErkJggg==","mimeType":"image/png"}]}
+#after turn_end
+{"id":"2","type":"steer","message":"go left","images":[{"type":"image","data":"iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP4z8AARAwQCgAf7gP9i18U1AAAAABJRU5ErkJggg==","mimeType":"image/png"}]}
+#after agent_settled

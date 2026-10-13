@@ -98,10 +98,14 @@ void pi_ext_payload_result(jw *b, const pi_exts *x, const char *name, const char
     jw_rawz(b, is_error ? ",\"isError\":true}" : ",\"isError\":false}");
 }
 
-void pi_ext_payload_input(jw *b, const jw *text, const char *source, const char *streaming)
+void pi_ext_payload_input(jw *b, const jw *text, const jw *images, const char *source, const char *streaming)
 {
     jw_rawz(b, "{\"type\":\"input\",\"text\":");
     jw_str(b, text->p ? text->p : "", text->p ? text->n : 0);
+    if (images && images->n > 2) {
+        jw_rawz(b, ",\"images\":");
+        jw_raw(b, images->p, images->n);
+    }
     jw_rawz(b, ",\"source\":");
     jw_strz(b, source);
     if (streaming) {
@@ -259,7 +263,7 @@ void pi_ext_decide_result(jv o, pi_exts *x, jw *content, int *is_error)
         *is_error = json_type(v) == J_TRUE;
 }
 
-int pi_ext_decide_input(jv o, jw *text)
+int pi_ext_decide_input(jv o, jw *text, jw *images)
 {
     jv v;
     char *t;
@@ -272,6 +276,11 @@ int pi_ext_decide_input(jv o, jw *text)
         jw_reset(text);
         jw_raw(text, t, tn);
         free(t);
+        /* runner.ts emitInput: currentImages = result.images ?? currentImages */
+        if (images && json_get(o, "images", &v) && json_type(v) == J_ARR) {
+            jw_reset(images);
+            jw_raw(images, v.p, v.n);
+        }
     }
     return 0;
 }

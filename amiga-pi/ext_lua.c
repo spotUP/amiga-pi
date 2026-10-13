@@ -1509,11 +1509,11 @@ static int lx_input(void *u, const char *source, const char *streaming, jw *text
     for (i = 1; i <= (long)lua_rawlen(L, lidx) && !handled; i++) {
         jv o;
         jw_reset(&b);
-        pi_ext_payload_input(&b, text, source, streaming);
+        pi_ext_payload_input(&b, text, x->host->s->ext.images, source, streaming);
         if (push_event(x, &b))
             break;
         if (call_one(x, lidx, i, lua_gettop(L), 1, err, sizeof(err)) == 0) {
-            if (result_json(x, &r, &o) > 0 && pi_ext_decide_input(o, text))
+            if (result_json(x, &r, &o) > 0 && pi_ext_decide_input(o, text, x->host->s->ext.images))
                 handled = 1;
             lua_pop(L, 1);
         }

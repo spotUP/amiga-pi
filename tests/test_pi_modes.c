@@ -281,7 +281,7 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
     while (json_next(&it, &k, &val)) {
         jv t;
         json_str(k, key, sizeof(key));
-        if ((flags & F_STARTMSG) && !strcmp(key, "responseId"))
+        if ((flags & F_STARTMSG) && (!strcmp(key, "responseId") || !strcmp(key, "responseModel")))
             continue;           /* set by message_start: in pi's shared partial or not, as its consumer runs */
         if (!first)
             jw_rawz(o, ",");
@@ -1862,7 +1862,7 @@ static void test_hooks_pi(void)
 static void test_decisions(void)
 {
     static const char *const names[] = { "ext_ctx_rewrite", "ext_bas_message", "ext_cancel_session", "ext_cancel_compact",
-                                         "ext_bash_result", "ext_turn_entries",
+                                         "ext_bash_result", "ext_turn_entries", "ext_input_images", "ext_lua_input_images",
                                          "ext_lua_ctx_rewrite", "ext_lua_ctx_inplace", "ext_lua_bas_message",
                                          "ext_lua_cancel_session", "ext_lua_cancel_compact", "ext_lua_compact_own",
                                          "ext_lua_bash_result", "ext_lua_settle_continue", "ext_lua_turn_entries",
