@@ -149,10 +149,9 @@ int pi_thinking_set(pi_models *m, pi_session *s, int level)
 /* checkAuth: a credential for the provider, or an endpoint that wants none (a LAN server on plain http) */
 static int usable(pi_models *m, const llm_model *mo)
 {
-    static char key[512];
     if (mo->base_url && !strncmp(mo->base_url, "http://", 7))
         return 1;
-    return llm_cfg_key(&m->cfg, mo, key, sizeof(key), 0) > 0;
+    return llm_cfg_authed(&m->cfg, mo);
 }
 
 /* pi's setModel (agent-session.js :1942): the level for the new model is the settings default, else the one the session has
