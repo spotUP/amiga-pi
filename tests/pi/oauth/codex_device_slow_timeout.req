@@ -1,0 +1,45 @@
+POST https://auth.openai.com/api/accounts/deviceauth/usercode
+content-type: application/json
+
+{"client_id":"app_EMoamEEZ73f0CkXaXp7hrann"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--

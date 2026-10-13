@@ -1,0 +1,24 @@
+POST https://auth.kimi.com/api/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=17e5f671-d194-4dfb-9706-5516cb48c098&grant_type=refresh_token&refresh_token=kmrt-1
+--
+POST https://auth.kimi.com/api/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=17e5f671-d194-4dfb-9706-5516cb48c098&grant_type=refresh_token&refresh_token=kmrt-1
+--
+POST https://auth.kimi.com/api/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=17e5f671-d194-4dfb-9706-5516cb48c098&grant_type=refresh_token&refresh_token=kmrt-1
+--
+POST https://auth.kimi.com/api/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=17e5f671-d194-4dfb-9706-5516cb48c098&grant_type=refresh_token&refresh_token=kmrt-1
+--

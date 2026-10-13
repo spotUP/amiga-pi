@@ -17,6 +17,7 @@
 #include "tree_pi.h"
 #include "store.h"
 #include "context.h"
+#include "login.h"
 
 typedef struct pi_ui {
     cl_ui ui;
@@ -49,6 +50,8 @@ static const cl_cmd default_cmds[] = {
     { "/fork", "Create a new fork from a previous user message" },
     { "/clone", "Duplicate the current session at the current position" },
     { "/trust", "Save project trust decision for future sessions" },
+    { "/login", "<provider> \342\200\224 Configure provider authentication" },
+    { "/logout", "Remove provider authentication" },
     { "/quit", "Quit amiga-pi" }
 };
 static const cl_cmd *ui_cmds = default_cmds;
@@ -1244,6 +1247,112 @@ static int bang(pi_ui *p, const char *line)
     return 1;
 }
 
+/* /login and /logout (login.h): pi's dialogs as menus and lines. In pi's look the menus are its selector frames and the
+ * lines its one-line input; in the line mode numbered lists and plain prompts */
+typedef struct lg {
+    pi_ui *p;
+    cl_tui *t;
+} lg;
+
+static void lg_note(void *u, int kind, const char *text)
+{
+    lg *l = (lg *)u;
+    static const int role[] = { PR_TEXT, PR_DIM, PR_WARNING, PR_ERROR, PR_ACCENT, PR_SUCCESS };
+    if (l->p->look)
+        pshow_note(&l->p->ps, role[kind], text);
+    else
+        ui_line(&l->p->ui, text);
+}
+
+static int lg_menu(void *u, const char *title, const char *const *opt, int n)
+{
+    lg *l = (lg *)u;
+    if (l->t && l->p->look)
+        return tui_menu(l->t, title, 0, opt, n, 0, -1);
+    {
+        char ans[32], num[16];
+        int i;
+        ui_line(&l->p->ui, title);
+        for (i = 0; i < n; i++) {
+            char row[400];
+            cl_ltoa(i + 1, num);
+            cl_copy(row, " ", sizeof(row));
+            cl_cat(row, num, sizeof(row));
+            cl_cat(row, ") ", sizeof(row));
+            cl_cat(row, opt[i], sizeof(row));
+            ui_line(&l->p->ui, row);
+        }
+        for (;;) {
+            long k;
+            ui_puts(&l->p->ui, "Number (empty to cancel): ");
+            k = l->p->ui.io->read_line(l->p->ui.io->u, ans, sizeof(ans));
+            l->p->ui.col0 = 1;
+            if (k <= 0)
+                return -1;
+            i = (int)strtol(ans, 0, 10);
+            if (i >= 1 && i <= n)
+                return i - 1;
+        }
+    }
+}
+
+static int lg_line(void *u, const char *message, const char *placeholder, char *out, long cap)
+{
+    lg *l = (lg *)u;
+    if (placeholder && *placeholder) {
+        char ph[400];
+        cl_copy(ph, "e.g., ", sizeof(ph));
+        cl_cat(ph, placeholder, sizeof(ph));
+        lg_note(u, PL_DIM, ph);
+    }
+    if (l->t && l->p->look) {
+        char *buf = (char *)malloc(1100);
+        int r;
+        if (!buf)
+            return -1;
+        r = tui_line_input_hint(l->t, message, "enter submit", buf, 1100);
+        if (r == 1)
+            cl_copy(out, buf, cap);
+        memset(buf, 0, 1100);
+        free(buf);
+        return r == 1 ? 0 : -1;
+    }
+    {
+        long k;
+        ui_puts(&l->p->ui, message);
+        ui_puts(&l->p->ui, " ");
+        k = l->p->ui.io->read_line(l->p->ui.io->u, out, cap);
+        l->p->ui.col0 = 1;
+        return k < 0 ? -1 : 0;
+    }
+}
+
+static int login_command(pi_ui *p, cl_tui *t, const char *line)
+{
+    pi_auth *a = (pi_auth *)p->s->auth_u;
+    lg l;
+    pi_login_ui ui;
+    int logout = !strcmp(line, "/logout");
+    if (!a)
+        return 0;
+    l.p = p;
+    l.t = t;
+    ui.u = &l;
+    ui.menu = lg_menu;
+    ui.line = lg_line;
+    ui.note = lg_note;
+    if (p->pst_on)
+        pi_pstatus_blocked(&p->pst, logout ? PSK_QUESTION : PSK_AUTH, logout ? "Log out" : "Log in");
+    if (logout)
+        pi_logout_run(a, &ui);
+    else
+        pi_login_run(a, line[6] ? line + 7 : 0, &ui);
+    if (p->pst_on)
+        pi_pstatus_blocked(&p->pst, PSK_NONE, 0);
+    status(p);
+    return 1;
+}
+
 static void build_skill_rows(pi_ui *p);
 static void resources_report(pi_ui *p, int listing, int header);
 
@@ -1289,6 +1398,8 @@ static int run_command(pi_ui *p, cl_tui *t, const char *line)
         tree_command(p, t);
         return 1;
     }
+    if (!strcmp(line, "/logout") || !strcmp(line, "/login") || !strncmp(line, "/login ", 7))
+        return login_command(p, t, line);
     if (line[0] != '/' || !p->s->command)
         return 0;
     jw_init(&reply);

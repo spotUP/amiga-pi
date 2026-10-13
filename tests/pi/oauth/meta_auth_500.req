@@ -1,0 +1,6 @@
+POST https://auth.meta.com/oidc/device/authorization/
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=1031625952748946
+--

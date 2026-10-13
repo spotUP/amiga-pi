@@ -60,7 +60,12 @@ typedef struct pi_session {
     long ctx_tokens;            /* tokens the last answer reported (its input, output and cache): the context in use */
     long cost_micro;            /* what the answers of this run cost, micro-dollars, from the model's price */
     long tok_in, tok_out, tok_cr, tok_cw;   /* the answers' tokens summed (the footer's usage line) */
-    char keybuf[512];           /* the credential of the request being made */
+    char keybuf[4096];          /* the credential of the request being made (an OAuth access token is a JWT of a few KB) */
+    /* OAuth (login.h): renews the stored credential of the model's provider before a request, or (force) after a 401;
+     * 0 or -1 with the message in err. auth_u: the pi_auth */
+    int (*auth_hook)(void *u, struct pi_session *s, int force, char *err, long cap);
+    void *auth_u;
+    char oauth_base[300];       /* the base URL a credential brings (github-copilot) for the request being made */
     const char *user_agent;
     llm_pool *pool;
     llm_hooks h;                /* poll (Ctrl+C), sleep, ms, notice, resolve, log */
@@ -188,6 +193,8 @@ void pi_tools_json(const pi_session *s, jw *w);
 /* the credential and the extra headers of a request to s->model, filled into q (hdr holds the header text:
  * the caller frees it after the request); 0, or -1 with a message in s->err when a header value cannot be resolved */
 int pi_req_auth(pi_session *s, llm_req *q, jw *hdr);
+/* llm_req.reauth for a stored login: renews it once after a 401 (see pi_req_auth) */
+int pi_req_reauth(void *u, llm_req *q, char *err, long cap);
 
 /* the prompt to the end: the last answer's stop reason (LS_STOP, LS_LENGTH,
  * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it). A retryable failure (agent-session.js

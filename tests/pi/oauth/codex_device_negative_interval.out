@@ -1,0 +1,2 @@
+prompt select Select OpenAI Codex login method: [Browser login (default) | Device code login (headless)]
+error Invalid OpenAI Codex device code response: {"device_auth_id":"d","user_code":"u","interval":-1}

@@ -1,0 +1,7 @@
+POST https://github.com/login/device/code
+accept: application/json
+content-type: application/x-www-form-urlencoded
+user-agent: GitHubCopilotChat/0.35.0
+
+client_id=Iv1.b507a08c87ecfe98&scope=read%3Auser
+--

@@ -1,0 +1,35 @@
+POST https://auth.openai.com/api/accounts/deviceauth/usercode
+content-type: application/json
+
+{"client_id":"app_EMoamEEZ73f0CkXaXp7hrann"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/api/accounts/deviceauth/token
+content-type: application/json
+
+{"device_auth_id":"dev-1","user_code":"ABCD-1234"}
+--
+POST https://auth.openai.com/oauth/token
+content-type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&client_id=app_EMoamEEZ73f0CkXaXp7hrann&code=ac-1&code_verifier=cv-1&redirect_uri=https%3A%2F%2Fauth.openai.com%2Fdeviceauth%2Fcallback
+--
