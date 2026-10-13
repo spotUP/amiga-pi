@@ -2434,7 +2434,7 @@ static void ext_ui_rest(void)
 
 /* one capture: the keys typed (a command, then the dialog's), the screen at rest compared with pi's. show: the text on the
  * screen that says the dialog or the note is up; mr: golden rows (first, last) left out, ended by 0; shift: the capture's row r
- * is ours at r + shift (a note lands on our row 1, pi leaves a blank one above it) */
+ * is ours at r + shift (0 for a note too: its Spacer's blank row is above it, in an empty chat as well, as pi) */
 static void ext_ui_case(const char *name, const char **keys, const char *show, const int *mr, int shift)
 {
     static scen sc;
@@ -2594,16 +2594,16 @@ static void test_ext_ui_screen(void)
     static const int note[] = { 25, 30, 0 };      /* a note: the editor, whose border and prompt sit on other rows, and the footer */
     ext_ui_case("ext_ui_select", k_pick, "navigate", foot, 0);
     ext_ui_case("ext_ui_select_down", k_pick_down, "navigate", foot, 0);
-    ext_ui_case("ext_ui_select_done", k_pick_done, "picked Beta", note, -1);
-    ext_ui_case("ext_ui_select_cancel", k_pick_esc, "nothing picked", note, -1);
+    ext_ui_case("ext_ui_select_done", k_pick_done, "picked Beta", note, 0);
+    ext_ui_case("ext_ui_select_cancel", k_pick_esc, "nothing picked", note, 0);
     ext_ui_case("ext_ui_select_timeout", k_pick_timeout, "navigate", foot, 0);
     ext_ui_case("ext_ui_confirm", k_sure, "navigate", foot, 0);
-    ext_ui_case("ext_ui_confirm_yes", k_sure_yes, "confirmed", note, -1);
-    ext_ui_case("ext_ui_confirm_no", k_sure_no, "declined", note, -1);
+    ext_ui_case("ext_ui_confirm_yes", k_sure_yes, "confirmed", note, 0);
+    ext_ui_case("ext_ui_confirm_no", k_sure_no, "declined", note, 0);
     ext_ui_case("ext_ui_input", k_ask, "enter submit", foot, 0);
-    ext_ui_case("ext_ui_input_done", k_ask_done, "hello Ada", note, -1);
-    ext_ui_case("ext_ui_input_cancel", k_ask_esc, "no name", note, -1);
-    ext_ui_case("ext_ui_notify", k_tell, "an error", note, -1);
+    ext_ui_case("ext_ui_input_done", k_ask_done, "hello Ada", note, 0);
+    ext_ui_case("ext_ui_input_cancel", k_ask_esc, "no name", note, 0);
+    ext_ui_case("ext_ui_notify", k_tell, "an error", note, 0);
 }
 
 /* ---- the trust question as pi's selector (the capture is tests/pi/tui/approval.golden) ---- */

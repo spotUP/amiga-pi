@@ -66,12 +66,15 @@ static void spacer(pi_show *s)
     s->after_block = 0;
 }
 
-/* showStatus and showError add a Spacer(1) of their own: below the loaded-resources block (whose own Spacer ends it) that is two blank rows;
+/* showStatus, showWarning and showError add a Spacer(1) of their own: below the loaded-resources block (whose own Spacer ends it) that is two blank rows;
  * the user's message has no Spacer, its box begins with a padding row */
 static void spacer_item(pi_show *s)
 {
     int after = s->after_block;
-    spacer(s);
+    if (s->any || !after)           /* a Spacer(1) is a child like any other: the first one of an empty chat has its row too (the */
+        blank(s);                   /* loaded-resources block clears `any`: its own Spacer is the row there) */
+    s->any = 1;
+    s->after_block = 0;
     if (after)
         blank(s);
 }
