@@ -23,6 +23,7 @@ typedef struct pi_trunc {
     int by;                     /* PT_*: what cut it */
     int first_over;             /* head: the first line alone is over the byte limit (nothing kept) */
     int partial;                /* tail: the one kept line is cut at its front */
+    long total_bytes;           /* the text as it came */
 } pi_trunc;
 
 /* truncateHead (tail 0) / truncateTail (tail 1) of text[0..n) */
@@ -33,12 +34,15 @@ void pi_size(long bytes, char *out, long cap);
  * it fits; else the kept part and pi's notice ("[Showing lines 1-2000 of
  * 5000. Full output: T:amiga-pi-call_1.txt]"), the whole text written to
  * that file first. 1 when cut, 0 not cut. */
-int pi_cut(cl_sys *sys, const char *tmp, const char *id, const char *text, long n, int tail, jw *out);
+int pi_cut(cl_sys *sys, const char *tmp, const char *id, const char *text, long n, int tail, jw *out, jw *details);
+/* the TruncationResult of truncate.ts as a JSON object (what a tool's details.truncation holds): text is what was cut, r its
+ * pi_truncate result, max_lines the limit it was made with (0x7fffffff: pi's Number.MAX_SAFE_INTEGER) */
+void pi_trunc_json(jw *o, const pi_trunc *r, const char *text, long max_lines);
 /* pi's ending of grep, find and ls (no temp file): s[0..n) cut to
  * PI_MAX_BYTES (whole lines, no line limit) into out, then the notices
  * that apply joined by ". " in one "\n\n[...]": first (the limit's, or 0),
  * "50.0KB limit reached" when cut, last (grep's long lines, or 0) */
-void pi_head(const char *s, long n, const char *first, const char *last, jw *out);
+void pi_head(const char *s, long n, const char *first, const char *last, jw *out, pi_trunc *tr);   /* tr (or 0) gets the cut's record */
 /* the file pi_cut keeps text in for call id: <tmp>amiga-pi-<id>.txt, the id's
  * characters other than letters, digits, '-' and '_' as '_' */
 void pi_cut_path(const char *tmp, const char *id, char *out, long cap);

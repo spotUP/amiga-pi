@@ -1,0 +1,30 @@
+
+   1 import os
+   2 import sys
+   3
+   4 # count the lines
+ - 5 total = 0
+ + 5 total = 1
+   6 for line in sys.stdin:
+   7     if line:
+   8         total += 1
+   9     else:
+  10         total -= 1
+  11 while total > 3:
+  12     total = total - 1
+ -13 name = "box"
+ +13 name = "crate"
+ +14 # done
+  14 size = 3.5
+  15 flag = total and not size
+  16 other = size or 2
+  17 result = total if flag else 0
+
+
+ Finished.
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model

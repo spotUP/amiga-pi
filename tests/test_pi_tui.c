@@ -24,6 +24,8 @@
 #include "../amiga-pi/compact.h"
 #include "../amiga-pi/pstatus.h"
 #include "../amiga-pi/templates.h"
+#include "../amiga-pi/settings_diag.h"
+#include "../amiga-pi/tools_pi.h"
 #include "claude/sys_posix.h"
 #include "claude/theme.h"
 #include "view/hl_style.h"
@@ -44,7 +46,7 @@ typedef struct scen {
     const char *name;           /* the golden's name */
     const char *keys[8];        /* typed chunks; a '!' chunk is typed while the agent works */
     const char *answers[4];     /* tests/pi/tui/<file>: .sse streamed, .http whole */
-    int tools;                  /* 1 read answers, 2 bash fails, 3 bash echoes, 4 bash counts to 12, 5 ls lists 25 files */
+    int tools;                  /* 1 read answers, 2 bash fails, 3 bash echoes, 4 bash counts to 12, 5 ls lists 25 files, 6 amiga-pi's own tools on the scenario's files */
     int header;                 /* the start header is shown (else settings.json has quietStartup)  */
     int when;                   /* 0 at rest after the keys, 1 while the agent works (after the keys), 2 while a tool runs, 4 at rest like 0 with the clock running (a turn long enough for C:Claude's notice),
                                  * 3 the screen pi leaves on the main screen when it ends (the golden's .txt) */
@@ -56,6 +58,12 @@ typedef struct scen {
 #define SC_BAR(sc) (strstr((sc)->name, "_bar") != 0)
 #define SC_HINT(sc) (strstr((sc)->name, "exit_hint") != 0)     /* fullscreenExitOutput "resume-hint" */
 #define SC_PAD0(sc) (strstr((sc)->name, "pad0") != 0)          /* settings.json outputPad 0 (pi 1.1.0) */
+/* the window's width: 80, tui_gen.py's default, except the scenarios that name their own (footer: foot_<columns> in its table) */
+static int sc_cols(const scen *sc)
+{
+    return !strcmp(sc->name, "start_w64") || !strcmp(sc->name, "pad0_start_w64") || !strcmp(sc->name, "start_expanded_w64") ? 64 :
+           !strcmp(sc->name, "foot_exact") ? 45 : !strcmp(sc->name, "foot_cut") ? 41 : !strcmp(sc->name, "foot_left") ? 30 : 80;
+}
 #define SC_THEME(sc) (!strncmp((sc)->name, "dark_", 5) ? 1 : !strncmp((sc)->name, "light_", 6) ? 2 : 0)
 static int cmp_shift;           /* the capture's row r is on our screen at row r + cmp_shift (a selector drawn at the bottom) */
 static int cmp_split = 1000;    /* ... for the rows above this one (0-based) only, the rows from it on are where they are */
@@ -179,6 +187,8 @@ static llm_ts fixed_now(void *u)
 static vt_term *want;
 static int want_rows;
 
+static int cur_cols = 80;       /* the running scenario's width */
+
 static void load_golden(const char *name)
 {
     char fn[80];
@@ -194,7 +204,7 @@ static void load_golden(const char *name)
     for (i = 0; i < n; i++)
         rows += g[i] == '\n';
     want_rows = rows;
-    want = h_new(80, rows, VT_XTERM);
+    want = h_new(cur_cols, rows, VT_XTERM);
     rows = want_rows;
     for (i = 0; i < n; i++)
         if (g[i] == '\n') {
@@ -238,7 +248,7 @@ static void compare(void)
         snap[r][sizeof(snap[r]) - 1] = 0;
     }
     for (r = 0; r < want_rows && r < cs.rows; r++)
-        for (c = 0; c < 80; c++) {
+        for (c = 0; c < cur_cols; c++) {
             const vt_cell *a = h_cell(want, c, r), *b;
             vt_color af, ab, bf, bb;
             vt_attr mask = (vt_attr)(VT_ATTR_BOLD | VT_ATTR_FAINT | VT_ATTR_ITALIC | VT_ATTR_UNDERLINE | VT_ATTR_INVERSE | VT_ATTR_STRIKE);
@@ -413,7 +423,7 @@ static void hook(void)
 {
     int r, up = 0;
     for (r = 0; r < cs.rows; r++)           /* the footer is up (regular mode: not on the last row) */
-        up |= strstr(cs_row(r), "fake-model") != 0;
+        up |= strstr(cs_row(r), "fake-m") != 0 || strstr(cs_row(r), "/200k") != 0;     /* (cut at the narrow widths) */
     if (cur->when == 4)
         cs.clock += 12000;            /* every read of a long turn is twelve seconds on: C:Claude would ring at its end */
     if (taken || !up || cur->when == 2 || cur->when == 3)     /* when 2: compare_in_tool takes the screen */
@@ -434,6 +444,81 @@ static void dump_rows(void)
         printf("    %2d|%s\n", r + 1, snap[r]);
 }
 
+/* U1b: the scenarios whose tools are amiga-pi's own (tools 6) run them on the files tui_gen.py gave pi (tests/pi/tui/scenario_files.json, and
+ * the notes.txt every project has), in a directory of their own */
+static pi_tools real_pt;
+static sys_posix real_sp;
+static cl_sys real_sys;
+static char real_dir[80];
+
+static void real_tools_up(pi_session *ses, const char *scenario)
+{
+    char *b, p[300], d[300], *e, err[200];
+    long n;
+    jv all, files, k, v;
+    jit it;
+    FILE *f;
+    strcpy(real_dir, "/tmp/pit_XXXXXX");
+    if (!mkdtemp(real_dir)) {
+        CHECK(0);
+        return;
+    }
+    strcpy(p, real_dir);
+    strcat(p, "/notes.txt");
+    f = fopen(p, "wb");
+    if (f) {
+        fputs("one\ntwo\nthree\n", f);
+        fclose(f);
+    }
+    b = slurp("scenario_files.json", &n);
+    CHECK(b != 0);
+    if (b && !json_parse(b, n, &all) && json_get(all, scenario, &files)) {
+        json_iter(files, &it);
+        while (json_next(&it, &k, &v)) {
+            char *rel = json_strdup(k, 0), *text = json_strdup(v, 0);
+            strcpy(p, real_dir);
+            strcat(p, "/");
+            strcat(p, rel ? rel : "");
+            strcpy(d, p);
+            e = strrchr(d, '/');
+            for (e = d + strlen(real_dir) + 1; *e; e++)
+                if (*e == '/') {
+                    *e = 0;
+                    mkdir(d, 0777);
+                    *e = '/';
+                }
+            f = fopen(p, "wb");
+            if (f) {
+                fputs(text ? text : "", f);
+                fclose(f);
+            }
+            free(rel);
+            free(text);
+        }
+    }
+    free(b);
+    sys_posix_init(&real_sp, &real_sys);
+    strcpy(d, real_dir);
+    strcat(d, "-t/");
+    mkdir(d, 0777);
+    CHECK_INT(pi_tools_init(&real_pt, &real_sys, real_dir, d, PI_SH_HOST), 0);
+    CHECK_INT(pi_tools_add(&real_pt, ses, "read,write,edit,ls,find,grep", err, sizeof(err)), 0);
+}
+
+static void real_tools_down(void)
+{
+    char cmd[200];
+    pi_tools_free(&real_pt);
+    strcpy(cmd, "rm -rf ");
+    strcat(cmd, real_dir);
+    strcat(cmd, " ");
+    strcat(cmd, real_dir);
+    strcat(cmd, "-t");
+    if (system(cmd))
+        CHECK(0);
+    real_dir[0] = 0;
+}
+
 static void run(const scen *sc)
 {
     llm_hooks h;
@@ -446,6 +531,7 @@ static void run(const scen *sc)
     const char *script[10];
     int nk = 0;
     cur = sc;
+    cur_cols = sc_cols(sc);
     pi_ui_set_theme(0);                 /* the system theme and pi's keys, whatever an earlier test left */
     pi_ui_set_keybindings(0, 0);
     pi_ui_set_tui(SC_REGULAR(sc), SC_HINT(sc), SC_BAR(sc));
@@ -491,6 +577,8 @@ static void run(const scen *sc)
         pi_tool_add(&ses, &t_seq);
     if (sc->tools == 5)
         pi_tool_add(&ses, &t_ls);
+    if (sc->tools == 6)
+        real_tools_up(&ses, sc->name);
     for (i = 0; sc->answers[i]; i++) {
         long n;
         char *b = slurp(sc->answers[i], &n);
@@ -516,11 +604,11 @@ static void run(const scen *sc)
     CHECK(want != 0);
     if (!want)
         return;
-    cs_open(80, want_rows + (sc->when == 3 ? 8 : 0), script);
+    cs_open(cur_cols, want_rows + (sc->when == 3 ? 8 : 0), script);
     cs.before_read = hook;
     cs_io(&io);
     pi_ui_set_cwd("~/project");
-    pi_ui_set_quiet(!sc->header);
+    pi_ui_set_quiet(!strcmp(sc->name, "start_header_only") ? 2 : !sc->header);
     pi_ui_set_commands(pi_cmds, (int)(sizeof(pi_cmds) / sizeof(pi_cmds[0])));
     if (!strcmp(sc->name, "slash_prompts") || !strcmp(sc->name, "slash_utf")) {
         /* J2: the agent directory's prompts/ (the same files tools/pi_oracle/tui_gen.py gave pi) after the built-in rows */
@@ -573,8 +661,11 @@ static void run(const scen *sc)
     }
     CHECK_INT(diffs, 0);
     cs_close();
+    cur_cols = 80;
     vt_free(want);
     pi_session_free(&ses);
+    if (sc->tools == 6)
+        real_tools_down();
     for (i = 0; i < nk - 1; i++)
         free(keys[i]);
 }
@@ -1111,8 +1202,9 @@ static void test_cycle(void)
     CHECK(strstr(sh, "model_change:claude-opus-5-5 thinking_level_change:medium message") == sh);
     CHECK(strstr(sh, " message message model_change:gpt-4.1 thinking_level_change:off model_change:claude-opus-5-5 "
                      "thinking_level_change:high thinking_level_change:") != 0);
-    CHECK(shot_has("Switched to GPT-4.1"));
-    CHECK(shot_has("Switched to Claude Opus 5.5 (thinking: high)") || shot_has("(thinking: high)"));
+    /* three statuses in a row (showStatus, interactive-mode.ts:3824-3834): each replaces the one above, the last stays */
+    CHECK(!shot_has("Switched to GPT-4.1"));
+    CHECK(!shot_has("(thinking: high)"));
     CHECK(shot_has("Thinking level: "));
     if (getenv("PI_TUI_DUMP")) {
         int r;
@@ -1666,11 +1758,11 @@ static void test_skills_screen(void)
     static const char *keys_exp[] = { "\017", "\004", 0 };
     static const char *keys_cmd[] = { "/skill:greet please greet Bob\r", "\004", 0 };
     static const char *const sse_cmd[] = { "skill_cmd.1.sse" };
-    static const int m_start[] = { 1, 9, 22, 40, 0 }, m_quiet[] = { 26, 30, 0 }, m_menu[] = { 23, 23, 25, 25, 29, 30, 0 },
+    static const int m_start[] = { 2, 2, 22, 40, 0 }, m_quiet[] = { 26, 30, 0 }, m_menu[] = { 23, 23, 25, 25, 29, 30, 0 },
                      m_exp[] = { 36, 40, 0 };
     char cmd[460];
     /* the start: header, "[Skills]", "[Skill conflicts]" (the capture's rows 10-21; ours begin four rows higher: pi's help panel and tips are not drawn) */
-    skills_case("skills_start", "{}\n", keys_end, 0, 0, 0, -4, m_start, 1);
+    skills_case("skills_start", "{}\n", keys_end, 0, 0, 0, 0, m_start, 1);
     /* quietStartup: the diagnostics alone, at the top */
     skills_case("skills_quiet", "{\"quietStartup\":true}\n", keys_end, 0, 0, 0, 0, m_quiet, 1);
     skills_case("skills_menu", "{\"quietStartup\":true}\n", keys_menu, 0, 0, 0, 0, m_menu, 1);
@@ -1680,20 +1772,20 @@ static void test_skills_screen(void)
     /* I8: Ctrl+O at the start draws the [Skills] list grouped by scope (pi's header is long when expanded: not drawn here, its rows
      * left out; the block is compared from its title) */
     {
-        static const int m_sexp[] = { 1, 25, 43, 50, 0 };
-        skills_case("skills_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, -20, m_sexp, 1);
+        static const int m_sexp[] = { 2, 2, 18, 19, 43, 50, 0 };
+        skills_case("skills_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, 0, m_sexp, 1);
     }
     /* J5: the [Prompts] list, compact and grouped, and the [Prompt conflicts] block (a name two files have, YAML that is refused) */
     {
-        static const int m_pstart[] = { 1, 9, 22, 40, 0 }, m_pexp[] = { 1, 25, 34, 40, 0 }, m_pconf[] = { 26, 30, 0 };
+        static const int m_pstart[] = { 2, 2, 22, 40, 0 }, m_pexp[] = { 2, 2, 18, 19, 34, 40, 0 }, m_pconf[] = { 26, 30, 0 };
         fresh_agent();
         tree_json = "prompts_files.json";
-        skills_case("prompts_start", "{}\n", keys_end, 0, 0, 0, -4, m_pstart, 1);
-        skills_case("prompts_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, -20, m_pexp, 1);
+        skills_case("prompts_start", "{}\n", keys_end, 0, 0, 0, 0, m_pstart, 1);
+        skills_case("prompts_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, 0, m_pexp, 1);
         {
             static const char *keys_msg[] = { "hello\r", "\004", 0 };
             static const char *const sse_msg[] = { "prompts_start_msg.1.sse" };
-            skills_case("prompts_start_msg", "{\"quietStartup\":false}\n", keys_msg, sse_msg, 1, 0, -4, m_pstart, 1);
+            skills_case("prompts_start_msg", "{\"quietStartup\":false}\n", keys_msg, sse_msg, 1, 0, 0, m_pstart, 1);
         }
         fresh_agent();
         tree_json = "conflict_files.json";
@@ -1703,11 +1795,11 @@ static void test_skills_screen(void)
     /* /reload: files made after the start show in the lists (the same screen pi gives; the status line says what this port reads again) */
     {
         static const char *keys_reload[] = { "/reload\r", "\004", 0 };
-        static const int m_reload[] = { 1, 9, 17, 17, 20, 40, 0 };
+        static const int m_reload[] = { 2, 2, 17, 17, 20, 40, 0 };
         fresh_agent();
         tree_json = "reload_files.json";
         app_ready = reload_writes;
-        skills_case("reload_resources", "{\"quietStartup\":false}\n", keys_reload, 0, 0, 0, -4, m_reload, 1);
+        skills_case("reload_resources", "{\"quietStartup\":false}\n", keys_reload, 0, 0, 0, 0, m_reload, 1);
         app_ready = 0;
         tree_json = "skills_files.json";
     }
@@ -2143,6 +2235,63 @@ static void test_output_pad_setting(void)
 }
 
 
+/* ---- U3: an invalid settings.json is reported (core/settings-diagnostics.ts, settings-manager.ts tryLoadFromStorage). The message
+ * is V8's JSON.parse: tests/pi/settings/cases.json holds 900 texts (the cases of tools/pi_oracle/gen_settings_errors.mjs: the sample
+ * mutated at every position, and hand-made ones) with what Node 24 says of each ---- */
+static void test_settings_errors(void)
+{
+    long n = 0, bad = 0, total = 0, with_msg = 0;
+    char *cases = slurp("../settings/cases.json", &n);
+    jv arr, row;
+    jit it;
+    CHECK(cases != 0);
+    if (!cases)
+        return;
+    CHECK_INT(json_parse(cases, n, &arr), 0);
+    json_iter(arr, &it);
+    while (json_next(&it, 0, &row)) {
+        jit in;
+        jv text, want;
+        char *t, *w;
+        long tn = 0, wn = 0;
+        jw msg;
+        int got;
+        json_iter(row, &in);
+        if (!json_next(&in, 0, &text) || !json_next(&in, 0, &want))
+            continue;
+        t = json_strdup(text, &tn);
+        w = json_type(want) == J_STR ? json_strdup(want, &wn) : 0;
+        jw_init(&msg);
+        got = pi_settings_error(t ? t : "", tn, &msg);
+        jw_rawz(&msg, "");
+        total++;
+        with_msg += w != 0;
+        if (got != (w != 0) || (w && strcmp(msg.p ? msg.p : "", w))) {
+            if (bad++ < 5)
+                printf("  settings text %.60s\n    pi:  %s\n    ours: %s\n", t ? t : "", w ? w : "(loads)", got ? msg.p : "(loads)");
+        }
+        jw_free(&msg);
+        free(t);
+        free(w);
+    }
+    CHECK_INT(bad, 0);
+    CHECK(total > 800 && with_msg > 500);
+    free(cases);
+    {
+        jw m, out;
+        jw_init(&m);
+        jw_init(&out);
+        CHECK_INT(pi_settings_error("\"outputPad\": 0\n", 15, &m), 1);
+        jw_rawz(&m, "");
+        pi_settings_warning("ENVARC:amiga-pi/settings.json", m.p, &out);
+        jw_rawz(&out, "");
+        CHECK_STR(out.p, "Invalid settings file ENVARC:amiga-pi/settings.json: Unexpected non-whitespace character after JSON at position 11 (line 1 column 12)");
+        jw_free(&m);
+        jw_free(&out);
+    }
+}
+
+
 /* ---- N6: pi's themes and keybindings ---- */
 
 static int hexv(int c)
@@ -2428,7 +2577,7 @@ static void ext_ui_rest(void)
 
 /* one capture: the keys typed (a command, then the dialog's), the screen at rest compared with pi's. show: the text on the
  * screen that says the dialog or the note is up; mr: golden rows (first, last) left out, ended by 0; shift: the capture's row r
- * is ours at r + shift (a note lands on our row 1, pi leaves a blank one above it) */
+ * is ours at r + shift (0 for a note too: its Spacer's blank row is above it, in an empty chat as well, as pi) */
 static void ext_ui_case(const char *name, const char **keys, const char *show, const int *mr, int shift)
 {
     static scen sc;
@@ -2588,16 +2737,16 @@ static void test_ext_ui_screen(void)
     static const int note[] = { 25, 30, 0 };      /* a note: the editor, whose border and prompt sit on other rows, and the footer */
     ext_ui_case("ext_ui_select", k_pick, "navigate", foot, 0);
     ext_ui_case("ext_ui_select_down", k_pick_down, "navigate", foot, 0);
-    ext_ui_case("ext_ui_select_done", k_pick_done, "picked Beta", note, -1);
-    ext_ui_case("ext_ui_select_cancel", k_pick_esc, "nothing picked", note, -1);
+    ext_ui_case("ext_ui_select_done", k_pick_done, "picked Beta", note, 0);
+    ext_ui_case("ext_ui_select_cancel", k_pick_esc, "nothing picked", note, 0);
     ext_ui_case("ext_ui_select_timeout", k_pick_timeout, "navigate", foot, 0);
     ext_ui_case("ext_ui_confirm", k_sure, "navigate", foot, 0);
-    ext_ui_case("ext_ui_confirm_yes", k_sure_yes, "confirmed", note, -1);
-    ext_ui_case("ext_ui_confirm_no", k_sure_no, "declined", note, -1);
+    ext_ui_case("ext_ui_confirm_yes", k_sure_yes, "confirmed", note, 0);
+    ext_ui_case("ext_ui_confirm_no", k_sure_no, "declined", note, 0);
     ext_ui_case("ext_ui_input", k_ask, "enter submit", foot, 0);
-    ext_ui_case("ext_ui_input_done", k_ask_done, "hello Ada", note, -1);
-    ext_ui_case("ext_ui_input_cancel", k_ask_esc, "no name", note, -1);
-    ext_ui_case("ext_ui_notify", k_tell, "an error", note, -1);
+    ext_ui_case("ext_ui_input_done", k_ask_done, "hello Ada", note, 0);
+    ext_ui_case("ext_ui_input_cancel", k_ask_esc, "no name", note, 0);
+    ext_ui_case("ext_ui_notify", k_tell, "an error", note, 0);
 }
 
 /* ---- the trust question as pi's selector (the capture is tests/pi/tui/approval.golden) ---- */
@@ -2900,6 +3049,49 @@ static int screen_has(const char *what)
     return 0;
 }
 
+/* U1b: bash's details (renderers/bash.ts:53-60, 85-100): the tool's own "[... Full output: <path>]" footer is left out of the output and one
+ * warning row says where the output is and how much of it is shown. pi's own run puts a random temp path there, so no capture holds it: the
+ * rows are those of the renderer's code. */
+static void test_bash_details(void)
+{
+    static const char *script[] = { 0 };
+    static const char det_lines[] =
+        "{\"truncation\":{\"content\":\"x\",\"truncated\":true,\"truncatedBy\":\"lines\",\"totalLines\":3000,\"totalBytes\":13893,"
+        "\"outputLines\":2000,\"outputBytes\":9999,\"lastLinePartial\":false,\"firstLineExceedsLimit\":false,\"maxLines\":2000,\"maxBytes\":51200},"
+        "\"fullOutputPath\":\"/tmp/pi-bash-1.log\"}";
+    static const char det_bytes[] =
+        "{\"truncation\":{\"content\":\"x\",\"truncated\":true,\"truncatedBy\":\"bytes\",\"totalLines\":3000,\"totalBytes\":13893,"
+        "\"outputLines\":243,\"outputBytes\":9999,\"lastLinePartial\":false,\"firstLineExceedsLimit\":false,\"maxLines\":2000,\"maxBytes\":51200}}";
+    static const char res_lines[] =
+        "[{\"type\":\"text\",\"text\":\"L2999\\nL3000\\n\\n[Showing lines 1001-3000 of 3000. Full output: /tmp/pi-bash-1.log]\"}]";
+    static const char res_plain[] = "[{\"type\":\"text\",\"text\":\"L3000\\n\"}]";
+    cl_io io;
+    cl_tui t;
+    cl_pitheme th;
+    pi_show ps;
+    cs_open(80, 25, script);
+    cs_io(&io);
+    pitheme_system(&th);
+    CHECK_INT(tui_init(&t, &io), 0);
+    t.look = TUI_LOOK_PI;
+    t.pith = &th;
+    CHECK_INT(tui_start(&t), 0);
+    pshow_init(&ps, &t, &th);
+    pshow_tool_start(&ps, "t1", "bash", "{\"command\":\"seq 1 3000\"}", 25);
+    pshow_tool_end(&ps, "t1", res_lines, (long)strlen(res_lines), 0, 100, det_lines, (long)strlen(det_lines));
+    pshow_tool_start(&ps, "t2", "bash", "{\"command\":\"seq 1 3000\"}", 25);
+    pshow_tool_end(&ps, "t2", res_plain, (long)strlen(res_plain), 0, 100, det_bytes, (long)strlen(det_bytes));
+    tui_frame(&t);
+    CHECK(screen_has("L3000"));
+    CHECK(!screen_has("[Showing lines"));       /* the footer is the warning row's */
+    CHECK(screen_has("[Full output: /tmp/pi-bash-1.log. Truncated: showing 2000 of 3000 lines]"));
+    CHECK(screen_has("[Truncated: 243 lines shown (50.0KB limit)]"));
+    pshow_free(&ps);
+    tui_stop(&t);
+    tui_free(&t);
+    cs_close();
+}
+
 static void test_bash_rows_uncapped(void)
 {
     static const char *script[] = { 0 };
@@ -2929,7 +3121,7 @@ static void test_bash_rows_uncapped(void)
     }
     jw_rawz(&res, "\"}]");
     pshow_tool_start(&ps, "t1", "bash", "{\"command\":\"seq\"}", 17);
-    pshow_tool_end(&ps, "t1", res.p, res.n, 0, 100);
+    pshow_tool_end(&ps, "t1", res.p, res.n, 0, 100, 0, 0);
     tui_frame(&t);
     CHECK(screen_has("L300"));
     CHECK(screen_has("(295 earlier lines, ctrl+o to expand)"));
@@ -3097,9 +3289,12 @@ static void test_footer_cost(void)
         printf("  six keys: C:Claude's look %ld bytes, pi's look %ld bytes\n", claude, pi);
 }
 
-/* the start header: the program's own name for pi's version, no startup-help panel and no pi tips */
+/* the start header: the program's own name where pi has its version */
 #define HDR_VER { 2, 2, 5, 79, "start header" }
-#define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
+#define HDR_HELP { 0, 0, 0, 0, 0 }
+
+#define HDR_VER64 { 2, 2, 5, 63, "start header" }
+#define HDR_HELP64 { 0, 0, 0, 0, 0 }
 
 static const scen scenarios[] = {
     { "start", { 0 }, { 0 }, 0, 1, 0, { HDR_VER, HDR_HELP } },
@@ -3126,8 +3321,7 @@ static const scen scenarios[] = {
     { "bang", { "!!echo hi\r", "!!!echo secret\r", 0 }, { 0 }, 3, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     /* TM1/TM3: pi's regular mode (the editor follows the content; fullscreen's `twice` above pins it) */
-    { "reg_start", { 0 }, { 0 }, 0, 1, 0,
-      { HDR_VER, { 5, 25, 0, 79, "start header: pi's help panel and tips are not drawn, the footer follows five rows higher" } } },
+    { "reg_start", { 0 }, { 0 }, 0, 1, 0, { HDR_VER } },
     { "reg_empty", { 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "reg_twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "reg_markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
@@ -3174,6 +3368,22 @@ static const scen scenarios[] = {
       { { 19, 19, 6, 8, "elapsed time of the run" } } },
     { "dark_ls_long", { "list\r", 0 }, { "dark_ls_long.1.sse", "dark_ls_long.2.sse", 0 }, 5, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "dark_ls_long_expanded", { "list\r", "\017", 0 }, { "dark_ls_long_expanded.1.sse", "dark_ls_long_expanded.2.sse", 0 }, 5, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* U1b: the tool boxes of pi's renderers on amiga-pi's own tools: a read highlighted and in its short forms (renderers/read.ts), a write's
+     * content, an edit's diff (renderers/edit.ts, components/diff.ts), the warnings of the results' details (read.ts, ls.ts) */
+    { "dark_read_hl", { "show main\r", "\017", 0 }, { "dark_read_hl.1.sse", "dark_read_hl.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_read_hl_py", { "show it\r", "\017", 0 }, { "dark_read_hl_py.1.sse", "dark_read_hl_py.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_read_skill", { "read\r", 0 }, { "dark_read_skill.1.sse", "dark_read_skill.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_read_skill_expanded", { "read\r", "\017", 0 }, { "dark_read_skill_expanded.1.sse", "dark_read_skill_expanded.2.sse", 0 }, 6, 0, 0,
+      { { 0, 0, 0, 0, 0 } } },
+    { "dark_write", { "write it\r", 0 }, { "dark_write.1.sse", "dark_write.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_write_expanded", { "write it\r", "\017", 0 }, { "dark_write_expanded.1.sse", "dark_write_expanded.2.sse", 0 }, 6, 0, 0,
+      { { 0, 0, 0, 0, 0 } } },
+    { "dark_write_txt", { "write it\r", 0 }, { "dark_write_txt.1.sse", "dark_write_txt.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_edit", { "edit it\r", 0 }, { "dark_edit.1.sse", "dark_edit.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_edit_err", { "edit it\r", 0 }, { "dark_edit_err.1.sse", "dark_edit_err.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_read_trunc_expanded", { "read big\r", "\017", 0 }, { "dark_read_trunc_expanded.1.sse", "dark_read_trunc_expanded.2.sse", 0 }, 6, 0, 0,
+      { { 0, 0, 0, 0, 0 } } },
+    { "dark_ls_limit", { "list\r", 0 }, { "dark_ls_limit.1.sse", "dark_ls_limit.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "error_expanded", { "hello\r", "\017", 0 }, { "error_expanded.1.http", 0 }, 0, 0, 0,
       { { 5, 12, 0, 79, "error text: pi prints the response body and a hint row; the status is checked in expanded_checks" },
         { 25, 25, 0, 6, "context estimate" } } },
@@ -3183,6 +3393,22 @@ static const scen scenarios[] = {
       { { 28, 28, 3, 3, "spinner frame" } } },
     { "light_twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "light_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* G2: the footer's right-aligned model at the widths where footer.ts:177-249 changes its mind: flush to the last column (45),
+     * the model cut to the room left, never the usage (41), the usage itself cut with "..." (30) */
+    /* G3: the start header at 64 columns, where the hint wraps, whatever outputPad is (BuiltInHeader's own padding of one) */
+    { "start_w64", { 0 }, { 0 }, 0, 1, 0, { HDR_VER64, HDR_HELP64 } },
+    /* U1b: Ctrl+O at the start: the header's long form, one hint a row (pi prints Alt as "option" on macOS, where the capture was
+     * made; ours says alt); quietStartup "header" shows the header without the loaded resources, and its line says so */
+    { "start_expanded", { "\017", 0 }, { 0 }, 0, 1, 0, { HDR_VER, { 18, 19, 0, 79, "option is macOS's name for alt" } } },
+    { "start_expanded_w64", { "\017", 0 }, { 0 }, 0, 1, 0, { HDR_VER64, { 18, 19, 0, 63, "option is macOS's name for alt" } } },
+    { "start_header_only", { 0 }, { 0 }, 0, 1, 0, { HDR_VER } },
+    { "pad0_start_w64", { 0 }, { 0 }, 0, 1, 0, { HDR_VER64, HDR_HELP64 } },
+    /* U1b: showStatus puts a dim status in the place of the last one (interactive-mode.ts:3824-3844): Alt+Up twice with nothing queued
+     * says "No queued messages to restore" once, not twice */
+    { "status_twice", { "\033[1;3A", "\033[1;3A", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "foot_exact", { "first\r", 0 }, { "foot_exact.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "foot_cut", { "first\r", 0 }, { "foot_cut.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "foot_left", { "first\r", 0 }, { "foot_left.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
 };
 
 void suite_pi_tui(void)
@@ -3207,6 +3433,7 @@ void suite_pi_tui(void)
     test_export();
     test_bang();
     test_output_pad_setting();
+    test_settings_errors();
     test_default_tools_setting();
     test_program_status();
     test_pstatus_states();
@@ -3224,6 +3451,7 @@ void suite_pi_tui(void)
     test_ext_uix_screen();
     test_footer_cost();
     test_bash_rows_uncapped();
+    test_bash_details();
     test_slash_fuzzy();
     test_menu_rows_uncapped();
     app_cleanup();

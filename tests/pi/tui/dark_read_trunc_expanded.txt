@@ -1,0 +1,30 @@
+ line 1985
+ line 1986
+ line 1987
+ line 1988
+ line 1989
+ line 1990
+ line 1991
+ line 1992
+ line 1993
+ line 1994
+ line 1995
+ line 1996
+ line 1997
+ line 1998
+ line 1999
+ line 2000
+
+ [Showing lines 1-2000 of 2501. Use offset=2001 to continue.]
+ [Truncated: showing 2000 of 2500 lines (2000 line limit)]
+
+
+ Finished.
+
+ Tool output: expanded
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model

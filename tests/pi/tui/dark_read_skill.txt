@@ -1,0 +1,30 @@
+
+ read
+
+
+
+ [skill] greet (ctrl+o to expand)
+
+
+
+ read resource docs/AGENTS.md:1-5 (ctrl+o to expand)
+
+
+
+ read notes.txt
+
+
+ Done compact.
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model

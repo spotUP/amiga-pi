@@ -1,0 +1,30 @@
+
+ ▀▀█  v1.1.0
+ █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash ·
+ ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it how to use or
+ extend Pi.
+
+
+ Warning: Invalid settings file /private/tmp/u1b/agent/settings.json:
+ Unexpected non-whitespace character after JSON at position 11 (line 1 column
+ 12)
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

@@ -9,6 +9,9 @@
 #include "claude/json.h"
 #include "claude/show.h"
 #include "agent.h"
+#include "jsdiff.h"
+#include "truncate.h"
+#include "view/hl_lex.h"
 
 #define SGR0 "\033[0m"
 #define BOLD "\033[1m"
@@ -66,12 +69,15 @@ static void spacer(pi_show *s)
     s->after_block = 0;
 }
 
-/* showStatus and showError add a Spacer(1) of their own: below the loaded-resources block (whose own Spacer ends it) that is two blank rows;
+/* showStatus, showWarning and showError add a Spacer(1) of their own: below the loaded-resources block (whose own Spacer ends it) that is two blank rows;
  * the user's message has no Spacer, its box begins with a padding row */
 static void spacer_item(pi_show *s)
 {
     int after = s->after_block;
-    spacer(s);
+    if (s->any || !after)           /* a Spacer(1) is a child like any other: the first one of an empty chat has its row too (the */
+        blank(s);                   /* loaded-resources block clears `any`: its own Spacer is the row there) */
+    s->any = 1;
+    s->after_block = 0;
     if (after)
         blank(s);
 }
@@ -180,6 +186,7 @@ void pshow_init(pi_show *s, cl_tui *t, const cl_pitheme *th)
     s->ins = -1;
     s->t = t;
     s->pad = 1;
+    s->details = 1;
     jw_init(&s->line);
     jw_init(&s->batch);
     jw_init(&s->shadow);
@@ -194,6 +201,7 @@ static void item_free(ps_item *it)
     jw_free(&it->y);
     jw_free(&it->z);
     if (it->kind == PK_TOOL) {
+        jw_free(&it->tool.det);
         jw_free(&it->tool.args);
         jw_free(&it->tool.partial);
         jw_free(&it->tool.result);
@@ -223,6 +231,7 @@ static ps_item *item_new(pi_show *s, int kind)
     jw_init(&it->tool.args);
     jw_init(&it->tool.partial);
     jw_init(&it->tool.result);
+    jw_init(&it->tool.det);
     if (s->ins >= 0 && s->ins <= s->nitem) {
         /* the loaded-resources block is being written again: its items go where the old ones were */
         memmove(&s->item[s->ins + 1], &s->item[s->ins], (size_t)(s->nitem - s->ins) * sizeof(*s->item));
@@ -411,7 +420,6 @@ static void d_header(pi_show *s, const char *name, const char *version)
     pitheme_color(&logo, 179, 0, c179);
     sg(s, PR_DIM, dim);
     blank(s);
-    s->any = 1;
     /* pi's logo, two rows of half blocks, and beside it what the program is and the keys */
     cl_copy(l, " ", sizeof(l));
     cl_cat(l, c174, sizeof(l));
@@ -431,62 +439,104 @@ static void d_header(pi_show *s, const char *name, const char *version)
     cl_cat(l, "\342\226\210\033[39m ", sizeof(l));
     raw(s, l);
     {
-        /* the hint continues the logo's row and wraps in the width as pi's text does (one column of padding each
-         * side; the logo and its space take five of the first row). The keys are in the dim colour, what they do and
-         * the dots in the muted one (pi's keyHint): \001 starts a key, \002 what it does */
-        static const char hint[] =
+        /* pi's compactInstructions / expandedInstructions (interactive-mode.ts:1036-1057), one Text of paddingX 1 with the logo's two
+         * rows before it: the hint continues the logo's second row and wraps in the width as pi's text does (one column of padding
+         * each side; the logo and its space take five of the first row), a "\n" ends a row for good. The keys are in the dim colour,
+         * what they do and the dots in the muted one (pi's keyHint): \001 starts a key, \002 what it does */
+        static const char compact[] =
             "\001escape\002 interrupt \302\267 \001ctrl+c/ctrl+d\002 clear/exit \302\267 \001/\002 commands \302\267 "
             "\001!\002 bash \302\267 \001ctrl+o\002 more";
-        char muted[48], key[48];
-        long n = (long)sizeof(hint) - 1, cut = 0, i, k;
-        int w = 0, room = s->t->cols - 2 - 5, row;
+        static const char expanded1[] =
+            "\001escape\002 to interrupt\n\001ctrl+c\002 to clear\n\001ctrl+c twice\002 to exit\n\001ctrl+d\002 to exit (empty)\n"
+            "\001ctrl+z\002 to suspend\n\001ctrl+k\002 to delete to end\n\001shift+tab\002 to cycle thinking level\n"
+            "\001ctrl+p/shift+ctrl+p\002 to cycle models\n\001ctrl+l\002 to select model\n\001ctrl+o\002 to expand tools\n"
+            "\001ctrl+t\002 to expand thinking\n\001ctrl+g\002 for external editor\n\001/\002 for commands\n\001!\002 to run bash\n";
+        static const char expanded2[] =
+            "\001!!\002 to run bash (no context)\n\001alt+enter\002 to queue follow-up\n"
+            "\001alt+up\002 to edit all queued messages\n\001ctrl+v\002 to paste files on macOS, images, or text\n"
+            "\001drop files\002 to attach";
+        char muted[48], key[48], cur[48], both[1024];
+        const char *hint = compact;
+        long n, a = 0, cut, i, k;
+        int first = 1;
+        if (s->expanded) {
+            cl_copy(both, expanded1, sizeof(both));         /* (a C90 literal is 509 characters at most) */
+            cl_cat(both, expanded2, sizeof(both));
+            hint = both;
+        }
+        n = (long)strlen(hint);
         sg(s, PR_MUTED, muted);
         sg(s, PR_DIM, key);
-        for (i = 0; i < n;) {
-            unsigned long cp;
-            int cl, cw;
-            if (hint[i] == 1 || hint[i] == 2) {
-                i++;
-                continue;
-            }
-            cl = vw_char(hint + i, n - i, &cp);
-            cw = vw_cp_width(cp);
-            if (w + cw > room)
-                break;
-            if (cp == ' ')
-                cut = i;
-            w += cw;
-            i += cl;
-        }
-        if (i >= n)
-            cut = n;
-        else if (!cut)
-            cut = i;
-        for (row = 0; row < 2; row++) {
-            long from = row ? cut : 0, to = row ? n : cut;
-            if (row && cut >= n)
-                break;
-            if (row) {
-                while (from < to && hint[from] == ' ')
-                    from++;
-                raw(s, " ");
-                for (k = from - 1; k >= 0; k--)
+        cl_copy(cur, key, sizeof(cur));
+        while (a <= n) {
+            long e = a;
+            while (e < n && hint[e] != '\n')
+                e++;
+            for (i = a; i < e;) {                 /* a paragraph in rows */
+                int w = 0, room = s->t->cols - 2 - (first ? 5 : 0);
+                cut = 0;
+                for (k = i; k < e;) {
+                    unsigned long cp;
+                    int cl, cw;
                     if (hint[k] == 1 || hint[k] == 2) {
-                        raw(s, hint[k] == 1 ? key : muted);
-                        break;
+                        k++;
+                        continue;
                     }
+                    cl = vw_char(hint + k, e - k, &cp);
+                    cw = vw_cp_width(cp);
+                    if (w + cw > room)
+                        break;
+                    if (cp == ' ')
+                        cut = k;
+                    w += cw;
+                    k += cl;
+                }
+                if (k >= e)
+                    cut = e;
+                else if (cut <= i)
+                    cut = k;
+                if (!first) {
+                    raw(s, " ");
+                    raw(s, cur);
+                }
+                for (k = i; k < cut; k++) {
+                    if (hint[k] == 1) {
+                        raw(s, key);
+                        cl_copy(cur, key, sizeof(cur));
+                    } else if (hint[k] == 2) {
+                        raw(s, muted);
+                        cl_copy(cur, muted, sizeof(cur));
+                    } else
+                        jw_raw(&s->batch, hint + k, 1);
+                }
+                raw(s, SGR0 "\n");
+                first = 0;
+                i = cut;
+                while (i < e && hint[i] == ' ')
+                    i++;
             }
-            for (k = from; k < to; k++) {
-                if (hint[k] == 1)
-                    raw(s, key);
-                else if (hint[k] == 2)
-                    raw(s, muted);
-                else
-                    jw_raw(&s->batch, hint + k, 1);
-            }
-            raw(s, SGR0 "\n");
+            if (e >= n)
+                break;
+            a = e + 1;
+            cl_copy(cur, key, sizeof(cur));      /* each hint starts with its key */
+            if (a > n)
+                break;
         }
     }
+    if (!s->expanded) {
+        char t[200];
+        cl_copy(t, "Press ctrl+o to show full startup help", sizeof(t));
+        if (s->details)
+            cl_cat(t, " and loaded resources", sizeof(t));
+        cl_cat(t, ".", sizeof(t));
+        say_pad(s, 1, PR_DIM, "", t);
+        blank(s);
+    } else
+        blank(s);
+    say_pad(s, 1, PR_DIM, "", "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.");
+    blank(s);                       /* the header container's closing Spacer(1) (interactive-mode.ts:1075): the chat's first block follows it */
+    s->any = 0;
+    s->after_block = 1;
     out(s);
 }
 
@@ -606,11 +656,26 @@ static void d_user(pi_show *s, const char *text)
     user_box(s, text);
 }
 
-static void d_note(pi_show *s, int role, const char *text)
+static void d_note_rows(pi_show *s, int role, const char *text)
 {
     spacer_item(s);
     say_pad(s, 1, role, "", text);     /* pi's status lines are Text(.., 1, 0), not outputPad */
+}
+
+static void d_note(pi_show *s, int role, const char *text)
+{
+    d_note_rows(s, role, text);
     out(s);
+}
+
+/* a dim status drawn, its place in the transcript kept for showStatus to put the next one there */
+static void status_draw(pi_show *s, ps_item *it)
+{
+    it->sany = s->any;
+    it->safter = s->after_block;
+    it->mark = s->t->n_lines;
+    d_note(s, (int)it->a, it->x.p ? it->x.p : "");
+    it->end = s->t->n_lines;
 }
 
 static void d_error(pi_show *s, const char *text)
@@ -657,6 +722,151 @@ static int arg_str(jv a, const char *key, char *out, long cap)
     if (!json_get(a, key, &v) || json_type(v) != J_STR)
         return 0;
     json_str(v, out, cap);
+    return 1;
+}
+
+/* renderers/read.ts:28-34 formatReadLineRange: ":<start>-<end>" in the warning colour when offset or limit is there (a null is none) */
+static void line_range(const pi_show *s, jv a, char *l, long cap)
+{
+    jv o, li;
+    int has_o = json_get(a, "offset", &o) && json_type(o) == J_NUM, has_l = json_get(a, "limit", &li) && json_type(li) == J_NUM;
+    char b[48], n[16];
+    long off;
+    if (!has_o && !has_l)
+        return;
+    off = has_o ? json_long(o, 1) : 1;
+    cl_cat(l, sg(s, PR_WARNING, b), cap);
+    cl_cat(l, ":", cap);
+    cl_ltoa(off, n);
+    cl_cat(l, n, cap);
+    if (has_l) {
+        cl_cat(l, "-", cap);
+        cl_ltoa(off + json_long(li, 1) - 1, n);
+        cl_cat(l, n, cap);
+    }
+    cl_cat(l, SGR0, cap);
+}
+
+/* the path of a call made absolute against the working directory, "." and ".." resolved (pi's resolveToCwd) */
+static void abs_path(const pi_show *s, const char *raw_path, char *out, long cap)
+{
+    char tmp[800];
+    long i, k = 0, n;
+    int rooted = raw_path[0] == '/' || (strchr(raw_path, ':') && (!strchr(raw_path, '/') || strchr(raw_path, ':') < strchr(raw_path, '/')));
+    tmp[0] = 0;
+    if (!rooted) {
+        cl_copy(tmp, s->root, sizeof(tmp));
+        n = (long)strlen(tmp);
+        if (n && tmp[n - 1] != '/' && tmp[n - 1] != ':')
+            cl_cat(tmp, "/", sizeof(tmp));
+    }
+    cl_cat(tmp, raw_path, sizeof(tmp));
+    /* segments: "." dropped, ".." takes the one before it */
+    n = (long)strlen(tmp);
+    i = 0;
+    out[0] = 0;
+    {
+        long start = 0;
+        /* keep a leading "/" or "Volume:" */
+        if (tmp[0] == '/')
+            start = 1;
+        else {
+            const char *c = strchr(tmp, ':');
+            if (c && (!strchr(tmp, '/') || c < strchr(tmp, '/')))
+                start = (long)(c - tmp) + 1;
+        }
+        if (start >= cap)
+            start = cap - 1;
+        memcpy(out, tmp, (size_t)start);
+        k = start;
+        i = start;
+        while (i < n) {
+            long e = i, seglen;
+            while (e < n && tmp[e] != '/')
+                e++;
+            seglen = e - i;
+            if (seglen == 0 || (seglen == 1 && tmp[i] == '.'))
+                ;
+            else if (seglen == 2 && tmp[i] == '.' && tmp[i + 1] == '.') {
+                if (k > start) {
+                    k--;
+                    while (k > start && out[k - 1] != '/')
+                        k--;
+                    if (k > start)
+                        k--;            /* the "/" before it */
+                }
+            } else {
+                if (k > start && k < cap - 1)
+                    out[k++] = '/';
+                else if (k == start && start > 0 && out[start - 1] != '/' && out[start - 1] != ':' && k < cap - 1)
+                    out[k++] = '/';
+                if (k + seglen < cap) {
+                    memcpy(out + k, tmp + i, (size_t)seglen);
+                    k += seglen;
+                }
+            }
+            i = e + 1;
+        }
+    }
+    out[k] = 0;
+}
+
+/* renderers/read.ts:67-111: a skill's SKILL.md or a context file (AGENTS.md, CLAUDE.md ...) read while the box is collapsed is one short
+ * line. Appended to l; 0 when the path is neither. (pi's third form, a file of pi's own docs, has no counterpart here: this program
+ * ships none.) */
+static int read_compact(const pi_show *s, jv a, char *l, long cap)
+{
+    char raw_path[400], ap[800], label[800], b[48], b2[48];
+    const char *base, *slash;
+    long rl;
+    if (!arg_str(a, "file_path", raw_path, sizeof(raw_path)) || !raw_path[0])
+        if (!arg_str(a, "path", raw_path, sizeof(raw_path)) || !raw_path[0])
+            return 0;
+    abs_path(s, raw_path, ap, sizeof(ap));
+    slash = strrchr(ap, '/');
+    if (!slash)
+        slash = strrchr(ap, ':');
+    base = slash ? slash + 1 : ap;
+    if (!strcmp(base, "SKILL.md")) {
+        /* basename(dirname(path)) */
+        const char *end = slash ? slash : ap, *st = end;
+        while (st > ap && st[-1] != '/' && st[-1] != ':')
+            st--;
+        cl_copy(label, "", sizeof(label));
+        if (end > st) {
+            long n = (long)(end - st);
+            if (n >= (long)sizeof(label))
+                n = (long)sizeof(label) - 1;
+            memcpy(label, st, (size_t)n);
+            label[n] = 0;
+        } else
+            cl_copy(label, base, sizeof(label));
+        cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_LABEL, b), cap);
+        cl_cat(l, "\033[1m[skill]\033[22m ", cap);
+        cl_cat(l, SGR0, cap);
+        cl_cat(l, sg(s, PR_CUSTOM_MESSAGE_TEXT, b2), cap);
+        cl_cat(l, label, cap);
+        cl_cat(l, SGR0, cap);
+    } else if (!strcmp(base, "AGENTS.override.md") || !strcmp(base, "AGENTS.md") || !strcmp(base, "AGENTS.MD") ||
+               !strcmp(base, "CLAUDE.md") || !strcmp(base, "CLAUDE.MD")) {
+        rl = (long)strlen(s->root);
+        if (rl && !strncmp(ap, s->root, (size_t)rl) && ap[rl] == '/' && ap[rl + 1])
+            cl_copy(label, ap + rl + 1, sizeof(label));     /* formatPathRelativeToCwdOrAbsolute */
+        else
+            cl_copy(label, ap, sizeof(label));
+        cl_cat(l, BOLD, cap);
+        cl_cat(l, sg(s, PR_TOOL_TITLE, b), cap);
+        cl_cat(l, "read resource", cap);
+        cl_cat(l, SGR0 " ", cap);
+        cl_cat(l, sg(s, PR_ACCENT, b2), cap);
+        cl_cat(l, label, cap);
+        cl_cat(l, SGR0, cap);
+    } else
+        return 0;
+    line_range(s, a, l, cap);
+    cl_cat(l, sg(s, PR_DIM, b), cap);
+    cl_cat(l, " (ctrl+o to expand)", cap);
+    cl_cat(l, SGR0, cap);
     return 1;
 }
 
@@ -744,7 +954,11 @@ static void header_line(pi_show *s, const char *name, jv a)
         cl_cat(l, SGR0, sizeof(l));
     } else {
         /* read, write, edit and anything else: the name in bold, the path in the accent colour */
-        jv v;
+        if (!strcmp(name, "read") && !s->expanded && read_compact(s, a, l, sizeof(l))) {
+            raw(s, l);
+            raw(s, "\n");
+            return;
+        }
         if (!arg_str(a, "path", path, sizeof(path)))
             arg_str(a, "file_path", path, sizeof(path));
         cl_cat(l, BOLD, sizeof(l));
@@ -760,21 +974,8 @@ static void header_line(pi_show *s, const char *name, jv a)
             cl_cat(l, "...", sizeof(l));
             cl_cat(l, SGR0, sizeof(l));
         }
-        if (!strcmp(name, "read") && (json_get(a, "offset", &v) || json_get(a, "limit", &v))) {
-            jv o, li;
-            long off = json_get(a, "offset", &o) && json_type(o) == J_NUM ? json_long(o, 1) : 1;
-            char n[16];
-            cl_cat(l, sg(s, PR_WARNING, b), sizeof(l));
-            cl_cat(l, ":", sizeof(l));
-            cl_ltoa(off, n);
-            cl_cat(l, n, sizeof(l));
-            if (json_get(a, "limit", &li) && json_type(li) == J_NUM) {
-                cl_cat(l, "-", sizeof(l));
-                cl_ltoa(off + json_long(li, 1) - 1, n);
-                cl_cat(l, n, sizeof(l));
-            }
-            cl_cat(l, SGR0, sizeof(l));
-        }
+        if (!strcmp(name, "read"))
+            line_range(s, a, l, sizeof(l));
     }
     raw(s, l);
     raw(s, "\n");
@@ -809,9 +1010,457 @@ static long count_lines(const char *p, long n)
     return k;
 }
 
-static void bash_result(pi_show *s, const char *text, unsigned long ms, long recorded, int live);
+/* ---- text with colours in it: highlighted code and the edit diff ---- */
+
+typedef struct sgr_ev {
+    long at, src, len;          /* an SGR sequence of the text: before plain byte `at`, at z[src ..) */
+} sgr_ev;
+
+/* one line of text that holds SGR sequences (ESC [ ... m) in rows of at most width columns, as show_wrap breaks the plain text; each row
+ * after pre. What is in force at the end of a row is set again at the start of the next, as pi-tui's wrapTextWithAnsi does */
+static void wrap_sgr(pi_show *s, const char *pre, const char *z, long n, int width)
+{
+    jw pl;
+    sgr_ev *ev = 0;
+    long nev = 0, cap = 0, i = 0, a = 0, e, ei = 0;
+    char act[512];
+    jw_init(&pl);
+    while (i < n) {
+        if (z[i] == '\033' && i + 1 < n && z[i + 1] == '[') {
+            long j = i + 2;
+            while (j < n && ((z[j] >= '0' && z[j] <= '9') || z[j] == ';'))
+                j++;
+            if (j < n && z[j] == 'm') {
+                if (nev == cap) {
+                    sgr_ev *x = (sgr_ev *)realloc(ev, (size_t)(cap ? cap * 2 : 32) * sizeof(*ev));
+                    if (!x)
+                        break;
+                    ev = x;
+                    cap = cap ? cap * 2 : 32;
+                }
+                ev[nev].at = pl.n;
+                ev[nev].src = i;
+                ev[nev].len = j + 1 - i;
+                nev++;
+                i = j + 1;
+                continue;
+            }
+        }
+        jw_raw(&pl, z + i, 1);
+        i++;
+    }
+    if (width < 8)
+        width = 8;
+    e = pl.n;
+    act[0] = 0;
+    if (!e) {
+        raw(s, pre);
+        raw(s, "\n");
+    }
+    while (a < e) {
+        long k = show_row_end(pl.p, a, e, width), b;
+        while (ei < nev && ev[ei].at < a) {         /* before the row (in the spaces that were skipped): only the style changes */
+            long l = sgr_reset_len(z + ev[ei].src, ev[ei].len);
+            if (l)
+                act[0] = 0;
+            if (strlen(act) + (size_t)ev[ei].len < sizeof(act))
+                strncat(act, z + ev[ei].src, (size_t)ev[ei].len);
+            ei++;
+        }
+        raw(s, pre);
+        raw(s, act);
+        for (b = a; b < k; b++) {
+            while (ei < nev && ev[ei].at == b) {
+                long l = sgr_reset_len(z + ev[ei].src, ev[ei].len);
+                jw_raw(&s->batch, z + ev[ei].src, ev[ei].len);
+                if (l)
+                    act[0] = 0;
+                if (strlen(act) + (size_t)ev[ei].len < sizeof(act))
+                    strncat(act, z + ev[ei].src, (size_t)ev[ei].len);
+                ei++;
+            }
+            jw_raw(&s->batch, pl.p + b, 1);
+        }
+        raw(s, SGR0 "\n");
+        a = k;
+        while (a < e && pl.p[a] == ' ')
+            a++;
+    }
+    free(ev);
+    jw_free(&pl);
+}
+
+/* theme.ts getLanguageFromPath: the language of the last dot's extension (or of the whole name), 0 none */
+static const char *lang_of_path(const char *path)
+{
+    static const char *const tab[] = {
+        "ts", "typescript", "tsx", "typescript", "js", "javascript", "jsx", "javascript", "mjs", "javascript", "cjs", "javascript",
+        "py", "python", "rb", "ruby", "rs", "rust", "go", "go", "java", "java", "kt", "kotlin", "swift", "swift", "c", "c", "h", "c",
+        "cpp", "cpp", "cc", "cpp", "cxx", "cpp", "hpp", "cpp", "cs", "csharp", "php", "php", "sh", "bash", "bash", "bash", "zsh", "bash",
+        "fish", "fish", "ps1", "powershell", "sql", "sql", "html", "html", "htm", "html", "css", "css", "scss", "scss", "sass", "sass",
+        "less", "less", "json", "json", "yaml", "yaml", "yml", "yaml", "toml", "toml", "xml", "xml", "md", "markdown", "markdown", "markdown",
+        "dockerfile", "dockerfile", "makefile", "makefile", "cmake", "cmake", "lua", "lua", "perl", "perl", "r", "r", "scala", "scala",
+        "clj", "clojure", "ex", "elixir", "exs", "elixir", "erl", "erlang", "hs", "haskell", "ml", "ocaml", "vim", "vim", "graphql", "graphql",
+        "proto", "protobuf", "tf", "hcl", "hcl", "hcl", 0
+    };
+    const char *dot = strrchr(path, '.'), *e = dot ? dot + 1 : path;
+    char lo[24];
+    size_t n = strlen(e), i;
+    int k;
+    if (!n || n >= sizeof(lo))
+        return 0;
+    for (i = 0; i < n; i++)
+        lo[i] = e[i] >= 'A' && e[i] <= 'Z' ? (char)(e[i] + 32) : e[i];
+    lo[n] = 0;
+    for (k = 0; tab[k]; k += 2)
+        if (!strcmp(tab[k], lo))
+            return tab[k + 1];
+    return 0;
+}
+
+typedef struct hl_out {
+    pi_show *s;
+    jw *o;
+    int depth, known;
+} hl_out;
+
+static void hl_token(void *u, int cls, const char *p, long n)
+{
+    hl_out *h = (hl_out *)u;
+    char sgr[64];
+    int l = hl_sgr(sgr, &h->s->hlt.s[cls == HL_PLAIN && !h->known ? MD_CODEBLOCK : cls], h->depth);
+    jw_raw(h->o, sgr, l);
+    jw_raw(h->o, p, n);
+}
+
+/* the lines of text as renderers/read.ts:121-136 and write.ts:96-127 show a file's text: tabs three spaces, CRs gone, the trailing empty
+ * lines cut, at most max lines (max < 0: all; toolOutputExpanded) written as rows after pre: with a language (theme.ts
+ * getLanguageFromPath) highlighted (the Markdown code block colour when the lexer has no such language), else in the output colour.
+ * *total is the number of lines before max cut them. */
+static void code_rows(pi_show *s, const char *text, long n, const char *lang, int max, long *total)
+{
+    jw t, line;
+    long i, a = 0, end, nl = 0, shown = 0;
+    char b[48];
+    const hl_lang *L = lang ? hl_find(lang, (long)strlen(lang)) : 0;
+    hl_state st;
+    hl_out ho;
+    jw_init(&t);
+    for (i = 0; i < n; i++) {
+        if (text[i] == '\r')
+            continue;
+        if (text[i] == '\t')
+            jw_rawz(&t, "   ");
+        else
+            jw_raw(&t, text + i, 1);
+    }
+    end = t.n;
+    /* the lines are text.split("\n"); the empty ones at the end go */
+    while (end > 0 && t.p[end - 1] == '\n')
+        end--;
+    for (i = 0; i <= end && end > 0; i++)
+        if (i == end || t.p[i] == '\n')
+            nl++;
+    *total = nl;
+    ho.s = s;
+    ho.depth = s->th->depth >= 256 ? s->th->depth : 16;
+    ho.known = L != 0;
+    hl_begin(&st, L);
+    jw_init(&line);
+    for (i = 0; i <= end && end > 0 && (max < 0 || shown < max); i++) {
+        if (i != end && t.p[i] != '\n')
+            continue;
+        jw_reset(&line);
+        if (lang) {
+            ho.o = &line;
+            hl_line(&st, t.p + a, i - a, hl_token, &ho);
+            jw_rawz(&line, SGR0);
+        } else {
+            jw_rawz(&line, sg(s, PR_TOOL_OUTPUT, b));
+            jw_raw(&line, t.p + a, i - a);
+            jw_rawz(&line, SGR0);
+        }
+        wrap_sgr(s, pd(s), line.p ? line.p : "", line.n, (int)pwid(s));
+        a = i + 1;
+        shown++;
+    }
+    jw_free(&line);
+    jw_free(&t);
+}
+
+/* the warning rows of a result's details (renderers/read.ts:138-147): one row in the warning colour */
+static void warn_row(pi_show *s, const char *msg)
+{
+    char b[48];
+    show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_WARNING, b), msg, (long)strlen(msg), pwid(s));
+}
+
+/* a number member of a details object, or def */
+static long det_num(jv o, const char *key, long def)
+{
+    jv v;
+    return json_type(o) == J_OBJ && json_get(o, key, &v) && json_type(v) == J_NUM ? json_long(v, def) : def;
+}
+
+static int det_true(jv o, const char *key)
+{
+    jv v;
+    return json_type(o) == J_OBJ && json_get(o, key, &v) && json_type(v) == J_TRUE;
+}
+
+/* details.truncation of a result: the object when it says truncated, else a null jv */
+static int det_trunc(jv det, jv *tr)
+{
+    jv v;
+    if (json_type(det) == J_OBJ && json_get(det, "truncation", &v) && det_true(v, "truncated")) {
+        *tr = v;
+        return 1;
+    }
+    return 0;
+}
+
+/* renderers/read.ts:138-147 */
+static void read_warnings(pi_show *s, jv det)
+{
+    jv tr, v;
+    char m[200], num[16], sz[32];
+    if (!det_trunc(det, &tr))
+        return;
+    pi_size(det_num(tr, "maxBytes", PI_MAX_BYTES), sz, sizeof(sz));
+    if (det_true(tr, "firstLineExceedsLimit")) {
+        cl_copy(m, "[First line exceeds ", sizeof(m));
+        cl_cat(m, sz, sizeof(m));
+        cl_cat(m, " limit]", sizeof(m));
+    } else if (json_get(tr, "truncatedBy", &v) && json_streq(v, "lines")) {
+        cl_copy(m, "[Truncated: showing ", sizeof(m));
+        cl_ltoa(det_num(tr, "outputLines", 0), num);
+        cl_cat(m, num, sizeof(m));
+        cl_cat(m, " of ", sizeof(m));
+        cl_ltoa(det_num(tr, "totalLines", 0), num);
+        cl_cat(m, num, sizeof(m));
+        cl_cat(m, " lines (", sizeof(m));
+        cl_ltoa(det_num(tr, "maxLines", PI_MAX_LINES), num);
+        cl_cat(m, num, sizeof(m));
+        cl_cat(m, " line limit)]", sizeof(m));
+    } else {
+        cl_copy(m, "[Truncated: ", sizeof(m));
+        cl_ltoa(det_num(tr, "outputLines", 0), num);
+        cl_cat(m, num, sizeof(m));
+        cl_cat(m, " lines shown (", sizeof(m));
+        cl_cat(m, sz, sizeof(m));
+        cl_cat(m, " limit)]", sizeof(m));
+    }
+    warn_row(s, m);
+}
+
+/* renderers/ls.ts:48-55, find.ts:55-61, grep.ts:58-67: "[Truncated: <limit>, <50.0KB limit>[, some lines truncated]]" */
+static void list_warnings(pi_show *s, const char *name, jv det)
+{
+    jv tr;
+    char m[200], num[16], sz[32];
+    const char *lkey = !strcmp(name, "ls") ? "entryLimitReached" : !strcmp(name, "find") ? "resultLimitReached" : "matchLimitReached";
+    const char *lword = !strcmp(name, "ls") ? " entries limit" : !strcmp(name, "find") ? " results limit" : " matches limit";
+    long limit = det_num(det, lkey, 0);
+    int k = 0, has_tr = det_trunc(det, &tr), lines_cut = !strcmp(name, "grep") && det_true(det, "linesTruncated");
+    if (!limit && !has_tr && !lines_cut)
+        return;
+    cl_copy(m, "[Truncated: ", sizeof(m));
+    if (limit) {
+        cl_ltoa(limit, num);
+        cl_cat(m, num, sizeof(m));
+        cl_cat(m, lword, sizeof(m));
+        k = 1;
+    }
+    if (has_tr) {
+        pi_size(det_num(tr, "maxBytes", PI_MAX_BYTES), sz, sizeof(sz));
+        cl_cat(m, k ? ", " : "", sizeof(m));
+        cl_cat(m, sz, sizeof(m));
+        cl_cat(m, " limit", sizeof(m));
+        k = 1;
+    }
+    if (lines_cut) {
+        cl_cat(m, k ? ", " : "", sizeof(m));
+        cl_cat(m, "some lines truncated", sizeof(m));
+    }
+    cl_cat(m, "]", sizeof(m));
+    warn_row(s, m);
+}
+
+/* ---- renderDiff (components/diff.ts) ---- */
+
+/* parseDiffLine: /^([+-\s])(\s*\d*)\s(.*)$/ -- the line number's span [ns, ne) and where the content starts, 0 when it does not match */
+static int diff_parse(const char *l, long n, long *ns, long *ne, long *cs)
+{
+    long i = 1, j;
+    if (n < 1 || !(l[0] == '+' || l[0] == '-' || l[0] == ' ' || l[0] == '\t'))
+        return 0;
+    while (i < n && (l[i] == ' ' || l[i] == '\t'))
+        i++;
+    while (i < n && l[i] >= '0' && l[i] <= '9')
+        i++;
+    /* the greedy \s*\d* gives back until a whitespace follows */
+    for (j = i; j >= 1; j--)
+        if (j < n && (l[j] == ' ' || l[j] == '\t')) {
+            *ns = 1;
+            *ne = j;
+            *cs = j + 1;
+            return 1;
+        }
+    return 0;
+}
+
+/* replaceTabs into o */
+static void tabs3(jw *o, const char *p, long n)
+{
+    long i;
+    for (i = 0; i < n; i++)
+        if (p[i] == '\t')
+            jw_rawz(o, "   ");
+        else
+            jw_raw(o, p + i, 1);
+}
+
+/* renderIntraLineDiff: the changed words in inverse, the first changed part's leading whitespace left out of it */
+static void intra_line(const char *a, long an, const char *b, long bn, jw *ra, jw *rb)
+{
+    jd_res r;
+    long i;
+    int first_a = 1, first_b = 1;
+    if (jd_words(a, an, b, bn, &r)) {
+        jw_raw(ra, a, an);
+        jw_raw(rb, b, bn);
+        return;
+    }
+    for (i = 0; i < r.n; i++) {
+        const jd_part *p = &r.p[i];
+        if (p->removed || p->added) {
+            jw *o = p->removed ? ra : rb;
+            int *first = p->removed ? &first_a : &first_b;
+            const char *v = p->v;
+            long n = p->n;
+            if (*first) {
+                long ws = jd_leading_ws(v, n);
+                jw_raw(o, v, ws);
+                v += ws;
+                n -= ws;
+                *first = 0;
+            }
+            if (n) {
+                jw_rawz(o, "\033[7m");
+                jw_raw(o, v, n);
+                jw_rawz(o, "\033[27m");
+            }
+        } else {
+            jw_raw(ra, p->v, p->n);
+            jw_raw(rb, p->v, p->n);
+        }
+    }
+    jd_free(&r);
+}
+
+/* a diff line in a role's colour, wrapped */
+static void diff_row(pi_show *s, int role, const char *sign_num, long snn, const char *content, long cn)
+{
+    jw l;
+    char b[48];
+    jw_init(&l);
+    jw_rawz(&l, sg(s, role, b));
+    jw_raw(&l, sign_num, snn);
+    jw_rawz(&l, " ");
+    jw_raw(&l, content, cn);
+    wrap_sgr(s, pd(s), l.p ? l.p : "", l.n, (int)pwid(s));
+    jw_free(&l);
+}
+
+/* the end of the line at p when it is a diff line with this sign, else -1 */
+static long diff_line(const char *d, long n, long p, int sign)
+{
+    long e = p, a, b, c;
+    if (p > n)
+        return -1;
+    while (e < n && d[e] != '\n')
+        e++;
+    if (!diff_parse(d + p, e - p, &a, &b, &c) || d[p] != sign)
+        return -1;
+    return e;
+}
+
+/* one diff line (sign, number, content) in a role's colour, the tabs in the content three spaces */
+static void diff_plain(pi_show *s, int role, const char *l, long n)
+{
+    jw t;
+    long ns, ne, cs;
+    jw_init(&t);
+    diff_parse(l, n, &ns, &ne, &cs);
+    tabs3(&t, l + cs, n - cs);
+    diff_row(s, role, l, ne, t.p ? t.p : "", t.n);
+    jw_free(&t);
+}
+
+/* renderDiff: context lines dim, removed red, added green; a single removed line followed by a single added one with the changed words
+ * marked */
+static void render_diff(pi_show *s, const char *d, long n)
+{
+    long i = 0;
+    while (i <= n) {
+        long e = i, ns, ne, cs;
+        while (e < n && d[e] != '\n')
+            e++;
+        if (!diff_parse(d + i, e - i, &ns, &ne, &cs)) {
+            jw l;
+            char b[48];
+            jw_init(&l);
+            jw_rawz(&l, sg(s, PR_TOOL_DIFF_CONTEXT, b));
+            jw_raw(&l, d + i, e - i);
+            wrap_sgr(s, pd(s), l.p ? l.p : "", l.n, (int)pwid(s));
+            jw_free(&l);
+        } else if (d[i] == '-') {
+            long rs[64], re[64], as[64], ae[64], nr = 0, na = 0, p = i, k, f;
+            while (nr < 64 && (f = diff_line(d, n, p, '-')) >= 0) {
+                rs[nr] = p;
+                re[nr++] = f;
+                p = f + 1;
+            }
+            while (na < 64 && (f = diff_line(d, n, p, '+')) >= 0) {
+                as[na] = p;
+                ae[na++] = f;
+                p = f + 1;
+            }
+            if (nr == 1 && na == 1) {
+                jw ta, tb, ra, rb;
+                long ns2, ne2, cs2, ns3, ne3, cs3;
+                jw_init(&ta);
+                jw_init(&tb);
+                jw_init(&ra);
+                jw_init(&rb);
+                diff_parse(d + rs[0], re[0] - rs[0], &ns2, &ne2, &cs2);
+                diff_parse(d + as[0], ae[0] - as[0], &ns3, &ne3, &cs3);
+                tabs3(&ta, d + rs[0] + cs2, re[0] - rs[0] - cs2);
+                tabs3(&tb, d + as[0] + cs3, ae[0] - as[0] - cs3);
+                intra_line(ta.p ? ta.p : "", ta.n, tb.p ? tb.p : "", tb.n, &ra, &rb);
+                diff_row(s, PR_TOOL_DIFF_REMOVED, d + rs[0], ne2, ra.p ? ra.p : "", ra.n);
+                diff_row(s, PR_TOOL_DIFF_ADDED, d + as[0], ne3, rb.p ? rb.p : "", rb.n);
+                jw_free(&ta);
+                jw_free(&tb);
+                jw_free(&ra);
+                jw_free(&rb);
+            } else {
+                for (k = 0; k < nr; k++)
+                    diff_plain(s, PR_TOOL_DIFF_REMOVED, d + rs[k], re[k] - rs[k]);
+                for (k = 0; k < na; k++)
+                    diff_plain(s, PR_TOOL_DIFF_ADDED, d + as[k], ae[k] - as[k]);
+            }
+            i = p;
+            continue;
+        } else
+            diff_plain(s, d[i] == '+' ? PR_TOOL_DIFF_ADDED : PR_TOOL_DIFF_CONTEXT, d + i, e - i);
+        i = e + 1;
+    }
+}
+static void bash_result(pi_show *s, const char *text, unsigned long ms, long recorded, int live, jv det);
 static void result_lines(pi_show *s, const char *text, int role, int max);
-static void read_lines(pi_show *s, const char *text);
+static void read_rows(pi_show *s, jv a, const char *text);
+static void write_body(pi_show *s, jv a);
 
 /* the rows of a tool's box into the batch: pi's ToolExecutionComponent, a Box(outputPad, 1) holding the call's header
  * and the result renderer's rows, over toolPendingBg until the result is final, then toolSuccessBg / toolErrorBg. With
@@ -819,40 +1468,66 @@ static void read_lines(pi_show *s, const char *text);
 static void box_build(pi_show *s, const ps_box *b)
 {
     jw text;
-    jv a;
+    jv a, det;
     long from = s->batch.n;
-    int replay = s->replay;
+    int replay = s->replay, bg, has_diff = 0;
+    jv dv;
     s->replay = b->replay;
     if (json_parse(b->args.p, b->args.n, &a))
         a.p = 0, a.n = 0;
+    det.p = 0;
+    det.n = 0;
+    if (b->det.n && json_parse(b->det.p, b->det.n, &det))
+        det.p = 0, det.n = 0;
     blank(s);
     header_line(s, b->name, a);
+    if (!strcmp(b->name, "write"))
+        write_body(s, a);
     jw_init(&text);
     if (!b->done) {
         /* running: bash shows its output so far and "Elapsed" (bash.ts:61-111); pi's renderResult runs only once a
          * partial result exists, and the bash tool sends an empty one when it starts (core/tools/bash.ts:318) */
-        if (b->elapsed)
-            bash_result(s, b->partial.p ? b->partial.p : "", clock_ms(s) - b->t0, -1, 1);
+        if (b->elapsed) {
+            det.p = 0;
+            bash_result(s, b->partial.p ? b->partial.p : "", clock_ms(s) - b->t0, -1, 1, det);
+        }
     } else {
         pshow_result_text(b->result.p ? b->result.p : "", b->result.n, &text);
         jw_rawz(&text, "");
         if (!strcmp(b->name, "bash"))
-            bash_result(s, text.p ? text.p : "", 0, b->duration_ms, 0);
+            bash_result(s, text.p ? text.p : "", 0, b->duration_ms, 0, det);
         else if (b->is_error && text.n) {
             blank(s);
             say(s, PR_ERROR, "", text.p);
         } else if (!strcmp(b->name, "read")) {
-            if (s->expanded)        /* renderers/read.ts:80-83: collapsed, the result shows nothing */
-                read_lines(s, text.p ? text.p : "");
-        } else if (!strcmp(b->name, "ls") || !strcmp(b->name, "find"))
+            if (s->expanded) {          /* renderers/read.ts:121-124: collapsed, the result shows nothing */
+                read_rows(s, a, text.p ? text.p : "");
+                read_warnings(s, det);
+            }
+        } else if (!strcmp(b->name, "ls") || !strcmp(b->name, "find")) {
             result_lines(s, text.p ? text.p : "", PR_TOOL_OUTPUT, 20);
-        else if (!strcmp(b->name, "grep"))
+            list_warnings(s, b->name, det);
+        } else if (!strcmp(b->name, "grep")) {
             result_lines(s, text.p ? text.p : "", PR_TOOL_OUTPUT, 15);
+            list_warnings(s, b->name, det);
+        } else if (!strcmp(b->name, "edit") && json_type(det) == J_OBJ && json_get(det, "diff", &dv) && json_type(dv) == J_STR) {
+            /* renderers/edit.ts:143-150: the call component holds the diff under the call, after a blank row */
+            long dn;
+            char *d = json_strdup(dv, &dn);
+            has_diff = 1;
+            if (d) {
+                blank(s);
+                render_diff(s, d, dn);
+            }
+            free(d);
+        }
     }
     blank(s);                       /* the box's bottom padding */
     jw_free(&text);
     s->replay = replay;
-    panel(s, from, !b->done ? PR_TOOL_PENDING_BG : b->is_error ? PR_TOOL_ERROR_BG : PR_TOOL_SUCCESS_BG);
+    /* renderers/edit.ts:115-130: the edit box is coloured by its diff: without one, a result that did not fail leaves it pending */
+    bg = !b->done ? PR_TOOL_PENDING_BG : b->is_error ? PR_TOOL_ERROR_BG : !strcmp(b->name, "edit") && !has_diff ? PR_TOOL_PENDING_BG : PR_TOOL_SUCCESS_BG;
+    panel(s, from, bg);
 }
 
 /* box b drawn again where it is: its text in the copy replaced, the transcript from its first line on replaced by the
@@ -1057,44 +1732,96 @@ static void result_lines(pi_show *s, const char *text, int role, int max)
     }
 }
 
-/* renderers/read.ts:73-90, expanded: every line of the file as the tool returned it, trailing empty lines cut, tabs three
- * spaces, in the output colour (a file with a known language is highlighted by pi; not here) */
-static void read_lines(pi_show *s, const char *text)
+/* renderers/read.ts:121-136, expanded: every line of the file as the tool returned it, trailing empty lines cut, tabs three spaces, a file
+ * with a known language highlighted (theme.ts getLanguageFromPath), else in the output colour */
+static void read_rows(pi_show *s, jv a, const char *text)
 {
-    long n = (long)strlen(text), a = 0, i;
-    char b[48];
-    jw t;
-    jw_init(&t);
-    for (i = 0; i < n; i++) {
-        if (text[i] == '\t')
-            jw_rawz(&t, "   ");
-        else
-            jw_raw(&t, text + i, 1);
-    }
-    jw_rawz(&t, "");
-    n = t.n;
-    /* the lines are text.split("\n"): a final newline leaves an empty last line, cut with the others */
-    while (n > 0 && t.p[n - 1] == '\n')
-        n--;
+    char path[400];
+    const char *lang = 0;
+    long total;
+    if ((arg_str(a, "file_path", path, sizeof(path)) && path[0]) || (arg_str(a, "path", path, sizeof(path)) && path[0]))
+        lang = lang_of_path(path);
     blank(s);
-    for (i = 0; i <= n && n > 0; i++)
-        if (i == n || t.p[i] == '\n') {
-            show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_TOOL_OUTPUT, b), t.p + a, i - a, pwid(s));
-            a = i + 1;
-        }
-    jw_free(&t);
+    code_rows(s, text, (long)strlen(text), lang, -1, &total);
+}
+
+/* renderers/write.ts:96-127: the content under the call, after a blank row: ten lines (all when expanded) highlighted for a known
+ * language, "... (N more lines, T total, ctrl+o to expand)" below when there are more */
+static void write_body(pi_show *s, jv a)
+{
+    char path[400], b[48];
+    jv v;
+    const char *lang = 0;
+    char *content;
+    long cn, total, rest;
+    if (!json_get(a, "content", &v) || json_type(v) == J_NULL)
+        return;
+    if (json_type(v) != J_STR) {
+        blank(s);
+        raw(s, pd(s));
+        raw(s, sg(s, PR_ERROR, b));
+        raw(s, "[invalid content arg - expected string]" SGR0 "\n");
+        return;
+    }
+    content = json_strdup(v, &cn);
+    if (!content || !cn) {
+        free(content);
+        return;
+    }
+    if ((arg_str(a, "file_path", path, sizeof(path)) && path[0]) || (arg_str(a, "path", path, sizeof(path)) && path[0]))
+        lang = lang_of_path(path);
+    blank(s);
+    code_rows(s, content, cn, lang, s->expanded ? -1 : 10, &total);
+    rest = total - 10;
+    if (!s->expanded && rest > 0) {
+        char m[96], num[16];
+        cl_copy(m, "... (", sizeof(m));
+        cl_ltoa(rest, num);
+        cl_cat(m, num, sizeof(m));
+        cl_cat(m, " more lines, ", sizeof(m));
+        cl_ltoa(total, num);
+        cl_cat(m, num, sizeof(m));
+        cl_cat(m, " total, ", sizeof(m));
+        hint_row(s, m, " to expand)");
+    }
+    free(content);
 }
 
 /* bash: the last five lines of the output, "... (N earlier lines, ctrl+o to expand)" above when more (expanded: all of
  * it, renderers/bash.ts:60-77), then how long it took (live: how long it has run so far) */
-static void bash_result(pi_show *s, const char *text, unsigned long ms, long recorded, int live)
+static void bash_result(pi_show *s, const char *text, unsigned long ms, long recorded, int live, jv det)
 {
     char b[48], dur[24], m[96], num[16];
     long n = (long)strlen(text), a = 0, i, nrows = 0, skip = 0, row = 0, start = 0;
+    jv tr, pv;
+    char *full = 0;
+    int cut = !live && det_trunc(det, &tr);
     while (n > 0 && (text[n - 1] == '\n' || text[n - 1] == ' ' || text[n - 1] == '\t' || text[n - 1] == '\r'))
         n--;
     while (a < n && (text[a] == '\n' || text[a] == ' ' || text[a] == '\t'))
         a++;
+    if (!live && json_type(det) == J_OBJ && json_get(det, "fullOutputPath", &pv) && json_type(pv) == J_STR)
+        full = json_strdup(pv, 0);
+    /* renderers/bash.ts:53-60: the tool's own "[... Full output: <path>]" footer is left out of the output, the warning row below says it */
+    if (cut && full && n > 0 && text[n - 1] == ']') {
+        long f;
+        for (f = n - 3; f >= 0; f--)
+            if (text[f] == '\n' && text[f + 1] == '\n' && text[f + 2] == '[')
+                break;
+        if (f >= 0) {
+            char *tail = (char *)malloc((size_t)(n - f) + 1);
+            if (tail) {
+                memcpy(tail, text + f, (size_t)(n - f));
+                tail[n - f] = 0;
+                if (strstr(tail, full)) {
+                    n = f;
+                    while (n > 0 && (text[n - 1] == '\n' || text[n - 1] == ' ' || text[n - 1] == '\t' || text[n - 1] == '\r'))
+                        n--;
+                }
+                free(tail);
+            }
+        }
+    }
     if (a < n) {
         /* the output wrapped to the screen's width: its rows ("visual lines"), the last five kept */
         jw wrapped;
@@ -1125,6 +1852,42 @@ static void bash_result(pi_show *s, const char *text, unsigned long ms, long rec
         }
         jw_free(&wrapped);
     }
+    /* renderers/bash.ts:85-100 */
+    if (cut || full) {
+        char w[400], sz[32], num[16];
+        w[0] = 0;
+        cl_copy(w, "[", sizeof(w));
+        if (full) {
+            cl_cat(w, "Full output: ", sizeof(w));
+            cl_cat(w, full, sizeof(w));
+        }
+        if (cut) {
+            jv v;
+            if (full)
+                cl_cat(w, ". ", sizeof(w));
+            if (json_get(tr, "truncatedBy", &v) && json_streq(v, "lines")) {
+                cl_cat(w, "Truncated: showing ", sizeof(w));
+                cl_ltoa(det_num(tr, "outputLines", 0), num);
+                cl_cat(w, num, sizeof(w));
+                cl_cat(w, " of ", sizeof(w));
+                cl_ltoa(det_num(tr, "totalLines", 0), num);
+                cl_cat(w, num, sizeof(w));
+                cl_cat(w, " lines", sizeof(w));
+            } else {
+                pi_size(det_num(tr, "maxBytes", PI_MAX_BYTES), sz, sizeof(sz));
+                cl_cat(w, "Truncated: ", sizeof(w));
+                cl_ltoa(det_num(tr, "outputLines", 0), num);
+                cl_cat(w, num, sizeof(w));
+                cl_cat(w, " lines shown (", sizeof(w));
+                cl_cat(w, sz, sizeof(w));
+                cl_cat(w, " limit)", sizeof(w));
+            }
+        }
+        cl_cat(w, "]", sizeof(w));
+        blank(s);
+        warn_row(s, w);
+    }
+    free(full);
     /* pi 1.1.0 renderers/bash.ts:104-111: a final result's recorded durationMs wins (it survives a reload); the clock of
      * the call is the fallback while the tool runs and for results recorded without one, and a replayed result with
      * none shows no Took */
@@ -1139,7 +1902,7 @@ static void bash_result(pi_show *s, const char *text, unsigned long ms, long rec
     show_wrap(&s->batch, pd(s), pd(s), sg(s, PR_MUTED, b), m, (long)strlen(m), pwid(s));
 }
 
-void pshow_tool_end(pi_show *s, const char *id, const char *result, long rn, int is_error, long duration_ms)
+void pshow_tool_end(pi_show *s, const char *id, const char *result, long rn, int is_error, long duration_ms, const char *details, long dn)
 {
     ps_box *b;
     int k;
@@ -1150,6 +1913,11 @@ void pshow_tool_end(pi_show *s, const char *id, const char *result, long rn, int
     jw_reset(&b->result);
     jw_raw(&b->result, result, rn);
     jw_rawz(&b->result, "");
+    jw_reset(&b->det);
+    if (details && dn > 0)
+        jw_raw(&b->det, details, dn);
+    jw_rawz(&b->det, "");
+    b->det.n = details && dn > 0 ? dn : 0;
     b->is_error = is_error;
     /* the recorded duration, else the call's own clock (kept: a later redraw shows the same "Took") */
     b->duration_ms = duration_ms < 0 && !b->replay ? (long)(clock_ms(s) - b->t0) : duration_ms;
@@ -1608,10 +2376,14 @@ void pshow_replay_msgs(pi_show *s, char *const *msg, const long *msg_n, int nmsg
                     if (json_get(m, "durationMs", &v) && json_type(v) == J_NUM)
                         dur = json_long(v, -1);
                     pshow_tool_start(s, calls[k].id, calls[k].name, calls[k].args.p ? calls[k].args.p : "{}", calls[k].args.n);
-                    if (json_get(m, "content", &c))
-                        pshow_tool_end(s, calls[k].id, c.p, c.n, err, dur);
-                    else
-                        pshow_tool_end(s, calls[k].id, "[]", 2, err, dur);
+                    {
+                        jv dt;
+                        int has_det = json_get(m, "details", &dt) && json_type(dt) == J_OBJ;
+                        if (json_get(m, "content", &c))
+                            pshow_tool_end(s, calls[k].id, c.p, c.n, err, dur, has_det ? dt.p : 0, has_det ? dt.n : 0);
+                        else
+                            pshow_tool_end(s, calls[k].id, "[]", 2, err, dur, has_det ? dt.p : 0, has_det ? dt.n : 0);
+                    }
                     calls[k].shown = 1;
                     break;
                 }
@@ -1712,8 +2484,10 @@ static void item_draw(pi_show *s, ps_item *it)
         answer_draw(s, it);
         break;
     case PK_NOTE:
-    case PK_STATUS:
         d_note(s, (int)it->a, x);
+        break;
+    case PK_STATUS:
+        status_draw(s, it);
         break;
     case PK_ERROR:
         d_error(s, x);
@@ -1821,8 +2595,31 @@ void pshow_user(pi_show *s, const char *text)
 /* a dim note is pi's showStatus: Ctrl+O replaces one that is the last item */
 void pshow_note(pi_show *s, int role, const char *text)
 {
-    item_text(s, role == PR_DIM ? PK_STATUS : PK_NOTE, role, text, (long)strlen(text), 0);
-    d_note(s, role, text);
+    ps_item *last = s->nitem ? s->item[s->nitem - 1] : 0, *it;
+    if (role == PR_DIM && last && last->kind == PK_STATUS && last->end && s->ins < 0 && !s->nbox && s->t->n_lines == last->end) {
+        /* showStatus (interactive-mode.ts:3824-3834): the last child of the chat is the last status, so its text is replaced */
+        long mark = last->mark;
+        jw_reset(&last->x);
+        jw_rawz(&last->x, text);
+        s->any = last->sany;
+        s->after_block = last->safter;
+        jw_reset(&s->batch);
+        d_note_rows(s, role, text);
+        if (tui_replace_tail(s->t, mark, s->batch.p, s->batch.n) == 0) {
+            jw_reset(&s->batch);
+            last->end = s->t->n_lines;
+            return;
+        }
+        jw_reset(&s->batch);
+        last->end = 0;
+        redraw_items(s);
+        return;
+    }
+    it = item_text(s, role == PR_DIM ? PK_STATUS : PK_NOTE, role, text, (long)strlen(text), 0);
+    if (it && it->kind == PK_STATUS)
+        status_draw(s, it);
+    else
+        d_note(s, role, text);
 }
 
 void pshow_error(pi_show *s, const char *text)
@@ -1892,6 +2689,13 @@ void pshow_bash(pi_show *s, const char *command, const char *output, int exit_co
         it->c = excluded;
     }
     d_bash(s, command, output, exit_code, cancelled, excluded);
+}
+
+void pshow_set_root(pi_show *s, const char *root)
+{
+    cl_copy(s->root, root ? root : "", sizeof(s->root));
+    if (s->root[0] && strlen(s->root) > 1 && s->root[strlen(s->root) - 1] == '/')
+        s->root[strlen(s->root) - 1] = 0;
 }
 
 void pshow_set_pad(pi_show *s, int pad)

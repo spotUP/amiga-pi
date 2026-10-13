@@ -137,7 +137,19 @@ void pi_ui_set_keybindings(const char *json, long n)
 
 void pi_ui_set_quiet(int quiet)
 {
-    ui_quiet = quiet;
+    ui_quiet = quiet;               /* 0 the header and what is loaded, 1 neither (quietStartup true), 2 the header only ("header") */
+}
+
+static char ui_warn[4][1100];
+static int ui_nwarn;
+
+void pi_ui_add_warning(const char *text)
+{
+    if (ui_nwarn < 4) {
+        cl_copy(ui_warn[ui_nwarn], "Warning: ", sizeof(ui_warn[0]));
+        cl_cat(ui_warn[ui_nwarn], text, sizeof(ui_warn[0]));
+        ui_nwarn++;
+    }
 }
 
 static int ui_regular, ui_hint_only, ui_bar;
@@ -430,7 +442,7 @@ static void on_event(void *u, const pi_event *e)
         break;
     case PE_TOOL_END:
         if (p->look) {
-            pshow_tool_end(&p->ps, e->tool_id, e->result, e->result_n, e->is_error, e->duration_ms);    /* pi 1.1.0: the recorded durationMs, -1 the clock */
+            pshow_tool_end(&p->ps, e->tool_id, e->result, e->result_n, e->is_error, e->duration_ms, e->details, e->details_n);    /* pi 1.1.0: the recorded durationMs, -1 the clock */
             break;
         }
         if (e->is_error) {
@@ -1387,6 +1399,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     p->ps.render = ps_render;
     p->ps.render_u = p;
     pshow_set_pad(&p->ps, ui_pad);
+    pshow_set_root(&p->ps, ui_cwd);
     pshow_render(&p->ps, &p->render);
     footer(p);
     tui_frame(t);
@@ -1897,7 +1910,7 @@ static int login_command(pi_ui *p, cl_tui *t, const char *line)
 }
 
 static void build_skill_rows(pi_ui *p);
-static void resources_report(pi_ui *p, int listing, int header);
+static void resources_report(pi_ui *p, int listing);
 
 /* /reload (interactive-mode.ts handleReloadCommand): the resources are read again, the menu rows and the start-up block follow, and
  * a status line says so; a failure is "Reload failed: <message>" */
@@ -1921,7 +1934,7 @@ static void reload_command(pi_ui *p)
     pi_ui_set_extra_commands(0, tm, tm ? nt : 0);
     if (p->look)
         pshow_resources_begin(&p->ps);
-    resources_report(p, !ui_quiet, p->look && !ui_quiet);
+    resources_report(p, ui_quiet == 0);
     if (p->look)
         pshow_resources_end(&p->ps);
     note(p, "Reloaded skills, prompts, and context files");
@@ -2032,8 +2045,8 @@ static void rr_section(pi_ui *p, int role, const char *title, int is_skills, int
 
 /* pi's showLoadedResources for skills and prompt templates (interactive-mode.ts:1772-1930, 2044): the "[Skills]" and "[Prompts]"
  * lists unless quietStartup (compact; Ctrl+O draws them grouped by scope), and the "[Skill conflicts]" and "[Prompt conflicts]"
- * diagnostics always. header: the start header was drawn (its Spacer separates the block from it) */
-static void resources_report(pi_ui *p, int listing, int header)
+ * diagnostics always (the start header's closing Spacer separates the block from it) */
+static void resources_report(pi_ui *p, int listing)
 {
     const pi_skills *k = p->s->res ? &p->s->res->skills : 0;
     const pi_tmpls *tm = p->s->templates;
@@ -2046,8 +2059,6 @@ static void resources_report(pi_ui *p, int listing, int header)
     lt = listing && tm && tm->n;
     if (!ls && !lt && !nsd && !ntd)
         return;
-    if (header && p->look)
-        pshow_blank(&p->ps);
     if (ls)
         rr_section(p, PR_MD_HEADING, "Skills", 1, 0);
     if (lt)
@@ -2086,7 +2097,8 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
             w = nl + 1;
         }
     }
-    if (p.look && !ui_quiet)
+    p.ps.details = ui_quiet == 0;
+    if (p.look && ui_quiet != 1)
         pshow_header(&p.ps, "amiga-pi", ui_version[0] ? ui_version : "(pi " PI_VERSION ")");
     else if (!p.look) {
         cl_copy(hello, "amiga-pi in UP-Term. Model ", sizeof(hello));
@@ -2096,9 +2108,20 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         cl_cat(hello, ". Type /exit to leave.", sizeof(hello));
         ui_line(&p.ui, hello);
     }
-    resources_report(&p, !ui_quiet, p.look && !ui_quiet);
+    resources_report(&p, ui_quiet == 0);
     if (p.look && s->nmsg)
         redraw_session(&p);            /* a resumed session shows its conversation, as pi's renderInitialMessages */
+    {
+        /* run(): the startup diagnostics as warnings (interactive-mode.ts:1197-1204) */
+        int i;
+        for (i = 0; i < ui_nwarn; i++) {
+            if (p.look)
+                pshow_note(&p.ps, PR_WARNING, ui_warn[i]);
+            else
+                ui_line(&p.ui, ui_warn[i]);
+        }
+        ui_nwarn = 0;
+    }
     if (first && *first) {
         user_echo(&p, first);
         pi_prompt(s, first);

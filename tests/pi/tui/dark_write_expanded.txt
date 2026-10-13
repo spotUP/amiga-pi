@@ -1,0 +1,40 @@
+
+ write it
+
+
+ Writing.
+
+
+ write count.py
+
+ import os
+ import sys
+
+ # count the lines
+ total = 0
+ for line in sys.stdin:
+     if line:
+         total += 1
+     else:
+         total -= 1
+ while total > 3:
+     total = total - 1
+ name = "box"
+ size = 3.5
+ flag = total and not size
+ other = size or 2
+ result = total if flag else 0
+
+
+ Finished.
+
+ Tool output: expanded
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model
