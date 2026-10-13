@@ -14,6 +14,7 @@
 #include "../amiga-pi/agent.h"
 #include "../amiga-pi/ui_pi.h"
 #include "../amiga-pi/show_pi.h"
+#include "../amiga-pi/fuzzy.h"
 #include "../amiga-pi/okcolor.h"
 #include "../amiga-pi/themes_builtin.h"
 #include "../amiga-pi/app.h"
@@ -2302,6 +2303,103 @@ static void test_bash_rows_uncapped(void)
     cs_close();
 }
 
+/* J6: the slash menu is pi-tui's fuzzy filter in order of score (pi 1.1.0's own CombinedAutocompleteProvider, tools/pi_oracle/gen_fuzzy.mjs):
+ * the order of every one- and two-letter query and some more, from the file */
+static void test_slash_fuzzy(void)
+{
+    long n = 0;
+    char *f = slurp("fuzzy_cases.txt", &n), *line;
+    static cl_cmd cmd[64];
+    static char name[64][40];
+    int ncmd = 0, cases = 0, bad = 0;
+    CHECK(f != 0);
+    if (!f)
+        return;
+    for (line = f; *line; ) {
+        char *eol = strchr(line, '\n'), *tab;
+        if (!eol)
+            break;
+        *eol = 0;
+        if (!ncmd) {
+            /* the first line: the names, in menu order */
+            char *w = line;
+            while (*w) {
+                char *e = strchr(w, ' ');
+                if (e)
+                    *e = 0;
+                name[ncmd][0] = '/';
+                strcpy(name[ncmd] + 1, w);
+                cmd[ncmd].name = name[ncmd];
+                cmd[ncmd].help = "";
+                ncmd++;
+                if (!e)
+                    break;
+                w = e + 1;
+            }
+        } else if ((tab = strchr(line, '\t')) != 0) {
+            int idx[64], got, k = 0, ok = 1;
+            char text[80];
+            char *w = tab + 1;
+            *tab = 0;
+            strcpy(text, "/");
+            strcat(text, line);
+            got = pi_slash_filter(0, cmd, ncmd, text, (long)strlen(text), idx);
+            while (*w) {
+                char *e = strchr(w, ' ');
+                if (e)
+                    *e = 0;
+                if (k >= got || strcmp(cmd[idx[k]].name + 1, w))
+                    ok = 0;
+                k++;
+                if (!e)
+                    break;
+                w = e + 1;
+            }
+            if (k != got)
+                ok = 0;
+            cases++;
+            if (!ok && bad++ < 5)
+                printf("    /%s: pi lists %d, amiga-pi %d\n", line, k, got);
+        }
+        line = eol + 1;
+    }
+    CHECK(cases > 700);
+    CHECK_INT(bad, 0);
+    free(f);
+}
+
+/* I9: no row of the menu is dropped: 700 rows after the built-in ones (a copy once held 512), all of them offered and
+ * found by their name (the menu once showed 64 matches at most) */
+static void test_menu_rows_uncapped(void)
+{
+    static const char *keys[] = { "/", "\004", 0 };
+    static const char *keys_x[] = { "/x699", "\004", 0 };
+    static const char *keys_esc[] = { "/", "\033", "\004", 0 };
+    static cl_cmd rows[700];
+    static char names[700][8];
+    int i;
+    for (i = 0; i < 700; i++) {
+        names[i][0] = '/';
+        names[i][1] = 'x';
+        names[i][2] = (char)('0' + i / 100);
+        names[i][3] = (char)('0' + i / 10 % 10);
+        names[i][4] = (char)('0' + i % 10);
+        names[i][5] = 0;
+        rows[i].name = names[i];
+        rows[i].help = "a row";
+    }
+    pi_ui_set_extra_commands(2, rows, 700);
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 25, keys, 0, 0, take_shot), 0);
+    CHECK(shot_has("(1/710)"));             /* ten built-in rows and 700 more */
+    CHECK_INT(app_run(80, 25, keys_x, 0, 0, take_shot), 0);
+    CHECK(shot_has("a row"));               /* the editor holds "/x699" too: the menu row is what has a description */
+    /* Esc closes a menu of more than eight rows (it once asked for the matches into a table of eight) */
+    CHECK_INT(app_run(80, 25, keys_esc, 0, 0, take_shot), 0);
+    CHECK(!shot_has("(1/710)"));
+    pi_ui_set_extra_commands(2, 0, 0);
+}
+
 static void test_footer_cost(void)
 {
     long claude = bytes_per_key(TUI_LOOK_CLAUDE), pi = bytes_per_key(TUI_LOOK_PI);
@@ -2319,6 +2417,9 @@ static const scen scenarios[] = {
     { "start", { 0 }, { 0 }, 0, 1, 0, { HDR_VER, HDR_HELP } },
     { "editor", { "hello there", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "slash", { "/", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* J6: pi-tui's fuzzy filter and its order of score (autocomplete.ts:343-372); the prefix match listed 3 rows for '/re', pi lists 4+ */
+    { "slash_re", { "/re", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "slash_ct", { "/ct", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "slash_prompts", { "/rev", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
     { "table", { "show a table\r", 0 }, { "table.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
@@ -2424,6 +2525,8 @@ void suite_pi_tui(void)
     test_approval();
     test_footer_cost();
     test_bash_rows_uncapped();
+    test_slash_fuzzy();
+    test_menu_rows_uncapped();
     app_cleanup();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))

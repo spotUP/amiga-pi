@@ -114,6 +114,10 @@ SCENARIOS = {
     # the editor with typed text, the autocomplete menu for a slash
     'editor': dict(steps=[('type', 'hello there')], answers=[]),
     'slash': dict(steps=[('type', '/')], answers=[]),
+    # J6: the menu filter is pi-tui's fuzzy match (autocomplete.ts:343-372, fuzzy.ts), in order of score: '/re' lists commands that only
+    # contain r then e ('tree'), not just those that start with it
+    'slash_re': dict(steps=[('type', '/re')], answers=[]),
+    'slash_ct': dict(steps=[('type', '/ct')], answers=[]),
     # J: prompt templates in the menu (the agent directory's prompts/: description with its [u] tag, argument hint first)
     'slash_prompts': dict(steps=[('type', '/rev')], answers=[], agent_tree='agent_dir'),
     # a markdown answer

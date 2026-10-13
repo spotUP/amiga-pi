@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui_pi.h"
+#include "fuzzy.h"
 #include "args.h"
 #include "claude/tui.h"
 #include "claude/show.h"
@@ -29,6 +30,7 @@ typedef struct pi_ui {
     char name[160];             /* the session's name as pst_name last read it from the store */
     cl_cmd *menu;               /* the slash menu: the commands, then /skill:name for each skill (settings.json enableSkillCommands) */
     char *menu_text;            /* its strings */
+    cl_cmd *all;                /* the slash menu as the screen gets it: the built-in rows, then each slot's (ui_menu) */
 } pi_ui;
 
 /* the slash commands the menu offers: pi's own names and descriptions (core/slash-commands.js, in its order) of
@@ -56,7 +58,6 @@ void pi_ui_set_commands(const cl_cmd *cmds, int n)
 
 /* the rows after the built-in ones: prompt templates (templates.h pi_tmpl_menu), in pi's order (built-in, templates,
  * extensions, skills); the arrays belong to the caller and stay until the run ends */
-#define UI_EXTRA_MAX 512
 static const cl_cmd *ui_extra[4];
 static int ui_nextra[4];
 
@@ -68,23 +69,29 @@ void pi_ui_set_extra_commands(int slot, const cl_cmd *cmds, int n)
     }
 }
 
-/* the menu: the built-in list, then each slot's rows */
-static const cl_cmd *ui_menu(int *n)
+/* the menu: the built-in list, then each slot's rows, every one of them (a copy sized to the rows, owned by p->all) */
+static const cl_cmd *ui_menu(pi_ui *p, int *n)
 {
-    static cl_cmd menu[UI_EXTRA_MAX];
-    int i, k, m = ui_ncmds;
+    int i, k, m = 0, total = ui_ncmds;
     if (!ui_nextra[0] && !ui_nextra[1] && !ui_nextra[2] && !ui_nextra[3]) {
         *n = ui_ncmds;
         return ui_cmds;
     }
-    for (i = 0; i < ui_ncmds && i < UI_EXTRA_MAX; i++)
-        menu[i] = ui_cmds[i];
-    m = i;
     for (k = 0; k < 4; k++)
-        for (i = 0; i < ui_nextra[k] && m < UI_EXTRA_MAX; i++)
-            menu[m++] = ui_extra[k][i];
+        total += ui_nextra[k];
+    free(p->all);
+    p->all = (cl_cmd *)malloc(sizeof(cl_cmd) * (size_t)total);
+    if (!p->all) {
+        *n = ui_ncmds;              /* out of memory: the built-in rows alone */
+        return ui_cmds;
+    }
+    for (i = 0; i < ui_ncmds; i++)
+        p->all[m++] = ui_cmds[i];
+    for (k = 0; k < 4; k++)
+        for (i = 0; i < ui_nextra[k]; i++)
+            p->all[m++] = ui_extra[k][i];
     *n = m;
-    return menu;
+    return p->all;
 }
 
 /* what the footer shows of the program (pi_ui_set_cwd): the working directory */
@@ -909,7 +916,8 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     t->scrollbar = ui_bar;
     t->pith = &p->theme;
     build_skill_rows(p);
-    t->cmds = ui_menu(&t->ncmds);
+    t->cmds = ui_menu(p, &t->ncmds);
+    t->slash_filter = pi_slash_filter;      /* pi-tui's fuzzy filter and order, not C:Claude's prefix match (autocomplete.ts:343-372) */
     p->look = 1;
     show_init(sh, t);
     window_title(p, t);         /* before the start, which writes it */
@@ -1236,8 +1244,10 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
     free(line);
     free(p.menu);
     free(p.menu_text);
+    free(p.all);
     p.menu = 0;
     p.menu_text = 0;
+    p.all = 0;
     pi_ui_set_extra_commands(3, 0, 0);
     return 0;
 }
