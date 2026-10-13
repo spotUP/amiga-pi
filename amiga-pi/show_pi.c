@@ -176,6 +176,7 @@ void pshow_theme(pi_show *s, const cl_pitheme *th)
 void pshow_init(pi_show *s, cl_tui *t, const cl_pitheme *th)
 {
     memset(s, 0, sizeof(*s));
+    s->ins = -1;
     s->t = t;
     s->pad = 1;
     jw_init(&s->line);
@@ -219,6 +220,13 @@ static ps_item *item_new(pi_show *s, int kind)
     jw_init(&it->tool.args);
     jw_init(&it->tool.partial);
     jw_init(&it->tool.result);
+    if (s->ins >= 0 && s->ins <= s->nitem) {
+        /* the loaded-resources block is being written again: its items go where the old ones were */
+        memmove(&s->item[s->ins + 1], &s->item[s->ins], (size_t)(s->nitem - s->ins) * sizeof(*s->item));
+        s->item[s->ins++] = it;
+        s->nitem++;
+        return it;
+    }
     s->item[s->nitem++] = it;
     return it;
 }
@@ -1703,16 +1711,10 @@ static void item_draw(pi_show *s, ps_item *it)
     }
 }
 
-void pshow_expand(pi_show *s, int expanded, const char *status)
+/* the screen drawn again from the items */
+static void redraw_items(pi_show *s)
 {
     long i, n_text = s->n_text, n_blocks = s->n_blocks, n_tools = s->n_tools;
-    ps_item *last = s->nitem ? s->item[s->nitem - 1] : 0;
-    s->expanded = expanded;
-    if (last && last->kind == PK_STATUS) {              /* showStatus (interactive-mode.ts:3824-3834) */
-        jw_reset(&last->x);
-        jw_rawz(&last->x, status);
-    } else
-        item_text(s, PK_STATUS, PR_DIM, status, (long)strlen(status), 0);
     md_abandon(s);
     box_forget(s);
     tui_clear(s->t);
@@ -1724,6 +1726,43 @@ void pshow_expand(pi_show *s, int expanded, const char *status)
     s->n_text = n_text;
     s->n_blocks = n_blocks;
     s->n_tools = n_tools;
+}
+
+void pshow_expand(pi_show *s, int expanded, const char *status)
+{
+    ps_item *last = s->nitem ? s->item[s->nitem - 1] : 0;
+    s->expanded = expanded;
+    if (last && last->kind == PK_STATUS) {              /* showStatus (interactive-mode.ts:3824-3834) */
+        jw_reset(&last->x);
+        jw_rawz(&last->x, status);
+    } else
+        item_text(s, PK_STATUS, PR_DIM, status, (long)strlen(status), 0);
+    redraw_items(s);
+}
+
+/* pi's reload() empties loadedResourcesContainer and showLoadedResources fills it again (interactive-mode.ts:6489-6496): the old block's
+ * items are dropped (the run after the header of RTITLE, RLINE, REND and BLANK items) and what is written until pshow_resources_end
+ * takes their place; the end draws the screen again */
+void pshow_resources_begin(pi_show *s)
+{
+    long start = s->nitem && s->item[0]->kind == PK_HEADER ? 1 : 0, end = start, i;
+    while (end < s->nitem) {
+        int k = s->item[end]->kind;
+        if (k != PK_RTITLE && k != PK_RLINE && k != PK_REND && k != PK_BLANK)
+            break;
+        end++;
+    }
+    for (i = start; i < end; i++)
+        item_free(s->item[i]);
+    memmove(&s->item[start], &s->item[end], (size_t)(s->nitem - end) * sizeof(*s->item));
+    s->nitem -= end - start;
+    s->ins = start;
+}
+
+void pshow_resources_end(pi_show *s)
+{
+    s->ins = -1;
+    redraw_items(s);
 }
 
 void pshow_header(pi_show *s, const char *name, const char *version)
@@ -1774,7 +1813,8 @@ void pshow_custom(pi_show *s, const char *type, const char *text, long n)
 void pshow_resource_title(pi_show *s, int role, const char *title)
 {
     item_text(s, PK_RTITLE, role, title, (long)strlen(title), 0);
-    d_rtitle(s, role, title);
+    if (s->ins < 0)
+        d_rtitle(s, role, title);
 }
 
 void pshow_resource_line(pi_show *s, int kind, int mode, const char *text)
@@ -1782,19 +1822,22 @@ void pshow_resource_line(pi_show *s, int kind, int mode, const char *text)
     ps_item *it = item_text(s, PK_RLINE, kind, text, (long)strlen(text), 0);
     if (it)
         it->b = mode;
-    d_rline(s, kind, mode, text);
+    if (s->ins < 0)
+        d_rline(s, kind, mode, text);
 }
 
 void pshow_resource_end(pi_show *s)
 {
     item_text(s, PK_REND, 0, 0, 0, 0);
-    d_rend(s);
+    if (s->ins < 0)
+        d_rend(s);
 }
 
 void pshow_blank(pi_show *s)
 {
     item_text(s, PK_BLANK, 0, 0, 0, 0);
-    d_blank(s);
+    if (s->ins < 0)
+        d_blank(s);
 }
 
 void pshow_bash(pi_show *s, const char *command, const char *output, int exit_code, int cancelled, int excluded)

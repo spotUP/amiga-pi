@@ -51,6 +51,7 @@ typedef struct pi_show {
     int first;                  /* the answer has written nothing yet (it gets its blank line first) */
     int any;                    /* something is in the transcript: the next block starts a blank line below it */
     int after_block;            /* the loaded-resources block was the last thing drawn (its Spacer ends it) */
+    long ins;                   /* >= 0: new items go into the list at this index (the block being written again); -1 at the end */
     long n_text, n_blocks, n_tools;
     int pad;                    /* outputPad: 1 (pi's default) or 0 */
     int expanded;               /* pi's toolOutputExpanded (ctrl+o): the summaries show their text; drawn from here on, redraw_chat redraws the rest */
@@ -116,6 +117,9 @@ void pshow_resource_title(pi_show *s, int role, const char *title);
 void pshow_resource_line(pi_show *s, int kind, int mode, const char *text);
 void pshow_resource_end(pi_show *s);
 void pshow_blank(pi_show *s);
+/* the block written again (/reload): begin drops the old one and makes what pshow_blank and pshow_resource_* write take its place, end draws the screen again */
+void pshow_resources_begin(pi_show *s);
+void pshow_resources_end(pi_show *s);
 /* the conversation of ses drawn again from its messages (a branch left for another, a session resumed) */
 struct pi_session;
 void pshow_replay(pi_show *s, const struct pi_session *ses);

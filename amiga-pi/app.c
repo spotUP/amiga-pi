@@ -632,6 +632,61 @@ static const char *pl_home(const pi_platform *pl)
 
 static pi_tmpls tmpls;
 
+/* the skills (skills.h): default directories, settings.json, packages, --skill; --no-skills leaves out all but --skill */
+static void load_skills(const pi_platform *pl, int trusted)
+{
+    pi_skill_opts so;
+    so.home = pl_home(pl);
+    so.host = host_paths(pl);
+    so.agent_dir = pl->agent_dir;
+    so.data_dir = pl->data_dir;
+    so.cwd = pl->cwd;
+    so.trusted = trusted;
+    so.none = a.no_skills;
+    so.paths = a.skills;
+    so.npaths = a.nskills;
+    pi_skills_load(&res.skills, pl->sys, &so);
+}
+
+/* prompt templates (templates.h): the project's and the agent directory's, settings.json's entries and packages, then --prompt-template paths */
+static void load_templates(const pi_platform *pl, int trusted)
+{
+    pi_tmpl_opts to;
+    memset(&to, 0, sizeof(to));
+    to.agent_dir = pl->agent_dir;
+    to.cwd = pl->cwd;
+    to.trusted = trusted;
+    to.no_defaults = a.no_templates;
+    to.home = pl_home(pl);
+    to.host = host_paths(pl);
+    to.paths = a.tmpl_paths;
+    to.npaths = a.ntmpl_paths;
+    pi_tmpl_load(&tmpls, pl->sys, &to);
+}
+
+/* /reload (interactive-mode.ts handleReloadCommand, agent-session.ts reload(): settingsManager.reload() and resourceLoader.reload()): the
+ * context files, SYSTEM.md, APPEND_SYSTEM.md, the skills and the prompt templates are read again, with the trust the session has.
+ * Keybindings, themes and extensions are not read again. */
+static int reload_resources(void *u, pi_session *sess, char *err, long cap)
+{
+    pi_rt *rt = (pi_rt *)u;
+    const pi_platform *pl = &rt->pl;
+    (void)sess;
+    if (!pl->sys) {
+        cl_copy(err, "no file system", cap);
+        return -1;
+    }
+    pi_res_free(&res);
+    memset(&res, 0, sizeof(res));
+    pi_res_load(&res, pl->sys, pl->agent_dir, pl->cwd, rt->trusted);
+    load_skills(pl, rt->trusted);
+    pi_tmpl_free(&tmpls);
+    memset(&tmpls, 0, sizeof(tmpls));
+    load_templates(pl, rt->trusted);
+    return 0;
+}
+
+
 /* json and rpc mode: stdout is the protocol's, so the program's own messages go to the platform's diagnostic channel */
 static void diag_write(void *u, const char *text, long n)
 {
@@ -823,20 +878,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
             return 2;
         }
         pi_res_load(&res, pl->sys, pl->agent_dir, pl->cwd, trusted);
-        {
-            /* the skills (skills.h): default directories, settings.json, --skill; --no-skills leaves out all but --skill */
-            pi_skill_opts so;
-            so.home = pl_home(pl);
-            so.host = host_paths(pl);
-            so.agent_dir = pl->agent_dir;
-            so.data_dir = pl->data_dir;
-            so.cwd = pl->cwd;
-            so.trusted = trusted;
-            so.none = a.no_skills;
-            so.paths = a.skills;
-            so.npaths = a.nskills;
-            pi_skills_load(&res.skills, pl->sys, &so);
-        }
+        load_skills(pl, trusted);
         s.res = &res;
         /* Lua extensions (ext_lua.h): the project's when it is trusted, then the user's; -ne leaves discovery out */
         pi_lua_init(&lua, &s, pl->sys, pl->cwd, trusted);
@@ -845,20 +887,9 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         if (!a.no_extensions)
             pi_lua_discover(&lua, pl->agent_dir, pl->data_dir);
     }
-    /* prompt templates (templates.h): the project's and the agent directory's, settings.json's entries and packages, then --prompt-template paths */
     memset(&tmpls, 0, sizeof(tmpls));
     if (pl->sys) {
-        pi_tmpl_opts to;
-        memset(&to, 0, sizeof(to));
-        to.agent_dir = pl->agent_dir;
-        to.cwd = pl->cwd;
-        to.trusted = trusted;
-        to.no_defaults = a.no_templates;
-        to.home = pl_home(pl);
-        to.host = host_paths(pl);
-        to.paths = a.tmpl_paths;
-        to.npaths = a.ntmpl_paths;
-        pi_tmpl_load(&tmpls, pl->sys, &to);
+        load_templates(pl, trusted);
         s.templates = &tmpls;
     }
     /* MCP servers from <agent dir>/mcp.json (pi: ~/.pi/agent/mcp.json), then the project's <cwd>/.pi/mcp.json for a
@@ -909,6 +940,8 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     rt->res = &res;
     rt->tmpls = &tmpls;
     rt->trusted = trusted;
+    s.reload = reload_resources;                        /* /reload (interactive mode) */
+    s.reload_u = rt;
     return 0;
 }
 

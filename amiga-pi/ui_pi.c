@@ -1121,11 +1121,47 @@ static int bang(pi_ui *p, const char *line)
     return 1;
 }
 
+static void build_skill_rows(pi_ui *p);
+static void resources_report(pi_ui *p, int listing, int header);
+
+/* /reload (interactive-mode.ts handleReloadCommand): the resources are read again, the menu rows and the start-up block follow, and
+ * a status line says so; a failure is "Reload failed: <message>" */
+static void reload_command(pi_ui *p)
+{
+    char err[200];
+    int nt;
+    const cl_cmd *tm;
+    if (!p->s->reload || p->s->reload(p->s->reload_u, p->s, err, sizeof(err))) {
+        char m[260];
+        cl_copy(m, "Reload failed: ", sizeof(m));
+        cl_cat(m, p->s->reload ? err : "nothing to read", sizeof(m));
+        if (p->look)
+            pshow_error(&p->ps, m);
+        else
+            ui_line(&p->ui, m);
+        return;
+    }
+    build_skill_rows(p);
+    tm = p->s->templates ? pi_tmpl_menu((pi_tmpls *)p->s->templates, &nt) : 0;
+    pi_ui_set_extra_commands(0, tm, tm ? nt : 0);
+    if (p->look)
+        pshow_resources_begin(&p->ps);
+    resources_report(p, !ui_quiet, p->look && !ui_quiet);
+    if (p->look)
+        pshow_resources_end(&p->ps);
+    note(p, "Reloaded skills, prompts, and context files");
+}
+
 static int run_command(pi_ui *p, cl_tui *t, const char *line)
 {
     jw reply, editor;
     int rc;
     char *a, *nl;
+    if (!strcmp(line, "/reload")) {
+        reload_command(p);
+        status(p);
+        return 1;
+    }
     if (p->look && t && !strcmp(line, "/tree") && p->s->command) {
         tree_command(p, t);
         return 1;

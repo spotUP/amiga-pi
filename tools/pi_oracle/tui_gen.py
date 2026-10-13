@@ -353,6 +353,23 @@ SCENARIOS.update({
 })
 
 
+# I8/J5: /reload reads the skills and prompt templates (and the context files) again: files made while pi runs show in the lists
+RELOAD_FILES = {
+    'skills/greet/SKILL.md': _sk('greet', 'Greets the user by name'),
+    'prompts/review.md': '---\ndescription: Review a file\n---\nReview $1.\n',
+}
+RELOAD_WRITES = {
+    'skills/fresh/SKILL.md': _sk('fresh', 'Made while pi runs'),
+    'prompts/summarize.md': 'Summarize $ARGUMENTS.\n',
+    'prompts/review.md': '---\ndescription: Review changed\n---\nReview $1 again.\n',
+}
+SCENARIOS.update({
+    'reload_resources': dict(steps=[('sleep', 0.5)] + [('write', k, v) for k, v in RELOAD_WRITES.items()] +
+                             [('type', '/reload'), ('enter',), ('sleep', 2.0)],
+                             answers=[], agent_files=RELOAD_FILES, rows=40, settings={'quietStartup': False}),
+})
+
+
 # R5: Ctrl+O (app.tools.expand) over tool boxes: the read box shows its file when expanded (renderers/read.ts:73-90), bash all of
 # its output (renderers/bash.ts:60-77), ls all its rows (renderers/ls.ts:35-39); a line that is not in the session store (the
 # request's error) stays; a running bash call stays live (tool-execution.ts setExpanded, interactive-mode.ts:4557-4574)
@@ -537,6 +554,9 @@ def run(name, sc, cols, rows, keep):
                 tmux('send-keys', '-t', sess, 'Enter')
             elif st[0] == 'key':
                 tmux('send-keys', '-t', sess, st[1])
+            elif st[0] == 'write':      # a file of the agent directory made or changed while pi runs
+                os.makedirs(os.path.dirname(os.path.join(agent, st[1])), exist_ok=True)
+                open(os.path.join(agent, st[1]), 'w').write(st[2])
             elif st[0] == 'sleep':
                 time.sleep(st[1])
             elif st[0] == 'exit':       # Ctrl+D on the empty editor ends pi; its last output stays in the pane
@@ -602,6 +622,8 @@ def main():
     json.dump(SKILL_FILES, open(os.path.join(OUT, 'skills_files.json'), 'w'), indent=1)
     json.dump(PROMPT_FILES, open(os.path.join(OUT, 'prompts_files.json'), 'w'), indent=1)
     json.dump(CONFLICT_FILES, open(os.path.join(OUT, 'conflict_files.json'), 'w'), indent=1)
+    json.dump(RELOAD_FILES, open(os.path.join(OUT, 'reload_files.json'), 'w'), indent=1)
+    json.dump(RELOAD_WRITES, open(os.path.join(OUT, 'reload_writes.json'), 'w'), indent=1)
     for n, sc in SCENARIOS.items():
         if a.only and a.only != n:
             continue

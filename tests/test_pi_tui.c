@@ -906,6 +906,8 @@ static const char *app_name_cli;    /* --name <x> for the next app_run, 0 none *
 static const char *app_sdir_cli;    /* --session-dir <x> for the next app_run, 0 none */
 static char *app_out;               /* every byte the last app_run wrote to the screen */
 
+static void (*app_ready)(pi_session *s);               /* called once the resources are loaded, before the first key */
+
 static int app_run(int cols, int rows, const char **keys, const char *const *sse, int nsse, void (*rest)(void))
 {
     cl_io io;
@@ -960,6 +962,7 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pl.utc = 1;
     pl.data_dir = adata;
     pl.agent_dir = app_agent ? app_agent : aagent;
+    pl.ready = app_ready;
     rc = pi_app(argc, a, &pl);
     free(app_out);
     app_out = (char *)malloc((size_t)cs.sent.n + 1);
@@ -1387,6 +1390,44 @@ static int skills_masks(scen *sc, const char *name, int from)
     return k;
 }
 
+/* tui_gen.py RELOAD_WRITES (tests/pi/tui/reload_writes.json) written under skdir: what changes while the program runs */
+static void reload_writes(pi_session *s)
+{
+    char *b, p[600], d[600];
+    long n;
+    jv all, k, v;
+    jit it;
+    (void)s;
+    b = slurp("reload_writes.json", &n);
+    CHECK(b != 0);
+    if (!b || json_parse(b, n, &all)) {
+        free(b);
+        return;
+    }
+    json_iter(all, &it);
+    while (json_next(&it, &k, &v)) {
+        char *rel = json_strdup(k, 0), *text = json_strdup(v, 0), *e;
+        FILE *f;
+        strcpy(p, skdir);
+        strcat(p, "/");
+        strcat(p, rel ? rel : "");
+        strcpy(d, p);
+        e = strrchr(d, '/');
+        if (e) {
+            *e = 0;
+            mkdir(d, 0777);
+        }
+        f = fopen(p, "wb");
+        if (f) {
+            fputs(text ? text : "", f);
+            fclose(f);
+        }
+        free(rel);
+        free(text);
+    }
+    free(b);
+}
+
 static void skills_rest(void)
 {
     compare();
@@ -1485,6 +1526,17 @@ static void test_skills_screen(void)
         fresh_agent();
         tree_json = "conflict_files.json";
         skills_case("prompts_conflicts", "{\"quietStartup\":true,\"prompts\":[\"extra\"]}\n", keys_end, 0, 0, 0, 0, m_pconf, 1);
+        tree_json = "skills_files.json";
+    }
+    /* /reload: files made after the start show in the lists (the same screen pi gives; the status line says what this port reads again) */
+    {
+        static const char *keys_reload[] = { "/reload\r", "\004", 0 };
+        static const int m_reload[] = { 1, 9, 17, 17, 20, 40, 0 };
+        fresh_agent();
+        tree_json = "reload_files.json";
+        app_ready = reload_writes;
+        skills_case("reload_resources", "{\"quietStartup\":false}\n", keys_reload, 0, 0, 0, -4, m_reload, 1);
+        app_ready = 0;
         tree_json = "skills_files.json";
     }
     if (skdir[0] && strlen(skdir) > 10) {
