@@ -2419,10 +2419,570 @@ static int refresh_meta(oa_io *io, jv cred, jw *entry, char *err, long cap)
     return rc;
 }
 
+/* ---- 7. openrouter (openrouter.ts) ---- */
+
+#define OR_AUTHORIZE "https://openrouter.ai/auth"
+#define OR_TOKEN "https://openrouter.ai/api/v1/auth/keys"
+#define OR_JSON "accept: application/json\r\ncontent-type: application/json\r\n"
+
+/* crypto.randomUUID(): a version 4 UUID, 36 characters (out holds 37) */
+static int rand_uuid(oa_io *io, char *out)
+{
+    static const char hx[] = "0123456789abcdef";
+    unsigned char b[16];
+    int i, k = 0;
+    if (!io->random || io->random(io->u, b, 16))
+        return -1;
+    b[6] = (unsigned char)((b[6] & 0x0f) | 0x40);
+    b[8] = (unsigned char)((b[8] & 0x3f) | 0x80);
+    for (i = 0; i < 16; i++) {
+        if (i == 4 || i == 6 || i == 8 || i == 10)
+            out[k++] = '-';
+        out[k++] = hx[b[i] >> 4];
+        out[k++] = hx[b[i] & 15];
+    }
+    out[k] = 0;
+    memset(b, 0, sizeof(b));
+    return 0;
+}
+
+static char *dup_str(const char *s)
+{
+    char *p = (char *)malloc(strlen(s) + 1);
+    if (p)
+        strcpy(p, s);
+    return p;
+}
+
+/* errorDetail: error_description, message, error (strings, even an empty one, in that order), else error.message */
+static int or_detail(jv body, char *out, long cap)
+{
+    static const char *const keys[3] = { "error_description", "message", "error" };
+    jv v, m;
+    int i;
+    out[0] = 0;
+    for (i = 0; i < 3; i++)
+        if (json_get(body, keys[i], &v) && json_type(v) == J_STR) {
+            json_str(v, out, cap);
+            return 1;
+        }
+    if (json_get(body, "error", &v) && json_type(v) == J_OBJ && json_get(v, "message", &m) && json_type(m) == J_STR) {
+        json_str(m, out, cap);
+        return 1;
+    }
+    return 0;
+}
+
+/* exchangeAuthorizationCode: the code and the verifier for the permanent API key, as the entry. OpenRouter hands out a key
+ * the user controls, not a token pair: refresh is "" and expires is Number.MAX_SAFE_INTEGER (never renewed) */
+static int or_exchange(oa_io *io, const char *code, const char *verifier, jw *entry, char *err, long cap)
+{
+    jw body;
+    hres r;
+    jv o;
+    char detail[300], n[16];
+    char *key;
+    int rc, have_obj, parsed;
+    jw_init(&body);
+    jw_rawz(&body, "{\"code\":");
+    jw_strz(&body, code);
+    jw_rawz(&body, ",\"code_verifier\":");
+    jw_strz(&body, verifier);
+    jw_rawz(&body, ",\"code_challenge_method\":\"S256\"}");
+    rc = exch(io, "POST", OR_TOKEN, OR_JSON, body.p, &r, err, cap);
+    memset(body.p, 0, (size_t)body.n);
+    jw_free(&body);
+    if (rc)
+        return rc;
+    parsed = r.body.p && json_parse(r.body.p, r.body.n, &o) == 0;
+    have_obj = parsed && json_type(o) == J_OBJ;
+    if (!parsed && ok(&r)) {
+        cl_copy(err, "OpenRouter OAuth returned invalid JSON", cap);
+        hfree(&r);
+        return OA_FAIL;
+    }
+    if (!ok(&r)) {
+        num(r.status, n);
+        say(err, cap, "OpenRouter OAuth key exchange failed (HTTP ", n, ")", 0, 0, 0, 0, 0, 0, 0);
+        if (have_obj && or_detail(o, detail, sizeof(detail)) && detail[0]) {
+            cl_cat(err, ": ", cap);
+            cl_cat(err, detail, cap);
+        }
+        hfree(&r);
+        return OA_FAIL;
+    }
+    key = have_obj ? jstr_ne(o, "key") : 0;
+    hfree(&r);
+    if (!key) {
+        cl_copy(err, "OpenRouter OAuth response carries no \"key\"", cap);
+        return OA_FAIL;
+    }
+    e_open(entry);
+    e_str(entry, "access", key);
+    e_str(entry, "refresh", "");
+    jw_rawz(entry, ",\"expires\":9007199254740991}");
+    memset(key, 0, strlen(key));
+    free(key);
+    return 0;
+}
+
+/* parseAuthorizationInput: the code of a pasted redirect URL, "code=..." query or bare code; 0 for none */
+static int or_parse_input(const char *in, char *code, long cap)
+{
+    char line[1500];
+    long a = 0, b = (long)strlen(in);
+    purl u;
+    code[0] = 0;
+    while (a < b && (in[a] == ' ' || in[a] == '\t' || in[a] == '\n' || in[a] == '\r'))
+        a++;
+    while (b > a && (in[b - 1] == ' ' || in[b - 1] == '\t' || in[b - 1] == '\n' || in[b - 1] == '\r'))
+        b--;
+    if (b - a <= 0 || b - a >= (long)sizeof(line))
+        return 0;
+    memcpy(line, in + a, (size_t)(b - a));
+    line[b - a] = 0;
+    if (url_parse(line, &u)) {
+        if (u.query)
+            qget(u.query, u.qn, "code", code, cap);
+        return code[0] != 0;
+    }
+    if (strstr(line, "code=")) {
+        qget(line, (long)strlen(line), "code", code, cap);
+        return code[0] != 0;
+    }
+    cl_copy(code, line, cap);
+    return 1;
+}
+
+static int login_openrouter(oa_io *io, jw *entry, char *err, long cap)
+{
+    char verifier[48], challenge[48], uuid[40], host[80], redirect[200], line[1500], code[900], port[16], hv[80];
+    unsigned char pr[2];
+    jw url, q;
+    int rc;
+    if (pkce(io, verifier, challenge) || rand_uuid(io, uuid) || !io->random || io->random(io->u, pr, 2)) {
+        cl_copy(err, no_random, cap);
+        return OA_FAIL;
+    }
+    /* getCallbackHost(): PI_OAUTH_CALLBACK_HOST, else 127.0.0.1 */
+    hv[0] = 0;
+    if (!io->getenv || io->getenv(io->u, "PI_OAUTH_CALLBACK_HOST", hv, sizeof(hv)) <= 0 || !hv[0])
+        cl_copy(hv, "127.0.0.1", sizeof(hv));
+    if (strchr(hv, ':')) {
+        cl_copy(host, "[", sizeof(host));
+        cl_cat(host, hv, sizeof(host));
+        cl_cat(host, "]", sizeof(host));
+    } else
+        cl_copy(host, hv, sizeof(host));
+    /* pi listens on an ephemeral port of its own; this port has no listener (the browser's redirect is pasted back) */
+    cl_ltoa(49152L + (((long)pr[0] << 8) | pr[1]) % 16384L, port);
+    cl_copy(redirect, "http://", sizeof(redirect));
+    cl_cat(redirect, host, sizeof(redirect));
+    cl_cat(redirect, ":", sizeof(redirect));
+    cl_cat(redirect, port, sizeof(redirect));
+    cl_cat(redirect, "/oauth/callback/", sizeof(redirect));
+    cl_cat(redirect, uuid, sizeof(redirect));
+    jw_init(&url);
+    jw_init(&q);
+    jw_rawz(&url, OR_AUTHORIZE "?");
+    oa_form_add(&q, "callback_url", redirect);
+    oa_form_add(&q, "code_challenge", challenge);
+    oa_form_add(&q, "code_challenge_method", "S256");
+    jw_raw(&url, q.p, q.n);
+    jw_free(&q);
+    io->info(io->u, OA_I_AUTH_URL, url.p,
+             "Complete sign-in in your browser. If the browser is on another machine, paste the final redirect URL here.");
+    jw_free(&url);
+    if (io->prompt(io->u, OA_P_MANUAL, "Complete sign-in in your browser, or paste the authorization code / redirect URL here:",
+                   redirect, line, sizeof(line))) {
+        cl_copy(err, "Login cancelled", cap);
+        return OA_CANCEL;
+    }
+    if (!or_parse_input(line, code, sizeof(code))) {
+        cl_copy(err, "Missing authorization code", cap);
+        return OA_FAIL;
+    }
+    io->info(io->u, OA_I_PROGRESS, "Exchanging authorization code for an API key...", 0);
+    rc = or_exchange(io, code, verifier, entry, err, cap);
+    memset(verifier, 0, sizeof(verifier));
+    return rc;
+}
+
+/* refresh: the key is permanent, the credential comes back as it is */
+static int refresh_openrouter(oa_io *io, jv cred, jw *entry, char *err, long cap)
+{
+    jit it;
+    jv k, v;
+    char name[96];
+    int first = 1;
+    (void)io;
+    (void)err;
+    (void)cap;
+    jw_raw(entry, "{", 1);
+    json_iter(cred, &it);
+    while (json_next(&it, &k, &v)) {
+        if (json_str(k, name, sizeof(name)) < 0)
+            continue;
+        if (!first)
+            jw_raw(entry, ",", 1);
+        first = 0;
+        jw_strz(entry, name);
+        jw_raw(entry, ":", 1);
+        jw_raw(entry, v.p, v.n);        /* (a nested value keeps the file's spacing) */
+    }
+    jw_raw(entry, "}", 1);
+    return 0;
+}
+
+/* ---- 8. radius (radius.ts): the gateway of the Radius provider, https://radius.pi.dev ---- */
+
+#define RD_GATEWAY "https://radius.pi.dev"
+#define RD_REDIRECT "http://127.0.0.1:1456/oauth/callback"
+#define RD_CLIENT "pi-gateway"
+#define RD_SCOPE "gateway offline_access"
+#define RD_FORM "accept: application/json\r\ncontent-type: application/x-www-form-urlencoded\r\n"
+#define RD_DEVICE_GRANT "urn:ietf:params:oauth:grant-type:device_code"
+
+/* readOAuthResponseError: "<what>: <detail>", detail the OAuth error and its description, else the description (the body
+ * itself when it is not JSON), else the status. oerr gets the OAuth error code ("" none) */
+static void rd_fail(const char *what, const hres *r, char *oerr, char *err, long cap)
+{
+    char n[16], desc[400];
+    jv o, v;
+    oerr[0] = 0;
+    desc[0] = 0;
+    if (r->body.p && r->body.n > 0) {
+        if (json_parse(r->body.p, r->body.n, &o) == 0) {
+            if (json_type(o) == J_OBJ) {
+                if (json_get(o, "error", &v) && json_type(v) == J_STR)
+                    json_str(v, oerr, 96);
+                if (json_get(o, "error_description", &v) && json_type(v) == J_STR)
+                    json_str(v, desc, sizeof(desc));
+            } else if (json_type(o) == J_NULL)
+                body_text(&r->body, desc, sizeof(desc));        /* null.error throws: the text is the description */
+        } else
+            body_text(&r->body, desc, sizeof(desc));
+    }
+    num(r->status, n);
+    cl_copy(err, what, cap);
+    cl_cat(err, ": ", cap);
+    if (oerr[0]) {
+        cl_cat(err, oerr, cap);
+        if (desc[0]) {
+            cl_cat(err, ": ", cap);
+            cl_cat(err, desc, cap);
+        }
+    } else
+        cl_cat(err, desc[0] ? desc : n, cap);
+}
+
+/* the credential of a token answer. prev: the refresh token a refresh keeps when the answer has none, 0 on a login */
+static int rd_entry(oa_io *io, jv t, const char *prev, jw *entry, char *err, long cap)
+{
+    char *access = jstr_ne(t, "access_token"), *refresh = jstr_ne(t, "refresh_token"), *scope = jstr(t, "scope");
+    jv v;
+    long ex = 0;
+    int rc = OA_FAIL;
+    if (!access) {
+        cl_copy(err, "Radius OAuth token response has no access_token", cap);
+        goto out;
+    }
+    if (!refresh && prev)
+        refresh = dup_str(prev);
+    if (!refresh) {
+        cl_copy(err, "Radius OAuth token response has no refresh_token", cap);
+        goto out;
+    }
+    if (!json_get(t, "expires_in", &v) || json_type(v) != J_NUM || (ex = json_long(v, 0)) <= 0) {
+        cl_copy(err, "Radius OAuth token response has no valid expires_in", cap);
+        goto out;
+    }
+    e_open(entry);
+    e_str(entry, "access", access);
+    e_str(entry, "refresh", refresh);
+    e_expires(entry, io->now(io->u), ex, 60);        /* TOKEN_EXPIRY_SKEW_MS */
+    if (scope)
+        e_str(entry, "scope", scope);
+    jw_rawz(entry, "}");
+    rc = 0;
+out:
+    free(access);
+    free(refresh);
+    free(scope);
+    return rc;
+}
+
+/* requestOAuthToken: POST <gateway>/v1/oauth/token with the form. 0 with the entry; an OAuth error answer is OA_FAIL with
+ * the code in oerr (the device poll reads it) */
+static int rd_token(oa_io *io, const char *form, const char *prev, jw *entry, char *oerr, char *err, long cap)
+{
+    hres r;
+    jv o;
+    int rc;
+    oerr[0] = 0;
+    rc = exch(io, "POST", RD_GATEWAY "/v1/oauth/token", RD_FORM, form, &r, err, cap);
+    if (rc)
+        return rc;
+    if (!ok(&r)) {
+        rd_fail("Radius OAuth token request failed", &r, oerr, err, cap);
+        hfree(&r);
+        return OA_FAIL;
+    }
+    if (!as_obj(&r, &o)) {
+        cl_copy(err, "Radius OAuth token response must be an object", cap);
+        hfree(&r);
+        return OA_FAIL;
+    }
+    rc = rd_entry(io, o, prev, entry, err, cap);
+    hfree(&r);
+    return rc;
+}
+
+/* loginWithBrowser. pi listens on 127.0.0.1:1456; this port has no listener here, so the redirect the browser is sent to is
+ * pasted back: its path, its state, the error or the code, as the callback server checks them */
+static int rd_login_browser(oa_io *io, jw *entry, char *err, long cap)
+{
+    hres r;
+    jv o;
+    jw url, q, form;
+    char *endpoint = 0, verifier[48], challenge[48], state[40], line[1500], code[900], st[200], e[300], oerr[100], base[400], frag[200];
+    char *cut;
+    purl u, pu;
+    int rc;
+    exch(io, "GET", RD_GATEWAY "/v1/oauth", "accept: application/json\r\n", 0, &r, err, cap);
+    if (r.status == 0 && !r.body.p) {
+        /* exch failed: err holds the words (or "Login cancelled") */
+        return io->cancelled && io->cancelled(io->u) ? OA_CANCEL : OA_FAIL;
+    }
+    if (!ok(&r)) {
+        char b[300], n[16];
+        body_text(&r.body, b, sizeof(b));
+        num(r.status, n);
+        say(err, cap, "Could not load Radius OAuth config from " RD_GATEWAY ": ", n, " ", b, 0, 0, 0, 0, 0, 0);
+        hfree(&r);
+        return OA_FAIL;
+    }
+    if (as_obj(&r, &o))
+        endpoint = jstr(o, "authorizationEndpoint");
+    hfree(&r);
+    if (!endpoint) {
+        cl_copy(err, "Invalid Radius OAuth config from " RD_GATEWAY, cap);
+        return OA_FAIL;
+    }
+    if (!url_parse(endpoint, &pu)) {
+        free(endpoint);
+        cl_copy(err, "Invalid URL", cap);
+        return OA_FAIL;
+    }
+    if (pkce(io, verifier, challenge) || rand_uuid(io, state)) {
+        free(endpoint);
+        cl_copy(err, no_random, cap);
+        return OA_FAIL;
+    }
+    /* url.search = ...: the endpoint's own query is replaced (a fragment stays) */
+    cl_copy(base, endpoint, sizeof(base));
+    free(endpoint);
+    frag[0] = 0;
+    cut = strchr(base, '#');
+    if (cut) {
+        cl_copy(frag, cut, sizeof(frag));
+        *cut = 0;
+    }
+    cut = strchr(base, '?');
+    if (cut)
+        *cut = 0;
+    jw_init(&url);
+    jw_init(&q);
+    jw_rawz(&url, base);
+    jw_rawz(&url, "?");
+    oa_form_add(&q, "response_type", "code");
+    oa_form_add(&q, "client_id", RD_CLIENT);
+    oa_form_add(&q, "redirect_uri", RD_REDIRECT);
+    oa_form_add(&q, "scope", RD_SCOPE);
+    oa_form_add(&q, "code_challenge", challenge);
+    oa_form_add(&q, "code_challenge_method", "S256");
+    oa_form_add(&q, "handoff", "url");
+    oa_form_add(&q, "state", state);
+    jw_raw(&url, q.p, q.n);
+    jw_free(&q);
+    jw_rawz(&url, frag);
+    io->info(io->u, OA_I_AUTH_URL, url.p,
+             "Continue in your browser. If the callback does not complete, paste the final redirect URL here.");
+    jw_free(&url);
+    if (io->prompt(io->u, OA_P_MANUAL, "Complete login in your browser, or paste the final redirect URL here:", RD_REDIRECT,
+                   line, sizeof(line))) {
+        cl_copy(err, "Login cancelled", cap);
+        return OA_CANCEL;
+    }
+    if (!url_parse(line, &u)) {
+        cl_copy(err, "Paste the full callback URL from the browser", cap);
+        return OA_FAIL;
+    }
+    if (!url_origin_is(&u, "http", "127.0.0.1", 1456) || strcmp(u.path, "/oauth/callback")) {
+        cl_copy(err, "The pasted callback URL must start with " RD_REDIRECT, cap);
+        return OA_FAIL;
+    }
+    if (!u.query || !qget(u.query, u.qn, "state", st, sizeof(st)) || strcmp(st, state)) {
+        cl_copy(err, "State mismatch", cap);
+        return OA_FAIL;
+    }
+    if (qget(u.query, u.qn, "error", e, sizeof(e)) && e[0]) {
+        char d[300];
+        if (!qget(u.query, u.qn, "error_description", d, sizeof(d)))
+            cl_copy(d, e, sizeof(d));
+        say(err, cap, "Radius authorization failed: ", d, 0, 0, 0, 0, 0, 0, 0, 0);
+        return OA_FAIL;
+    }
+    if (!qget(u.query, u.qn, "code", code, sizeof(code)) || !code[0]) {
+        cl_copy(err, "Missing authorization code", cap);
+        return OA_FAIL;
+    }
+    jw_init(&form);
+    oa_form_add(&form, "grant_type", "authorization_code");
+    oa_form_add(&form, "client_id", RD_CLIENT);
+    oa_form_add(&form, "redirect_uri", RD_REDIRECT);
+    oa_form_add(&form, "code", code);
+    oa_form_add(&form, "code_verifier", verifier);
+    rc = rd_token(io, form.p, 0, entry, oerr, err, cap);
+    jw_free(&form);
+    memset(verifier, 0, sizeof(verifier));
+    return rc;
+}
+
+typedef struct rd_dev {
+    oa_io *io;
+    jw *entry;
+    char code[400];
+} rd_dev;
+
+static int rd_poll(void *c, dpr *pr)
+{
+    rd_dev *d = (rd_dev *)c;
+    jw form;
+    char oerr[100], err[500];
+    int rc;
+    jw_init(&form);
+    oa_form_add(&form, "grant_type", RD_DEVICE_GRANT);
+    oa_form_add(&form, "client_id", RD_CLIENT);
+    oa_form_add(&form, "device_code", d->code);
+    rc = rd_token(d->io, form.p, 0, d->entry, oerr, err, sizeof(err));
+    jw_free(&form);
+    if (rc == OA_CANCEL)
+        return OA_CANCEL;
+    if (!rc) {
+        pr->st = DP_DONE;
+        return 0;
+    }
+    if (oerr[0]) {
+        if (!strcmp(oerr, "authorization_pending")) {
+            pr->st = DP_PENDING;
+            return 0;
+        }
+        if (!strcmp(oerr, "slow_down")) {
+            pr->st = DP_SLOW;
+            return 0;
+        }
+        if (!strcmp(oerr, "expired_token")) {
+            cl_copy(pr->msg, "Device authorization expired.", sizeof(pr->msg));
+            pr->st = DP_FAIL;
+            return 0;
+        }
+        if (!strcmp(oerr, "access_denied")) {
+            cl_copy(pr->msg, "Device authorization was denied.", sizeof(pr->msg));
+            pr->st = DP_FAIL;
+            return 0;
+        }
+    }
+    cl_copy(pr->msg, err, sizeof(pr->msg));
+    return OA_FAIL;
+}
+
+static int rd_login_device(oa_io *io, jw *entry, char *err, long cap)
+{
+    jw form;
+    hres r;
+    jv o, v;
+    rd_dev d;
+    char *dc, *uc, *vu, oerr[100];
+    long interval = -1, expires = 0;
+    int rc;
+    jw_init(&form);
+    oa_form_add(&form, "client_id", RD_CLIENT);
+    oa_form_add(&form, "scope", RD_SCOPE);
+    rc = exch(io, "POST", RD_GATEWAY "/v1/oauth/device", RD_FORM, form.p, &r, err, cap);
+    jw_free(&form);
+    if (rc)
+        return rc;
+    if (!ok(&r)) {
+        rd_fail("Radius OAuth device authorization failed", &r, oerr, err, cap);
+        hfree(&r);
+        return OA_FAIL;
+    }
+    if (!as_obj(&r, &o)) {
+        cl_copy(err, "Radius OAuth device authorization response is missing required fields", cap);
+        hfree(&r);
+        return OA_FAIL;
+    }
+    dc = jstr_ne(o, "device_code");
+    uc = jstr_ne(o, "user_code");
+    vu = jstr_ne(o, "verification_uri");
+    if (json_get(o, "expires_in", &v) && json_type(v) == J_NUM)
+        expires = json_long(v, 0);
+    if (!dc || !uc || !vu || !expires) {
+        cl_copy(err, "Radius OAuth device authorization response is missing required fields", cap);
+        free(dc);
+        free(uc);
+        free(vu);
+        hfree(&r);
+        return OA_FAIL;
+    }
+    if (json_get(o, "interval", &v) && json_type(v) == J_NUM)
+        interval = json_long(v, 0) < 0 ? 0 : json_long(v, 0);
+    memset(&d, 0, sizeof(d));
+    d.io = io;
+    d.entry = entry;
+    cl_copy(d.code, dc, sizeof(d.code));
+    io->info(io->u, OA_I_DEVICE_CODE, uc, vu);
+    free(dc);
+    free(uc);
+    free(vu);
+    hfree(&r);
+    return device_poll(io, interval, expires, 0, rd_poll, &d, err, cap);
+}
+
+static int login_radius(oa_io *io, jw *entry, char *err, long cap)
+{
+    static const char *const labels[2] = { "Sign in with browser (recommended)",
+                                           "Sign in with device code (when signing in from another device)" };
+    int c = io->select(io->u, "Sign in to Radius:", labels, 2);
+    if (c < 0) {
+        cl_copy(err, "Login cancelled", cap);
+        return OA_CANCEL;
+    }
+    return c == 1 ? rd_login_device(io, entry, err, cap) : rd_login_browser(io, entry, err, cap);
+}
+
+static int refresh_radius(oa_io *io, jv cred, jw *entry, char *err, long cap)
+{
+    char *rt = jstr(cred, "refresh"), oerr[100];
+    jw form;
+    int rc;
+    jw_init(&form);
+    oa_form_add(&form, "grant_type", "refresh_token");
+    oa_form_add(&form, "client_id", RD_CLIENT);
+    oa_form_add(&form, "refresh_token", rt ? rt : "");
+    rc = rd_token(io, form.p, rt, entry, oerr, err, cap);
+    jw_free(&form);
+    if (rt)
+        memset(rt, 0, strlen(rt));
+    free(rt);
+    return rc;
+}
+
 /* ---- the table ---- */
 
 /* sorted by name, as the selector sorts (localeCompare, case-insensitive here): Anthropic, Azure, GitHub Copilot,
- * Google, Kimi For Coding, Meta, OpenAI, OpenAI Codex (legacy), xAI */
+ * Google, Kimi For Coding, Meta, OpenAI, OpenAI Codex (legacy), OpenRouter, Radius, xAI */
 static const oa_provider providers[] = {
     { "anthropic", "Anthropic", 0, 0, "Anthropic API key", 0, 0, 0 },
     { "azure", "Azure", 0, 0, "Azure OpenAI API key", 0, 0, 0 },
@@ -2434,6 +2994,9 @@ static const oa_provider providers[] = {
     { "openai", "OpenAI", "OpenAI (ChatGPT subscription)", "Sign in with ChatGPT", "OpenAI API key", 1, login_openai,
       refresh_openai },
     { "openai-codex", "OpenAI Codex (legacy)", "OpenAI (ChatGPT Plus/Pro)", 0, 0, 1, login_codex, refresh_codex },
+    { "openrouter", "OpenRouter", "OpenRouter OAuth", "Sign in with OpenRouter", "OpenRouter API key", 0, login_openrouter,
+      refresh_openrouter },
+    { "radius", "Radius", "Radius", 0, "Radius API key", 0, login_radius, refresh_radius },
     { "xai", "xAI", "xAI (Grok/X subscription)", "Sign in with SuperGrok or X Premium", "xAI API key", 1, login_xai,
       refresh_xai }
 };

@@ -127,7 +127,20 @@ static int build_head(mh *h, long body_len)
 {
     mcp_server *s = h->s;
     http_hdr hd[40];
-    int nh = 0, i;
+    char tok[1200], bearer[1220];
+    int nh = 0, i, have_token = 0;
+    /* `auth.provider`: the /login token of that provider, read at every request so its renewals apply (mcp/runtime.ts
+     * providerToken, streamable-http.ts headers: Authorization is set over any configured one). A credential never goes over
+     * plain http (the LAN rule) */
+    if (s->auth_provider && s->m->provider_token && s->m->provider_token(s->m->provider_u, s->auth_provider, tok, sizeof(tok)) == 0) {
+        if (h->url.tls) {
+            cl_copy(bearer, "Bearer ", sizeof(bearer));
+            cl_cat(bearer, tok, sizeof(bearer));
+            have_token = 1;
+        } else
+            h->skipped_auth = 1;
+        memset(tok, 0, sizeof(tok));
+    }
     hd[nh].name = "Accept";
     hd[nh++].value = "application/json, text/event-stream";
     hd[nh].name = "Content-Type";
@@ -146,8 +159,14 @@ static int build_head(mh *h, long body_len)
         h->noticed = 1;
     }
     for (i = 0; i < h->nc; i++) {
+        if (have_token && cl_strieq(h->names[i], "authorization"))
+            continue;
         hd[nh].name = h->names[i];
         hd[nh++].value = h->vals.p + h->offs[i];
+    }
+    if (have_token) {
+        hd[nh].name = "Authorization";
+        hd[nh++].value = bearer;
     }
     if (s->session[0]) {
         hd[nh].name = "Mcp-Session-Id";
@@ -232,7 +251,14 @@ static int h_send(mcp_server *s, const char *msg, long n, int request, mcp_msg_f
         return -1;
     }
     if (h->resp.status < 200 || h->resp.status > 299) {
-        if (h->resp.status == 401)
+        if (h->resp.status == 401 && s->auth_provider) {
+            /* runtime.ts signInRequiredMessage */
+            cl_copy(s->err, "MCP server \"", sizeof(s->err));
+            cl_cat(s->err, s->name, sizeof(s->err));
+            cl_cat(s->err, "\" requires sign-in. Run /login ", sizeof(s->err));
+            cl_cat(s->err, s->auth_provider, sizeof(s->err));
+            cl_cat(s->err, " to sign in.", sizeof(s->err));
+        } else if (h->resp.status == 401)
             cl_copy(s->err, "MCP server requires authentication", sizeof(s->err));
         else if (h->resp.status == 404 && s->session[0])
             cl_copy(s->err, "MCP session expired", sizeof(s->err));

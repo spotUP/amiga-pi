@@ -76,6 +76,7 @@ struct mcp_server {
     int enabled;
     int exposure;               /* MX_*, MX_NONE when not configured */
     char *url, *headers;        /* http: the URL, headers as JSON object text (0 none) */
+    char *auth_provider;        /* http: `"auth": {"provider": ...}`: the /login token of that provider is the Bearer token, 0 none */
     char *command, *args, *env, *cwd;   /* stdio: args JSON array, env JSON object (0 none) */
     char *tool_exposure;        /* toolExposure as JSON object text, 0 none */
     char *description;
@@ -112,6 +113,10 @@ typedef struct mcp {
     int search_on;
     jw section;                 /* the mcp_servers section, empty none */
     pi_session *s;
+    /* the current token of a /login provider for a server with `auth.provider` (login.h pi_auth_provider_token): 0 with the token in out,
+     * -1 none. 0 for the callback: no server of that kind gets a token */
+    int (*provider_token)(void *u, const char *provider, char *out, long cap);
+    void *provider_u;
     llm_cfg cfg;                /* the values of mcp.json (${VAR}, !command): the one resolver, llm/creds.c */
 } mcp;
 
@@ -140,6 +145,14 @@ int mcp_attach(mcp *m, pi_session *s);
 void pi_js_number(jw *w, jv v);
 void pi_js_double(jw *w, double v);
 int mcp_value(mcp_server *s, const char *kind, const char *key, const char *v, jw *out);
+/* pi's addMcpServerConfig: <dir>/mcp.json (the agent directory) with server `name` set to config (JSON object text), the file's other
+ * content kept; a missing file is made. 0, -1 with the words in err. The layout is pi's JSON.stringify(x, null, 2) */
+int mcp_config_add(cl_sys *sys, const char *dir, const char *name, const char *config, char *err, long cap);
+/* the http server of <dir>/mcp.json whose url is `url` (trailing slashes ignored): 1 with its name and its
+ * config as JSON object text (malloc'ed in *config), 0 none */
+int mcp_config_find_url(cl_sys *sys, const char *dir, const char *url, char *name, long ncap, char **config);
+/* whether <dir>/mcp.json has a server called name */
+int mcp_config_has(cl_sys *sys, const char *dir, const char *name);
 /* the server or tool by name, 0 none */
 mcp_server *mcp_server_named(mcp *m, const char *name);
 mcp_tool *mcp_tool_named(mcp *m, const char *name);

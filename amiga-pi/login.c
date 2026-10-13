@@ -3,12 +3,17 @@
 #include <string.h>
 #include "login.h"
 #include "authstore.h"
+#include "mcp.h"
 #include "claude/util.h"
 #include "claude/http.h"
 #include "llm/request.h"
 #include "llm/creds.h"
 
 long pi_auth_refreshes, pi_auth_logins;
+
+#define RADIUS_ID "radius"
+/* interactive-mode.ts RADIUS_LOGIN_INTRO */
+#define RADIUS_LOGIN_INTRO "Radius is a service crafted for Pi by the builders of Pi, Earendil Works"
 
 #define AUTH_FILE "auth.json"
 #define EXPIRY_WINDOW_S (5L * 60)       /* resolveStoredOAuth: DEFAULT_OAUTH_MINIMUM_VALIDITY_MS */
@@ -322,6 +327,8 @@ static int a_select(void *u, const char *message, const char *const *labels, int
 {
     pi_auth *a = (pi_auth *)u;
     const pi_login_ui *ui = a->ui;
+    if (ui && ui->menu_desc && a->login_desc)
+        return ui->menu_desc(ui->u, message, a->login_desc, labels, n);
     return ui && ui->menu ? ui->menu(ui->u, message, labels, n) : -1;
 }
 
@@ -363,10 +370,10 @@ void pi_auth_init(pi_auth *a, pi_models *m, pi_session *s, cl_sys *sys, const ch
     s->auth_u = a;
 }
 
-int pi_auth_prepare(void *u, pi_session *s, int force, char *err, long cap)
+/* the stored OAuth credential of provider prov renewed when it expires within five minutes (force: whatever its expiry), as
+ * pi_auth_prepare says. s: the session whose clock and notices serve */
+static int renew(pi_auth *a, pi_session *s, const char *prov, int force, char *err, long cap)
 {
-    pi_auth *a = (pi_auth *)u;
-    const char *prov = s->model.provider;
     const oa_provider *op;
     jv e, t;
     llm_ts now;
@@ -375,7 +382,7 @@ int pi_auth_prepare(void *u, pi_session *s, int force, char *err, long cap)
     jw ne;
     int rc;
     err[0] = 0;
-    if (!llm_oauth_provider(prov) || !(op = oa_find(prov)) || !op->refresh || !s->now)
+    if (!(op = oa_find(prov)) || !op->refresh || !s->now)
         return 0;
     if (!entry_of(a, prov, &e) || json_type(e) != J_OBJ || !json_get(e, "type", &t) || !json_streq(t, "oauth"))
         return 0;
@@ -448,6 +455,44 @@ int pi_auth_prepare(void *u, pi_session *s, int force, char *err, long cap)
     memset(ne.p, 0, (size_t)ne.n);
     jw_free(&ne);
     return 0;
+}
+
+int pi_auth_prepare(void *u, pi_session *s, int force, char *err, long cap)
+{
+    pi_auth *a = (pi_auth *)u;
+    err[0] = 0;
+    if (!llm_oauth_provider(s->model.provider))
+        return 0;
+    return renew(a, s, s->model.provider, force, err, cap);
+}
+
+/* ModelRegistry.getApiKeyForProvider for an MCP server's `auth.provider` (mcp/runtime.ts providerToken): the current token of
+ * the provider, renewed first when it is about to expire (a rotated refresh token is saved at once): a stored OAuth
+ * credential's access token, a stored API key, else the provider's <PROVIDER>_API_KEY. 0 with the token in out, -1 none */
+int pi_auth_provider_token(void *u, const char *provider, char *out, long cap)
+{
+    pi_auth *a = (pi_auth *)u;
+    jv e, t, k;
+    char err[400], nm[96];
+    out[0] = 0;
+    if (!a->s)
+        return -1;
+    reload(a);
+    renew(a, a->s, provider, 0, err, sizeof(err));
+    if (entry_of(a, provider, &e) && json_type(e) == J_OBJ && json_get(e, "type", &t)) {
+        if (json_streq(t, "oauth") && json_get(e, "access", &k) && json_type(k) == J_STR) {
+            long n = json_str(k, out, cap);
+            return n > 0 && n < cap ? 0 : -1;
+        }
+        if (json_streq(t, "api_key") && json_get(e, "key", &k) && json_type(k) == J_STR) {
+            long n = json_str(k, out, cap);
+            return n > 0 && n < cap ? 0 : -1;
+        }
+    }
+    llm_key_env_name(provider, nm, sizeof(nm));
+    if (a->getenv && a->getenv(nm, out, cap) > 0)
+        return 0;
+    return -1;
 }
 
 /* ---- /login and /logout ---- */
@@ -658,7 +703,8 @@ static const char *default_model(const char *provider)
     static const char *const t[][2] = {
         { "openai", "gpt-5.5" }, { "openai-codex", "gpt-6.1-sol" }, { "github-copilot", "gpt-5.4" },
         { "xai", "grok-4.7" }, { "kimi-coding", "kimi-for-coding" }, { "meta", "muse-spark-1.3" },
-        { "anthropic", "claude-opus-4-8" }, { "azure", "gpt-5.4" }, { "google", "gemini-3.1-pro-preview" }
+        { "anthropic", "claude-opus-4-8" }, { "azure", "gpt-5.4" }, { "google", "gemini-3.1-pro-preview" },
+        { "openrouter", "moonshotai/kimi-k2.6" }, { "radius", "balanced" }
     };
     unsigned i;
     for (i = 0; i < sizeof(t) / sizeof(t[0]); i++)
@@ -820,6 +866,90 @@ static int cancelled(const pi_login_ui *ui, const oa_provider *p, int oauth)
     return 0;
 }
 
+/* interactive-mode.ts offerRadiusMcpServer: after a Radius login, offer to point the Radius MCP server of the global mcp.json at the
+ * login (adding the server when missing); nothing is asked when a server already uses this login. `auth` replaces the MCP OAuth
+ * sign-in (`oauth` is dropped). pi then reloads the session; MCP servers here are connected when the program starts */
+#define RADIUS_MCP_URL "https://radius.pi.dev/mcp"
+
+static void offer_radius_mcp(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
+{
+    char name[80], path[340], title[460], err[300], *old = 0;
+    const char *opt[2];
+    jw cfg;
+    int existing, c;
+    if (!a->sys || !a->agent_dir || !a->agent_dir[0])
+        return;
+    existing = mcp_config_find_url(a->sys, a->agent_dir, RADIUS_MCP_URL, name, sizeof(name), &old);
+    jw_init(&cfg);
+    if (existing) {
+        jv o, k, v, au, pv;
+        jit it;
+        int wrote_auth = 0, first = 1;
+        if (json_parse(old, (long)strlen(old), &o) || json_type(o) != J_OBJ) {
+            free(old);
+            return;
+        }
+        if (json_get(o, "auth", &au) && json_type(au) == J_OBJ && json_get(au, "provider", &pv) && json_streq(pv, p->id)) {
+            free(old);
+            return;                     /* a global server already uses this login */
+        }
+        jw_raw(&cfg, "{", 1);
+        json_iter(o, &it);
+        while (json_next(&it, &k, &v)) {
+            char key[80];
+            if (json_str(k, key, sizeof(key)) < 0 || !strcmp(key, "oauth"))
+                continue;
+            if (!first)
+                jw_raw(&cfg, ",", 1);
+            first = 0;
+            jw_strz(&cfg, key);
+            jw_raw(&cfg, ":", 1);
+            if (!strcmp(key, "auth")) {
+                jw_rawz(&cfg, "{\"provider\":");
+                jw_strz(&cfg, p->id);
+                jw_rawz(&cfg, "}");
+                wrote_auth = 1;
+            } else
+                jw_raw(&cfg, v.p, v.n);
+        }
+        if (!wrote_auth) {
+            if (!first)
+                jw_raw(&cfg, ",", 1);
+            jw_rawz(&cfg, "\"auth\":{\"provider\":");
+            jw_strz(&cfg, p->id);
+            jw_rawz(&cfg, "}");
+        }
+        jw_raw(&cfg, "}", 1);
+        free(old);
+    } else {
+        cl_copy(name, "radius", sizeof(name));
+        if (mcp_config_has(a->sys, a->agent_dir, name))
+            cl_copy(name, "radius-mcp", sizeof(name));
+        jw_rawz(&cfg, "{\"url\":\"" RADIUS_MCP_URL "\",\"auth\":{\"provider\":");
+        jw_strz(&cfg, p->id);
+        jw_rawz(&cfg, "}}");
+    }
+    cl_copy(path, a->agent_dir, sizeof(path));
+    if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+        cl_cat(path, "/", sizeof(path));
+    cl_cat(path, "mcp.json", sizeof(path));
+    cl_copy(title, "Configure ", sizeof(title));
+    cl_cat(title, p->name, sizeof(title));
+    cl_cat(title, " MCP in ", sizeof(title));
+    cl_cat(title, path, sizeof(title));
+    cl_cat(title, "?", sizeof(title));
+    opt[0] = "Yes";
+    opt[1] = "No";
+    c = ui->menu(ui->u, title, opt, 2);
+    if (c == 0) {
+        if (mcp_config_add(a->sys, a->agent_dir, name, cfg.p, err, sizeof(err)))
+            fail(ui, "Could not update ", path, err);
+        else
+            say2(ui, PL_DIM, "MCP server \"", name, "\" added; amiga-pi connects MCP servers when it starts, so restart it to use it.");
+    }
+    jw_free(&cfg);
+}
+
 /* showLoginDialog: the OAuth login of the provider. 1 when credentials were saved */
 static int login_oauth(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
 {
@@ -838,7 +968,10 @@ static int login_oauth(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
     a->ui = ui;
     a->cancel = 0;
     err[0] = 0;
+    /* showAuthSelect: the selectors of Radius' login carry its intro under the title */
+    a->login_desc = !strcmp(p->id, RADIUS_ID) ? RADIUS_LOGIN_INTRO : 0;
     rc = p->login(&io, &entry, err, sizeof(err));
+    a->login_desc = 0;
     a->ui = 0;
     dlg_close(ui);
     if (rc == OA_CANCEL) {
@@ -859,7 +992,10 @@ static int login_oauth(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
     memset(entry.p, 0, (size_t)entry.n);
     jw_free(&entry);
     pi_auth_logins++;
-    return finish(a, ui, p, 1);
+    rc = finish(a, ui, p, 1);
+    if (!strcmp(p->id, RADIUS_ID))
+        offer_radius_mcp(a, ui, p);
+    return rc;
 }
 
 /* showApiKeyLoginDialog: "Enter <name>" for a key kept as {"type":"api_key","key":...} */
@@ -928,6 +1064,25 @@ static int pick_method(const pi_login_ui *ui, const oa_provider *q)
     return -1;
 }
 
+/* the option that signs in to Radius from the top-level selector: "Sign in with Radius" and formatAuthSelectorProviderStatus
+ * (" • not configured", " ✓ configured", " • API key configured" when the key is the one configured; pi's look draws the
+ * glyphs, the numbered list the ASCII words of the provider list). The suffix is drawn muted in pi; the selector here
+ * takes plain text */
+static void radius_label(pi_auth *a, const oa_provider *p, int glyphs, char *out, long cap)
+{
+    char src[96];
+    const char *have = auth_status(a, p, src, sizeof(src));
+    cl_copy(out, "Sign in with ", cap);
+    cl_cat(out, p->name, cap);
+    if (!have)
+        cl_cat(out, glyphs ? " \342\200\242 not configured" : " - not configured", cap);
+    else if (strcmp(have, "oauth")) {
+        cl_cat(out, glyphs ? " \342\200\242 " : " - ", cap);
+        cl_cat(out, "API key configured", cap);
+    } else
+        cl_cat(out, glyphs ? " \342\234\223 configured" : " - configured", cap);
+}
+
 /* handleLoginCommand (interactive-mode.ts:5851): a typed provider is logged in to at once (the kind asked when it has both),
  * else the kind is asked, then the providers listed (the typed text in the search box). In pi's look a cancelled provider
  * list goes back to the kind */
@@ -968,13 +1123,22 @@ int pi_login_run(pi_auth *a, const char *arg, const pi_login_ui *ui)
     }
     for (;;) {
         if (stage == S_TYPE) {
-            const char *opt[2];
-            int c;
+            const char *opt[3];
+            char radius[160];
+            const oa_provider *rp = oa_find(RADIUS_ID);
+            int c, n = 2;
             opt[0] = "Sign in with an account";
             opt[1] = "Sign in with an API key";
-            c = ui->menu(ui->u, "Select authentication method:", opt, 2);
+            /* the top-level selector offers Radius directly, as its last option (showLoginAuthTypeSelector) */
+            if (rp && rp->login) {
+                radius_label(a, rp, ui->pick != 0, radius, sizeof(radius));
+                opt[n++] = radius;
+            }
+            c = ui->menu(ui->u, "Select authentication method:", opt, n);
             if (c < 0)
                 return 0;
+            if (c == 2)
+                return login_by(a, ui, rp, 1) == 1;
             type = c == 0;
             stage = S_PROVIDERS;
         }

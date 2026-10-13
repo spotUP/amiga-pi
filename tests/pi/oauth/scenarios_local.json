@@ -1,0 +1,270 @@
+{
+ "now": 1760100000000,
+ "scenarios": [
+  {
+   "name": "radius_browser_login",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "https://radius.pi.dev/oauth/authorize?stale=1"
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "rat-1",
+      "refresh_token": "rrt-1",
+      "expires_in": 3600,
+      "scope": "gateway offline_access"
+     }
+    }
+   ],
+   "paste": "http://127.0.0.1:1456/oauth/callback?code=CODE-1&state=$STATE"
+  },
+  {
+   "name": "radius_browser_error",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "https://radius.pi.dev/oauth/authorize?stale=1"
+     }
+    }
+   ],
+   "paste": "http://127.0.0.1:1456/oauth/callback?error=access_denied&error_description=Not+allowed&state=$STATE"
+  },
+  {
+   "name": "radius_browser_error_no_description",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "https://radius.pi.dev/oauth/authorize?stale=1"
+     }
+    }
+   ],
+   "paste": "http://127.0.0.1:1456/oauth/callback?error=access_denied&state=$STATE"
+  },
+  {
+   "name": "radius_browser_state_mismatch",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "https://radius.pi.dev/oauth/authorize?stale=1"
+     }
+    }
+   ],
+   "paste": "http://127.0.0.1:1456/oauth/callback?code=CODE-1&state=other"
+  },
+  {
+   "name": "radius_browser_no_state",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "https://radius.pi.dev/oauth/authorize?stale=1"
+     }
+    }
+   ],
+   "paste": "http://127.0.0.1:1456/oauth/callback?code=CODE-1"
+  },
+  {
+   "name": "radius_browser_wrong_path",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "https://radius.pi.dev/oauth/authorize?stale=1"
+     }
+    }
+   ],
+   "paste": "http://127.0.0.1:1456/other?code=CODE-1&state=$STATE"
+  },
+  {
+   "name": "radius_browser_no_code",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "https://radius.pi.dev/oauth/authorize?stale=1"
+     }
+    }
+   ],
+   "paste": "http://127.0.0.1:1456/oauth/callback?state=$STATE"
+  },
+  {
+   "name": "radius_browser_not_a_url",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "https://radius.pi.dev/oauth/authorize?stale=1"
+     }
+    }
+   ],
+   "paste": "CODE-1"
+  },
+  {
+   "name": "radius_browser_token_400",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "https://radius.pi.dev/oauth/authorize?stale=1"
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "invalid_grant",
+      "error_description": "bad code"
+     }
+    }
+   ],
+   "paste": "http://127.0.0.1:1456/oauth/callback?code=CODE-1&state=$STATE"
+  },
+  {
+   "name": "radius_browser_endpoint_fragment",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "https://radius.pi.dev/oauth/authorize?stale=1#frag"
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "rat-1",
+      "refresh_token": "rrt-1",
+      "expires_in": 3600,
+      "scope": "gateway offline_access"
+     }
+    }
+   ],
+   "paste": "http://127.0.0.1:1456/oauth/callback?code=CODE-1&state=$STATE"
+  },
+  {
+   "name": "radius_browser_endpoint_invalid",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "authorizationEndpoint": "/authorize"
+     }
+    }
+   ],
+   "paste": "x"
+  },
+  {
+   "name": "radius_cancelled_at_method",
+   "provider": "radius",
+   "op": "login",
+   "select": [],
+   "responses": []
+  },
+  {
+   "name": "openrouter_callback_host",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 200,
+     "json": {
+      "key": "sk-or-v1-abc"
+     }
+    }
+   ],
+   "paste": "or-code-1",
+   "callbackHost": "myhost.local"
+  },
+  {
+   "name": "openrouter_callback_host_v6",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 200,
+     "json": {
+      "key": "sk-or-v1-abc"
+     }
+    }
+   ],
+   "paste": "or-code-1",
+   "callbackHost": "::1"
+  }
+ ]
+}

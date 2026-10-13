@@ -54,6 +54,8 @@ typedef struct pi_login_ui {
     void (*dialog)(void *u, int op, const char *a, const char *b);
     /* ... a line asked inside the dialog: manual: the redirect URL or code pasted back. 0 with the text, -1 cancelled */
     int (*ask)(void *u, int manual, const char *message, const char *placeholder, char *out, long cap);
+    /* optional: the same list with a line of text under the title (ExtensionSelectorComponent's description) */
+    int (*menu_desc)(void *u, const char *title, const char *description, const char *const *opt, int n);
     /* ... Esc or Ctrl+C was typed while the program waits for the provider */
     int (*cancelled)(void *u);
 } pi_login_ui;
@@ -74,6 +76,7 @@ typedef struct pi_auth {
      * then allowed (to the loopback address only). 0 in the program */
     const char *url_base;
     const pi_login_ui *ui;      /* while a login runs */
+    const char *login_desc;     /* the text under the title of the login's own selectors (Radius' intro), 0 none */
     int cancel;                 /* Ctrl+C was pressed during the login */
     char device_id[40];
 } pi_auth;
@@ -94,6 +97,10 @@ void pi_auth_io(pi_auth *a, oa_io *io);
 /* pi_session.auth_hook: the credential of s->model's provider ready for a request. force: renew it whatever its expiry
  * (the API refused it). 0, or -1 with pi's message in err ("OAuth refresh failed for meta: Meta session expired ...") */
 int pi_auth_prepare(void *u, pi_session *s, int force, char *err, long cap);
+
+/* the current token of a provider for an MCP server's `auth.provider` (mcp/runtime.ts providerToken, getApiKeyForProvider): renewed when
+ * it is about to expire. 0 with the token in out, -1 when the provider has none. (mcp.provider_token: `u` is the pi_auth) */
+int pi_auth_provider_token(void *u, const char *provider, char *out, long cap);
 
 /* /login [provider] and /logout: the whole dialog through ui. 1 when something was changed (the screen redraws its footer) */
 int pi_login_run(pi_auth *a, const char *arg, const pi_login_ui *ui);

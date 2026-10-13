@@ -1143,6 +1143,8 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     /* MCP servers from <agent dir>/mcp.json (pi: ~/.pi/agent/mcp.json), then the project's <cwd>/.pi/mcp.json for a
      * trusted project (pi: guarded by trust) */
     mcp_init(&mc, pl->sys, pl->mcp_pool ? pl->mcp_pool : pl->pool, &s.h, pl->getenv, pl->cwd, pl->tmp);
+    mc.provider_token = pi_auth_provider_token;         /* a server's `auth.provider`: the /login token of that provider */
+    mc.provider_u = &auth;
     if (pl->sys) {
         mc.tool_ok = mcp_tool_ok;
         mc.tool_u = &tools;

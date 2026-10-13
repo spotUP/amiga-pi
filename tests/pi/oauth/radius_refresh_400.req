@@ -1,0 +1,6 @@
+POST https://radius.pi.dev/v1/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&client_id=pi-gateway&refresh_token=rrt-1
+--

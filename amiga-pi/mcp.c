@@ -5,6 +5,7 @@
 #include "llm/sha256.h"
 #include "truncate.h"
 #include "tools_pi.h"
+#include "authstore.h"
 #include "claude/util.h"
 #include "claude/http.h"
 #include "claude/schema.h"
@@ -240,6 +241,21 @@ static int validate(const char *name, jv v, char *err, long cap)
             cl_cat(err, "headers must map names to strings", cap);
             return -1;
         }
+        if (json_get(v, "auth", &it_v)) {
+            jv pv;
+            if (json_type(it_v) != J_OBJ || !json_get(it_v, "provider", &pv) || json_type(pv) != J_STR || !pv.n) {
+                cl_cat(err, "auth.provider must be a provider name", cap);
+                return -1;
+            }
+            {
+                http_url hu;
+                if (!http_parse_url(url, &hu) && !hu.tls && strcmp(hu.host, "localhost") && strcmp(hu.host, "127.0.0.1") &&
+                    strcmp(hu.host, "[::1]") && strcmp(hu.host, "::1")) {
+                    cl_cat(err, "auth requires an https URL, or http on localhost, 127.0.0.1, or [::1]", cap);
+                    return -1;
+                }
+            }
+        }
         return MK_HTTP;
     }
     if (json_get(v, "command", &x) && json_type(x) == J_STR && (!has_type || json_streq(type, "stdio"))) {
@@ -278,13 +294,14 @@ static void free_server_config(mcp_server *s)
 {
     free(s->url);
     free(s->headers);
+    free(s->auth_provider);
     free(s->command);
     free(s->args);
     free(s->env);
     free(s->cwd);
     free(s->tool_exposure);
     free(s->description);
-    s->url = s->headers = s->command = s->args = s->env = s->cwd = s->tool_exposure = s->description = 0;
+    s->url = s->headers = s->auth_provider = s->command = s->args = s->env = s->cwd = s->tool_exposure = s->description = 0;
 }
 
 static char *member_text(jv v, const char *key)
@@ -330,6 +347,11 @@ static void set_config(mcp_server *s, jv v, int kind)
     if (kind == MK_HTTP) {
         s->url = member_str(v, "url");
         s->headers = member_text(v, "headers");
+        {
+            jv au, pv;
+            if (json_get(v, "auth", &au) && json_type(au) == J_OBJ && json_get(au, "provider", &pv) && json_type(pv) == J_STR)
+                s->auth_provider = json_strdup(pv, 0);
+        }
     } else {
         s->command = member_str(v, "command");
         s->args = member_text(v, "args");
@@ -2732,4 +2754,119 @@ void mcp_free(mcp *m)
     jw_free(&m->section);
     llm_cfg_free(&m->cfg);
     memset(m, 0, sizeof(*m));
+}
+
+/* ---- the global mcp.json edited (config.ts addMcpServerConfig, editMcpServers) ---- */
+
+#define MCP_JSON "mcp.json"
+
+static void cfg_bad(const char *dir, char *err, long cap)
+{
+    cl_copy(err, dir, cap);
+    cl_cat(err, "/" MCP_JSON ": expected an object with an \"mcpServers\" object", cap);
+}
+
+/* the file's text and its mcpServers member (raw text; "{}" when there is none): 0, -1 not pi's shape (err says so) */
+static int cfg_read(cl_sys *sys, const char *dir, char **text, long *n, jv *root, jv *servers, int *has, char *err, long cap)
+{
+    *text = pi_store_read(sys, dir, MCP_JSON, n);
+    *has = 0;
+    if (!*text)
+        return 0;                       /* no file: {} */
+    if (json_parse(*text, *n, root) || json_type(*root) != J_OBJ) {
+        cl_copy(err, dir, cap);
+        cl_cat(err, "/" MCP_JSON ": ", cap);
+        cl_cat(err, "not a JSON object", cap);
+        return -1;
+    }
+    if (json_get(*root, "mcpServers", servers)) {
+        if (json_type(*servers) != J_OBJ) {
+            cfg_bad(dir, err, cap);
+            return -1;
+        }
+        *has = 1;
+    }
+    return 0;
+}
+
+int mcp_config_add(cl_sys *sys, const char *dir, const char *name, const char *config, char *err, long cap)
+{
+    char *text;
+    long n;
+    jv root, servers;
+    int has, rc;
+    jw s1, s2;
+    err[0] = 0;
+    if (cfg_read(sys, dir, &text, &n, &root, &servers, &has, err, cap))
+        return (free(text), -1);
+    jw_init(&s1);
+    jw_init(&s2);
+    rc = pi_jobj_set(has ? servers.p : "{}", has ? servers.n : 2, name, config, &s1, err, cap);
+    if (!rc)
+        rc = pi_jobj_set(text ? text : "{}", text ? n : 2, "mcpServers", s1.p, &s2, err, cap);
+    if (!rc) {
+        jw_rawz(&s2, "\n");
+        rc = pi_store_write(sys, dir, MCP_JSON, s2.p, s2.n, err, cap);
+    } else if (rc == -2)
+        cl_copy(err, "out of memory", cap);
+    jw_free(&s1);
+    jw_free(&s2);
+    free(text);
+    return rc ? -1 : 0;
+}
+
+static int url_same(const char *a, long an, const char *b)
+{
+    long bn = (long)strlen(b);
+    while (an > 0 && a[an - 1] == '/')
+        an--;
+    while (bn > 0 && b[bn - 1] == '/')
+        bn--;
+    return an == bn && !memcmp(a, b, (size_t)an);
+}
+
+int mcp_config_find_url(cl_sys *sys, const char *dir, const char *url, char *name, long ncap, char **config)
+{
+    char *text, err[200];
+    long n;
+    jv root, servers, k, v, u;
+    jit it;
+    int has, found = 0;
+    *config = 0;
+    if (cfg_read(sys, dir, &text, &n, &root, &servers, &has, err, sizeof(err)) || !has) {
+        free(text);
+        return 0;
+    }
+    json_iter(servers, &it);
+    while (!found && json_next(&it, &k, &v))
+        if (json_type(v) == J_OBJ && json_get(v, "url", &u) && json_type(u) == J_STR) {
+            char *us = json_strdup(u, 0);
+            if (us && url_same(us, (long)strlen(us), url)) {
+                json_str(k, name, ncap);
+                *config = (char *)malloc((size_t)v.n + 1);
+                if (*config) {
+                    memcpy(*config, v.p, (size_t)v.n);
+                    (*config)[v.n] = 0;
+                    found = 1;
+                }
+            }
+            free(us);
+        }
+    free(text);
+    return found;
+}
+
+int mcp_config_has(cl_sys *sys, const char *dir, const char *name)
+{
+    char *text, err[200];
+    long n;
+    jv root, servers, v;
+    int has, r = 0;
+    if (cfg_read(sys, dir, &text, &n, &root, &servers, &has, err, sizeof(err)) || !has) {
+        free(text);
+        return 0;
+    }
+    r = json_get(servers, name, &v);
+    free(text);
+    return r;
 }

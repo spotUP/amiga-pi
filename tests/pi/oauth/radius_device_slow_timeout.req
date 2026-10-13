@@ -1,0 +1,18 @@
+POST https://radius.pi.dev/v1/oauth/device
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=pi-gateway&scope=gateway+offline_access
+--
+POST https://radius.pi.dev/v1/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&client_id=pi-gateway&device_code=rd-1
+--
+POST https://radius.pi.dev/v1/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&client_id=pi-gateway&device_code=rd-1
+--

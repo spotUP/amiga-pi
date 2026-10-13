@@ -1,0 +1,3 @@
+prompt select Sign in to Radius: [Sign in with browser (recommended) | Sign in with device code (when signing in from another device)]
+device_code RAD-42 https://radius.pi.dev/device
+ok {"type":"oauth","access":"rat-1","refresh":"rrt-1","expires":1760103541000,"scope":"gateway offline_access"}
