@@ -1,0 +1,22 @@
+{
+ "mode": "json",
+ "args": [
+  "read the file"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"tool_call\", function(event, ctx)\n  if event.toolName == \"bash\" then\n    return json.decode(\"{\\\"block\\\":true,\\\"reason\\\":\\\"no shell today\\\"}\")\n  end\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_matcher"
+}

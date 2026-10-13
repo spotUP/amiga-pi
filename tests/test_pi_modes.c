@@ -22,6 +22,7 @@
 #include "../amiga-pi/agent.h"
 #include "../amiga-pi/app.h"
 #include "../amiga-pi/ext_hooks.h"
+#include "../amiga-pi/ext_lua.h"
 #include "../amiga-pi/host_posix.h"
 #include "../amiga-pi/mode_json.h"
 #include "../amiga-pi/mode_rpc.h"
@@ -845,6 +846,104 @@ static void diag_capture(const char *line)
 }
 
 /* the scenario `name` run and compared with its golden; ro->inline_in replaces the golden's commands */
+/* L3: a Lua extension records the events it is handed with print (a notice), through json.encode, whose objects have
+ * sorted keys; pi's dump has the keys in its own order. A scenario with "canonical" compares the two after both are
+ * rewritten with sorted keys; "lua_dump" names the file the notices go to (in the project directory). */
+typedef struct ckey {
+    char name[64];
+    jv v;
+} ckey;
+
+static int ckey_cmp(const void *a, const void *b)
+{
+    return strcmp(((const ckey *)a)->name, ((const ckey *)b)->name);
+}
+
+static void canon_val(jv v, jw *o)
+{
+    if (json_type(v) == J_OBJ) {
+        ckey *ks = (ckey *)calloc((size_t)json_count(v) + 1, sizeof(ckey));
+        jit it;
+        jv k, e;
+        long n = 0, i;
+        json_iter(v, &it);
+        while (ks && json_next(&it, &k, &e)) {
+            json_str(k, ks[n].name, sizeof(ks[n].name));
+            ks[n++].v = e;
+        }
+        if (ks)
+            qsort(ks, (size_t)n, sizeof(ckey), ckey_cmp);
+        jw_rawz(o, "{");
+        for (i = 0; i < n; i++) {
+            if (i)
+                jw_rawz(o, ",");
+            jw_strz(o, ks[i].name);
+            jw_rawz(o, ":");
+            canon_val(ks[i].v, o);
+        }
+        jw_rawz(o, "}");
+        free(ks);
+    } else if (json_type(v) == J_ARR) {
+        jit it;
+        jv e;
+        int first = 1;
+        jw_rawz(o, "[");
+        json_iter(v, &it);
+        while (json_next(&it, 0, &e)) {
+            if (!first)
+                jw_rawz(o, ",");
+            first = 0;
+            canon_val(e, o);
+        }
+        jw_rawz(o, "]");
+    } else
+        jw_raw(o, v.p, v.n);
+}
+
+static char *canon_text(const char *text)
+{
+    jw o;
+    const char *p = text;
+    jw_init(&o);
+    while (*p) {
+        const char *e = strchr(p, '\n');
+        long n = e ? (long)(e - p) : (long)strlen(p);
+        jv v;
+        if (n > 0) {
+            if (json_parse(p, n, &v))
+                jw_raw(&o, p, n);
+            else
+                canon_val(v, &o);
+            jw_rawz(&o, "\n");
+        }
+        p += n + (e ? 1 : 0);
+    }
+    return o.p;
+}
+
+static char lua_dump_file[80];
+
+static void lua_dump_notice(void *u, const char *text)
+{
+    char path[600];
+    FILE *f;
+    (void)u;
+    strcpy(path, proj);
+    strcat(path, "/");
+    strcat(path, lua_dump_file);
+    f = fopen(path, "ab");
+    if (f) {
+        fputs(text, f);
+        fputc('\n', f);
+        fclose(f);
+    }
+}
+
+static void lua_dump_ready(pi_session *s)
+{
+    s->h.notice = lua_dump_notice;
+}
+
 static int scenario(const char *name, run_opts *ro)
 {
     char *cfg_t, *in_t = 0, *want_t;
@@ -857,7 +956,7 @@ static int scenario(const char *name, run_opts *ro)
     cl_io io;
     jw wmask, gmask;
     long r0 = pi_agent_rounds;
-    char arg_store[8][300], real_cwd[PATH_MAX];
+    char arg_store[8][300], real_cwd[PATH_MAX], gold_name[80];
     const char *mcwd = proj;
     long host_rounds = 0;
     int nstore = 0;
@@ -865,6 +964,11 @@ static int scenario(const char *name, run_opts *ro)
     jv a;
 
     cfg_t = slurp_rpc(name, ".cfg.json", &cn);
+    if (cfg_t && !json_parse(cfg_t, cn, &cfg) && json_get(cfg, "golden", &v) && json_type(v) == J_STR) {
+        /* L3: a scenario that runs another one's golden (pi's records of the same behaviour) with its own extension kind */
+        json_str(v, gold_name, sizeof(gold_name));
+        name = gold_name;
+    }
     want_t = slurp_rpc(name, ".out", &wn);
     if (!cfg_t || !want_t || json_parse(cfg_t, cn, &cfg)) {
         printf("  %s: golden missing\n", name);
@@ -994,6 +1098,11 @@ static int scenario(const char *name, run_opts *ro)
     pl.agent_dir = agent;
     pl.data_dir = data;
     pl.ready = ro ? ro->ready : 0;
+    lua_dump_file[0] = 0;
+    if (json_get(cfg, "lua_dump", &v) && json_type(v) == J_STR) {
+        json_str(v, lua_dump_file, sizeof(lua_dump_file));
+        pl.ready = lua_dump_ready;
+    }
     if (ro && ro->diag) {
         diag_log[0] = 0;
         pl.diag = diag_capture;
@@ -1063,8 +1172,16 @@ static int scenario(const char *name, run_opts *ro)
                 jw wm, gm;
                 jw_init(&wm);
                 jw_init(&gm);
-                masked_text(want_f, mcwd, &wm);
-                masked_text(got_f, mcwd, &gm);
+                if (json_get(cfg, "canonical", &v) && json_type(v) == J_TRUE) {
+                    char *cw = canon_text(want_f), *cg = canon_text(got_f);
+                    masked_text(cw ? cw : "", mcwd, &wm);
+                    masked_text(cg ? cg : "", mcwd, &gm);
+                    free(cw);
+                    free(cg);
+                } else {
+                    masked_text(want_f, mcwd, &wm);
+                    masked_text(got_f, mcwd, &gm);
+                }
                 if (!wm.p || !gm.p || strcmp(wm.p, gm.p)) {
                     CHECK(0);
                     run_diff(name, wm.p ? wm.p : "", gm.p ? gm.p : "");
@@ -1663,6 +1780,29 @@ static void test_hooks_reach(void)
     CHECK_INT(pi_hook_runs - r0, 1);
 }
 
+/* L3: the same behaviours as Lua extensions (tools/pi_oracle/gen_lua_scenarios.py makes each ext_lua_* cfg from its hook-command
+ * twin; the golden is pi 1.1.0's, shared): the records pi prints, and for the event recorders the payload of every event
+ * the handler was handed, with keys sorted on both sides (json.encode sorts) */
+static void test_lua_pi(void)
+{
+    static const char *const names[] = { "ext_lua_events", "ext_lua_block_plain", "ext_lua_mutate", "ext_lua_matcher",
+                                         "ext_lua_result", "ext_lua_input_transform", "ext_lua_input_handled",
+                                         "ext_lua_rpc_prompt", "ext_lua_rpc_handled", "ext_lua_rpc_new", 0 };
+    group(names);
+}
+
+/* L3 reachability: pi_app discovers <agent dir>/extensions/t.lua, the agent loop's tool_call reaches the Lua handler (the
+ * sentinel counts its one call) and the bash call becomes pi's error toolResult with the extension's reason (the golden is
+ * pi's own run with a TypeScript extension that blocks) */
+static void test_lua_reach(void)
+{
+    long c0 = pi_lua_calls;
+    if (getenv("PI_MODES_ONLY") && strcmp(getenv("PI_MODES_ONLY"), "ext_lua_block"))
+        return;
+    CHECK(scenario("ext_lua_block", 0));
+    CHECK_INT(pi_lua_calls - c0, 1);
+}
+
 void suite_pi_modes(void)
 {
     CHECK(load_masks());
@@ -1693,4 +1833,6 @@ void suite_pi_modes(void)
     test_thinking_warning();
     test_hooks_pi();
     test_hooks_reach();
+    test_lua_pi();
+    test_lua_reach();
 }

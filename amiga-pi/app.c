@@ -10,6 +10,7 @@
 #include "tools_pi.h"
 #include "ext_gate.h"
 #include "ext_hooks.h"
+#include "ext_lua.h"
 #include "store.h"
 #include "models.h"
 #include "mcp.h"
@@ -598,6 +599,7 @@ static pi_models models;
 static pi_tools tools;
 static pi_gate gate;
 static pi_hooks hooks;
+static pi_lua lua;
 static pi_store store;
 static mcp mc;
 static pi_res res;
@@ -771,7 +773,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
             }
         }
         pi_hooks_add(&hooks);
-        pi_ext_add(&s.ext, &gate.ext);
+        /* the gate joins the list after the Lua extensions (below, once the project's trust is known) */
     }
     /* project trust (resources.h): -a / -na, a saved decision, defaultProjectTrust, else the question (not in print
      * mode); then the context files, SYSTEM.md and APPEND_SYSTEM.md for the prompt */
@@ -807,6 +809,12 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
             pi_skills_load(&res.skills, pl->sys, &so);
         }
         s.res = &res;
+        /* Lua extensions (ext_lua.h): the project's when it is trusted, then the user's, after the hook commands and ahead
+         * of the gate, so the gate decides on the arguments an extension produced; -ne leaves discovery out */
+        pi_lua_init(&lua, &s, pl->sys, pl->cwd, trusted);
+        if (!a.no_extensions)
+            pi_lua_discover(&lua, pl->agent_dir, pl->data_dir);
+        pi_ext_add(&s.ext, &gate.ext);
     }
     /* prompt templates (templates.h): --prompt-template paths, then the project's (when trusted) and the agent directory's */
     memset(&tmpls, 0, sizeof(tmpls));
@@ -846,6 +854,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         mcp_free(&mc);
         pi_res_free(&res);
         pi_tmpl_free(&tmpls);
+        pi_lua_free(&lua);
         return 1;
     }
     if (a.name[0])
@@ -919,6 +928,7 @@ void pi_rt_close(pi_rt *rt)
     if (rt->pl.sys) {
         pi_gate_free(&gate);
         pi_hooks_free(&hooks);
+        pi_lua_free(&lua);
         pi_tools_free(&tools);
     }
     memset(models.cfg.runtime_key, 0, sizeof(models.cfg.runtime_key));

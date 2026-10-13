@@ -1,0 +1,21 @@
+{
+ "mode": "json",
+ "args": [
+  "run it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"input\", function(event, ctx)\n  return json.decode(\"{\\\"action\\\":\\\"transform\\\",\\\"text\\\":\\\"run it, please\\\"}\")\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_input_transform"
+}
