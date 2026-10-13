@@ -402,8 +402,11 @@ int pi_req_auth(pi_session *s, llm_req *q, jw *hdr)
 {
     q->key = s->key;
     q->xhead = 0;
+    llm_set_wall(s->now, s->h.u);       /* google's generated tool-call ids read the wall clock (pi: Date.now()) */
     if (!s->cfg)
         return 0;
+    if (llm_cfg_endpoint(s->cfg, &s->model, s->err, sizeof(s->err)))
+        return -1;                      /* azure-openai-responses: AZURE_OPENAI_* (pi's resolveAzureConfig) */
     s->keybuf[0] = 0;
     llm_cfg_key(s->cfg, &s->model, s->keybuf, sizeof(s->keybuf), 0);
     if (s->keybuf[0] && cl_key_clean(s->keybuf))

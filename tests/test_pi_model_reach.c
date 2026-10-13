@@ -36,10 +36,18 @@ static llm_ts adv_now(void *u)
     return t;
 }
 
+static const char *extra_name[4], *extra_val[4];       /* a test's own environment variables */
+
 static long env(const char *name, char *o, long cap)
 {
     const char *v = 0;
-    if (!strcmp(name, "OPENAI_API_KEY"))
+    int i;
+    for (i = 0; i < 4; i++)
+        if (extra_name[i] && !strcmp(name, extra_name[i]))
+            v = extra_val[i];
+    if (v)
+        ;
+    else if (!strcmp(name, "OPENAI_API_KEY"))
         v = "sk-test-openai";
     else if (!strcmp(name, "ANTHROPIC_API_KEY"))
         v = "sk-ant-test-not-real";
@@ -784,6 +792,93 @@ static void test_fallback_pricing(void)
     remove(strcat(strcpy(marker, agent), "/models.json"));
 }
 
+/* M8: google-generative-ai through pi_app. Prompt one: the recorded answer is one read call whose id the adapter
+ * generates (<name>_<ms>_<counter>, from the app's clock); the second request carries it in the functionCall and the
+ * functionResponse (gemini 3 needs ids). The key comes from GEMINI_API_KEY, goes in x-goog-api-key; the sentinel counts
+ * the backend's decoder. */
+static void test_google_reach(void)
+{
+    char *a[] = { "amiga-pi", "--model", "google/gemini-3-flash-preview", 0 };
+    static const char *const sse[] = { "../pi/google/read1.sse", "../pi/google/plain.sse" };
+    long f0 = llm_feeds_google;
+    const char *id;
+    llm_google_counter(0);
+    extra_name[0] = "GEMINI_API_KEY";
+    extra_val[0] = "gm-test-key";
+    in_lines[0] = "read the file";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 2), 0);
+    extra_name[0] = 0;
+    CHECK_INT(ps.nreq, 2);
+    if (ps.nreq < 2)
+        return;
+    CHECK(strstr(ps.head[0], "POST /v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse HTTP/1.1\r\n"
+                             "Host: generativelanguage.googleapis.com\r\n") == ps.head[0]);
+    CHECK(strstr(ps.head[0], "x-goog-api-key: gm-test-key\r\n") != 0 && strstr(ps.head[0], "Authorization") == 0);
+    CHECK(strstr(ps.body[0], "{\"contents\":[{\"parts\":[{\"text\":\"read the file\"}],\"role\":\"user\"}],\"systemInstruction\":") == ps.body[0]);
+    /* the generated id, then the same id in the call and its result: <name>_<seconds><ms>_<counter> */
+    id = strstr(ps.body[1], "\"functionCall\":{\"args\":{\"path\":\"/work/proj/no-such-file.txt\"},\"id\":\"read_17601");
+    CHECK(id != 0);
+    if (id) {
+        char want[160];
+        const char *q = strstr(id, "\"id\":\"") + 6, *e = strchr(q, '"');
+        long n = (long)(e - q);
+        CHECK(n > 10 && n < 60);
+        strcpy(want, "\"functionResponse\":{\"name\":\"read\",\"response\":{\"error\":");
+        CHECK(strstr(ps.body[1], want) != 0);
+        strcpy(want, "\"id\":\"");
+        strncat(want, q, (size_t)n);
+        strcat(want, "\"}}");
+        CHECK(strstr(ps.body[1], want) != 0);           /* the result carries the call's id */
+        CHECK(n > 4 && !strncmp(e - 4, "07_1", 4));       /* the clock's ms (7), counter 1 */
+    }
+    CHECK(out.p && strstr(out.p, "Hello from the Amiga.") != 0);
+    CHECK(llm_feeds_google > f0);
+}
+
+/* M8: azure-openai-responses through pi_app. The endpoint comes from the environment (the catalog has no base URL):
+ * AZURE_OPENAI_RESOURCE_NAME, the deployment from AZURE_OPENAI_DEPLOYMENT_NAME_MAP; the key from AZURE_OPENAI_API_KEY
+ * goes in an api-key header, never Authorization; the sentinel counts the backend's decoder. */
+static void test_azure_reach(void)
+{
+    char *a[] = { "amiga-pi", "--model", "azure/gpt-4.1", 0 };
+    static const char *const sse[] = { "../pi/responses/plain.sse" };
+    long f0 = llm_feeds_azure, r0 = llm_feeds_responses;
+    extra_name[0] = "AZURE_OPENAI_API_KEY";
+    extra_val[0] = "az-test-key";
+    extra_name[1] = "AZURE_OPENAI_RESOURCE_NAME";
+    extra_val[1] = "contoso";
+    extra_name[2] = "AZURE_OPENAI_DEPLOYMENT_NAME_MAP";
+    extra_val[2] = "gpt-4.1=prod-41";
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    extra_name[0] = extra_name[1] = extra_name[2] = 0;
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq < 1)
+        return;
+    CHECK(strstr(ps.head[0], "POST /openai/v1/responses?api-version=v1 HTTP/1.1\r\nHost: contoso.openai.azure.com\r\n") == ps.head[0]);
+    CHECK(strstr(ps.head[0], "api-key: az-test-key\r\n") != 0 && strstr(ps.head[0], "Authorization") == 0);
+    CHECK(strstr(ps.body[0], "{\"model\":\"prod-41\",\"input\":[") == ps.body[0]);
+    CHECK(out.p && strstr(out.p, "Hello") != 0);
+    CHECK(llm_feeds_azure > f0 && llm_feeds_responses == r0);       /* its own backend ran, not openai-responses */
+}
+
+/* without a base URL in the catalog or the environment the request names what pi names */
+static void test_azure_no_endpoint(void)
+{
+    char *a[] = { "amiga-pi", "--model", "azure/gpt-4.1", 0 };
+    static const char *const sse[] = { "../pi/responses/plain.sse" };
+    extra_name[0] = "AZURE_OPENAI_API_KEY";
+    extra_val[0] = "az-test-key";
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    run(ARGC(a), a, sse, 1);
+    extra_name[0] = 0;
+    CHECK_INT(ps.nreq, 0);
+    CHECK(out.p && strstr(out.p, "Azure OpenAI base URL is required. Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME") != 0);
+}
+
 void suite_pi_model_reach(void)
 {
     const char *base = getenv("TMPDIR");
@@ -817,5 +912,8 @@ void suite_pi_model_reach(void)
     test_switch_level();
     test_bad_models_json();
     test_fallback_pricing();
+    test_google_reach();
+    test_azure_reach();
+    test_azure_no_endpoint();
     jw_free(&out);
 }
