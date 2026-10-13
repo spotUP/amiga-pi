@@ -743,7 +743,7 @@ static int run_app(int argc, char **argv)
 /* ---- no token byte anywhere it must not be ---- */
 
 static const char *const secrets[] = { "cgat-old-token", "cgrt-1", "cgat-new-token", "cgrt-new", "kmat-access-0001", "kmrt-refresh-0001", "kmat-access-0002", "gho_githubtoken1",
-                                       "xat-access-0001", "xrt-refresh-0001", "mkey-minted-0001", "mid-identity-1", "sk-typed-key", "rat-access-0001", "rrt-refresh-0001", "sk-or-v1-dialog", J1, 0 };
+                                       "xat-access-0001", "xrt-refresh-0001", "mkey-minted-0001", "mid-identity-1", "sk-typed-key", "rat-access-0001", "rrt-refresh-0001", "sk-or-v1-dialog", "rrt-refresh-0002", J1, 0 };
 
 static int has_secret(const char *text, long n)
 {
@@ -1106,6 +1106,22 @@ static void test_requests(void)
         CHECK(has_line(ps.head[0], "Authorization: Bearer xat-access-0001"));
     }
     no_leaks();
+    /* OpenRouter (L2): the OAuth result is a plain API key (openrouter.ts toAuth), never renewed (expires is MAX_SAFE_INTEGER): the
+     * request goes to OpenRouter's chat completions with it as the Bearer key, and nothing is refreshed */
+    {
+        char *orm[] = { "amiga-pi", "--model", "openrouter/moonshotai/kimi-k2.6", 0 };
+        auth_json("{\"openrouter\":{\"type\":\"oauth\",\"access\":\"sk-or-v1-reach\",\"refresh\":\"\",\"expires\":9007199254740991}}");
+        q_sse("../pi/openai_text.sse");
+        in_lines[0] = "hello";
+        in_lines[1] = 0;
+        CHECK_INT(run_app(ARGC(orm), orm), 0);
+        CHECK_INT(ps.nreq, 1);
+        if (ps.nreq == 1) {
+            CHECK(strstr(ps.head[0], "POST /api/v1/chat/completions HTTP/1.1\r\nHost: openrouter.ai\r\n") == ps.head[0]);
+            CHECK(has_line(ps.head[0], "Authorization: Bearer sk-or-v1-reach"));
+        }
+        CHECK(!(out.p && strstr(out.p, "sk-or-v1-reach")));
+    }
     CHECK_INT(pi_auth_refreshes - r0, 0);
     /* a stored Anthropic OAuth entry is no credential here (pi would use it; the owner said never): it is not sent */
     {
@@ -1559,6 +1575,161 @@ static void test_openrouter_radius_dialog(void)
 }
 
 
+/* the Radius login's device flow answers, queued */
+static void q_radius_login(void)
+{
+    q_http(200, "{\"device_code\":\"rd-1\",\"user_code\":\"RAD-42\",\"verification_uri\":\"https://radius.pi.dev/device\",\"expires_in\":600,\"interval\":1}");
+    q_http(200, "{\"access_token\":\"rat-access-0001\",\"refresh_token\":\"rrt-refresh-0001\",\"expires_in\":3600}");
+}
+
+/* the file in the agent directory, 0 none */
+static int agent_file_is(const char *file, const char *want)
+{
+    char *f = read_agent(file);
+    int same = f && want && !strcmp(f, want);
+    free(f);
+    return same;
+}
+
+static void remove_mcp_json(void)
+{
+    char p[600];
+    strcpy(p, agent);
+    strcat(p, "/mcp.json");
+    remove(p);
+}
+
+/* After a Radius login pi offers to point the Radius MCP server of the global mcp.json at it (interactive-mode.ts
+ * offerRadiusMcpServer): add it, repoint one on the same URL (dropping its oauth), pick radius-mcp when "radius" is taken, ask
+ * nothing when a server already uses the login */
+static void test_radius_mcp_offer(void)
+{
+    char *a[] = { "amiga-pi", "--no-mcp", "--model", "openai/gpt-4.1", 0 };
+    static const char *const added = "{\n  \"mcpServers\": {\n    \"radius\": {\n      \"url\": \"https://radius.pi.dev/mcp\",\n"
+                                     "      \"auth\": {\n        \"provider\": \"radius\"\n      }\n    }\n  }\n}\n";
+    /* none: the question, Yes writes the server */
+    remove_agent_files();
+    remove_mcp_json();
+    q_radius_login();
+    in_lines[0] = "/login";
+    in_lines[1] = "3";
+    in_lines[2] = "2";
+    in_lines[3] = "1";
+    in_lines[4] = 0;
+    run_app(ARGC(a), a);
+    CHECK(pos_of(out.p, "Configure Radius MCP in ") >= 0 && pos_of(out.p, "mcp.json?") >= 0);
+    CHECK(agent_file_is("mcp.json", added));
+    /* No writes nothing */
+    remove_agent_files();
+    remove_mcp_json();
+    q_radius_login();
+    in_lines[3] = "2";
+    run_app(ARGC(a), a);
+    CHECK(pos_of(out.p, "Configure Radius MCP in ") >= 0);
+    CHECK(read_agent("mcp.json") == 0);
+    /* a server on the same URL (a trailing slash does not matter) is repointed: auth in, oauth out, the rest kept */
+    remove_agent_files();
+    write_agent("mcp.json", "{\n    \"mcpServers\": {\n        \"mine\": {\"url\": \"https://radius.pi.dev/mcp/\", \"oauth\": {\"clientId\": \"x\"}, \"timeout\": 5},\n"
+                "        \"other\": {\"command\": \"x\"}\n    }\n}\n");
+    q_radius_login();
+    in_lines[3] = "1";
+    run_app(ARGC(a), a);
+    CHECK(agent_file_is("mcp.json", "{\n  \"mcpServers\": {\n    \"mine\": {\n      \"url\": \"https://radius.pi.dev/mcp/\",\n      \"timeout\": 5,\n"
+                                    "      \"auth\": {\n        \"provider\": \"radius\"\n      }\n    },\n    \"other\": {\n      \"command\": \"x\"\n    }\n  }\n}\n"));
+    /* "radius" taken by another server: radius-mcp */
+    remove_agent_files();
+    write_agent("mcp.json", "{\"mcpServers\":{\"radius\":{\"command\":\"x\"}}}");
+    q_radius_login();
+    run_app(ARGC(a), a);
+    CHECK(agent_file_is("mcp.json", "{\n  \"mcpServers\": {\n    \"radius\": {\n      \"command\": \"x\"\n    },\n    \"radius-mcp\": {\n"
+                                    "      \"url\": \"https://radius.pi.dev/mcp\",\n      \"auth\": {\n        \"provider\": \"radius\"\n      }\n    }\n  }\n}\n"));
+    /* a server that already uses this login: nothing is asked, the file is as it was */
+    remove_agent_files();
+    write_agent("mcp.json", "{\"mcpServers\":{\"r\":{\"url\":\"https://radius.pi.dev/mcp\",\"auth\":{\"provider\":\"radius\"}}}}");
+    q_radius_login();
+    run_app(ARGC(a), a);
+    CHECK(pos_of(out.p, "Logged in to Radius") >= 0 && pos_of(out.p, "Configure Radius MCP") < 0);
+    CHECK(agent_file_is("mcp.json", "{\"mcpServers\":{\"r\":{\"url\":\"https://radius.pi.dev/mcp\",\"auth\":{\"provider\":\"radius\"}}}}"));
+    /* a file that is not pi's shape is reported, not written over */
+    remove_agent_files();
+    write_agent("mcp.json", "{\"mcpServers\":[]}");
+    q_radius_login();
+    run_app(ARGC(a), a);
+    CHECK(agent_file_is("mcp.json", "{\"mcpServers\":[]}"));
+    remove_mcp_json();
+    remove_agent_files();
+}
+
+/* An MCP server with "auth": {"provider": "radius"} sends the login's token at every request (mcp/runtime.ts providerToken,
+ * streamable-http.ts headers), renews it first when it is about to expire, and says to sign in on a 401 */
+static void test_mcp_provider_auth(void)
+{
+    char *a[] = { "amiga-pi", "--model", "openai/gpt-4.1", 0 };
+    static const char *const init = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2025-11-25\",\"capabilities\":{\"tools\":{}},"
+                                    "\"serverInfo\":{\"name\":\"radius\",\"version\":\"1\"}}}";
+    static const char *const tools = "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[]}}";
+    long mark;
+    char *file;
+    jv r, e, v;
+    remove_agent_files();
+    write_agent("mcp.json", "{\"mcpServers\":{\"radius\":{\"url\":\"https://radius.pi.dev/mcp\",\"auth\":{\"provider\":\"radius\"},"
+                "\"headers\":{\"Authorization\":\"Bearer configured\",\"X-Extra\":\"1\"}}}}");
+    /* a stored token that is good: it is the bearer of every request, over a configured Authorization header */
+    write_agent("auth.json", "{\"radius\":{\"type\":\"oauth\",\"access\":\"rat-access-0001\",\"refresh\":\"rrt-refresh-0001\",\"expires\":" FAR_FUTURE "}}");
+    q_http(200, init);
+    q_http(202, "");
+    q_http(200, tools);
+    in_lines[0] = 0;
+    run_app(ARGC(a), a);
+    CHECK_INT(ps.nreq, 3);
+    if (ps.nreq == 3) {
+        int i;
+        CHECK(strstr(ps.head[0], "POST /mcp HTTP/1.1\r\nHost: radius.pi.dev\r\n") == ps.head[0]);
+        for (i = 0; i < 3; i++) {
+            CHECK(has_line(ps.head[i], "Authorization: Bearer rat-access-0001"));
+            CHECK(count_of(ps.head[i], "Authorization") == 1 && strstr(ps.head[i], "Bearer configured") == 0);
+            CHECK(has_line(ps.head[i], "X-Extra: 1"));
+        }
+    }
+    CHECK(!has_secret(out.p ? out.p : "", out.n));
+    /* a token that expired is renewed before the first request, and the rotated refresh token is saved */
+    write_agent("auth.json", "{\"radius\":{\"type\":\"oauth\",\"access\":\"rat-old\",\"refresh\":\"rrt-refresh-0001\",\"expires\":1}}");
+    mark = pi_auth_refreshes;
+    q_http(200, "{\"access_token\":\"rat-access-0001\",\"refresh_token\":\"rrt-refresh-0002\",\"expires_in\":3600}");
+    q_http(200, init);
+    q_http(202, "");
+    q_http(200, tools);
+    run_app(ARGC(a), a);
+    CHECK_INT(pi_auth_refreshes - mark, 1);
+    CHECK_INT(ps.nreq, 4);
+    if (ps.nreq == 4) {
+        CHECK(strstr(ps.head[0], "POST /v1/oauth/token HTTP/1.1\r\nHost: radius.pi.dev\r\n") == ps.head[0]);
+        CHECK(strstr(ps.body[0], "grant_type=refresh_token&client_id=pi-gateway&refresh_token=rrt-refresh-0001") == ps.body[0]);
+        CHECK(has_line(ps.head[1], "Authorization: Bearer rat-access-0001"));
+    }
+    file = read_agent("auth.json");
+    CHECK(file && json_parse(file, (long)strlen(file), &r) == 0 && json_get(r, "radius", &e) && json_get(e, "refresh", &v) &&
+          json_streq(v, "rrt-refresh-0002"));
+    free(file);
+    /* no login: no token, the server answers 401, and pi's words say what to run */
+    remove_agent_files();
+    q_http(401, "{\"error\":\"unauthorized\"}");
+    run_app(ARGC(a), a);
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq == 1)
+        CHECK(strstr(ps.head[0], "Bearer rat-") == 0 && has_line(ps.head[0], "Authorization: Bearer configured"));    /* no token: the configured header stays */
+    CHECK(pos_of(out.p, "MCP server \"radius\" requires sign-in. Run /login radius to sign in.") >= 0);
+    /* auth needs an https URL (or a loopback one), and a provider name */
+    write_agent("mcp.json", "{\"mcpServers\":{\"a\":{\"url\":\"http://mcp.example/x\",\"auth\":{\"provider\":\"radius\"}},"
+                "\"b\":{\"url\":\"https://mcp.example/x\",\"auth\":{}}}}");
+    in_lines[0] = 0;
+    run_app(ARGC(a), a);
+    CHECK(pos_of(out.p, "server \"a\": auth requires an https URL, or http on localhost, 127.0.0.1, or [::1]") >= 0);
+    CHECK(pos_of(out.p, "server \"b\": auth.provider must be a provider name") >= 0);
+    remove_mcp_json();
+    remove_agent_files();
+}
+
 /* Sign in with ChatGPT through the dialog: the URL to open elsewhere, the redirect pasted back, the device id kept */
 static void test_chatgpt_dialog(void)
 {
@@ -1719,6 +1890,8 @@ void suite_pi_login(void)
     test_login_dialog();
     test_chatgpt_dialog();
     test_openrouter_radius_dialog();
+    test_radius_mcp_offer();
+    test_mcp_provider_auth();
     if (fx_h)
         sys.spawn2_close(sys.u, fx_h, 500);
     jw_free(&ev);

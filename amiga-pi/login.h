@@ -98,6 +98,10 @@ void pi_auth_io(pi_auth *a, oa_io *io);
  * (the API refused it). 0, or -1 with pi's message in err ("OAuth refresh failed for meta: Meta session expired ...") */
 int pi_auth_prepare(void *u, pi_session *s, int force, char *err, long cap);
 
+/* the current token of a provider for an MCP server's `auth.provider` (mcp/runtime.ts providerToken, getApiKeyForProvider): renewed when
+ * it is about to expire. 0 with the token in out, -1 when the provider has none. (mcp.provider_token: `u` is the pi_auth) */
+int pi_auth_provider_token(void *u, const char *provider, char *out, long cap);
+
 /* /login [provider] and /logout: the whole dialog through ui. 1 when something was changed (the screen redraws its footer) */
 int pi_login_run(pi_auth *a, const char *arg, const pi_login_ui *ui);
 int pi_logout_run(pi_auth *a, const pi_login_ui *ui);
