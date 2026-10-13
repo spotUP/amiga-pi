@@ -748,6 +748,7 @@ typedef struct run_opts {
     int bad_models;                 /* models.json is not JSON: the warning of the start, a diagnostic */
     int diag;                       /* capture the diagnostic stream (pl.diag) in diag_log: one entry per call, '|' between */
     int nocmp;                      /* do not compare with the golden: the caller reads the output */
+    int refuse;                     /* the first this many connects fail (nothing listening), the answers after them */
     char *out;                      /* out with nocmp: the records, malloc'ed */
 } run_opts;
 
@@ -1150,6 +1151,8 @@ static int scenario(const char *name, run_opts *ro)
             free(b);
         }
     }
+    if (ro)
+        ps.refuse = ro->refuse;
     memset(&io, 0, sizeof(io));
     io.write = io_write;
     io.ms = io_ms;
@@ -1463,6 +1466,30 @@ static void test_retry_cap(void)
     ro.inline_in = "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello\"}\n#after agent_settled\n";
     scenario("json_retry", &ro);
     CHECK(has(ro.out, "\"type\":\"auto_retry_start\",\"attempt\":1,\"maxAttempts\":2,\"delayMs\":100,"));
+    free(ro.out);
+}
+
+/* N1: nothing listening on the base URL (pi 1.1.0, http://127.0.0.1:9/v1: "Connection error.", retried 2, 4, 8 s, then
+ * the error; agent-session.ts _handleRetryableError): every attempt refused, the retries run out (maxRetries 2) and the run
+ * settles on the error. Giving up resets the retry count, so the run must not look at it again: it started the retries
+ * over without end (amiga-pi hung > 10 min on the Amiga). The scenario's answers come after three refusals, so the old
+ * loop's fourth attempt reached them instead of hanging this test. */
+static void test_retry_refused(void)
+{
+    run_opts ro;
+    memset(&ro, 0, sizeof(ro));
+    ro.force_mode = "rpc";
+    ro.nocmp = 1;
+    ro.refuse = 3;
+    ro.inline_in = "{\"id\":\"1\",\"type\":\"prompt\",\"message\":\"hello\"}\n#after agent_settled\n";
+    scenario("json_retry", &ro);
+    CHECK(has(ro.out, "\"type\":\"auto_retry_start\",\"attempt\":1,\"maxAttempts\":2,\"delayMs\":100,\"errorMessage\":\"Connection error.\""));
+    CHECK(has(ro.out, "\"type\":\"auto_retry_start\",\"attempt\":2,\"maxAttempts\":2,\"delayMs\":200,"));
+    CHECK(has(ro.out, "\"type\":\"auto_retry_end\",\"success\":false,\"attempt\":2,\"finalError\":\"Connection error.\""));
+    CHECK(has(ro.out, "\"type\":\"agent_settled\""));
+    CHECK(!has(ro.out, "Recovered."));
+    CHECK_INT(ps.refused, 3);
+    CHECK_INT(ps.nreq, 0);
     free(ro.out);
 }
 
@@ -1926,6 +1953,7 @@ void suite_pi_modes(void)
     test_duration_entries();
     test_retry_cap();
     test_retry_overflow();
+    test_retry_refused();
     test_gate();
     test_tool_update();
     test_templates_rpc();
