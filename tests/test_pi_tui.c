@@ -519,14 +519,14 @@ static void run(const scen *sc)
     pi_ui_set_cwd("~/project");
     pi_ui_set_quiet(!sc->header);
     pi_ui_set_commands(pi_cmds, (int)(sizeof(pi_cmds) / sizeof(pi_cmds[0])));
-    if (!strcmp(sc->name, "slash_prompts")) {
+    if (!strcmp(sc->name, "slash_prompts") || !strcmp(sc->name, "slash_utf")) {
         /* J2: the agent directory's prompts/ (the same files tools/pi_oracle/tui_gen.py gave pi) after the built-in rows */
         static sys_posix sp;
         static cl_sys tsys;
         int nt;
         const cl_cmd *rows;
         sys_posix_init(&sp, &tsys);
-        CHECK_INT(test_tmpl_load(&slash_tm, &tsys, PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
+        CHECK_INT(test_tmpl_load(&slash_tm, &tsys, !strcmp(sc->name, "slash_utf") ? PI_TESTS "/pi/tui/agent_dir_u" : PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
         rows = pi_tmpl_menu(&slash_tm, &nt);
         pi_ui_set_extra_commands(0, rows, nt);
     }
@@ -2522,15 +2522,53 @@ static void test_bash_rows_uncapped(void)
     cs_close();
 }
 
+/* \n and \t spelled as two characters in the cases file, and the backslash doubled */
+static void fuzzy_unescape(char *s)
+{
+    char *w = s;
+    for (; *s; s++) {
+        if (*s == '\\' && s[1] == 'n')
+            *w++ = '\n', s++;
+        else if (*s == '\\' && s[1] == 't')
+            *w++ = '\t', s++;
+        else if (*s == '\\' && s[1] == '\\')
+            *w++ = '\\', s++;
+        else
+            *w++ = *s;
+    }
+    *w = 0;
+}
+
+/* whether the menu `got` (indexes into cmd) is the names in `w` (space separated, in order) */
+static int fuzzy_same(const cl_cmd *cmd, const int *idx, int got, char *w, int *want)
+{
+    int k = 0, ok = 1;
+    while (*w) {
+        char *e = strchr(w, ' ');
+        if (e)
+            *e = 0;
+        if (k >= got || strcmp(cmd[idx[k]].name + 1, w))
+            ok = 0;
+        k++;
+        if (!e)
+            break;
+        w = e + 1;
+    }
+    *want = k;
+    return ok && k == got;
+}
+
 /* J6: the slash menu is pi-tui's fuzzy filter in order of score (pi 1.1.0's own CombinedAutocompleteProvider, tools/pi_oracle/gen_fuzzy.mjs):
- * the order of every one- and two-letter query and some more, from the file */
+ * the order of every one- and two-letter query and some more, from the file; U1: the same for non-ASCII names and queries
+ * (lowercased as JavaScript, positions in UTF-16 units) and for a cursor inside the text (only the first line's text before
+ * the cursor counts: the lines starting with '@') */
 static void test_slash_fuzzy(void)
 {
     long n = 0;
     char *f = slurp("fuzzy_cases.txt", &n), *line;
     static cl_cmd cmd[64];
-    static char name[64][40];
-    int ncmd = 0, cases = 0, bad = 0;
+    static char name[64][48];
+    int ncmd = 0, cases = 0, curs = 0, bad = 0;
     CHECK(f != 0);
     if (!f)
         return;
@@ -2555,34 +2593,40 @@ static void test_slash_fuzzy(void)
                     break;
                 w = e + 1;
             }
+        } else if (line[0] == '@' && (tab = strchr(line, '\t')) != 0) {
+            int idx[64], got, k;
+            char *after = tab + 1, *menu = strchr(after, '\t');
+            char box[256];
+            long from = -1, cur;
+            *tab = 0;
+            *menu++ = 0;
+            fuzzy_unescape(line + 1);
+            fuzzy_unescape(after);
+            cur = (long)strlen(line + 1);
+            strcpy(box, line + 1);
+            strcat(box, after);
+            got = pi_slash_filter(0, cmd, ncmd, box, (long)strlen(box), cur, &from, idx);
+            curs++;
+            if (!fuzzy_same(cmd, idx, got, menu, &k) && bad++ < 5)
+                printf("    cursor case %d (%s|%s): pi lists %d, amiga-pi %d\n", curs, line + 1, after, k, got);
+            else if (got && (from < 0 || from > cur || box[from] != '/'))
+                bad++, printf("    cursor case %d: from %ld\n", curs, from);
         } else if ((tab = strchr(line, '\t')) != 0) {
-            int idx[64], got, k = 0, ok = 1;
-            char text[80];
-            char *w = tab + 1;
+            int idx[64], got, k;
+            char text[256];
+            long from = 0;
             *tab = 0;
             strcpy(text, "/");
             strcat(text, line);
-            got = pi_slash_filter(0, cmd, ncmd, text, (long)strlen(text), idx);
-            while (*w) {
-                char *e = strchr(w, ' ');
-                if (e)
-                    *e = 0;
-                if (k >= got || strcmp(cmd[idx[k]].name + 1, w))
-                    ok = 0;
-                k++;
-                if (!e)
-                    break;
-                w = e + 1;
-            }
-            if (k != got)
-                ok = 0;
+            got = pi_slash_filter(0, cmd, ncmd, text, (long)strlen(text), (long)strlen(text), &from, idx);
             cases++;
-            if (!ok && bad++ < 5)
+            if (!fuzzy_same(cmd, idx, got, tab + 1, &k) && bad++ < 5)
                 printf("    /%s: pi lists %d, amiga-pi %d\n", line, k, got);
         }
         line = eol + 1;
     }
     CHECK(cases > 700);
+    CHECK(curs > 30);
     CHECK_INT(bad, 0);
     free(f);
 }
@@ -2640,6 +2684,11 @@ static const scen scenarios[] = {
     { "slash_re", { "/re", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "slash_ct", { "/ct", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "slash_prompts", { "/rev", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* U1: the menu is for the text before the cursor ('/tr' with the cursor before the e), once closed it stays so when only the cursor
+     * moves, and the names match as pi-tui lowercases them ('/É' lists café) */
+    { "slash_mid", { "/tre\033[D", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "slash_closed", { "/resx\033[D", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "slash_utf", { "/\303\211", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
     { "table", { "show a table\r", 0 }, { "table.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "markdown2", { "more markdown\r", 0 }, { "markdown2.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },

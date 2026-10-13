@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+/tre
+────────────────────────────────────────────────────────────────────────────────
+→ tree        Navigate session tree (switch branches)
+  trust       Save project trust decision for future sessions
+~/project
+0.0%/200k (auto)                                                      fake-model

@@ -121,6 +121,13 @@ SCENARIOS = {
     'slash_ct': dict(steps=[('type', '/ct')], answers=[]),
     # J: prompt templates in the menu (the agent directory's prompts/: description with its [u] tag, argument hint first)
     'slash_prompts': dict(steps=[('type', '/rev')], answers=[], agent_tree='agent_dir'),
+    # U1: the menu follows the text before the cursor ('/res' with the cursor before the x), and matches non-ASCII names lowercased
+    # (agent_dir_u/prompts: café, ärger, 日本語): '/É' lists café
+    'slash_mid': dict(steps=[('type', '/tre'), ('key', 'Left')], answers=[]),
+    # ... but typing that left no match closed the menu, and moving the cursor does not open it again (editor.ts updateAutocomplete
+    # runs only while the menu is open)
+    'slash_closed': dict(steps=[('type', '/resx'), ('key', 'Left')], answers=[]),
+    'slash_utf': dict(steps=[('type', '/\u00c9')], answers=[], agent_tree='agent_dir_u'),
     # a markdown answer
     'markdown': dict(steps=[('type', 'show markdown'), ('enter',), ('wait', 'return 0')],
                      answers=[('sse', text_answer('msg_md', MARKDOWN, 180))]),
