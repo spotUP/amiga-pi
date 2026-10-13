@@ -427,6 +427,15 @@ static void test_reach(void)
     /* a name that is no template goes through untouched (pi: the text itself) */
     CHECK_INT(app_run("r1/w", "r1/agent", "/nosuch a", "-a", 0), 0);
     CHECK(sent("/nosuch a"));
+    /* I8/J5: settings.json "prompts" reaches the model through pi_app, and a template whose YAML the yaml package refuses is not one */
+    put("r2/agent/settings.json", "{\"prompts\":[\"extra\"]}");
+    put("r2/agent/extra/viaentry.md", "Entry says: $1");
+    put("r2/agent/prompts/broken.md", "---\ndescription: Use when: x\n---\nnever sent");
+    put("r2/w/.keep", "");
+    CHECK_INT(app_run("r2/w", "r2/agent", "/viaentry hello", "-na", 0), 0);
+    CHECK(sent("Entry says: hello") && !sent("/viaentry hello"));
+    CHECK_INT(app_run("r2/w", "r2/agent", "/broken x", "-na", 0), 0);
+    CHECK(sent("/broken x") && !sent("never sent"));
 }
 
 /* J7: agent-session.ts _queueUserInput (2183-2192) expands a prompt template in a steering or follow-up message, as
