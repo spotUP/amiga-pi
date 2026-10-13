@@ -204,6 +204,37 @@ static int string(sd *p)
     }
 }
 
+/* the digits at the position, and whether there is at least one */
+static int digits(sd *p)
+{
+    long from = p->pos;
+    while (p->pos < p->n && is_digit(p->u[p->pos]))
+        p->pos++;
+    return p->pos > from;
+}
+
+/* the fraction after a '.': 1, 0 after the error was set */
+static int fraction(sd *p)
+{
+    p->pos++;
+    if (p->pos >= p->n || !is_digit(p->u[p->pos]))
+        return fail_at(p, "Unterminated fractional number", p->pos);
+    digits(p);
+    return 1;
+}
+
+/* the exponent after an 'e' or 'E': 1, 0 after the error was set */
+static int exponent(sd *p)
+{
+    p->pos++;
+    if (p->pos < p->n && (p->u[p->pos] == '+' || p->u[p->pos] == '-'))
+        p->pos++;
+    if (p->pos >= p->n || !is_digit(p->u[p->pos]))
+        return fail_at(p, "Exponent part is missing a number", p->pos);
+    digits(p);
+    return 1;
+}
+
 static int number(sd *p)
 {
     if (p->u[p->pos] == '-') {
@@ -216,24 +247,11 @@ static int number(sd *p)
         if (p->pos < p->n && is_digit(p->u[p->pos]))
             return unexpected(p);
     } else
-        while (p->pos < p->n && is_digit(p->u[p->pos]))
-            p->pos++;
-    if (p->pos < p->n && p->u[p->pos] == '.') {
-        p->pos++;
-        if (p->pos >= p->n || !is_digit(p->u[p->pos]))
-            return fail_at(p, "Unterminated fractional number", p->pos);
-        while (p->pos < p->n && is_digit(p->u[p->pos]))
-            p->pos++;
-    }
-    if (p->pos < p->n && (p->u[p->pos] == 'e' || p->u[p->pos] == 'E')) {
-        p->pos++;
-        if (p->pos < p->n && (p->u[p->pos] == '+' || p->u[p->pos] == '-'))
-            p->pos++;
-        if (p->pos >= p->n || !is_digit(p->u[p->pos]))
-            return fail_at(p, "Exponent part is missing a number", p->pos);
-        while (p->pos < p->n && is_digit(p->u[p->pos]))
-            p->pos++;
-    }
+        digits(p);
+    if (p->pos < p->n && p->u[p->pos] == '.' && !fraction(p))
+        return 0;
+    if (p->pos < p->n && (p->u[p->pos] == 'e' || p->u[p->pos] == 'E') && !exponent(p))
+        return 0;
     return 1;
 }
 
