@@ -854,6 +854,27 @@ static void retry_settings(const pi_platform *pl, pi_session *ses)
     CL_FREE(b);
 }
 
+/* PI_DEBUG_LOG=<file> (amiga-pi's own, unset: off): llm_request's debug log appended to that file -- each request's
+ * head with the credential redacted, each event of the answer, and for pi's bare "Connection error." the transport's
+ * reason (no route, no AmiSSL, the certificate). Not set when the platform brings a log of its own (the tests). */
+static const cl_sys *dlog_sys;
+static char dlog_path[256];
+
+static void dlog(void *u, const char *s, long n)
+{
+    (void)u;
+    dlog_sys->append(dlog_sys->u, dlog_path, s, n);
+}
+
+static void debug_log(pi_platform *pl)
+{
+    if (!pl->h.log && pl->getenv && pl->sys && pl->sys->append &&
+        pl->getenv("PI_DEBUG_LOG", dlog_path, sizeof(dlog_path)) > 0) {
+        dlog_sys = pl->sys;
+        pl->h.log = dlog;
+    }
+}
+
 int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
 {
     const pi_platform *pl;
@@ -863,6 +884,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     int mode, level0 = 0, trusted = 0;
     memset(rt, 0, sizeof(*rt));
     rt->pl = *plat;
+    debug_log(&rt->pl);
     rt->io = plat->io;
     pl = &rt->pl;
     if (pi_args_parse(&a, argc, argv)) {
