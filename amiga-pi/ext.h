@@ -49,6 +49,16 @@ typedef struct pi_ext_ui {
     int (*input)(void *u, const char *title, const char *placeholder, long timeout_ms, char *value, long cap);
     /* type: "info", "warning", "error", or 0 */
     void (*notify)(void *u, const char *message, const char *type);
+    /* the rest of ExtensionUIContext a mode can show (types.ts:149-315); 0 where it cannot, and the call is then pi's no-op. The
+     * component factories (setFooter, setHeader, setEditorComponent, custom, ...) are TypeScript objects and have no meaning here. */
+    void (*set_status)(void *u, const char *key, const char *text);          /* text 0: cleared */
+    /* lines of plain text above ("aboveEditor", the default) or below ("belowEditor") the editor; n -1: the widget is removed */
+    void (*set_widget)(void *u, const char *key, const char *const *lines, int n, const char *placement);
+    void (*set_title)(void *u, const char *title);                           /* the terminal's window title */
+    void (*set_editor_text)(void *u, const char *text);
+    void (*set_working_message)(void *u, const char *message);               /* the loader's label while the agent works; 0: the default */
+    /* a multi-line text dialog (ctx.ui.editor): the text in value; 1, 0 cancelled */
+    int (*editor)(void *u, const char *title, const char *prefill, char *value, long cap);
 } pi_ext_ui;
 
 /* the answer of one handler to an event of the generic kind (pi_exts_emit): answer is the object the handler returned (p 0

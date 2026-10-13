@@ -1868,7 +1868,7 @@ static void test_decisions(void)
                                          "ext_lua_bash_result", "ext_lua_settle_continue", "ext_lua_turn_entries",
                                          "ext_lua_resources", "ext_lua_ev_ui", "ext_term_block", "ext_lua_term_block",
                                          "ext_result_usage", "ext_lua_result_usage", "ext_lua_tool_usage", "ext_lua_msg_end",
-                                         "ext_lua_error_rpc", 0 };
+                                         "ext_lua_error_rpc", "ext_lua_ui_misc", 0 };
     group(names);
 }
 

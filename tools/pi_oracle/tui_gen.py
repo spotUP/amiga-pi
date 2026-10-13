@@ -479,6 +479,26 @@ SCENARIOS.update({
     'ext_msg_multi': dict(steps=[('type', '/multi'), ('enter',), ('wait', 'two')], answers=[], agent_files=MSG_FILES, rows=30),
 })
 
+# L16: ctx.ui.setStatus (the footer's extra row), setWidget (lines above or below the editor) and setWorkingMessage from an extension's command
+EXT_UIX = r'''export default function (pi) {
+  pi.registerCommand("stat", { handler: async (args, ctx) => { ctx.ui.setStatus("b", "second"); ctx.ui.setStatus("a", "first"); } });
+  pi.registerCommand("above", { handler: async (args, ctx) => { ctx.ui.setWidget("w", ["widget line one", "widget line two"]); } });
+  pi.registerCommand("below", { handler: async (args, ctx) => { ctx.ui.setWidget("wb", ["under the editor"], { placement: "belowEditor" }); } });
+  pi.registerCommand("many", { handler: async (args, ctx) => { ctx.ui.setWidget("m", Array.from({ length: 12 }, (_, i) => "row " + (i + 1))); } });
+  pi.registerCommand("clear", { handler: async (args, ctx) => { ctx.ui.setStatus("a", undefined); ctx.ui.setStatus("b", undefined); ctx.ui.setWidget("w", undefined); ctx.ui.setWidget("wb", undefined); } });
+}
+'''
+UIX_FILES = {'extensions/t.ts': EXT_UIX}
+SCENARIOS.update({
+    'ext_ui_status': dict(steps=[('type', '/stat'), ('enter',), ('wait', 'first')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_above': dict(steps=[('type', '/above'), ('enter',), ('wait', 'widget line')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_below': dict(steps=[('type', '/below'), ('enter',), ('wait', 'under the')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_many': dict(steps=[('type', '/many'), ('enter',), ('wait', 'truncated')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_clear': dict(steps=[('type', '/above'), ('enter',), ('wait', 'widget line'), ('type', '/stat'), ('enter',), ('wait', 'first'),
+                                       ('type', '/clear'), ('enter',), ('sleep', 1.0)], answers=[], agent_files=UIX_FILES, rows=30),
+})
+
+
 
 
 class Fake(http.server.BaseHTTPRequestHandler):

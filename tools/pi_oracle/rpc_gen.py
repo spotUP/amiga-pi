@@ -552,6 +552,27 @@ THROW = {'agent/extensions/t.ts': 'export default function (pi) { pi.on("input",
 sc('ext_error_json', mode='json', args=['say hi'], answers=[A('Hi there.')], text_files=THROW)
 sc('ext_error_rpc', steps=[('prompt', 'hello')], answers=[A('Hi there.')], text_files=THROW)
 
+# L16: the rest of ctx.ui over RPC (rpc-mode.ts:212-290): setStatus, setWidget, setTitle, set_editor_text go out as requests that need no
+# answer, the editor dialog waits for one; setWorkingMessage and getEditorText have nothing to say
+EXT_UI_MISC = r'''export default function (pi) {
+  pi.on("tool_call", async (event, ctx) => {
+    ctx.ui.setStatus("b-key", "second");
+    ctx.ui.setStatus("a-key", "first");
+    ctx.ui.setStatus("a-key", undefined);
+    ctx.ui.setWidget("w1", ["line one", "line two"]);
+    ctx.ui.setWidget("w2", ["below"], { placement: "belowEditor" });
+    ctx.ui.setWidget("w1", undefined);
+    ctx.ui.setTitle("My title");
+    ctx.ui.setEditorText("draft");
+    ctx.ui.setWorkingMessage("Busy");
+    const v = await ctx.ui.editor("Edit it", "prefill");
+    return { block: true, reason: "done " + v + " [" + ctx.ui.getEditorText() + "]" };
+  });
+}
+'''
+sc('ext_ui_misc', steps=[('send', P('run it'))] + [('gate', 'extension_ui_request')] * 9 + [('ui', {'value': 'edited'}), ('settle',)],
+   answers=[TOOL('read', {'path': 'notes.txt'}), A('Done.')], text_files={'agent/extensions/t.ts': EXT_UI_MISC})
+
 
 # ---- L7: what handlers of the other events decide (hook-command twins answer with printf, the Lua twins are made from them) ----
 REWRITE = {'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': 'rewritten'}], 'timestamp': 1}]}

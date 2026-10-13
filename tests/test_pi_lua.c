@@ -599,7 +599,7 @@ static void fui_notify(void *u, const char *message, const char *type)
     cl_copy(fui.type, type ? type : "<none>", sizeof(fui.type));
 }
 
-static pi_ext_ui fake_ui = { 0, fui_select, fui_confirm, fui_input, fui_notify };
+static pi_ext_ui fake_ui = { 0, fui_select, fui_confirm, fui_input, fui_notify, 0, 0, 0, 0, 0, 0 };
 
 static void test_ui(void)
 {

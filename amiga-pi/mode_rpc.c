@@ -623,8 +623,112 @@ static void rpc_ui_notify(void *u, const char *message, const char *type)
     jw_free(&w);
 }
 
-/* what an extension's ctx.ui reaches while RPC mode runs (ext.h pi_ext_ui): requests out, the client's responses in */
-static pi_ext_ui rpc_ui = { 0, rpc_ui_select, rpc_ui_confirm, rpc_ui_input, rpc_ui_notify };
+/* the requests that need no answer (rpc-mode.ts:212-290): setStatus, setWidget (string arrays only), setTitle, set_editor_text */
+static void rpc_ui_status(void *u, const char *key, const char *text)
+{
+    pi_rpc *r = (pi_rpc *)u;
+    jw w;
+    char id[48];
+    jw_init(&w);
+    ui_open(r, &w, "setStatus", id);
+    jw_rawz(&w, ",\"statusKey\":");
+    jw_strz(&w, key);
+    if (text) {
+        jw_rawz(&w, ",\"statusText\":");
+        jw_strz(&w, text);
+    }
+    jw_rawz(&w, "}");
+    put_line(r, &w);
+    jw_free(&w);
+}
+
+static void rpc_ui_widget(void *u, const char *key, const char *const *lines, int n, const char *placement)
+{
+    pi_rpc *r = (pi_rpc *)u;
+    jw w;
+    char id[48];
+    int i;
+    jw_init(&w);
+    ui_open(r, &w, "setWidget", id);
+    jw_rawz(&w, ",\"widgetKey\":");
+    jw_strz(&w, key);
+    if (n >= 0) {
+        jw_rawz(&w, ",\"widgetLines\":[");
+        for (i = 0; i < n; i++) {
+            if (i)
+                jw_rawz(&w, ",");
+            jw_strz(&w, lines[i]);
+        }
+        jw_rawz(&w, "]");
+    }
+    if (placement) {
+        jw_rawz(&w, ",\"widgetPlacement\":");
+        jw_strz(&w, placement);
+    }
+    jw_rawz(&w, "}");
+    put_line(r, &w);
+    jw_free(&w);
+}
+
+static void rpc_ui_title(void *u, const char *title)
+{
+    pi_rpc *r = (pi_rpc *)u;
+    jw w;
+    char id[48];
+    jw_init(&w);
+    ui_open(r, &w, "setTitle", id);
+    jw_rawz(&w, ",\"title\":");
+    jw_strz(&w, title);
+    jw_rawz(&w, "}");
+    put_line(r, &w);
+    jw_free(&w);
+}
+
+static void rpc_ui_editor_text(void *u, const char *text)
+{
+    pi_rpc *r = (pi_rpc *)u;
+    jw w;
+    char id[48];
+    jw_init(&w);
+    ui_open(r, &w, "set_editor_text", id);
+    jw_rawz(&w, ",\"text\":");
+    jw_strz(&w, text);
+    jw_rawz(&w, "}");
+    put_line(r, &w);
+    jw_free(&w);
+}
+
+/* the editor dialog: no timeout (rpc-mode.ts:300-320 waits for the response as long as it takes) */
+static int rpc_ui_editor(void *u, const char *title, const char *prefill, char *value, long cap)
+{
+    pi_rpc *r = (pi_rpc *)u;
+    jw w;
+    char id[48];
+    jv o, v;
+    int ok = 0;
+    jw_init(&w);
+    ui_open(r, &w, "editor", id);
+    jw_rawz(&w, ",\"title\":");
+    jw_strz(&w, title);
+    if (prefill) {
+        jw_rawz(&w, ",\"prefill\":");
+        jw_strz(&w, prefill);
+    }
+    jw_rawz(&w, "}");
+    put_line(r, &w);
+    jw_free(&w);
+    if (dialog_wait(r, id, 0) && !cancelled(&r->ui_resp) && !json_parse(r->ui_resp.p, r->ui_resp.n, &o) &&
+        json_get(o, "value", &v) && json_type(v) == J_STR) {
+        json_str(v, value, cap);
+        ok = 1;
+    }
+    return ok;
+}
+
+/* what an extension's ctx.ui reaches while RPC mode runs (ext.h pi_ext_ui): requests out, the client's responses in. The loader's label
+ * (setWorkingMessage) is the terminal's: rpc-mode.ts ignores it */
+static pi_ext_ui rpc_ui = { 0, rpc_ui_select, rpc_ui_confirm, rpc_ui_input, rpc_ui_notify, rpc_ui_status, rpc_ui_widget, rpc_ui_title,
+                            rpc_ui_editor_text, 0, rpc_ui_editor };
 
 /* the permission gate's question (ext_gate.h) as a select */
 static int rpc_ask(void *u, int tool, const char *name, const char *what, int outside)

@@ -201,6 +201,20 @@ for name, lua in L5.items():
 
 # ---- L7: the handlers that edit in place or keep state (no hook-command twin); the golden is pi's run of the TypeScript one ----
 L7 = {
+    'ext_ui_misc': '''pi.on("tool_call", function(event, ctx)
+  ctx.ui.setStatus("b-key", "second")
+  ctx.ui.setStatus("a-key", "first")
+  ctx.ui.setStatus("a-key", nil)
+  ctx.ui.setWidget("w1", { "line one", "line two" })
+  ctx.ui.setWidget("w2", { "below" }, { placement = "belowEditor" })
+  ctx.ui.setWidget("w1", nil)
+  ctx.ui.setTitle("My title")
+  ctx.ui.setEditorText("draft")
+  ctx.ui.setWorkingMessage("Busy")
+  local v = ctx.ui.editor("Edit it", "prefill")
+  return { block = true, reason = "done " .. tostring(v) .. " [" .. ctx.ui.getEditorText() .. "]" }
+end)
+''',
     'ext_error_json': 'pi.on("input", function() error("boom", 0) end)\n',
     'ext_error_rpc': 'pi.on("input", function() error("boom", 0) end)\n',
     'ext_tool_usage': '''pi.registerTool({

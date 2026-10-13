@@ -653,6 +653,146 @@ static int ui_notify(lua_State *L)
     return 0;
 }
 
+/* ctx.ui.setStatus(key, text), setWidget(key, lines, { placement }), setTitle, setEditorText, setWorkingMessage: fire and forget
+ * (pi's noOpUIContext does nothing without a user; a mode that cannot show one leaves the member out) */
+static int ui_set_status(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *key = luaL_checkstring(L, 1);
+    const char *text = lua_isnoneornil(L, 2) ? 0 : luaL_checkstring(L, 2);
+    if (ui && ui->set_status)
+        ui->set_status(ui->u, key, text);
+    return 0;
+}
+
+static int ui_set_widget(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *key = luaL_checkstring(L, 1), *placement = 0;
+    const char **lines = 0;
+    long n = -1, i;
+    if (lua_istable(L, 3)) {
+        lua_getfield(L, 3, "placement");
+        if (lua_type(L, -1) == LUA_TSTRING)
+            placement = lua_tostring(L, -1);
+        lua_pop(L, 1);
+    }
+    if (lua_isfunction(L, 2))
+        return 0;                               /* a component factory: TypeScript's, ignored as rpc-mode.ts ignores it */
+    if (lua_istable(L, 2)) {
+        n = (long)lua_rawlen(L, 2);
+        if (n > 1000)
+            n = 1000;
+        lines = (const char **)lua_newuserdatauv(L, (size_t)(n ? n : 1) * sizeof(char *), 0);
+        for (i = 0; i < n; i++) {
+            lua_rawgeti(L, 2, (lua_Integer)(i + 1));
+            lines[i] = luaL_tolstring(L, -1, 0);        /* kept on the stack until the call ends */
+            lua_remove(L, -2);
+        }
+    } else if (!lua_isnoneornil(L, 2))
+        return luaL_error(L, "bad argument #2 to 'setWidget' (table of lines or nil expected)");
+    if (ui && ui->set_widget)
+        ui->set_widget(ui->u, key, lines, (int)n, placement);
+    return 0;
+}
+
+static int ui_set_title(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *t = luaL_checkstring(L, 1);
+    if (ui && ui->set_title)
+        ui->set_title(ui->u, t);
+    return 0;
+}
+
+static int ui_set_editor_text(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *t = luaL_checkstring(L, 1);
+    if (ui && ui->set_editor_text)
+        ui->set_editor_text(ui->u, t);
+    return 0;
+}
+
+static int ui_set_working(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *t = lua_isnoneornil(L, 1) ? 0 : luaL_checkstring(L, 1);
+    if (ui && ui->set_working_message)
+        ui->set_working_message(ui->u, t);
+    return 0;
+}
+
+/* ctx.ui.editor(title, prefill) -> the text, or nil */
+static int ui_editor(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    const pi_ext_ui *ui = x->host->s->ext.ui;
+    const char *title = luaL_checkstring(L, 1), *prefill = lua_isnoneornil(L, 2) ? 0 : luaL_checkstring(L, 2);
+    char *value;
+    unsigned long t0;
+    int ok;
+    if (!ui || !ui->editor) {
+        lua_pushnil(L);
+        return 1;
+    }
+    value = (char *)malloc(UI_VALUE);
+    if (!value)
+        return luaL_error(L, "not enough memory");
+    value[0] = 0;
+    prompt_event(x, 1, "editor", title);
+    t0 = ui_clock(x);
+    ok = ui->editor(ui->u, title, prefill, value, UI_VALUE);
+    ui_waited(x, t0);
+    prompt_event(x, 0, "editor", title);
+    if (ok)
+        lua_pushstring(L, value);
+    else
+        lua_pushnil(L);
+    free(value);
+    return 1;
+}
+
+static int ui_nothing(lua_State *L)
+{
+    (void)L;
+    return 0;
+}
+
+static int ui_empty_string(lua_State *L)
+{
+    lua_pushstring(L, "");
+    return 1;
+}
+
+static int ui_false(lua_State *L)
+{
+    lua_pushboolean(L, 0);
+    return 1;
+}
+
+static int ui_empty_table(lua_State *L)
+{
+    lua_newtable(L);
+    return 1;
+}
+
+static int ui_no_theme(lua_State *L)
+{
+    lua_newtable(L);
+    lua_pushboolean(L, 0);
+    lua_setfield(L, -2, "success");
+    lua_pushstring(L, "Theme switching not supported");
+    lua_setfield(L, -2, "error");
+    return 1;
+}
+
+static int ui_unsubscribe(lua_State *L)
+{
+    lua_pushcfunction(L, ui_nothing);              /* onTerminalInput: no raw input here; the function that removes the listener */
+    return 1;
+}
+
 static void ext_error_at(pi_lua_ext *x, const char *shown, const char *msg);
 static void settle(pi_lua_ext *x, int top);
 
@@ -1409,6 +1549,24 @@ static int c_setup(lua_State *L)
     lua_setfield(L, -2, "input");
     lua_pushcfunction(L, ui_notify);
     lua_setfield(L, -2, "notify");
+    {
+        static const struct { const char *name; lua_CFunction f; } more[] = {
+            { "setStatus", ui_set_status }, { "setWidget", ui_set_widget }, { "setTitle", ui_set_title },
+            { "setEditorText", ui_set_editor_text }, { "pasteToEditor", ui_set_editor_text }, { "getEditorText", ui_empty_string },
+            { "setWorkingMessage", ui_set_working }, { "editor", ui_editor },
+            /* the rest of ExtensionUIContext, as pi's noOpUIContext answers it (runner.ts:324): TypeScript components, terminal input
+             * and the theme have no counterpart */
+            { "onTerminalInput", ui_unsubscribe }, { "setWorkingVisible", ui_nothing }, { "setWorkingIndicator", ui_nothing },
+            { "setHiddenThinkingLabel", ui_nothing }, { "setFooter", ui_nothing }, { "setHeader", ui_nothing },
+            { "custom", ui_nothing }, { "addAutocompleteProvider", ui_nothing }, { "setEditorComponent", ui_nothing },
+            { "getEditorComponent", ui_nothing }, { "getAllThemes", ui_empty_table }, { "getTheme", ui_nothing },
+            { "setTheme", ui_no_theme }, { "getToolsExpanded", ui_false }, { "setToolsExpanded", ui_nothing }, { 0, 0 } };
+        int mi;
+        for (mi = 0; more[mi].name; mi++) {
+            lua_pushcfunction(L, more[mi].f);
+            lua_setfield(L, -2, more[mi].name);
+        }
+    }
     lua_setfield(L, -2, "ui");
     lua_newtable(L);                    /* hasUI answers for the mode as it is now */
     lua_pushcfunction(L, ctx_index);

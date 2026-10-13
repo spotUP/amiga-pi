@@ -2357,6 +2357,48 @@ static void test_ext_msg_screen(void)
     ext_case_lua = EXT_UI_LUA;
 }
 
+/* ---- L16: ctx.ui.setStatus (the footer's extra row) and setWidget (lines above and below the editor), as pi draws them (the
+ * captures are tests/pi/tui/ext_ui_status.golden, ext_ui_widget_*.golden; tui_gen.py's EXT_UIX is the TypeScript twin) ---- */
+
+static const char *const EXT_UIX_LUA[] = {
+    "pi.registerCommand('stat', { handler = function(args, ctx) ctx.ui.setStatus('b', 'second'); ctx.ui.setStatus('a', 'first') end })\n",
+    "pi.registerCommand('above', { handler = function(args, ctx) ctx.ui.setWidget('w', { 'widget line one', 'widget line two' }) end })\n",
+    "pi.registerCommand('below', { handler = function(args, ctx)\n",
+    "  ctx.ui.setWidget('wb', { 'under the editor' }, { placement = 'belowEditor' })\n",
+    "end })\n",
+    "pi.registerCommand('many', { handler = function(args, ctx)\n",
+    "  local t = {}\n",
+    "  for i = 1, 12 do t[i] = 'row ' .. i end\n",
+    "  ctx.ui.setWidget('m', t)\n",
+    "end })\n",
+    "pi.registerCommand('clear', { handler = function(args, ctx)\n",
+    "  ctx.ui.setStatus('a', nil); ctx.ui.setStatus('b', nil); ctx.ui.setWidget('w', nil); ctx.ui.setWidget('wb', nil)\n",
+    "end })\n",
+    0 };
+
+static void test_ext_uix_screen(void)
+{
+    static const char *k_stat[] = { "/stat\r", "\004", 0 };
+    static const char *k_above[] = { "/above\r", "\004", 0 };
+    static const char *k_below[] = { "/below\r", "\004", 0 };
+    static const char *k_many[] = { "/many\r", "\004", 0 };
+    static const char *k_clear[] = { "/above\r", "/stat\r", "/clear\r", "\004", 0 };
+    /* the editor's rules carry the capture's border colour for the thinking level, the footer its fake model and directory; the rows
+     * between are the widgets and the status, compared */
+    static const int m_stat[] = { 25, 27, 28, 29, 0 };
+    static const int m_above[] = { 26, 28, 29, 30, 0 };
+    static const int m_below[] = { 25, 27, 29, 30, 0 };
+    static const int m_many[] = { 26, 28, 29, 30, 0 };
+    static const int m_clear[] = { 26, 28, 29, 30, 0 };
+    ext_case_lua = EXT_UIX_LUA;
+    ext_ui_case("ext_ui_status", k_stat, "first", m_stat, 0);
+    ext_ui_case("ext_ui_widget_above", k_above, "widget line", m_above, 0);
+    ext_ui_case("ext_ui_widget_below", k_below, "under the", m_below, 0);
+    ext_ui_case("ext_ui_widget_many", k_many, "truncated", m_many, 0);
+    ext_ui_case("ext_ui_widget_clear", k_clear, "(auto)", m_clear, 0);
+    ext_case_lua = EXT_UI_LUA;
+}
+
 static void test_ext_ui_screen(void)
 {
     static const char *k_pick[] = { "/pick\r", "\004", 0 };
@@ -2780,6 +2822,7 @@ void suite_pi_tui(void)
     test_approval();
     test_ext_ui_screen();
     test_ext_msg_screen();
+    test_ext_uix_screen();
     test_footer_cost();
     test_bash_rows_uncapped();
     test_slash_fuzzy();

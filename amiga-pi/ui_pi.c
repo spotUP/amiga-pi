@@ -18,6 +18,9 @@
 #include "store.h"
 #include "context.h"
 
+#define XU_KEYS 16                  /* statuses and widgets an extension session keeps at most */
+#define XU_MAX_WIDGET_LINES 10      /* interactive-mode.ts MAX_WIDGET_LINES */
+
 typedef struct pi_ui {
     cl_ui ui;
     cl_render render;
@@ -35,6 +38,13 @@ typedef struct pi_ui {
     cl_cmd *menu;               /* the slash menu: the commands, then /skill:name for each skill (settings.json enableSkillCommands) */
     char *menu_text;            /* its strings */
     cl_cmd *all;                /* the slash menu as the screen gets it: the built-in rows, then each slot's (ui_menu) */
+    /* what extensions put on the screen: statuses (footer row) and widgets (above or below the editor), by key */
+    struct { char key[64]; char *text; } xstat[XU_KEYS];
+    int nxstat;
+    struct { char key[64]; char *lines; int n, below; } xwid[XU_KEYS];
+    int nxwid;
+    int xwork;                  /* an extension set the loader's label (setWorkingMessage) */
+    char xwork_text[96];
 } pi_ui;
 
 /* the slash commands the menu offers: pi's own names and descriptions (core/slash-commands.js, in its order) of
@@ -281,7 +291,7 @@ static void on_event(void *u, const pi_event *e)
     switch (e->type) {
     case PE_AGENT_START:
         if (p->look)
-            cl_copy(p->ui.tui->pi_work, "Working", sizeof(p->ui.tui->pi_work));
+            cl_copy(p->ui.tui->pi_work, p->xwork ? p->xwork_text : "Working", sizeof(p->ui.tui->pi_work));
         ui_busy(&p->ui, 1);
         break;
     case PE_AGENT_END:
@@ -375,7 +385,7 @@ static void on_event(void *u, const pi_event *e)
         if (p->look) {
             p->ui.tui->pi_work[0] = 0;
             if (p->s->em.count[PE_AGENT_START] > p->s->em.count[PE_AGENT_END])
-                cl_copy(p->ui.tui->pi_work, "Working", sizeof(p->ui.tui->pi_work));
+                cl_copy(p->ui.tui->pi_work, p->xwork ? p->xwork_text : "Working", sizeof(p->ui.tui->pi_work));
             if (!e->is_error && e->result && p->s->command_u) {
                 jv o, v;
                 if (!json_parse(e->result, e->result_n, &o) && json_get(o, "tokensBefore", &v) && json_type(v) == J_NUM) {
@@ -632,7 +642,161 @@ static void xu_notify(void *u, const char *message, const char *type)
         ui_line(&p->ui, message);
 }
 
-static pi_ext_ui xu_ui = { 0, xu_select, xu_confirm, xu_input, xu_notify };
+/* the extension statuses as footer.ts draws them: sorted by key (localeCompare), line breaks and tabs spaces, runs of spaces one, trimmed,
+ * joined by a space */
+static int xu_keycmp(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++) {
+        int x = *a >= 'A' && *a <= 'Z' ? *a + 32 : *a, y = *b >= 'A' && *b <= 'Z' ? *b + 32 : *b;
+        if (x != y)
+            return x < y ? -1 : 1;
+    }
+    return *a ? 1 : *b ? -1 : 0;
+}
+
+static void xu_refresh(pi_ui *p)
+{
+    char line[240];
+    int i, j, order[XU_KEYS];
+    jw above, below;
+    int cut_a = 0, cut_b = 0;
+    if (!p->look || !p->ui.tui)
+        return;
+    for (i = 0; i < p->nxstat; i++)
+        order[i] = i;
+    for (i = 1; i < p->nxstat; i++)
+        for (j = i; j > 0 && xu_keycmp(p->xstat[order[j - 1]].key, p->xstat[order[j]].key) > 0; j--) {
+            int t = order[j];
+            order[j] = order[j - 1];
+            order[j - 1] = t;
+        }
+    line[0] = 0;
+    for (i = 0; i < p->nxstat; i++) {
+        const char *t = p->xstat[order[i]].text;
+        char one[240];
+        long k = 0;
+        int sp = 1;
+        for (; *t && k < (long)sizeof(one) - 1; t++) {
+            char c = *t == '\r' || *t == '\n' || *t == '\t' ? ' ' : *t;
+            if (c == ' ' && sp)
+                continue;
+            sp = c == ' ';
+            one[k++] = c;
+        }
+        while (k && one[k - 1] == ' ')
+            k--;
+        one[k] = 0;
+        if (line[0])
+            cl_cat(line, " ", sizeof(line));
+        cl_cat(line, one, sizeof(line));
+    }
+    tui_pi_ext_status(p->ui.tui, line);
+    jw_init(&above);
+    jw_init(&below);
+    for (i = 0; i < p->nxwid; i++) {
+        jw *to = p->xwid[i].below ? &below : &above;
+        if (p->xwid[i].n > XU_MAX_WIDGET_LINES) {
+            if (p->xwid[i].below)
+                cut_b = 1;
+            else
+                cut_a = 1;
+        }
+        jw_rawz(to, p->xwid[i].lines);
+    }
+    tui_pi_widgets(p->ui.tui, above.n ? above.p : 0, cut_a, below.n ? below.p : 0, cut_b);
+    jw_free(&above);
+    jw_free(&below);
+    tui_frame(p->ui.tui);
+}
+
+static void xu_status(void *u, const char *key, const char *text)
+{
+    pi_ui *p = (pi_ui *)u;
+    int i;
+    for (i = 0; i < p->nxstat && strcmp(p->xstat[i].key, key); i++)
+        ;
+    if (!text) {
+        if (i < p->nxstat) {
+            free(p->xstat[i].text);
+            p->xstat[i] = p->xstat[--p->nxstat];
+        }
+    } else {
+        char *c = (char *)malloc(strlen(text) + 1);
+        if (!c)
+            return;
+        strcpy(c, text);
+        if (i == p->nxstat) {
+            if (p->nxstat == XU_KEYS) {
+                free(c);
+                return;
+            }
+            p->nxstat++;
+            cl_copy(p->xstat[i].key, key, sizeof(p->xstat[i].key));
+        } else
+            free(p->xstat[i].text);
+        p->xstat[i].text = c;
+    }
+    xu_refresh(p);
+}
+
+static void xu_widget(void *u, const char *key, const char *const *lines, int n, const char *placement)
+{
+    pi_ui *p = (pi_ui *)u;
+    int i;
+    for (i = 0; i < p->nxwid && strcmp(p->xwid[i].key, key); i++)
+        ;
+    if (i < p->nxwid) {
+        free(p->xwid[i].lines);         /* the widgets keep the order they were set in (a Map's insertion order) */
+        memmove(&p->xwid[i], &p->xwid[i + 1], sizeof(p->xwid[0]) * (size_t)(p->nxwid - i - 1));
+        p->nxwid--;
+    }
+    if (n >= 0) {
+        jw w;
+        int k, cap = n > XU_MAX_WIDGET_LINES ? XU_MAX_WIDGET_LINES : n;
+        if (p->nxwid == XU_KEYS)
+            return;
+        jw_init(&w);
+        for (k = 0; k < cap; k++) {
+            jw_rawz(&w, lines[k]);
+            jw_rawz(&w, "\n");
+        }
+        if (w.n)
+            w.n--;                                  /* no line feed after the last line */
+        i = p->nxwid++;
+        cl_copy(p->xwid[i].key, key, sizeof(p->xwid[i].key));
+        p->xwid[i].lines = (char *)malloc((size_t)w.n + 1);
+        if (p->xwid[i].lines) {
+            memcpy(p->xwid[i].lines, w.p ? w.p : "", (size_t)w.n);
+            p->xwid[i].lines[w.n] = 0;
+        }
+        p->xwid[i].n = n;
+        p->xwid[i].below = placement && !strcmp(placement, "belowEditor");
+        jw_free(&w);
+    }
+    xu_refresh(p);
+}
+
+static void xu_title(void *u, const char *title)
+{
+    pi_ui *p = (pi_ui *)u;
+    if (p->look && p->ui.tui)
+        tui_title(p->ui.tui, title);
+}
+
+static void xu_working(void *u, const char *message)
+{
+    pi_ui *p = (pi_ui *)u;
+    if (p->look && p->ui.tui) {
+        p->xwork = message != 0;
+        cl_copy(p->xwork_text, message ? message : "", sizeof(p->xwork_text));
+        if (p->ui.tui->pi_work[0]) {                    /* the agent is working: the label changes now */
+            cl_copy(p->ui.tui->pi_work, message ? message : "Working", sizeof(p->ui.tui->pi_work));
+            tui_frame(p->ui.tui);
+        }
+    }
+}
+
+static pi_ext_ui xu_ui = { 0, xu_select, xu_confirm, xu_input, xu_notify, xu_status, xu_widget, xu_title, 0, xu_working, 0 };
 
 /* a user message's text blocks, joined */
 static void user_text(const char *json, long n, jw *out)
