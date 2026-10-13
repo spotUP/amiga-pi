@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+ Select provider to logout:
+
+>
+
+ → GitHub Copilot [subscription] ✓ configured
+   OpenAI [API key] ✓ configured
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                               (fake) fake-model

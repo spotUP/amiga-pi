@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+ Select authentication method:
+
+ → Sign in with an account
+   Sign in with an API key
+   Sign in with Radius • not configured
+
+ ↑↓ navigate  enter select  escape/ctrl+c cancel
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

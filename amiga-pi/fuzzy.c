@@ -2,19 +2,140 @@
 #include <stdlib.h>
 #include <string.h>
 #include "fuzzy.h"
+#include "lower_tab.h"
 
-static int low(int c)
+/* ---- UTF-16 units, as JavaScript sees the strings (fuzzy.ts indexes, compares and measures gaps in code units) ---- */
+
+typedef unsigned short u16;
+
+/* the code point at s[i] (n bytes in all) and its length; a byte that starts no sequence is U+FFFD of length 1, as TextDecoder */
+static int dec1(const char *s, long i, long n, unsigned long *out)
 {
-    return c >= 'A' && c <= 'Z' ? c + 32 : c;
+    unsigned c = (unsigned char)s[i];
+    int need = c >= 0xf0 && c < 0xf5 ? 3 : c >= 0xe0 && c < 0xf0 ? 2 : c >= 0xc2 && c < 0xe0 ? 1 : 0;
+    unsigned long v = need == 3 ? c & 7 : need == 2 ? c & 15 : need == 1 ? c & 31 : c;
+    int j;
+    if (c >= 0x80 && need == 0)
+        need = -1;
+    for (j = 0; j < need; j++) {
+        if (i + 1 + j >= n || ((unsigned char)s[i + 1 + j] & 0xc0) != 0x80) {
+            need = -1;
+            break;
+        }
+        v = (v << 6) | ((unsigned char)s[i + 1 + j] & 0x3f);
+    }
+    if (need < 0 || (need == 2 && (v < 0x800 || (v >= 0xd800 && v < 0xe000))) || (need == 3 && (v < 0x10000 || v > 0x10ffff))) {
+        *out = 0xfffd;
+        return 1;
+    }
+    *out = v;
+    return 1 + need;
 }
 
-static int is_space(int c)
+/* the code points of a UTF-8 string; *out malloc'd, *cnt their count */
+static int decode(const char *s, long n, unsigned long **out, long *cnt)
 {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
+    unsigned long *cp = (unsigned long *)malloc(sizeof(unsigned long) * ((size_t)n + 1));
+    long i = 0, k = 0;
+    if (!cp)
+        return 0;
+    while (i < n)
+        i += dec1(s, i, n, &cp[k++]);
+    *out = cp;
+    *cnt = k;
+    return 1;
 }
 
-/* matchQuery (fuzzy.ts:17-67) */
-static int match_query(const char *q, long qn, const char *t, long tn, long *score)
+static int in_ranges(const lw_range *r, int n, unsigned long c)
+{
+    int lo = 0, hi = n - 1;
+    while (lo <= hi) {
+        int m = (lo + hi) / 2;
+        if (c < r[m].first)
+            hi = m - 1;
+        else if (c > r[m].last)
+            lo = m + 1;
+        else
+            return 1;
+    }
+    return 0;
+}
+
+static unsigned long lower_cp(unsigned long c)
+{
+    int lo = 0, hi = (int)(sizeof(lw_runs) / sizeof(lw_runs[0])) - 1;
+    if (c < 0x80)
+        return c >= 'A' && c <= 'Z' ? c + 32 : c;
+    while (lo <= hi) {
+        int m = (lo + hi) / 2;
+        if (c < lw_runs[m].first)
+            hi = m - 1;
+        else if (c > lw_runs[m].last)
+            lo = m + 1;
+        else
+            return (c - lw_runs[m].first) % lw_runs[m].step ? c : (unsigned long)((long)c + lw_runs[m].delta);
+    }
+    return c;
+}
+
+/* String.prototype.toLowerCase in UTF-16 units: the one-to-one mappings, U+0130 as i and U+0307, and the Final_Sigma rule
+ * (U+03A3 is U+03C2 after a cased letter and before none, case-ignorable characters skipped, else U+03C3) */
+static int lower_cps(const unsigned long *cp, long cnt, u16 **out, long *units)
+{
+    u16 *u;
+    long i, k = 0;
+    u = (u16 *)malloc(sizeof(u16) * ((size_t)cnt * 2 + 1));
+    if (!u)
+        return 0;
+    for (i = 0; i < cnt; i++) {
+        unsigned long c = cp[i];
+        if (c == 0x130) {
+            u[k++] = 'i';
+            c = 0x307;
+        } else if (c == 0x3a3) {
+            long a = i - 1, b = i + 1;
+            while (a >= 0 && in_ranges(lw_ignorable, (int)(sizeof(lw_ignorable) / sizeof(lw_ignorable[0])), cp[a]))
+                a--;
+            while (b < cnt && in_ranges(lw_ignorable, (int)(sizeof(lw_ignorable) / sizeof(lw_ignorable[0])), cp[b]))
+                b++;
+            c = a >= 0 && in_ranges(lw_cased, (int)(sizeof(lw_cased) / sizeof(lw_cased[0])), cp[a]) &&
+                !(b < cnt && in_ranges(lw_cased, (int)(sizeof(lw_cased) / sizeof(lw_cased[0])), cp[b])) ? 0x3c2 : 0x3c3;
+        } else {
+            c = lower_cp(c);
+        }
+        if (c >= 0x10000) {
+            u[k++] = (u16)(0xd800 + ((c - 0x10000) >> 10));
+            u[k++] = (u16)(0xdc00 + ((c - 0x10000) & 0x3ff));
+        } else {
+            u[k++] = (u16)c;
+        }
+    }
+    *out = u;
+    *units = k;
+    return 1;
+}
+
+static int to_lower(const char *s, long n, u16 **out, long *units)
+{
+    unsigned long *cp;
+    long cnt;
+    int ok;
+    if (!decode(s, n, &cp, &cnt))
+        return 0;
+    ok = lower_cps(cp, cnt, out, units);
+    free(cp);
+    return ok;
+}
+
+/* JavaScript's \s (and trim()'s set) */
+static int js_space(unsigned long c)
+{
+    return c == ' ' || (c >= 9 && c <= 13) || c == 0xa0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200a) || c == 0x2028 ||
+           c == 0x2029 || c == 0x202f || c == 0x205f || c == 0x3000 || c == 0xfeff;
+}
+
+/* matchQuery (fuzzy.ts:17-67), on lowercased UTF-16 */
+static int match_query(const u16 *q, long qn, const u16 *t, long tn, long *score)
 {
     long qi = 0, sc = 0, last = -1, consec = 0, i;
     if (qn == 0) {
@@ -25,12 +146,12 @@ static int match_query(const char *q, long qn, const char *t, long tn, long *sco
         return 0;
     while (qi < qn) {
         int boundary, c;
-        for (i = last + 1; i < tn && low((unsigned char)t[i]) != low((unsigned char)q[qi]); i++)
+        for (i = last + 1; i < tn && t[i] != q[qi]; i++)
             ;
         if (i >= tn)
             break;
-        c = i ? low((unsigned char)t[i - 1]) : 0;
-        boundary = i == 0 || is_space(c) || c == '-' || c == '_' || c == '.' || c == '/' || c == ':';
+        c = i ? t[i - 1] : 0;
+        boundary = i == 0 || js_space((unsigned long)c) || c == '-' || c == '_' || c == '.' || c == '/' || c == ':';
         if (last == i - 1) {            /* (also at the first character: -1 === -1) */
             consec++;
             sc -= consec * 50;
@@ -47,19 +168,15 @@ static int match_query(const char *q, long qn, const char *t, long tn, long *sco
     }
     if (qi < qn)
         return 0;
-    if (qn == tn) {
-        for (i = 0; i < tn && low((unsigned char)q[i]) == low((unsigned char)t[i]); i++)
-            ;
-        if (i == tn)
-            sc -= 1000;
-    }
+    if (qn == tn && !memcmp(q, t, sizeof(u16) * (size_t)tn))
+        sc -= 1000;
     *score = sc;
     return 1;
 }
 
 static int is_letter(int c)
 {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+    return c >= 'a' && c <= 'z';
 }
 
 static int is_digit(int c)
@@ -67,53 +184,91 @@ static int is_digit(int c)
     return c >= '0' && c <= '9';
 }
 
-int pi_fuzzy_match(const char *query, long qn, const char *text, long tn, long *score)
+/* fuzzyMatch on lowercased units */
+static int match_units(const u16 *q, long qn, const u16 *t, long tn, long *score)
 {
-    char sw[128];
+    u16 *sw;
     long a = 0, b;
-    if (match_query(query, qn, text, tn, score))
+    int ok;
+    if (match_query(q, qn, t, tn, score))
         return 1;
     /* fuzzy.ts:69-84: a query of letters then digits is tried as digits then letters (and the other way round), 5.0 worse */
-    if (qn <= 0 || qn >= (long)sizeof(sw))
-        return 0;
-    while (a < qn && is_letter((unsigned char)query[a]))
+    while (a < qn && is_letter(q[a]))
         a++;
-    for (b = a; b < qn && is_digit((unsigned char)query[b]); b++)
+    for (b = a; b < qn && is_digit(q[b]); b++)
         ;
-    if (a > 0 && b > a && b == qn) {
-        memcpy(sw, query + a, (size_t)(qn - a));
-        memcpy(sw + (qn - a), query, (size_t)a);
-    } else {
-        for (a = 0; a < qn && is_digit((unsigned char)query[a]); a++)
+    if (!(a > 0 && b > a && b == qn)) {
+        for (a = 0; a < qn && is_digit(q[a]); a++)
             ;
-        for (b = a; b < qn && is_letter((unsigned char)query[b]); b++)
+        for (b = a; b < qn && is_letter(q[b]); b++)
             ;
         if (!(a > 0 && b > a && b == qn))
             return 0;
-        memcpy(sw, query + a, (size_t)(qn - a));
-        memcpy(sw + (qn - a), query, (size_t)a);
     }
-    if (!match_query(sw, qn, text, tn, score))
+    sw = (u16 *)malloc(sizeof(u16) * (size_t)qn);
+    if (!sw)
+        return 0;
+    memcpy(sw, q + a, sizeof(u16) * (size_t)(qn - a));
+    memcpy(sw + (qn - a), q, sizeof(u16) * (size_t)a);
+    ok = match_query(sw, qn, t, tn, score);
+    free(sw);
+    if (!ok)
         return 0;
     *score += 50;
     return 1;
 }
 
+int pi_fuzzy_match(const char *query, long qn, const char *text, long tn, long *score)
+{
+    u16 *q, *t;
+    long ql, tl;
+    int ok = 0;
+    if (!to_lower(query, qn, &q, &ql))
+        return 0;
+    if (to_lower(text, tn, &t, &tl)) {
+        ok = match_units(q, ql, t, tl, score);
+        free(t);
+    }
+    free(q);
+    return ok;
+}
+
 int pi_fuzzy_item(const char *query, long qn, const char *text, long tn, long *score)
 {
-    long a = 0, i, total = 0;
+    unsigned long *cp;
+    u16 *t;
+    long cnt, tl, i, a = 0, total = 0;
+    int ok = 1;
     *score = 0;
-    for (i = 0; i <= qn; i++) {
-        if (i < qn && !is_space((unsigned char)query[i]) && query[i] != '/')
+    if (!to_lower(text, tn, &t, &tl))
+        return 0;
+    if (!decode(query, qn, &cp, &cnt)) {
+        free(t);
+        return 0;
+    }
+    /* the tokens: runs between whitespace and '/' (fuzzyFilter), each lowercased by itself (toLowerCase's Final_Sigma
+     * looks at the token only) and matched */
+    for (i = 0; i <= cnt && ok; i++) {
+        if (i < cnt && !js_space(cp[i]) && cp[i] != '/')
             continue;
         if (i > a) {
-            long s;
-            if (!pi_fuzzy_match(query + a, i - a, text, tn, &s))
-                return 0;
-            total += s;
+            u16 *q;
+            long ql, sc;
+            if (!lower_cps(cp + a, i - a, &q, &ql)) {
+                ok = 0;
+                break;
+            }
+            ok = match_units(q, ql, t, tl, &sc);
+            free(q);
+            if (ok)
+                total += sc;
         }
         a = i + 1;
     }
+    free(cp);
+    free(t);
+    if (!ok)
+        return 0;
     *score = total;
     return 1;
 }
@@ -121,11 +276,15 @@ int pi_fuzzy_item(const char *query, long qn, const char *text, long tn, long *s
 /* whether the query holds a token (fuzzyFilter returns every item when it does not) */
 static int has_token(const char *q, long qn)
 {
-    long i;
-    for (i = 0; i < qn; i++)
-        if (!is_space((unsigned char)q[i]) && q[i] != '/')
-            return 1;
-    return 0;
+    unsigned long *cp;
+    long cnt, i;
+    int r = 0;
+    if (!decode(q, qn, &cp, &cnt))
+        return 0;
+    for (i = 0; i < cnt && !r; i++)
+        r = !js_space(cp[i]) && cp[i] != '/';
+    free(cp);
+    return r;
 }
 
 /* the items of `want` (flagged 1 in in[]) appended to idx by score, the ties in menu order (Array.sort is stable) */
@@ -145,19 +304,36 @@ static int append_sorted(int *idx, int n_out, const long *score, const char *wan
     return n_out;
 }
 
-int pi_slash_filter(void *u, const cl_cmd *cmds, int n, const char *text, long len, int *idx)
+int pi_slash_filter(void *u, const cl_cmd *cmds, int n, const char *box, long len, long cur, long *from, int *idx)
 {
-    const char *q = text + 1;
-    long ql = len - 1;
+    const char *q;
+    long ql, st = 0, i;
     long *score;
     char *bare, *full;
-    int i, k = 0;
+    int k = 0;
     (void)u;
-    if (n <= 0)
+    if (n <= 0 || cur < 0 || cur > len)
         return 0;
+    /* CombinedAutocompleteProvider.getSuggestions (autocomplete.ts:316-372) for the editor's first line (editor.ts:2188):
+     * the text before the cursor, without its leading whitespace, starts with '/' and holds no space */
+    for (i = 0; i < cur; i++)
+        if (box[i] == '\n')
+            return 0;
+    while (st < cur) {
+        unsigned long c;
+        int l = dec1(box, st, cur, &c);
+        if (!js_space(c))
+            break;
+        st += l;
+    }
+    if (st >= cur || box[st] != '/' || memchr(box + st, ' ', (size_t)(cur - st)))
+        return 0;
+    *from = st;
+    q = box + st + 1;
+    ql = cur - st - 1;
     if (!has_token(q, ql)) {
         for (i = 0; i < n; i++)
-            idx[i] = i;
+            idx[i] = (int)i;
         return n;
     }
     score = (long *)malloc(sizeof(long) * (size_t)n);

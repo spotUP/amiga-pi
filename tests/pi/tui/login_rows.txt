@@ -1,0 +1,52 @@
+api_key	amazon-bedrock	Amazon Bedrock	AWS credentials or bearer token	0
+api_key	ant-ling	Ant Ling	Ant Ling API key	0
+oauth	anthropic	Anthropic	Anthropic (Claude Pro/Max)	1
+api_key	anthropic	Anthropic	Anthropic API key	1
+api_key	azure	Azure	Azure OpenAI API key	0
+api_key	baseten	Baseten	Baseten API key	0
+api_key	cerebras	Cerebras	Cerebras API key	0
+api_key	cloudflare-ai-gateway	Cloudflare AI Gateway	Cloudflare API key	0
+api_key	cloudflare-workers-ai	Cloudflare Workers AI	Cloudflare API key	0
+api_key	deepseek	DeepSeek	DeepSeek API key	0
+api_key	fake	fake		0
+api_key	fireworks	Fireworks	Fireworks API key	0
+oauth	github-copilot	GitHub Copilot	GitHub Copilot	1
+api_key	github-copilot	GitHub Copilot	GitHub Copilot token	1
+api_key	google	Google	Gemini API key	0
+api_key	google-vertex	Google Vertex AI	Google Cloud credentials	0
+api_key	groq	Groq	Groq API key	0
+api_key	huggingface	Hugging Face	Hugging Face token	0
+oauth	kimi-coding	Kimi For Coding	Kimi Code (subscription)	1
+api_key	kimi-coding	Kimi For Coding	Kimi API key	1
+api_key	llama.cpp	llama.cpp		0
+oauth	meta	Meta	Meta (Muse subscription)	1
+api_key	meta	Meta	Meta Model API key	1
+api_key	minimax	MiniMax	MiniMax API key	0
+api_key	minimax-cn	MiniMax CN	MiniMax CN API key	0
+api_key	mistral	Mistral	Mistral API key	0
+api_key	moonshotai	Moonshot AI	Moonshot AI API key	0
+api_key	moonshotai-cn	Moonshot AI CN	Moonshot AI API key	0
+api_key	nvidia	NVIDIA	NVIDIA API key	0
+oauth	openai	OpenAI	OpenAI (ChatGPT subscription)	1
+api_key	openai	OpenAI	OpenAI API key	1
+oauth	openai-codex	OpenAI Codex (legacy)	OpenAI (ChatGPT Plus/Pro)	1
+api_key	opencode-go	OpenCode Go	OpenCode API key	0
+api_key	opencode	OpenCode Zen	OpenCode API key	0
+oauth	openrouter	OpenRouter	OpenRouter OAuth	0
+api_key	openrouter	OpenRouter	OpenRouter API key	0
+api_key	qwen-token-plan	Qwen Token Plan	Qwen Token Plan API key	0
+api_key	qwen-token-plan-cn	Qwen Token Plan CN	Qwen Token Plan CN API key	0
+api_key	qwen-token-plan-individual	Qwen Token Plan Individual	Qwen Token Plan Individual API key	0
+oauth	radius	Radius	Radius	0
+api_key	radius	Radius	Radius API key	0
+api_key	together	Together	Together API key	0
+api_key	typesafe	TypeSafe	TypeSafe API key	0
+api_key	vercel-ai-gateway	Vercel AI Gateway	Vercel AI Gateway API key	0
+oauth	xai	xAI	xAI (Grok/X subscription)	1
+api_key	xai	xAI	xAI API key	1
+api_key	xiaomi	Xiaomi	Xiaomi API key	0
+api_key	xiaomi-token-plan-ams	Xiaomi Token Plan AMS	Xiaomi Token Plan AMS API key	0
+api_key	xiaomi-token-plan-cn	Xiaomi Token Plan CN	Xiaomi Token Plan CN API key	0
+api_key	xiaomi-token-plan-sgp	Xiaomi Token Plan SGP	Xiaomi Token Plan SGP API key	0
+api_key	zai	Z.AI	Z.AI API key	0
+api_key	zai-coding-cn	Z.AI Coding CN	Z.AI Coding CN API key	0

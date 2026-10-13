@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ Login to GitHub Copilot
+
+ GitHub Enterprise URL/domain (blank for github.com)
+ e.g., company.ghe.com
+>
+ (escape/ctrl+c to cancel, enter to submit)
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

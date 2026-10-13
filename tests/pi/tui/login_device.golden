@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[39m [1m[38;5;5mLogin to GitHub Copilot[0m
+
+ [38;5;5m]8;;https://github.com/login/device\https://github.com/login/device[39m]8;;\
+ [2m]8;;https://github.com/login/device\Cmd+click to open[0m]8;;\
+
+ [38;5;3mEnter code: WXYZ-9876[39m
+
+ [2mWaiting for authentication...[0m
+ ([2mescape/ctrl+c to cancel[0m)
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[2m[39m~/project[0m
+[2m0.0%/200k (auto)                                                      fake-model

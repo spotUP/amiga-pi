@@ -95,6 +95,8 @@ static int a_cancelled(void *u)
     pi_auth *a = (pi_auth *)u;
     if (!a->cancel && a->s && a->s->h.poll && a->s->h.poll(a->s->h.u))
         a->cancel = 1;
+    if (!a->cancel && a->ui && a->ui->cancelled && a->ui->cancelled(a->ui->u))
+        a->cancel = 1;
     return a->cancel;
 }
 
@@ -281,6 +283,12 @@ static void a_info(void *u, int kind, const char *x, const char *y)
     pi_auth *a = (pi_auth *)u;
     char line[700];
     const pi_login_ui *ui = a->ui;
+    if (ui && ui->dialog) {
+        /* the dialog (login-dialog.ts showAuth, showDeviceCode + showWaiting, showInfo, showProgress) */
+        ui->dialog(ui->u, kind == OA_I_AUTH_URL ? PD_AUTH : kind == OA_I_DEVICE_CODE ? PD_DEVICE : kind == OA_I_INFO ? PD_INFO : PD_PROGRESS,
+                   x, y);
+        return;
+    }
     if (!ui || !ui->note)
         return;
     if (kind == OA_I_AUTH_URL) {
@@ -303,7 +311,8 @@ static int a_prompt(void *u, int kind, const char *message, const char *placehol
 {
     pi_auth *a = (pi_auth *)u;
     const pi_login_ui *ui = a->ui;
-    (void)kind;
+    if (ui && ui->ask)
+        return ui->ask(ui->u, kind == OA_P_MANUAL, message, placeholder, out, cap);
     if (!ui || !ui->line)
         return -1;
     return ui->line(ui->u, message, placeholder, out, cap);
@@ -454,6 +463,17 @@ static void say2(const pi_login_ui *ui, int kind, const char *a, const char *b, 
     ui->note(ui->u, kind, line);
 }
 
+/* showError(`${what}${name}: ${err}`): one message */
+static void fail(const pi_login_ui *ui, const char *what, const char *name, const char *err)
+{
+    char line[1000];
+    cl_copy(line, what, sizeof(line));
+    cl_cat(line, name, sizeof(line));
+    cl_cat(line, ": ", sizeof(line));
+    cl_cat(line, err, sizeof(line));
+    ui->note(ui->u, PL_ERROR, line);
+}
+
 static int ieq(const char *a, const char *b)
 {
     return cl_strieq(a, b);
@@ -487,78 +507,148 @@ static const char *stored_type(pi_auth *a, const char *id)
     return 0;
 }
 
-/* a row of the provider list: "OpenAI [subscription] - configured" */
-static void row(pi_auth *a, const oa_provider *p, int oauth, int show_type, char *out, long cap)
+/* the provider's status as pi's getLoginProviderOptions has it: the kind of credential it has ("oauth", "api_key", 0 none) and
+ * where it comes from ("" a stored credential, else the environment variable) */
+static const char *auth_status(pi_auth *a, const oa_provider *p, char *source, long cap)
 {
     const char *st = stored_type(a, p->id);
-    char env[96], nm[96], v[8];
-    cl_copy(out, p->name, cap);
-    if (show_type)
-        cl_cat(out, oauth ? (p->subscription ? " [subscription]" : " [account]") : " [API key]", cap);
-    if (st) {
-        if (!strcmp(st, oauth ? "oauth" : "api_key"))
-            cl_cat(out, " - configured", cap);
-        else
-            cl_cat(out, !strcmp(st, "oauth") ? " - subscription configured" : " - API key configured", cap);
-        return;
-    }
+    char nm[96], v[8];
+    source[0] = 0;
+    if (st)
+        return st;
     llm_key_env_name(p->id, nm, sizeof(nm));
-    if (a->getenv && a->getenv(nm, v, sizeof(v)) > 0 && !oauth) {
-        cl_copy(env, " - env: ", sizeof(env));
-        cl_cat(env, nm, sizeof(env));
-        cl_cat(out, env, cap);
-        return;
+    if (p->key_name && a->getenv && a->getenv(nm, v, sizeof(v)) > 0) {
+        cl_copy(source, "env: ", cap);
+        cl_cat(source, nm, cap);
+        return "api_key";
     }
-    cl_cat(out, " - not configured", cap);
+    return 0;
 }
 
-/* the provider chosen from the providers having the login type (oauth 1 / API key 0); ref: the typed name, shortens the
- * list when it matches. The index into the table, -1 cancelled */
-static int pick_provider(pi_auth *a, const pi_login_ui *ui, int oauth, const char *ref, int show_type)
+/* the type word of a login (formatAuthSelectorProviderType) */
+static const char *type_word(const oa_provider *p, int oauth)
 {
-    int idx[16], n = 0, i, c;
-    const char *opt[16];
-    char rows[16][160];
-    for (i = 0; i < oa_count() && n < 16; i++) {
+    return !oauth ? "API key" : p->subscription ? "subscription" : "account";
+}
+
+/* the provider chosen: the providers having the login type (oauth 1 / API key 0 / either -1). The index into the table
+ * and, in *oauth, which login; -1 cancelled. pi's look (ui->pick): the searchable selector, `ref` its first search; else a
+ * numbered list that `ref` shortens to the rows containing it, when any do */
+static int pick_provider(pi_auth *a, const pi_login_ui *ui, int type, const char *ref, int *oauth)
+{
+    int idx[40], is_oauth[40], n = 0, i, c, kinds = 0, both, show;
+    const char *opt[40];
+    char rows[40][160], src[40][96], srch[40][260], st_text[40][48];
+    pi_login_row pr[40];
+    show = type < 0;
+    if (!ui->pick && type < 0)
+        type = 1;
+    for (i = 0; i < oa_count() && n < 38; i++) {
         const oa_provider *p = oa_nth(i);
-        if (oauth ? p->login != 0 : p->key_name != 0)
-            idx[n++] = i;
+        if (type != 0 && p->login) {
+            idx[n] = i;
+            is_oauth[n++] = 1;
+        }
+        if (type != 1 && p->key_name) {
+            idx[n] = i;
+            is_oauth[n++] = 0;
+        }
     }
-    if (ref && *ref) {
-        /* the search box: only the rows containing the text, when any do */
-        int k = 0, keep[16];
+    for (i = 0; i < n; i++)
+        kinds |= is_oauth[i] ? 1 : 2;
+    both = kinds == 3;
+    if (!ui->pick) {
+        int k = 0, keep[40], keepo[40];
+        if (ref && *ref) {
+            /* the search box: only the rows containing the text, when any do */
+            for (i = 0; i < n; i++) {
+                const oa_provider *p = oa_nth(idx[i]);
+                char lo[160], rf[96];
+                long j;
+                cl_copy(lo, p->name, sizeof(lo));
+                cl_cat(lo, " ", sizeof(lo));
+                cl_cat(lo, p->id, sizeof(lo));
+                cl_copy(rf, ref, sizeof(rf));
+                for (j = 0; lo[j]; j++)
+                    if (lo[j] >= 'A' && lo[j] <= 'Z')
+                        lo[j] = (char)(lo[j] + 32);
+                for (j = 0; rf[j]; j++)
+                    if (rf[j] >= 'A' && rf[j] <= 'Z')
+                        rf[j] = (char)(rf[j] + 32);
+                if (strstr(lo, rf)) {
+                    keep[k] = idx[i];
+                    keepo[k++] = is_oauth[i];
+                }
+            }
+            if (k) {
+                for (i = 0; i < k; i++) {
+                    idx[i] = keep[i];
+                    is_oauth[i] = keepo[i];
+                }
+                n = k;
+            }
+        }
+        if (!n) {
+            ui->note(ui->u, PL_WARNING, type == 1 ? "No account providers available." : "No API key providers available.");
+            return -1;
+        }
         for (i = 0; i < n; i++) {
             const oa_provider *p = oa_nth(idx[i]);
-            char lo[160], rf[96];
-            long j;
-            cl_copy(lo, p->name, sizeof(lo));
-            cl_cat(lo, " ", sizeof(lo));
-            cl_cat(lo, p->id, sizeof(lo));
-            cl_copy(rf, ref, sizeof(rf));
-            for (j = 0; lo[j]; j++)
-                if (lo[j] >= 'A' && lo[j] <= 'Z')
-                    lo[j] = (char)(lo[j] + 32);
-            for (j = 0; rf[j]; j++)
-                if (rf[j] >= 'A' && rf[j] <= 'Z')
-                    rf[j] = (char)(rf[j] + 32);
-            if (strstr(lo, rf))
-                keep[k++] = idx[i];
+            const char *have = auth_status(a, p, src[i], sizeof(src[i]));
+            cl_copy(rows[i], p->name, sizeof(rows[i]));
+            if (show)
+                cl_cat(rows[i], is_oauth[i] ? (p->subscription ? " [subscription]" : " [account]") : " [API key]", sizeof(rows[i]));
+            if (have && !strcmp(have, is_oauth[i] ? "oauth" : "api_key")) {
+                if (src[i][0]) {
+                    cl_cat(rows[i], " - ", sizeof(rows[i]));
+                    cl_cat(rows[i], src[i], sizeof(rows[i]));
+                } else
+                    cl_cat(rows[i], " - configured", sizeof(rows[i]));
+            } else if (have)
+                cl_cat(rows[i], !strcmp(have, "oauth") ? " - subscription configured" : " - API key configured", sizeof(rows[i]));
+            else
+                cl_cat(rows[i], " - not configured", sizeof(rows[i]));
+            opt[i] = rows[i];
         }
-        if (k) {
-            memcpy(idx, keep, (size_t)k * sizeof(int));
-            n = k;
-        }
+        c = ui->menu(ui->u, "Select provider to configure:", opt, n);
+        if (c < 0)
+            return -1;
+        *oauth = is_oauth[c];
+        return idx[c];
     }
     if (!n) {
-        ui->note(ui->u, PL_WARNING, oauth ? "No account providers available." : "No API key providers available.");
+        ui->note(ui->u, PL_WARNING, type == 1 ? "No account providers available." : type == 0 ? "No API key providers available." : "No login providers available.");
         return -1;
     }
     for (i = 0; i < n; i++) {
-        row(a, oa_nth(idx[i]), oauth, show_type, rows[i], sizeof(rows[i]));
-        opt[i] = rows[i];
+        const oa_provider *p = oa_nth(idx[i]);
+        const char *have = auth_status(a, p, src[i], sizeof(src[i]));
+        pr[i].name = p->name;
+        pr[i].type = type_word(p, is_oauth[i]);
+        cl_copy(srch[i], p->name, sizeof(srch[i]));
+        cl_cat(srch[i], " ", sizeof(srch[i]));
+        cl_cat(srch[i], p->id, sizeof(srch[i]));
+        cl_cat(srch[i], is_oauth[i] ? " oauth " : " api_key ", sizeof(srch[i]));
+        cl_cat(srch[i], is_oauth[i] ? (p->oauth_name ? p->oauth_name : "") : (p->key_name ? p->key_name : ""), sizeof(srch[i]));
+        pr[i].search = srch[i];
+        st_text[i][0] = 0;
+        if (!have)
+            pr[i].status = PL_ST_NONE;
+        else if (strcmp(have, is_oauth[i] ? "oauth" : "api_key")) {
+            pr[i].status = PL_ST_OTHER;
+            cl_copy(st_text[i], !strcmp(have, "oauth") ? (p->subscription ? "subscription" : "account") : "API key", sizeof(st_text[i]));
+            cl_cat(st_text[i], " configured", sizeof(st_text[i]));
+        } else {
+            pr[i].status = PL_ST_OK;
+            cl_copy(st_text[i], src[i], sizeof(st_text[i]));
+        }
+        pr[i].status_text = st_text[i];
     }
-    c = ui->menu(ui->u, "Select provider to configure:", opt, n);
-    return c < 0 ? -1 : idx[c];
+    c = ui->pick(ui->u, "Select provider to configure:", pr, n, both, ref ? ref : "", "No matching providers");
+    if (c < 0)
+        return -1;
+    *oauth = is_oauth[c];
+    return idx[c];
 }
 
 /* the default model a login of the provider selects when the session has no usable one (model-resolver.ts
@@ -699,6 +789,37 @@ static int device_id(pi_auth *a, char *err, long cap)
     return rc;
 }
 
+/* the sign-in dialog replaces the editor while a login runs (pi's look: ui->dialog); the notes that end it come after it closed */
+static void dlg_open(const pi_login_ui *ui, const oa_provider *p)
+{
+    if (ui->dialog) {
+        char title[200];
+        cl_copy(title, "Login to ", sizeof(title));
+        cl_cat(title, p->name, sizeof(title));
+        ui->dialog(ui->u, PD_OPEN, title, 0);
+    } else
+        say2(ui, PL_ACCENT, "Login to ", p->name, 0);
+}
+
+static void dlg_close(const pi_login_ui *ui)
+{
+    if (ui->dialog)
+        ui->dialog(ui->u, PD_CLOSE, 0, 0);
+}
+
+/* the user cancelled. pi 1.1.0 in its own look ends the dialog with showError("Failed to login to X: This operation was aborted")
+ * ("Failed to save API key for X: ..." for a key): the abort reaches loginProvider before the dialog's "Login cancelled" (whose
+ * onBack would reopen the selector) does; the other looks note it as before */
+static int cancelled(const pi_login_ui *ui, const oa_provider *p, int oauth)
+{
+    if (ui->dialog) {
+        fail(ui, oauth ? "Failed to login to " : "Failed to save API key for ", p->name, "This operation was aborted");
+        return 0;
+    }
+    ui->note(ui->u, PL_DIM, "Login cancelled");
+    return 0;
+}
+
 /* showLoginDialog: the OAuth login of the provider. 1 when credentials were saved */
 static int login_oauth(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
 {
@@ -706,10 +827,10 @@ static int login_oauth(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
     jw entry;
     char err[500];
     int rc;
-    say2(ui, PL_ACCENT, "Login to ", p->name, 0);
+    dlg_open(ui, p);
     if (!strcmp(p->id, "openai") && device_id(a, err, sizeof(err))) {
-        say2(ui, PL_ERROR, "Failed to login to ", p->name, ": ");
-        ui->note(ui->u, PL_ERROR, err);
+        dlg_close(ui);
+        fail(ui, "Failed to login to ", p->name, err);
         return 0;
     }
     jw_init(&entry);
@@ -719,22 +840,20 @@ static int login_oauth(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
     err[0] = 0;
     rc = p->login(&io, &entry, err, sizeof(err));
     a->ui = 0;
+    dlg_close(ui);
     if (rc == OA_CANCEL) {
         jw_free(&entry);
-        ui->note(ui->u, PL_DIM, "Login cancelled");
-        return 0;
+        return cancelled(ui, p, 1);
     }
     if (rc) {
         jw_free(&entry);
-        say2(ui, PL_ERROR, "Failed to login to ", p->name, 0);
-        ui->note(ui->u, PL_ERROR, err);
+        fail(ui, "Failed to login to ", p->name, err);
         return 0;
     }
     if (store_entry(a, p->id, entry.p, 0, err, sizeof(err))) {
         memset(entry.p, 0, (size_t)entry.n);
         jw_free(&entry);
-        say2(ui, PL_ERROR, "Failed to login to ", p->name, ": ");
-        ui->note(ui->u, PL_ERROR, err);
+        fail(ui, "Failed to login to ", p->name, err);
         return 0;
     }
     memset(entry.p, 0, (size_t)entry.n);
@@ -749,13 +868,13 @@ static int login_key(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
     char key[1200], msg[160], err[300];
     jw v;
     int rc;
-    say2(ui, PL_ACCENT, "Login to ", p->name, 0);
+    dlg_open(ui, p);
     cl_copy(msg, "Enter ", sizeof(msg));
     cl_cat(msg, p->key_name, sizeof(msg));
-    if (ui->line(ui->u, msg, 0, key, sizeof(key))) {
-        ui->note(ui->u, PL_DIM, "Login cancelled");
-        return 0;
-    }
+    rc = ui->ask ? ui->ask(ui->u, 0, msg, 0, key, sizeof(key)) : ui->line(ui->u, msg, 0, key, sizeof(key));
+    dlg_close(ui);
+    if (rc)
+        return cancelled(ui, p, 0);
     {
         long s = 0, e = (long)strlen(key);
         while (s < e && (key[s] == ' ' || key[s] == '\t'))
@@ -766,7 +885,7 @@ static int login_key(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
         key[e - s] = 0;
     }
     if (!key[0]) {
-        say2(ui, PL_ERROR, "Failed to save API key for ", p->name, ": no key was entered");
+        fail(ui, "Failed to save API key for ", p->name, "no key was entered");
         return 0;
     }
     jw_init(&v);
@@ -778,17 +897,46 @@ static int login_key(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
     memset(v.p, 0, (size_t)v.n);
     jw_free(&v);
     if (rc) {
-        say2(ui, PL_ERROR, "Failed to save API key for ", p->name, ": ");
-        ui->note(ui->u, PL_ERROR, err);
+        fail(ui, "Failed to save API key for ", p->name, err);
         return 0;
     }
     return finish(a, ui, p, 0);
 }
 
+/* the login of the provider by the kind chosen; 1 saved, 0 not */
+static int login_by(pi_auth *a, const pi_login_ui *ui, const oa_provider *p, int oauth)
+{
+    return oauth ? login_oauth(a, ui, p) : login_key(a, ui, p);
+}
+
+/* showLoginAuthTypeSelector for one provider that has both: the kind, 1 account / 0 API key, -1 cancelled */
+static int pick_method(const pi_login_ui *ui, const oa_provider *q)
+{
+    char title[160];
+    const char *opt[2];
+    opt[0] = q->login_label ? q->login_label : "Sign in with an account";
+    opt[1] = "Sign in with an API key";
+    cl_copy(title, "Select authentication method for ", sizeof(title));
+    cl_cat(title, q->name, sizeof(title));
+    cl_cat(title, ":", sizeof(title));
+    switch (ui->menu(ui->u, title, opt, 2)) {
+    case 0:
+        return 1;
+    case 1:
+        return 0;
+    }
+    return -1;
+}
+
+/* handleLoginCommand (interactive-mode.ts:5851): a typed provider is logged in to at once (the kind asked when it has both),
+ * else the kind is asked, then the providers listed (the typed text in the search box). In pi's look a cancelled provider
+ * list goes back to the kind */
 int pi_login_run(pi_auth *a, const char *arg, const pi_login_ui *ui)
 {
-    int oauth, pi_idx;
+    int oauth, pi_idx, type = -1;
     const oa_provider *p;
+    const char *initial = 0;
+    enum { S_TYPE, S_PROVIDERS } stage = S_TYPE;
     while (arg && (*arg == ' ' || *arg == '\t'))
         arg++;
     reload(a);
@@ -805,47 +953,43 @@ int pi_login_run(pi_auth *a, const char *arg, const pi_login_ui *ui)
         }
         if (hits == 1 && kinds == 1) {
             p = oa_nth(which);
-            return p->login ? login_oauth(a, ui, p) : login_key(a, ui, p);
+            return login_by(a, ui, p, p->login != 0) == 1;
         }
         if (hits == 1) {
             const oa_provider *q = oa_nth(which);
-            char title[160];
-            const char *opt[2];
-            int c;
-            opt[0] = q->login_label ? q->login_label : "Sign in with an account";
-            opt[1] = "Sign in with an API key";
-            cl_copy(title, "Select authentication method for ", sizeof(title));
-            cl_cat(title, q->name, sizeof(title));
-            cl_cat(title, ":", sizeof(title));
-            c = ui->menu(ui->u, title, opt, 2);
+            int c = pick_method(ui, q);
             if (c < 0)
                 return 0;
-            return c == 0 ? login_oauth(a, ui, q) : login_key(a, ui, q);
+            return login_by(a, ui, q, c) == 1;
         }
+        /* no provider of that name: the list of every login, the typed text in the search box */
+        stage = S_PROVIDERS;
+        initial = arg;
     }
-    if (arg && *arg) {
-        /* no provider of that name: the list, narrowed by what was typed (every kind of login) */
-        int c = pick_provider(a, ui, 1, arg, 1);
-        if (c < 0)
+    for (;;) {
+        if (stage == S_TYPE) {
+            const char *opt[2];
+            int c;
+            opt[0] = "Sign in with an account";
+            opt[1] = "Sign in with an API key";
+            c = ui->menu(ui->u, "Select authentication method:", opt, 2);
+            if (c < 0)
+                return 0;
+            type = c == 0;
+            stage = S_PROVIDERS;
+        }
+        pi_idx = pick_provider(a, ui, type, initial, &oauth);
+        if (pi_idx < 0) {
+            if (ui->dialog && type >= 0) {
+                stage = S_TYPE;             /* showLoginProviderSelector's cancel: the kind again */
+                initial = 0;
+                continue;
+            }
             return 0;
-        p = oa_nth(c);
-        return login_oauth(a, ui, p);
+        }
+        p = oa_nth(pi_idx);
+        return login_by(a, ui, p, oauth) == 1;
     }
-    {
-        const char *opt[2];
-        int c;
-        opt[0] = "Sign in with an account";
-        opt[1] = "Sign in with an API key";
-        c = ui->menu(ui->u, "Select authentication method:", opt, 2);
-        if (c < 0)
-            return 0;
-        oauth = c == 0;
-    }
-    pi_idx = pick_provider(a, ui, oauth, 0, 0);
-    if (pi_idx < 0)
-        return 0;
-    p = oa_nth(pi_idx);
-    return oauth ? login_oauth(a, ui, p) : login_key(a, ui, p);
 }
 
 int pi_logout_run(pi_auth *a, const pi_login_ui *ui)
@@ -899,7 +1043,27 @@ int pi_logout_run(pi_auth *a, const pi_login_ui *ui)
             oauth[j - 1] = to;
         }
     }
-    c = ui->menu(ui->u, "Select provider to logout:", opt, n);
+    if (ui->pick) {
+        /* showOAuthSelector("logout"): every row is a stored credential (getLogoutProviderOptions) */
+        pi_login_row pr[40];
+        char srch[40][200];
+        int kinds = 0;
+        for (i = 0; i < n; i++) {
+            const oa_provider *q = oa_find(ids[i]);
+            pr[i].name = q ? q->name : ids[i];
+            pr[i].type = !oauth[i] ? "API key" : q && !q->subscription ? "account" : "subscription";
+            cl_copy(srch[i], pr[i].name, sizeof(srch[i]));
+            cl_cat(srch[i], " ", sizeof(srch[i]));
+            cl_cat(srch[i], ids[i], sizeof(srch[i]));
+            cl_cat(srch[i], oauth[i] ? " oauth" : " api_key", sizeof(srch[i]));
+            pr[i].search = srch[i];
+            pr[i].status = PL_ST_OK;
+            pr[i].status_text = "";
+            kinds |= oauth[i] ? 1 : 2;
+        }
+        c = ui->pick(ui->u, "Select provider to logout:", pr, n, kinds == 3, "", "No providers logged in. Use /login first.");
+    } else
+        c = ui->menu(ui->u, "Select provider to logout:", opt, n);
     if (c < 0)
         return 0;
     {
