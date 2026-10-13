@@ -34,7 +34,31 @@ static int cancelled(pi_session *s, const char *type, jw *b)
     return cancel;
 }
 
-/* resources_discover follows each session_start (agent-session.ts bindExtensions 3289) */
+/* resources_discover follows each session_start (agent-session.ts bindExtensions 3289); the paths the handlers return
+ * ({skillPaths, promptPaths, themePaths}) go to the mode, which reads its skills and prompt templates again. Theme paths are
+ * not read: a theme is chosen by name from the theme directories */
+static int res_apply(void *u, jv answer, jv after, jw *payload)
+{
+    pi_session *s = (pi_session *)u;
+    int k;
+    (void)after;
+    (void)payload;
+    for (k = 0; answer.p && k < 2; k++) {
+        jv arr, e;
+        jit it;
+        if (json_get(answer, k ? "promptPaths" : "skillPaths", &arr) && json_type(arr) == J_ARR) {
+            json_iter(arr, &it);
+            while (json_next(&it, 0, &e))
+                if (json_type(e) == J_STR && s->ext.discovered) {
+                    char path[300];
+                    json_str(e, path, sizeof(path));
+                    s->ext.discovered(s->ext.discovered_u, k ? "prompt" : "skill", path);
+                }
+        }
+    }
+    return 0;
+}
+
 static void bound(void *u, const char *reason)
 {
     pi_session *s = (pi_session *)u;
@@ -43,7 +67,11 @@ static void bound(void *u, const char *reason)
         return;
     jw_init(&b);
     pi_ext_payload_resources(&b, s->ext.cwd ? s->ext.cwd : "", !strcmp(reason, "reload") ? "reload" : "startup");
-    plain(s, "resources_discover", &b);
+    if (!b.oom)
+        pi_exts_emit(&s->ext, "resources_discover", &b, 0, res_apply, s);
+    jw_free(&b);
+    if (s->ext.discovered)
+        s->ext.discovered(s->ext.discovered_u, 0, 0);
 }
 
 void pi_ev_attach(pi_session *s)
@@ -606,4 +634,144 @@ void pi_ev_compact_failed(pi_session *s, int reason, const char *error, int abor
     jw_rawz(&p, will_retry ? ",\"willRetry\":true" : ",\"willRetry\":false");
     jw_rawz(&p, from_ext ? ",\"fromExtension\":true}" : ",\"fromExtension\":false}");
     plain(s, "session_compact_failed", &p);
+}
+
+/* ---- session_before_tree, session_tree ---- */
+
+void pi_tree_dec_init(pi_tree_dec *d)
+{
+    memset(d, 0, sizeof(*d));
+    jw_init(&d->summary);
+    jw_init(&d->details);
+    jw_init(&d->usage);
+    jw_init(&d->instr);
+    jw_init(&d->label);
+}
+
+void pi_tree_dec_free(pi_tree_dec *d)
+{
+    jw_free(&d->summary);
+    jw_free(&d->details);
+    jw_free(&d->usage);
+    jw_free(&d->instr);
+    jw_free(&d->label);
+}
+
+static int tree_apply(void *u, jv answer, jv after, jw *payload)
+{
+    pi_tree_dec *d = (pi_tree_dec *)u;
+    jv v, x;
+    (void)after;
+    (void)payload;
+    if (!answer.p)
+        return 0;
+    if (pi_ext_decide_cancel(answer)) {
+        d->cancel = 1;
+        return 1;
+    }
+    if (json_get(answer, "summary", &v) && json_type(v) == J_OBJ && json_get(v, "summary", &x) && json_type(x) == J_STR) {
+        long n;
+        char *z = json_strdup(x, &n);
+        jw_reset(&d->summary);
+        if (z) {
+            jw_raw(&d->summary, z, n);
+            free(z);
+        }
+        d->has_summary = 1;
+        jw_reset(&d->details);
+        if (json_get(v, "details", &x) && json_type(x) != J_NULL)
+            jw_raw(&d->details, x.p, x.n);
+        jw_reset(&d->usage);
+        if (json_get(v, "usage", &x) && json_type(x) == J_OBJ)
+            jw_raw(&d->usage, x.p, x.n);
+    }
+    if (json_get(answer, "customInstructions", &v) && json_type(v) == J_STR) {
+        long n;
+        char *z = json_strdup(v, &n);
+        jw_reset(&d->instr);
+        if (z) {
+            jw_raw(&d->instr, z, n);
+            free(z);
+        }
+        d->has_instr = 1;
+    }
+    if (json_get(answer, "replaceInstructions", &v) && (json_type(v) == J_TRUE || json_type(v) == J_FALSE)) {
+        d->has_replace = 1;
+        d->replace = json_type(v) == J_TRUE;
+    }
+    if (json_get(answer, "label", &v) && json_type(v) == J_STR) {
+        long n;
+        char *z = json_strdup(v, &n);
+        jw_reset(&d->label);
+        if (z) {
+            jw_raw(&d->label, z, n);
+            free(z);
+        }
+        d->has_label = 1;
+    }
+    return 0;
+}
+
+int pi_ev_before_tree(pi_session *s, const char *target, const char *old_leaf, const char *ancestor, const char *entries,
+                      int summarize, const char *instr, int replace_set, int replace, const char *label, pi_tree_dec *dec)
+{
+    jw p;
+    if (!s || !pi_exts_has(&s->ext, "session_before_tree"))
+        return 0;
+    jw_init(&p);
+    jw_rawz(&p, "{\"type\":\"session_before_tree\",\"preparation\":{\"targetId\":");
+    jw_strz(&p, target);
+    jw_rawz(&p, ",\"oldLeafId\":");
+    if (old_leaf)
+        jw_strz(&p, old_leaf);
+    else
+        jw_rawz(&p, "null");
+    jw_rawz(&p, ",\"commonAncestorId\":");
+    if (ancestor)
+        jw_strz(&p, ancestor);
+    else
+        jw_rawz(&p, "null");
+    jw_rawz(&p, ",\"entriesToSummarize\":");
+    jw_rawz(&p, entries);
+    jw_rawz(&p, summarize ? ",\"userWantsSummary\":true" : ",\"userWantsSummary\":false");
+    if (instr) {
+        jw_rawz(&p, ",\"customInstructions\":");
+        jw_strz(&p, instr);
+    }
+    if (replace_set)
+        jw_rawz(&p, replace ? ",\"replaceInstructions\":true" : ",\"replaceInstructions\":false");
+    if (label) {
+        jw_rawz(&p, ",\"label\":");
+        jw_strz(&p, label);
+    }
+    jw_rawz(&p, "},\"signal\":{}}");
+    if (!p.oom)
+        pi_exts_emit(&s->ext, "session_before_tree", &p, 0, tree_apply, dec);
+    jw_free(&p);
+    return dec->cancel;
+}
+
+void pi_ev_tree(pi_session *s, const char *new_leaf, const char *old_leaf, const char *summary_entry, long summary_n, int from_ext)
+{
+    jw p;
+    if (!s || !pi_exts_has(&s->ext, "session_tree"))
+        return;
+    jw_init(&p);
+    jw_rawz(&p, "{\"type\":\"session_tree\",\"newLeafId\":");
+    if (new_leaf)
+        jw_strz(&p, new_leaf);
+    else
+        jw_rawz(&p, "null");
+    jw_rawz(&p, ",\"oldLeafId\":");
+    if (old_leaf)
+        jw_strz(&p, old_leaf);
+    else
+        jw_rawz(&p, "null");
+    if (summary_entry) {
+        jw_rawz(&p, ",\"summaryEntry\":");
+        jw_raw(&p, summary_entry, summary_n);
+        jw_rawz(&p, from_ext ? ",\"fromExtension\":true" : ",\"fromExtension\":false");
+    }
+    jw_rawz(&p, "}");
+    plain(s, "session_tree", &p);
 }

@@ -55,4 +55,18 @@ int pi_ev_before_compact(pi_session *s, const char *prep, const char *branch, co
 void pi_ev_compact(pi_session *s, const char *entry, long entry_n, int from_ext, int reason, int will_retry);
 void pi_ev_compact_failed(pi_session *s, int reason, const char *error, int aborted, int will_retry, int from_ext);
 
+/* session_before_tree (agent-session.ts navigateTree 4027) and session_tree (4142). The tree preparation: target and old leaf ids (0
+ * null), the common ancestor (0 null), the entries to summarize as a JSON array of entry lines. A handler's answer is kept in dec:
+ * cancel; summary {summary, details, usage}; customInstructions, replaceInstructions and label override the user's */
+typedef struct pi_tree_dec {
+    int cancel, has_summary, has_instr, has_replace, replace, has_label;
+    jw summary, details, usage, instr, label;
+} pi_tree_dec;
+void pi_tree_dec_init(pi_tree_dec *d);
+void pi_tree_dec_free(pi_tree_dec *d);
+int pi_ev_before_tree(pi_session *s, const char *target, const char *old_leaf, const char *ancestor, const char *entries,
+                      int summarize, const char *instr, int replace_set, int replace, const char *label, pi_tree_dec *dec);
+/* summary_entry: the branch_summary entry's line (0 none); from_ext meaningful only with a summary */
+void pi_ev_tree(pi_session *s, const char *new_leaf, const char *old_leaf, const char *summary_entry, long summary_n, int from_ext);
+
 #endif

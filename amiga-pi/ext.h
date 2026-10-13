@@ -128,6 +128,10 @@ typedef struct pi_exts {
      * extensions' session_start (RPC binds a replaced session twice, so twice) with the same reason */
     void (*bound)(void *u, const char *reason);
     void *bound_u;
+    /* resources_discover's answers: a skill or prompt template path an extension named (kind "skill" or "prompt"), then kind 0 once
+     * when all of them are in, for the mode to read its resources again; 0: nobody reads them */
+    void (*discovered)(void *u, const char *kind, const char *path);
+    void *discovered_u;
 } pi_exts;
 
 void pi_exts_init(pi_exts *x);

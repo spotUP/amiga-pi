@@ -665,6 +665,37 @@ static void load_templates(const pi_platform *pl, int trusted)
     pi_tmpl_load(&tmpls, pl->sys, &to);
 }
 
+/* resources_discover's paths (ext.h pi_exts.discovered): kept with the command line's --skill and --prompt-template paths, the
+ * skills and templates read again once all are in */
+static char ext_paths[2][8][300];
+static int next_paths[2];
+
+static void ext_discovered(void *u, const char *kind, const char *path)
+{
+    pi_rt *rt = (pi_rt *)u;
+    int k;
+    if (!kind) {
+        if (next_paths[0] || next_paths[1]) {
+            load_skills(&rt->pl, rt->trusted);
+            pi_tmpl_free(&tmpls);
+            memset(&tmpls, 0, sizeof(tmpls));
+            load_templates(&rt->pl, rt->trusted);
+        }
+        return;
+    }
+    k = !strcmp(kind, "prompt");
+    if (k) {
+        if (a.ntmpl_paths < PI_ARG_TMPLS) {
+            cl_copy(a.tmpl_paths[a.ntmpl_paths], path, sizeof(a.tmpl_paths[0]));
+            a.ntmpl_paths++;
+            next_paths[1]++;
+        }
+    } else if (a.nskills < PI_ARG_SKILLS && next_paths[0] < 8) {
+        cl_copy(ext_paths[0][next_paths[0]], path, sizeof(ext_paths[0][0]));
+        a.skills[a.nskills++] = ext_paths[0][next_paths[0]++];
+    }
+}
+
 /* /reload (interactive-mode.ts handleReloadCommand, agent-session.ts reload(): settingsManager.reload() and resourceLoader.reload()): the
  * context files, SYSTEM.md, APPEND_SYSTEM.md, the skills and the prompt templates are read again, with the trust the session has.
  * Keybindings, themes and extensions are not read again. */
@@ -672,11 +703,11 @@ static int reload_resources(void *u, pi_session *sess, char *err, long cap)
 {
     pi_rt *rt = (pi_rt *)u;
     const pi_platform *pl = &rt->pl;
-    (void)sess;
     if (!pl->sys) {
         cl_copy(err, "no file system", cap);
         return -1;
     }
+    pi_ev_shutdown(sess, "reload", 0);                  /* agent-session.ts reload(): the old extensions are told first */
     pi_res_free(&res);
     memset(&res, 0, sizeof(res));
     pi_res_load(&res, pl->sys, pl->agent_dir, pl->cwd, rt->trusted);
@@ -684,6 +715,7 @@ static int reload_resources(void *u, pi_session *sess, char *err, long cap)
     pi_tmpl_free(&tmpls);
     memset(&tmpls, 0, sizeof(tmpls));
     load_templates(pl, rt->trusted);
+    pi_exts_session_start(&sess->ext, "reload", 0);     /* then the new ones: session_start, resources_discover */
     return 0;
 }
 
@@ -931,6 +963,9 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     if (a.name[0])
         s3_session_info(&store.s3, a.name);
     s.ext.cwd = pl->cwd;
+    rt->trusted = trusted;
+    s.ext.discovered = ext_discovered;
+    s.ext.discovered_u = rt;
     pi_exts_session_start(&s.ext, "startup", 0);       /* agent-session.ts bindExtensions: the extensions' session_start */
     rt->a = &a;
     rt->s = &s;
