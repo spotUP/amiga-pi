@@ -6,6 +6,7 @@
 #include "lualib.h"
 #include "ext_lua.h"
 #include "ext_payload.h"
+#include "mcp.h"
 #include "claude/util.h"
 #include "claude/path.h"
 #include "claude/schema.h"
@@ -106,12 +107,12 @@ static void push_jnum(lua_State *L, jv v)
             digits++;
     }
     t[k] = 0;
-    /* Lua's integers are 32 bits: what fits is an integer, the rest a float (24 bits of it) */
-    if (is_int && v.n < 64 && (digits < 10 || (digits == 10 && strcmp(t + neg, "2147483647") <= 0))) {
-        long n = 0;
+    /* pi's numbers are JS doubles: an integer up to 2^53 is exact in both, so it is a Lua integer; the rest a float */
+    if (is_int && v.n < 64 && (digits < 16 || (digits == 16 && strcmp(t + neg, "9007199254740992") <= 0))) {
+        lua_Integer n = 0;
         for (i = neg; i < k; i++)
             n = n * 10 + (t[i] - '0');
-        lua_pushinteger(L, (lua_Integer)(neg ? -n : n));
+        lua_pushinteger(L, neg ? -n : n);
     } else
         lua_pushnumber(L, (lua_Number)strtod(t, 0));
 }
@@ -302,24 +303,8 @@ static const char *l2j(lua_State *L, int idx, jw *w, int depth)
         }
         return "cannot encode a userdata";
     case LUA_TNUMBER:
-        if (lua_isinteger(L, idx))
-            jw_long(w, (long)lua_tointeger(L, idx));
-        else {
-            lua_Number d = lua_tonumber(L, idx);
-            if (d != d || d > 1e30 || d < -1e30)
-                jw_rawz(w, "null");             /* JSON.stringify: NaN and Infinity are null */
-            else if (d == (lua_Number)(long)d && d > -2147483647.0 && d < 2147483647.0)
-                jw_long(w, (long)d);
-            else {
-                /* Lua's own text of a float ("%.7g", an exponent form for the big ones: valid JSON numbers) */
-                size_t n;
-                const char *t;
-                lua_pushvalue(L, idx);
-                t = lua_tolstring(L, -1, &n);
-                jw_raw(w, t, (long)n);
-                lua_pop(L, 1);
-            }
-        }
+        /* JSON.stringify of a JS number: a Lua integer is the double JS would hold (exact to 2^53), written by mcp.c */
+        pi_js_double(w, lua_isinteger(L, idx) ? (double)lua_tointeger(L, idx) : (double)lua_tonumber(L, idx));
         return 0;
     case LUA_TSTRING: {
         size_t n;
@@ -909,12 +894,6 @@ static int lt_run(void *u, pi_session *s, const char *args, long an, jw *content
     char err[300];
     int top, rc;
     *is_error = 1;
-    if (!L) {
-        cl_copy(err, "Extension \"", sizeof(err));
-        cl_cat(err, x->path, sizeof(err));
-        cl_cat(err, "\" is disabled", sizeof(err));
-        return tool_fail(content, err);
-    }
     if (json_parse(args, an, &a) || json_type(a) != J_OBJ) {
         cl_copy(err, "Validation failed for tool \"", sizeof(err));
         cl_cat(err, t->name, sizeof(err));
@@ -1006,20 +985,13 @@ static int lt_run(void *u, pi_session *s, const char *args, long an, jw *content
 }
 
 /* a registered command run: handler(args, ctx) (agent-session.ts _tryExecuteExtensionCommand); an error is told as pi tells it,
- * "command:<name>" the extension, and the extension stops like for any handler error */
+ * "command:<name>" the extension; the extension keeps running (pi has no disabling) */
 static int lx_command(void *u, int handle, const char *args)
 {
     pi_lua_ext *x = (pi_lua_ext *)u;
     lua_State *L = x->L;
     int top, rc;
     char err[300], shown[140];
-    if (!L) {
-        cl_copy(err, "Extension \"", sizeof(err));
-        cl_cat(err, x->path, sizeof(err));
-        cl_cat(err, "\" is disabled", sizeof(err));
-        tell(x->host, err);
-        return -1;
-    }
     top = lua_gettop(L);
     lua_getfield(L, LUA_REGISTRYINDEX, K_CMDS);
     lua_rawgeti(L, -1, (lua_Integer)(handle + 1));
@@ -1110,7 +1082,8 @@ static void tell(pi_lua *h, const char *m)
         h->s->h.notice(h->s->h.u, m);
 }
 
-/* pi's text for an extension that failed: interactive-mode.ts showExtensionError, and the extension stops; shown is the
+/* pi's text for an extension that failed: interactive-mode.ts showExtensionError; the extension is called again (runner.ts
+ * emitError only reports); shown is the
  * path pi names (the file's, or "command:<name>" for a command's handler: agent-session.ts _tryExecuteExtensionCommand) */
 static void ext_error_at(pi_lua_ext *x, const char *shown, const char *msg)
 {
@@ -1119,8 +1092,6 @@ static void ext_error_at(pi_lua_ext *x, const char *shown, const char *msg)
     cl_cat(m, shown, sizeof(m));
     cl_cat(m, "\" error: ", sizeof(m));
     cl_cat(m, msg, sizeof(m) - 40);
-    cl_cat(m, " (the extension is disabled)", sizeof(m));
-    x->disabled = 1;
     tell(x->host, m);
 }
 
@@ -1129,18 +1100,10 @@ static void ext_error(pi_lua_ext *x, const char *msg)
     ext_error_at(x, x->path, msg);
 }
 
-/* after a dispatch, back on the stack's base: a disabled extension's state is closed */
+/* after a dispatch, back on the stack's base */
 static void settle(pi_lua_ext *x, int top)
 {
-    if (x->L && !x->disabled) {
-        lua_settop(x->L, top);
-        return;
-    }
-    if (x->L) {
-        lua_close(x->L);
-        x->L = 0;
-        x->mem = 0;
-    }
+    lua_settop(x->L, top);
 }
 
 /* ---- dispatch ---- */
@@ -1167,7 +1130,7 @@ static long handlers_of(lua_State *L, const char *event)
 }
 
 /* handler i of the list at lidx called with a copy of the event at eidx and ctx: 0 and its result pushed, or -1 and
- * the extension is disabled (the error reported; err holds its text) */
+ * nothing pushed (the error told when report is set, err holds its text); the extension stays in the list */
 static int call_one(pi_lua_ext *x, int lidx, long i, int eidx, int report, char *err, long cap)
 {
     lua_State *L = x->L;
@@ -1244,7 +1207,7 @@ static void lx_event(void *u, const pi_event *e)
     jw_init(&b);
     if (pi_ext_payload_event(x->host->s, e, &b) && push_event(x, &b) == 0) {
         eidx = lua_gettop(L);
-        for (i = 1; i <= (long)lua_rawlen(L, lidx) && !x->disabled; i++) {
+        for (i = 1; i <= (long)lua_rawlen(L, lidx); i++) {
             if (call_one(x, lidx, i, eidx, 1, err, sizeof(err)) == 0)
                 lua_pop(L, 1);
         }
@@ -1256,7 +1219,8 @@ static void lx_event(void *u, const pi_event *e)
 /* tool_call: handlers share one event whose input they may change in place (types.ts ToolCallEvent: "mutate
  * `event.input` in place"); what they changed is written back into args after each handler, so the next extension
  * and the tool see it; { block = true, reason } stops the dispatch. A handler that throws blocks the call with the
- * error's message (agent-session.ts:679 -> agent-loop.ts) and the extension is disabled. */
+ * error's message (runner.ts emitToolCall has no catch; agent-session.ts:679 rethrows; agent-loop.ts), told to nobody
+ * else, and the extension is called again by the next call. */
 static int lx_tool_call(void *u, const char *id, const char *name, jw *args, char *reason, long cap)
 {
     pi_lua_ext *x = (pi_lua_ext *)u;
@@ -1284,10 +1248,10 @@ static int lx_tool_call(void *u, const char *id, const char *name, jw *args, cha
         /* a second decode of the same arguments: what the handlers did to the first shows against it */
         if (push_json(L, args->p ? args->p : "{}", args->p ? args->n : 2) == 0) {
             oidx = lua_gettop(L);
-            for (i = 1; i <= (long)lua_rawlen(L, lidx) && !x->disabled && !blocked; i++) {
+            for (i = 1; i <= (long)lua_rawlen(L, lidx) && !blocked; i++) {
                 jv o;
                 int rc;
-                if (call_one(x, lidx, i, eidx, 1, err, sizeof(err)) != 0) {
+                if (call_one(x, lidx, i, eidx, 0, err, sizeof(err)) != 0) {
                     cl_copy(reason, err, cap);
                     blocked = 1;
                     break;
@@ -1335,7 +1299,7 @@ static void lx_tool_result(void *u, const char *id, const char *name, const char
     lidx = lua_gettop(L);
     jw_init(&b);
     jw_init(&r);
-    for (i = 1; i <= (long)lua_rawlen(L, lidx) && !x->disabled; i++) {
+    for (i = 1; i <= (long)lua_rawlen(L, lidx); i++) {
         jv o;
         jw_reset(&b);
         /* each handler sees what the ones before it changed (runner.ts emitToolResult) */
@@ -1347,8 +1311,7 @@ static void lx_tool_result(void *u, const char *id, const char *name, const char
                 pi_ext_decide_result(o, &x->host->s->ext, content, is_error);
             lua_pop(L, 1);
         }
-        if (!x->disabled)
-            lua_pop(L, 1);                      /* the event */
+        lua_pop(L, 1);                          /* the event */
     }
     jw_free(&b);
     jw_free(&r);
@@ -1372,7 +1335,7 @@ static int lx_input(void *u, const char *source, const char *streaming, jw *text
     lidx = lua_gettop(L);
     jw_init(&b);
     jw_init(&r);
-    for (i = 1; i <= (long)lua_rawlen(L, lidx) && !x->disabled && !handled; i++) {
+    for (i = 1; i <= (long)lua_rawlen(L, lidx) && !handled; i++) {
         jv o;
         jw_reset(&b);
         pi_ext_payload_input(&b, text, source, streaming);
@@ -1383,8 +1346,7 @@ static int lx_input(void *u, const char *source, const char *streaming, jw *text
                 handled = 1;
             lua_pop(L, 1);
         }
-        if (!x->disabled)
-            lua_pop(L, 1);
+        lua_pop(L, 1);
     }
     jw_free(&b);
     jw_free(&r);
@@ -1411,7 +1373,7 @@ static void lx_session_start(void *u, const char *reason, const char *prev)
     pi_ext_payload_start(&b, reason, prev);
     if (push_event(x, &b) == 0) {
         int eidx = lua_gettop(L);
-        for (i = 1; i <= (long)lua_rawlen(L, lidx) && !x->disabled; i++)
+        for (i = 1; i <= (long)lua_rawlen(L, lidx); i++)
             if (call_one(x, lidx, i, eidx, 1, err, sizeof(err)) == 0)
                 lua_pop(L, 1);
     }

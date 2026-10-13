@@ -4,5 +4,5 @@ string	AMIGA	xxx	7	a;b;c	2
 42 pi 3.14
 pcall	false	boom
 pcall2	false	attempt to index a nil value (local 'x')
-loop	705082704	0
+loop	5000050000	0
 fib	46368

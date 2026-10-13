@@ -96,7 +96,7 @@ As built (phase M, batch 1, 2026-10-13): two more backends in vtcon's `llm/`, re
 
 **Decision (owner, 2026-10-07 evening, confirmed 2026-10-10): Lua 5.4.** The plan's four criteria were written as a gate; the owner made them a check ("Lua now"; criterion 1's 5-warning limit was a guess). The numbers below are kept as information.
 
-Measured on the Mac (2026-10-07), Lua 5.4.9 vendored in `vendor/lua-5.4/`, vbcc via vtcon's cfg, `-cpu=68020 -O2 -warnings-as-errors`, `LUA_USE_C89` + `LUA_32BITS`, probe built by `tools/probe/build_lua_probe.sh`:
+Measured on the Mac (2026-10-07), Lua 5.4.9 vendored in `vendor/lua-5.4/`, vbcc via vtcon's cfg, `-cpu=68020 -O2 -warnings-as-errors`, `LUA_USE_C89` + `LUA_32BITS` (the A5 build; L13 later went to 64-bit numbers, below), probe built by `tools/probe/build_lua_probe.sh`:
 
 | # | Criterion | Result |
 |---|---|---|
@@ -105,12 +105,14 @@ Measured on the Mac (2026-10-07), Lua 5.4.9 vendored in `vendor/lua-5.4/`, vbcc 
 | 3 | probe adds at most 300 KB to a hello world | holds: luaprobe 193,160 bytes (after the link-order fix; 187,572 before), hello 4,892 bytes, delta 188,268 bytes (libs open: base, coroutine, table, string, math, utf8; io, os, package, debug not linked; link needs `-lmieee`, i.e. mathieeedoubtrans.library at run time). |
 | 4 | fib(24) plus 100,000-iteration loop within 10 s on a 68020 without FPU | FAILS (rig 2, 2026-10-10, AmigaDOS `Date` around each run, 1 s resolution): loop 65 s, fib(24) 27 s, whole probe 91 s -- 9 times the limit. Rig 2 is FS-UAE A1200, 68020 at `uae_cpu_speed = real`, not cycle-exact, and has a 68882 configured (the plan assumed no FPU; both parts are integer work). |
 
+L13 (owner 2026-10-13, 64-bit numbers): `LUA_32BITS` is off, so Lua has `long long` integers and `double` floats as pi's JS numbers need (integers to 2^53 exact; JSON numbers round-trip through a handler, `json.encode` writes the double as JSON.stringify does, `pi_js_double` in mcp.c). The probe still builds clean with the same `-dontwarn` list (0 warning lines); luaprobe grew 193,160 to 202,924 bytes, the Amiga binary 1,559,668 to 1,568,732 (+9,064); `luaprobe.expected`'s `loop` line is now 5000050000 (the 32-bit sum wrapped to 705082704). Rig 2 re-measure (2026-10-13, the same stock A1200 configuration, 1 s `Date` resolution, output byte-equal to `luaprobe.expected`): loop 72 s (was 65), fib(24) 30 s (27), whole probe 102 s (91): about 10 % slower.
+
 What the numbers mean for the design: the speed was measured on a plain 68020 at real A1200 speed (rig 2's configuration then), the slowest machine the kit supports; a 68060 is several times faster. Extensions should therefore do event handling and small transforms in Lua and leave heavy work (search, file walking, JSON of large payloads) to the C tools they call. The link needs `-lmieee` BEFORE `-lvc`. Phase L3 built it in (next section). Next Lua step (owner, 2026-10-07): evaluate AmigaDaLua (https://github.com/alpine9000/AmigaDaLua) against the vendored stock 5.4.9 and reuse it if it builds with vbcc and its licence and additions fit (phase L). Hook commands (`claude/hooks.c`) still come first (phase L).
 
 ## Lua extensions (Phase L3)
 
 `amiga-pi/ext_lua.c` (portable C89, host-tested in `tests/test_pi_lua.c`) runs pi's extension API in Lua 5.4 (`vendor/lua-5.4`,
-stock 5.4.9; the changes are in `luaconf.h` only: A5's `LUA_USE_C89`/`LUA_32BITS` and, new, `LUAI_MAXCCALLS 60` because the
+stock 5.4.9; the changes are in `luaconf.h` only: A5's `LUA_USE_C89`, L13's 64-bit numbers (`LUA_32BITS 0`, `LUA_C89_NUMBERS 0`: `long long` and `double`) and, new, `LUAI_MAXCCALLS 60` because the
 C stack is 32 KB). `pi_rt_open` loads, after the trust decision, `<cwd>/.pi/extensions` (trusted projects only), then
 `<agent dir>/extensions` and the data dir's (`*.lua`, `<dir>/index.lua`; name order; pi: loader.ts discoverAndLoadExtensions);
 `--no-extensions` skips it. Each file is a Lua state of its own with a memory cap and an instruction and clock limit
@@ -128,9 +130,9 @@ arguments) is written back, key order of a changed object being ext_lua.c's fixe
 list (runner.ts snapshotEventHandlers), so `pi.on`'s unsubscribe function cannot disturb a dispatch under way.
 
 Errors: a file that does not load is told as pi's main.ts:802 and left out; a handler that throws is told as pi's interactive
-showExtensionError and its extension is disabled (its state closed); the loop goes on. The tool_call case blocks with the error's
-message (agent-session.ts:679). Differences from pi 1.1.0 and what is open are the three Lua rows of COMPATIBILITY.md
-("extensions"): 32-bit numbers, `ctx` is cwd, hasUI and isProjectTrusted only, the rest of `pi.*` (exec, sendMessage, ctx.ui)
+showExtensionError and its extension is called again by the next event (pi 1.1.0: runner.ts emitError only reports; L14); the loop goes on.
+The tool_call case blocks with the error's message and tells nobody else (runner.ts emitToolCall has no catch; agent-session.ts:679). Differences from pi 1.1.0 and what is open are the three Lua rows of COMPATIBILITY.md
+("extensions"): `ctx` is cwd, hasUI and isProjectTrusted only, the rest of `pi.*` (exec, sendMessage, ctx.ui)
 comes later; registerTool, registerCommand and appendEntry are the next section. Proof against pi: the ten L1/L2 golden scenarios of pi 1.1.0 rerun with the same
 behaviour as a Lua extension (`tests/pi/rpc/ext_lua_*.cfg.json`, made by `tools/pi_oracle/gen_lua_scenarios.py`; the event
 recorders compare payloads with sorted keys on both sides), the block scenario doubling as the L9-shaped reachability test (the

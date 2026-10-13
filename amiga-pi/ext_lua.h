@@ -34,14 +34,14 @@
  * extensions (<cwd>/.pi/extensions, only when the project is trusted), then the user's (<agent dir>/extensions, the data
  * dir's too), in file name order -- pi's order (loader.ts discoverAndLoadExtensions: project, then global). A load error
  * or a handler error is reported as pi reports an extension error (the load: main.ts:802, the handler: interactive-mode.ts
- * showExtensionError) and disables that extension for the rest of the session; the session goes on. (pi keeps calling
- * a handler that threw; amiga-pi stops, so a runaway or broken extension costs one error, not one per event.)
+ * showExtensionError); the extension is called again by the next event, as pi 1.1.0 does (runner.ts emitError only
+ * reports), and the session goes on.
  *
  * Limits per extension (a runaway extension must not hang a 68020 or eat the machine's memory): 4 MB of Lua memory,
  * 5,000,000 VM instructions and 10 seconds per call (the load counts as a call), checked every 1000 instructions; past
  * the limit the call fails with an error that the extension's own pcall cannot swallow (the hook fires on every
- * instruction after it). Lua numbers are 32-bit (LUA_32BITS, A5): a JSON integer outside +-2147483647 becomes a float
- * with 24 bits of precision (turn_start's 13-digit timestamp).
+ * instruction after it; each call is limited anew). Lua numbers are 64-bit integers and doubles (L13): a JSON integer to
+ * 2^53 is a Lua integer, the rest a float, and a number is written as JSON.stringify writes a JS number (mcp.c pi_js_number).
  * Portable C89, host-tested (tests/test_pi_lua.c). */
 #ifndef PI_EXT_LUA_H
 #define PI_EXT_LUA_H
@@ -75,9 +75,8 @@ typedef struct pi_lua_tool {
 typedef struct pi_lua_ext {
     pi_ext ext;                         /* the entry in the session's list (first member) */
     struct pi_lua *host;
-    struct lua_State *L;                /* 0 once the extension is disabled */
+    struct lua_State *L;                /* the extension's state (0 while it is being loaded or when the load failed) */
     char path[300];
-    int disabled;
     int over;                           /* the call went past a limit: the hook raises on every instruction */
     long mem;                           /* bytes of Lua memory now */
     long ticks;                         /* count-hook ticks (1000 instructions) in this call */

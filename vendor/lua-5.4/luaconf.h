@@ -126,7 +126,9 @@
 /*
 @@ LUA_32BITS enables Lua with 32-bit integers and 32-bit floats.
 */
-#define LUA_32BITS	1
+/* amiga-pi (L13, owner 2026-10-13): off. Integers are 'long long' and floats 'double', as Lua's default and as pi's JS numbers
+** (integers to 2^53 exact: turn_start's 13-digit timestamp). A5 had 32 bits here. */
+#define LUA_32BITS	0
 
 
 /*
@@ -134,11 +136,9 @@
 ** C89 ('long' and 'double'); Windows always has '__int64', so it does
 ** not need to use this case.
 */
-#if defined(LUA_USE_C89) && !defined(LUA_USE_WINDOWS)
-#define LUA_C89_NUMBERS		1
-#else
+/* amiga-pi (L13): 0 although LUA_USE_C89 is set -- vbcc and the host compiler both have 'long long' (the 'long' of C89 is 32 bits
+** on the 68k) */
 #define LUA_C89_NUMBERS		0
-#endif
 
 
 #if LUA_32BITS		/* { */

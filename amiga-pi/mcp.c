@@ -1399,9 +1399,38 @@ static long js_exact(double x, char *out, long cap, long *pt)
     return k;
 }
 
-static void js_number(jw *w, jv v)
+/* the positive finite double want written with the fewest digits that read back as it (its exact expansion, rounded to
+ * n = 1..17 digits), a "-" first when neg; 0 if none did */
+static int js_shortest(jw *w, double want, int neg)
 {
-    char d[JSN_DIGITS + 2], r[JSN_DIGITS + 2], x[800];
+    char r[JSN_DIGITS + 2], x[800];
+    long n, xp, xk = js_exact(want, x, (long)sizeof(x), &xp);
+    for (n = 1; n <= 17; n++) {
+        long rp = xp, rk = js_round(x, xk, n, r, &rp);
+        if (js_read(r, rk, rp) == want) {
+            if (neg)
+                jw_rawz(w, "-");
+            js_digits(w, r, rk, rp);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* a double as JSON.stringify writes a JS number: NaN and Infinity are null, -0 is 0 */
+void pi_js_double(jw *w, double v)
+{
+    if (v != v || v - v != 0.0)
+        jw_rawz(w, "null");
+    else if (v == 0.0)
+        jw_rawz(w, "0");
+    else
+        js_shortest(w, v < 0.0 ? -v : v, v < 0.0);
+}
+
+void pi_js_number(jw *w, jv v)
+{
+    char d[JSN_DIGITS + 2];
     long k = 0, pt = 0, ex = 0, lead = 0;
     int neg = 0, dot = 0, exps = 1;
     double want;
@@ -1453,18 +1482,8 @@ static void js_number(jw *w, jv v)
         jw_rawz(w, "0");
         return;
     }
-    if (k > 15) {       /* the shortest digits of the double itself (its exact expansion), not of the literal */
-        long n, xp, xk = js_exact(want, x, (long)sizeof(x), &xp);
-        for (n = 1; n <= 17; n++) {
-            long rp = xp, rk = js_round(x, xk, n, r, &rp);
-            if (js_read(r, rk, rp) == want) {
-                if (neg)
-                    jw_rawz(w, "-");
-                js_digits(w, r, rk, rp);
-                return;
-            }
-        }
-    }
+    if (k > 15 && js_shortest(w, want, neg))    /* the shortest digits of the double itself, not of the literal */
+        return;
     if (neg)
         jw_rawz(w, "-");
     js_digits(w, d, k, pt);
@@ -1503,7 +1522,7 @@ static void js_pretty(jw *w, jv v, int d)
     } else if (t == J_STR)
         js_string(w, v);
     else if (t == J_NUM)
-        js_number(w, v);
+        pi_js_number(w, v);
     else
         jw_raw(w, v.p, v.n);
 }
@@ -1845,7 +1864,7 @@ static void js_compact(jw *w, jv v)
     } else if (t == J_STR)
         js_string(w, v);
     else if (t == J_NUM)
-        js_number(w, v);
+        pi_js_number(w, v);
     else
         jw_raw(w, v.p, v.n);
 }
