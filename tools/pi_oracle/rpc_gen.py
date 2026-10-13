@@ -498,6 +498,56 @@ export default function (pi) {
 sc('ext_ui_print', mode='json', args=['run it'], answers=[TOOL('read', {'path': 'notes.txt'}), A('Done.')],
    text_files={'agent/extensions/t.ts': EXT_UI_PRINT})
 
+# ---- L7: what handlers of the other events decide (hook-command twins answer with printf, the Lua twins are made from them) ----
+REWRITE = {'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': 'rewritten'}], 'timestamp': 1}]}
+sc('ext_ctx_rewrite', mode='json', args=['say hi'], answers=[A('Hi there.')], requests=True,
+   ext=ext_one('context', 'return %s;' % json.dumps(REWRITE)),
+   settings={'hooks': {'context': hook(say(REWRITE))}})
+# context_with_system: the handler edits event.messages in place (no Lua-free twin: a hook command answers with whole lists)
+EXT_CWS = ext_one('context_with_system', 'for (const m of event.messages) { if (m.role === "user") m.content[0].text += " [seen]"; }')
+sc('ext_ctx_inplace', mode='json', args=['say hi'], answers=[A('Hi there.')], requests=True, ext=EXT_CWS)
+# before_agent_start: a custom message joins the user's (display true), saved in the session and sent to the model
+BAS = {'message': {'customType': 'note', 'content': 'extra context', 'display': True}}
+sc('ext_bas_message', mode='json', args=['say hi'], answers=[A('Hi there.')], requests=True, session=True,
+   ext=ext_one('before_agent_start', 'return %s;' % json.dumps(BAS)),
+   settings={'hooks': {'before_agent_start': hook(say(BAS))}}, collect=['session.jsonl'])
+# the before events cancel: a new session, a fork, a switch; the compaction
+CANCEL = {'cancel': True}
+CANCEL_EV = ['session_before_switch', 'session_before_fork']
+sc('ext_cancel_session', steps=[('cmd', {'type': 'new_session'}), ('cmd', {'type': 'fork', 'entryId': 'd0000006'}),
+                                ('cmd', {'type': 'clone'}), ('cmd', {'type': 'switch_session', 'sessionPath': 'other.jsonl'}),
+                                ('cmd', {'type': 'get_state'})],
+   answers=[], session='doc_branch', files={'other.jsonl': 'doc_branch'},
+   ext='export default function (pi) {\n' + ''.join('  pi.on("%s", async () => (%s));\n' % (e, json.dumps(CANCEL)) for e in CANCEL_EV) + '}\n',
+   settings={'hooks': {e: hook(say(CANCEL)) for e in CANCEL_EV}})
+sc('ext_cancel_compact', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('cmd', {'type': 'compact'}), ('cmd', {'type': 'get_state'})],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20)],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}, 'hooks': {'session_before_compact': hook(say(CANCEL))}},
+   ext=ext_one('session_before_compact', 'return { cancel: true };'))
+# an extension's own compaction: its summary, the entries kept as pi chose them
+EXT_COMP = ext_one('session_before_compact', 'return { compaction: { summary: "by the extension", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 777 } };')
+sc('ext_compact_own', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('cmd', {'type': 'compact'}), ('cmd', {'type': 'get_state'})],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20)], session=True, requests=False,
+   settings={'compaction': {'keepRecentTokens': 10}}, ext=EXT_COMP, collect=['session.jsonl'])
+# user_bash: a handler's result stands for the run
+UB = {'result': {'output': 'from the extension', 'exitCode': 3, 'cancelled': False, 'truncated': False}}
+sc('ext_bash_result', steps=[('cmd', {'type': 'bash', 'command': 'echo hi'}), ('prompt', 'hello')], answers=[A('Hello.')], session=True,
+   requests=True, ext=ext_one('user_bash', 'return %s;' % json.dumps(UB)),
+   settings={'hooks': {'user_bash': hook(say(UB))}}, collect=['session.jsonl'])
+# agent_before_settle: a custom message draft and continue: the run asks the model once more
+SETTLE = EXT_SETTLE = 'export default function (pi) { let n = 0; pi.on("agent_before_settle", async () => { if (n++ === 0) return { entries: [{ type: "custom_message", customType: "more", content: "keep going", display: true }], continue: true }; }); }\n'
+sc('ext_settle_continue', mode='json', args=['say hi'], answers=[A('Hi there.'), A('And more.')], requests=True, session=True,
+   ext=SETTLE, collect=['session.jsonl'])
+# turn_end: custom entry drafts, appended and announced
+TE = {'entries': [{'type': 'custom', 'customType': 'tally', 'data': {'n': 1}}]}
+sc('ext_turn_entries', mode='json', args=['say hi'], answers=[A('Hi there.')], session=True,
+   ext=ext_one('turn_end', 'return %s;' % json.dumps(TE)), settings={'hooks': {'turn_end': hook(say(TE))}}, collect=['session.jsonl'])
+# resources_discover: a prompt template directory the extension names
+sc('ext_resources', steps=[('cmd', {'type': 'get_commands'}), ('prompt', '/ext one "two words"')], answers=[A('Extra.')],
+   args=['--no-prompt-templates'], settings={'defaultProjectTrust': 'always'},
+   text_files={'project/extra/ext.md': 'Extra $2 then $1\n',
+               'agent/extensions/t.ts': ext_one('resources_discover', 'return { promptPaths: [event.cwd + "/extra"] };')})
+
 
 class Trickle(T.Fake):
     """T.Fake with the SSE events sent one at a time, a pause between them: pi puts the usage of the stream so far into

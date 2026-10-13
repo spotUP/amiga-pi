@@ -52,7 +52,7 @@ static int res_apply(void *u, jv answer, jv after, jw *payload)
                 if (json_type(e) == J_STR && s->ext.discovered) {
                     char path[300];
                     json_str(e, path, sizeof(path));
-                    s->ext.discovered(s->ext.discovered_u, k ? "prompt" : "skill", path);
+                    s->ext.discovered(s->ext.discovered_u, k ? "prompt" : "skill", path, s->ext.current);
                 }
         }
     }
@@ -71,7 +71,7 @@ static void bound(void *u, const char *reason)
         pi_exts_emit(&s->ext, "resources_discover", &b, 0, res_apply, s);
     jw_free(&b);
     if (s->ext.discovered)
-        s->ext.discovered(s->ext.discovered_u, 0, 0);
+        s->ext.discovered(s->ext.discovered_u, 0, 0, 0);
 }
 
 void pi_ev_attach(pi_session *s)
@@ -367,7 +367,10 @@ int pi_ev_context(pi_session *s, jw *out)
         for (i = 0; i < s->nmsg; i++) {
             if (i)
                 jw_rawz(&c.cur, ",");
-            jw_raw(&c.cur, s->msg[i], s->msg_n[i]);
+            if (s->alt[i])
+                jw_raw(&c.cur, s->alt[i], s->alt_n[i]);        /* the AgentMessage, as pi's handlers see it */
+            else
+                jw_raw(&c.cur, s->msg[i], s->msg_n[i]);
         }
         jw_rawz(&c.cur, "]");
         c.type = "context";

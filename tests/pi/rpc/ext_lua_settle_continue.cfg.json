@@ -1,0 +1,25 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "local n = 0\npi.on(\"agent_before_settle\", function(event, ctx)\n  n = n + 1\n  if n == 1 then\n    return { entries = { { type = \"custom_message\", customType = \"more\", content = \"keep going\", display = true } }, continue = true }\n  end\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "requests": true,
+ "golden": "ext_settle_continue"
+}

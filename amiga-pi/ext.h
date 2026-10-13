@@ -107,6 +107,7 @@ typedef struct pi_ext_rcmd {
     char invocation[120];
 } pi_ext_rcmd;
 
+struct pi_ext;
 typedef struct pi_exts {
     const pi_ext *e[PI_EXTS];
     int n;
@@ -130,7 +131,8 @@ typedef struct pi_exts {
     void *bound_u;
     /* resources_discover's answers: a skill or prompt template path an extension named (kind "skill" or "prompt"), then kind 0 once
      * when all of them are in, for the mode to read its resources again; 0: nobody reads them */
-    void (*discovered)(void *u, const char *kind, const char *path);
+    void (*discovered)(void *u, const char *kind, const char *path, const struct pi_ext *from);
+    const struct pi_ext *current;       /* the extension pi_exts_emit is asking now (0 outside it) */
     void *discovered_u;
 } pi_exts;
 

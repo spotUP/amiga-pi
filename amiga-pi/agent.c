@@ -42,8 +42,11 @@ void pi_session_init(pi_session *s, const llm_model *m, const char *key, llm_poo
 void pi_session_clear(pi_session *s)
 {
     int i;
-    for (i = 0; i < s->nmsg; i++)
+    for (i = 0; i < s->nmsg; i++) {
         free(s->msg[i]);
+        free(s->alt[i]);
+        s->alt[i] = 0;
+    }
     s->nmsg = 0;
     for (i = 0; i < s->nsys; i++)
         free(s->sys[i]);
@@ -116,8 +119,12 @@ void pi_session_free(pi_session *s)
     s->syscap = 0;
     free(s->msg);
     free(s->msg_n);
+    free(s->alt);
+    free(s->alt_n);
     s->msg = 0;
     s->msg_n = 0;
+    s->alt = 0;
+    s->alt_n = 0;
     s->cap = 0;
 }
 
@@ -173,20 +180,30 @@ static int keep(pi_session *s, jw *w)
         int nc = s->cap ? s->cap * 2 : 16;
         char **gm = (char **)malloc((size_t)nc * sizeof(*gm));
         long *gn = (long *)malloc((size_t)nc * sizeof(*gn));
-        if (!gm || !gn) {
+        char **ga = (char **)calloc((size_t)nc, sizeof(*ga));
+        long *gan = (long *)calloc((size_t)nc, sizeof(*gan));
+        if (!gm || !gn || !ga || !gan) {
             free(gm);
             free(gn);
+            free(ga);
+            free(gan);
             s->oom = 1;
             return -1;
         }
         if (s->nmsg) {
             memcpy(gm, s->msg, (size_t)s->nmsg * sizeof(*gm));
             memcpy(gn, s->msg_n, (size_t)s->nmsg * sizeof(*gn));
+            memcpy(ga, s->alt, (size_t)s->nmsg * sizeof(*ga));
+            memcpy(gan, s->alt_n, (size_t)s->nmsg * sizeof(*gan));
         }
         free(s->msg);
         free(s->msg_n);
+        free(s->alt);
+        free(s->alt_n);
         s->msg = gm;
         s->msg_n = gn;
+        s->alt = ga;
+        s->alt_n = gan;
         s->cap = nc;
     }
     {
@@ -207,9 +224,29 @@ static int keep(pi_session *s, jw *w)
     }
     s->msg[s->nmsg] = w->p;
     s->msg_n[s->nmsg] = w->n;
+    s->alt[s->nmsg] = 0;
+    s->alt_n[s->nmsg] = 0;
     w->p = 0;
     w->n = w->cap = 0;
     return s->nmsg++;
+}
+
+int pi_session_alt(pi_session *s, int i, const char *json, long n)
+{
+    char *c = 0;
+    if (i < 0 || i >= s->nmsg)
+        return -1;
+    if (json) {
+        c = (char *)malloc((size_t)n + 1);
+        if (!c)
+            return -1;
+        memcpy(c, json, (size_t)n);
+        c[n] = 0;
+    }
+    free(s->alt[i]);
+    s->alt[i] = c;
+    s->alt_n[i] = json ? n : 0;
+    return 0;
 }
 
 int pi_session_push(pi_session *s, const char *json, long n)
@@ -313,7 +350,10 @@ void pi_messages_json(const pi_session *s, int m0, int sys0, jw *w)
             if (!first)
                 jw_rawz(w, ",");
             first = 0;
-            jw_raw(w, s->msg[k], s->msg_n[k]);
+            if (s->alt[k])
+                jw_raw(w, s->alt[k], s->alt_n[k]);
+            else
+                jw_raw(w, s->msg[k], s->msg_n[k]);
         }
     }
     jw_rawz(w, "]");
@@ -449,6 +489,8 @@ static int answer(pi_session *s, stream *t)
     jw cj;                      /* the messages a context handler rewrote: tm points into it */
     const char **xm = 0;        /* the same without the system messages, for a model that takes none in the conversation */
     long *xn = 0;
+    char **own = 0;             /* messages converted from AgentMessages a handler left in */
+    int nown = 0, k2;
     jw_init(&cj);
     {
         /* pi's agent-loop declareToolChanges runs before every request, whatever the model: the tool changes become a
@@ -491,7 +533,8 @@ static int answer(pi_session *s, stream *t)
             nn = (long *)malloc((size_t)(cnt + 1) * sizeof(*nn));
             xm = (const char **)malloc((size_t)(cnt + 1) * sizeof(*xm));
             xn = (long *)malloc((size_t)(cnt + 1) * sizeof(*xn));
-            if (nm && nn && xm && xn) {
+            own = (char **)calloc((size_t)(cnt + 1), sizeof(*own));
+            if (nm && nn && xm && xn && own) {
                 int nx = 0;
                 free(tm);
                 free(tn);
@@ -500,11 +543,29 @@ static int answer(pi_session *s, stream *t)
                 o = 0;
                 json_iter(arr, &it);
                 while (json_next(&it, 0, &el)) {
-                    tm[o] = el.p;
-                    tn[o++] = el.n;
-                    if (!(json_get(el, "role", &r) && json_streq(r, "system"))) {
-                        xm[nx] = el.p;
-                        xn[nx++] = el.n;
+                    int sys = json_get(el, "role", &r) && json_streq(r, "system");
+                    const char *mp = el.p;
+                    long mn = el.n;
+                    if (!sys && !(json_get(el, "role", &r) && (json_streq(r, "user") || json_streq(r, "assistant") ||
+                                                              json_streq(r, "toolResult")))) {
+                        /* an AgentMessage (custom, bashExecution, ...) a handler left in: the request carries convertToLlm's */
+                        jw one;
+                        jw_init(&one);
+                        if (ctx_msg_to_llm(el.p, el.n, &one) && !one.oom && one.p && nown < cnt) {
+                            own[nown] = one.p;
+                            mp = one.p;
+                            mn = one.n;
+                            nown++;
+                        } else {
+                            jw_free(&one);
+                            continue;       /* convertToLlm leaves it out */
+                        }
+                    }
+                    tm[o] = mp;
+                    tn[o++] = mn;
+                    if (!sys) {
+                        xm[nx] = mp;
+                        xn[nx++] = mn;
                     }
                 }
                 pm = xm;
@@ -515,6 +576,8 @@ static int answer(pi_session *s, stream *t)
                 free(nn);
                 free(xm);
                 free(xn);
+                free(own);
+                own = 0;
                 xm = 0;
                 xn = 0;
             }
@@ -536,6 +599,9 @@ static int answer(pi_session *s, stream *t)
     if (rc) {
         llm_view_free(&v);
         jw_free(&cj);
+        for (k2 = 0; k2 < nown; k2++)
+            free(own[k2]);
+        free(own);
         s->oom = 1;
         return -1;
     }
@@ -592,6 +658,9 @@ static int answer(pi_session *s, stream *t)
         llm_request(&q);
     llm_view_free(&v);
     jw_free(&cj);
+    for (k2 = 0; k2 < nown; k2++)
+        free(own[k2]);
+    free(own);
     jw_free(&tools);
     jw_free(&hdr);
     jw_init(&m);
@@ -940,6 +1009,7 @@ int pi_session_custom(pi_session *s, const char *custom_type, const char *conten
         i = keep(s, &one);
         if (i >= 0) {
             int ty;
+            pi_session_alt(s, i, m.p, m.n);
             for (ty = PE_MESSAGE_START; ty <= PE_MESSAGE_END; ty += PE_MESSAGE_END - PE_MESSAGE_START) {
                 pi_event_init(&e, ty);
                 e.role = PI_ROLE_CUSTOM;

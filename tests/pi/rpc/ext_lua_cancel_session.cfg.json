@@ -1,0 +1,19 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "doc_branch",
+ "files": {
+  "other.jsonl": "doc_branch"
+ },
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"session_before_switch\", function(event, ctx)\n  return json.decode(\"{\\\"cancel\\\":true}\")\nend)\npi.on(\"session_before_fork\", function(event, ctx)\n  return json.decode(\"{\\\"cancel\\\":true}\")\nend)\n"
+ },
+ "answers": [],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_cancel_session"
+}

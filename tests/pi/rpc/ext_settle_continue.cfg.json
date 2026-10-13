@@ -1,0 +1,22 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "requests": true
+}

@@ -105,10 +105,10 @@ int pi_store_switch(pi_store *st, const char *path, const char *given);
 int pi_store_name(pi_store *st, const char *name);
 /* a bash command run through the session's bash tool and recorded as !cmd is (pi executeBash): its output in text, the
  * exit code, whether it was stopped. 0, -1 when there is no bash tool */
-int pi_store_bash_run(pi_store *st, const char *command, int exclude, jw *text, int *code, int *stopped);
+int pi_store_bash_run(pi_store *st, const char *command, int exclude, jw *text, int *code, int *stopped, int *by_ext);
 
 /* user bash as pi runs it (the user_bash event first: a handler's {result} stands for the run): the same outputs as pi_bash_exec */
-int pi_bash_user(pi_session *s, const char *command, int exclude, jw *text, int *code, int *stopped);
+int pi_bash_user(pi_session *s, const char *command, int exclude, jw *text, int *code, int *stopped, int *by_ext);
 
 /* a command run through the session's bash tool: its output in text, the exit code (pi keeps it apart from the text), whether
  * it was stopped. 0, -1 when there is no bash tool. Nothing is recorded (pi_store_bash_run does that) */

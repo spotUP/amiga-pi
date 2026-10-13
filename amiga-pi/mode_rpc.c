@@ -1032,7 +1032,7 @@ static void cmd_bash(const cmd *c)
     long n;
     char *line = str_of(c->obj, "command", &n);
     jw text, d;
-    int code = 0, stopped = 0, excl = flag_of(c->obj, "excludeFromContext", 0);
+    int code = 0, stopped = 0, by_ext = 0, excl = flag_of(c->obj, "excludeFromContext", 0);
     if (!line) {
         fail(c, "Missing command");
         return;
@@ -1045,11 +1045,11 @@ static void cmd_bash(const cmd *c)
     jw_init(&text);
     r->in_bash = 1;
     r->bash_abort = 0;
-    if (pi_store_bash_run(r->st, line, excl, &text, &code, &stopped)) {
+    if (pi_store_bash_run(r->st, line, excl, &text, &code, &stopped, &by_ext)) {
         fail(c, "The bash tool is not available");
     } else {
         jw_init(&d);
-        if (text.n) {
+        if (text.n && !by_ext) {       /* a handler's result arrives whole, with no output chunks */
             jw u;
             jw_init(&u);
             jw_rawz(&u, "{\"type\":\"bash_execution_update\"");

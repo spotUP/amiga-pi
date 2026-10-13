@@ -73,6 +73,11 @@ typedef struct pi_session {
     /* the conversation: pi-ai messages, each its own allocation */
     char **msg;
     long *msg_n;
+    /* the AgentMessage a conversation message stands for when it is not the pi-ai message itself (a bashExecution, a custom
+     * message, a branch or compaction summary, which the request carries as a user message): events and message lists show
+     * this one; 0 where the message is its own */
+    char **alt;
+    long *alt_n;
     int nmsg, cap;
     /* the transcript's system messages (the session's), each before message sys_at[i]: a model that takes them
      * mid-conversation (pi-ai supportsMidConvoSystemMessages) gets them in place; any other model the replayed
@@ -192,6 +197,8 @@ void pi_session_free(pi_session *s);
 int pi_tool_add(pi_session *s, pi_tool *t);
 /* a message (pi-ai JSON) added to the conversation, copied: 0, -1 out of memory */
 int pi_session_push(pi_session *s, const char *json, long n);
+/* the message at index i stands for the AgentMessage json (copied; 0 clears): pi_messages_json and the turn's lists show it */
+int pi_session_alt(pi_session *s, int i, const char *json, long n);
 /* a system message of the transcript added at the end of the conversation (copied): 0, -1 out of memory */
 int pi_session_push_system(pi_session *s, const char *json, long n);
 /* a custom message (pi's AgentMessage role "custom": customType, content a JSON string or block array, display, details a JSON

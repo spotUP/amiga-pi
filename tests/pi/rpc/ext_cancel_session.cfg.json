@@ -1,0 +1,39 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "hooks": {
+   "session_before_switch": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "printf '{\"cancel\":true}'"
+      }
+     ]
+    }
+   ],
+   "session_before_fork": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "printf '{\"cancel\":true}'"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "session": "doc_branch",
+ "files": {
+  "other.jsonl": "doc_branch"
+ },
+ "text_files": {},
+ "answers": [],
+ "tools": "read,bash,edit,write",
+ "collect": []
+}

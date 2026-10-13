@@ -1856,6 +1856,20 @@ static void test_hooks_pi(void)
     group(names);
 }
 
+/* L7: what handlers of the other events decide (context rewrites, a custom message from before_agent_start, the before events
+ * cancelling, an extension's own compaction, user_bash's result, a boundary that continues, turn_end's entries, resources
+ * the extension names): hook commands and Lua extensions against pi 1.1.0's records, requests and session files */
+static void test_decisions(void)
+{
+    static const char *const names[] = { "ext_ctx_rewrite", "ext_bas_message", "ext_cancel_session", "ext_cancel_compact",
+                                         "ext_bash_result", "ext_turn_entries",
+                                         "ext_lua_ctx_rewrite", "ext_lua_ctx_inplace", "ext_lua_bas_message",
+                                         "ext_lua_cancel_session", "ext_lua_cancel_compact", "ext_lua_compact_own",
+                                         "ext_lua_bash_result", "ext_lua_settle_continue", "ext_lua_turn_entries",
+                                         "ext_lua_resources", 0 };
+    group(names);
+}
+
 /* L1 reachability: pi_app -> the agent loop -> the hook dispatcher -> a hook command that blocks bash: the command ran
  * once (the sentinel) and the toolResult is pi's error result with the hook's reason (the golden has pi's own text) */
 static void test_hooks_reach(void)
@@ -1987,6 +2001,7 @@ void suite_pi_modes(void)
     test_thinking_warning();
     test_hooks_pi();
     test_hooks_reach();
+    test_decisions();
     test_lua_pi();
     test_lua_reach();
     test_lua_register();

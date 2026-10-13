@@ -424,6 +424,8 @@ static int load_messages(pi_store *st)
         }
         if (ctx_msg_to_llm(c.msg[i], c.msg_n[i], &one) && pi_session_push(st->s, one.p, one.n))
             rc = -1;
+        else if (one.n && (one.n != c.msg_n[i] || memcmp(one.p, c.msg[i], (size_t)one.n)))
+            pi_session_alt(st->s, st->s->nmsg - 1, c.msg[i], c.msg_n[i]);    /* a custom message, a bash run, a summary */
         jw_free(&one);
     }
     st->loading = 0;
@@ -726,7 +728,7 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
             if (!ctx_build(&st->s3, st->s3.leaf, &c)) {
                 ctx_system(&c, &sysm);
                 if (s3_compaction(&st->s3, res.summary.p ? res.summary.p : "", p.first_kept, res.tokens_before,
-                                  res.details.n ? res.details.p : 0, usage.p, ext_comp, sysm.n ? sysm.p : 0) >= 0)
+                                  res.details.n ? res.details.p : 0, ext_comp ? 0 : usage.p, ext_comp, sysm.n ? sysm.p : 0) >= 0)
                     ok = 0;
                 ctx_free(&c);
             }
@@ -756,10 +758,14 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
                     jw_long(&st->cp_result, res.tokens_before);
                     jw_rawz(&st->cp_result, ",\"estimatedTokensAfter\":");
                     jw_long(&st->cp_result, after);
-                    jw_rawz(&st->cp_result, ",\"usage\":");
-                    llm_w_usage(&st->cp_result, &res.usage);
-                    jw_rawz(&st->cp_result, ",\"details\":");
-                    jw_raw(&st->cp_result, res.details.p ? res.details.p : "{}", res.details.p ? res.details.n : 2);
+                    if (!ext_comp) {            /* an extension's compaction has the usage and details it gave, none here */
+                        jw_rawz(&st->cp_result, ",\"usage\":");
+                        llm_w_usage(&st->cp_result, &res.usage);
+                    }
+                    if (!ext_comp || res.details.n) {
+                        jw_rawz(&st->cp_result, ",\"details\":");
+                        jw_raw(&st->cp_result, res.details.p ? res.details.p : "{}", res.details.p ? res.details.n : 2);
+                    }
                     jw_rawz(&st->cp_result, "}");
                     jw_init(&info);
                     jw_rawz(&info, "Compacted: about ");
@@ -1254,6 +1260,8 @@ int pi_store_bash(pi_store *st, const char *command, const char *output, int exi
         jw_init(&one);
         if (ctx_msg_to_llm(w.p, w.n, &one) && pi_session_push(st->s, one.p, one.n))
             rc = -1;
+        else if (one.n)
+            pi_session_alt(st->s, st->s->nmsg - 1, w.p, w.n);       /* messages show the bashExecution */
         jw_free(&one);
     }
     jw_free(&w);
@@ -1399,18 +1407,19 @@ int pi_bash_exec(pi_session *s, const char *cmd, jw *text, int *code, int *stopp
     return 0;
 }
 
-int pi_bash_user(pi_session *s, const char *cmd, int exclude, jw *text, int *code, int *stopped)
+int pi_bash_user(pi_session *s, const char *cmd, int exclude, jw *text, int *code, int *stopped, int *by_ext)
 {
     *code = 0;
     *stopped = 0;
-    if (pi_ev_user_bash(s, cmd, exclude, text, code, stopped))
+    *by_ext = pi_ev_user_bash(s, cmd, exclude, text, code, stopped);
+    if (*by_ext)
         return 0;               /* an extension ran it (user_bash {result}) */
     return pi_bash_exec(s, cmd, text, code, stopped);
 }
 
-int pi_store_bash_run(pi_store *st, const char *cmd, int exclude, jw *text, int *code, int *stopped)
+int pi_store_bash_run(pi_store *st, const char *cmd, int exclude, jw *text, int *code, int *stopped, int *by_ext)
 {
-    if (pi_bash_user(st->s, cmd, exclude, text, code, stopped))
+    if (pi_bash_user(st->s, cmd, exclude, text, code, stopped, by_ext))
         return -1;
     pi_store_bash(st, cmd, text->p ? text->p : "", *code, *stopped, exclude);
     return 0;

@@ -1,0 +1,19 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "requests": true
+}

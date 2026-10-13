@@ -41,11 +41,13 @@ for f in sorted(os.listdir(D)):
         continue
     name = m.group(1)
     cfg = json.load(open(os.path.join(D, f)))
+    if 'hooks' not in cfg.get('settings', {}):
+        continue                     # no hook-command twin: the L7 section below writes its Lua by hand
     lua = lua_of(cfg)
     del cfg['settings']['hooks']
     cfg['golden'] = name
     cfg['text_files'] = {'agent/extensions/t.lua': lua}
-    if cfg.get('collect'):
+    if cfg.get('collect') and cfg['collect'][0] == 'dump.jsonl':     # the event recorders; session.jsonl is the session file
         cfg['lua_dump'] = cfg['collect'][0]
         cfg['canonical'] = True
     open(os.path.join(D, 'ext_lua_' + name[4:] + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
@@ -195,3 +197,36 @@ for name, lua in L5.items():
     twin = 'ext_lua_' + (name if name.startswith('ui_') else name[4:])
     open(os.path.join(D, twin + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
     print('wrote ' + twin)
+
+
+# ---- L7: the handlers that edit in place or keep state (no hook-command twin); the golden is pi's run of the TypeScript one ----
+L7 = {
+    'ext_ctx_inplace': '''pi.on("context_with_system", function(event, ctx)
+  for _, m in ipairs(event.messages) do
+    if m.role == "user" then m.content[1].text = m.content[1].text .. " [seen]" end
+  end
+end)
+''',
+    'ext_compact_own': '''pi.on("session_before_compact", function(event, ctx)
+  return { compaction = { summary = "by the extension", firstKeptEntryId = event.preparation.firstKeptEntryId, tokensBefore = 777 } }
+end)
+''',
+    'ext_settle_continue': '''local n = 0
+pi.on("agent_before_settle", function(event, ctx)
+  n = n + 1
+  if n == 1 then
+    return { entries = { { type = "custom_message", customType = "more", content = "keep going", display = true } }, continue = true }
+  end
+end)
+''',
+    'ext_resources': '''pi.on("resources_discover", function(event, ctx)
+  return { promptPaths = { event.cwd .. "/extra" } }
+end)
+''',
+}
+for name, lua in L7.items():
+    cfg = json.load(open(os.path.join(D, name + '.cfg.json')))
+    cfg['golden'] = name
+    cfg['text_files'] = dict(cfg.get('text_files', {}), **{'agent/extensions/t.lua': lua})
+    open(os.path.join(D, 'ext_lua_' + name[4:] + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
+    print('wrote ext_lua_' + name[4:])

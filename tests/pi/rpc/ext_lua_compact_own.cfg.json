@@ -1,0 +1,26 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "compaction": {
+   "keepRecentTokens": 10
+  }
+ },
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"session_before_compact\", function(event, ctx)\n  return { compaction = { summary = \"by the extension\", firstKeptEntryId = event.preparation.firstKeptEntryId, tokensBefore = 777 } }\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "golden": "ext_compact_own"
+}

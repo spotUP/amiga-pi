@@ -184,10 +184,12 @@ int pi_exts_has(const pi_exts *x, const char *type)
 
 int pi_exts_emit(pi_exts *x, const char *type, jw *payload, int flags, pi_ext_apply fn, void *fu)
 {
-    int i;
-    for (i = 0; i < x->n; i++)
-        if (x->e[i]->emit && x->e[i]->has && x->e[i]->has(x->e[i]->u, type) &&
-            x->e[i]->emit(x->e[i]->u, type, payload, flags, fn, fu))
-            return 1;
-    return 0;
+    int i, stopped = 0;
+    for (i = 0; i < x->n && !stopped; i++)
+        if (x->e[i]->emit && x->e[i]->has && x->e[i]->has(x->e[i]->u, type)) {
+            x->current = x->e[i];
+            stopped = x->e[i]->emit(x->e[i]->u, type, payload, flags, fn, fu);
+        }
+    x->current = 0;
+    return stopped;
 }

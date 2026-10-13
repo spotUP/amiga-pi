@@ -1223,7 +1223,7 @@ static void tree_command(pi_ui *p, cl_tui *t)
 static int bang(pi_ui *p, const char *line)
 {
     pi_session *s = p->s;
-    int excl = line[1] == '!', code = 0, stopped = 0;
+    int excl = line[1] == '!', code = 0, stopped = 0, by_ext = 0;
     const char *cmd = line + (excl ? 2 : 1);
     jw text;
     while (*cmd == ' ' || *cmd == '\t')
@@ -1231,7 +1231,7 @@ static int bang(pi_ui *p, const char *line)
     if (!*cmd)
         return 0;
     jw_init(&text);
-    if (pi_bash_user(s, cmd, excl, &text, &code, &stopped)) {
+    if (pi_bash_user(s, cmd, excl, &text, &code, &stopped, &by_ext)) {
         pshow_error(&p->ps, "The bash tool is not available");
         jw_free(&text);
         return 1;

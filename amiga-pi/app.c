@@ -631,6 +631,12 @@ static const char *pl_home(const pi_platform *pl)
     return home;
 }
 
+/* resources_discover's paths (see ext_discovered below) */
+static char ext_paths[2][8][300];
+static char ext_src[8][100], ext_base[8][300];
+static const char *ext_tp[8], *ext_ts[8], *ext_tb[8];
+static int next_paths[2];
+
 static pi_tmpls tmpls;
 
 /* the skills (skills.h): default directories, settings.json, packages, --skill; --no-skills leaves out all but --skill */
@@ -662,15 +668,38 @@ static void load_templates(const pi_platform *pl, int trusted)
     to.host = host_paths(pl);
     to.paths = a.tmpl_paths;
     to.npaths = a.ntmpl_paths;
+    to.ext_paths = ext_tp;
+    to.ext_src = ext_ts;
+    to.ext_base = ext_tb;
+    to.next = next_paths[1];
     pi_tmpl_load(&tmpls, pl->sys, &to);
 }
 
-/* resources_discover's paths (ext.h pi_exts.discovered): kept with the command line's --skill and --prompt-template paths, the
- * skills and templates read again once all are in */
-static char ext_paths[2][8][300];
-static int next_paths[2];
+/* resources_discover's paths (ext.h pi_exts.discovered): kept with the command line's --skill paths and the templates' own, with the
+ * extension that named each; the skills and templates are read again once all are in */
 
-static void ext_discovered(void *u, const char *kind, const char *path)
+/* pi's name for an extension in a source: the file's name without its suffix, a directory's index file its directory's */
+static void ext_name(const pi_ext *e, char *out, long cap)
+{
+    char tmp[300], *b, *dot;
+    cl_copy(tmp, e && e->path ? e->path : "", sizeof(tmp));
+    b = strrchr(tmp, '/');
+    if (b)
+        *b++ = 0;
+    else
+        b = tmp;
+    dot = strrchr(b, '.');
+    if (dot)
+        *dot = 0;
+    if (!strcmp(b, "index") && b != tmp) {
+        char *p2 = strrchr(tmp, '/');
+        b = p2 ? p2 + 1 : tmp;
+    }
+    cl_copy(out, "extension:", cap);
+    cl_cat(out, b, cap);
+}
+
+static void ext_discovered(void *u, const char *kind, const char *path, const pi_ext *from)
 {
     pi_rt *rt = (pi_rt *)u;
     int k;
@@ -685,10 +714,19 @@ static void ext_discovered(void *u, const char *kind, const char *path)
     }
     k = !strcmp(kind, "prompt");
     if (k) {
-        if (a.ntmpl_paths < PI_ARG_TMPLS) {
-            cl_copy(a.tmpl_paths[a.ntmpl_paths], path, sizeof(a.tmpl_paths[0]));
-            a.ntmpl_paths++;
-            next_paths[1]++;
+        if (next_paths[1] < 8) {
+            int n = next_paths[1]++;
+            cl_copy(ext_paths[1][n], path, sizeof(ext_paths[1][0]));
+            ext_name(from, ext_src[n], sizeof(ext_src[0]));
+            cl_copy(ext_base[n], from && from->path ? from->path : "", sizeof(ext_base[0]));    /* the extension's directory */
+            {
+                char *sl = strrchr(ext_base[n], '/');
+                if (sl)
+                    *sl = 0;
+            }
+            ext_tp[n] = ext_paths[1][n];
+            ext_ts[n] = ext_src[n];
+            ext_tb[n] = ext_base[n];
         }
     } else if (a.nskills < PI_ARG_SKILLS && next_paths[0] < 8) {
         cl_copy(ext_paths[0][next_paths[0]], path, sizeof(ext_paths[0][0]));
