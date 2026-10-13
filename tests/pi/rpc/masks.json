@@ -25,6 +25,8 @@
   "baseUrl": "the fixture's port",
   "parse error text": "V8's JSON.parse message",
   "get_commands rows of pi's built-in extensions": "pi lists `mcp` and `llama` (sourceInfo.source builtin) after the extension commands; amiga-pi has no such commands (COMPATIBILITY.md, extensions); the rows are left out on both sides",
+  "before_provider_request payload": "the request body is the provider API's params: its system prompt is amiga-pi's text and its caching marks and limits are the backend's own; the effect of a rewrite is compared in the requests (messages, tools)",
+  "after_provider_response headers": "the fixture server's own (Date, Server): the status and the key are compared, the values are not",
   "extension file suffix": "a scenario's extension is t.ts (or a.ts, dirx/index.ts) for pi and t.lua here; in a path under /extensions/ the suffix .ts or .lua is compared as .<ext>",
   "get_available_models": "compared for the fixture's provider only (the catalog's plain-http providers are available here without a key)"
  },

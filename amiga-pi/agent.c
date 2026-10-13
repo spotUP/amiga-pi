@@ -554,6 +554,7 @@ static int answer(pi_session *s, stream *t)
     llm_ctx c;
     llm_req q;
     llm_sink k;
+    llm_tap tap;
     jw tools, m, hdr;
     int i, rc;
     const char *const *pm = (const char *const *)s->msg;
@@ -715,6 +716,7 @@ static int answer(pi_session *s, stream *t)
     q.user_agent = s->user_agent;
     q.h = s->h;
     q.sink = &k;
+    q.tap = pi_ev_tap(s, &tap);              /* the extensions' provider events, when one has a handler */
     jw_init(&hdr);
     if (pi_req_auth(s, &q, &hdr)) {
         llm_event e;

@@ -866,3 +866,229 @@ void pi_ev_error(pi_session *s, const char *path, const char *event, const char 
     if (s->h.notice)
         s->h.notice(s->h.u, m);
 }
+
+/* ---- the provider events ---- */
+
+/* a handler's answer for before_provider_request is the payload itself (runner.ts emitBeforeProviderRequest: a result that is not undefined
+ * replaces it for the next handler and for the request) */
+static int tap_payload_apply(void *u, jv answer, jv after, jw *payload)
+{
+    jw *cur = (jw *)u;
+    (void)after;
+    if (answer.p && json_type(answer) == J_OBJ) {
+        jw t;
+        jv was;
+        jw_init(&t);
+        if (!json_parse(cur->p, cur->n, &was) && json_type(was) == J_OBJ)
+            pi_ext_reorder(was, answer, &t);       /* the replacement keeps the body's member order */
+        else
+            jw_raw(&t, answer.p, answer.n);
+        jw_reset(cur);
+        jw_raw(cur, t.p, t.n);
+        jw_free(&t);
+        jw_reset(payload);
+        jw_rawz(payload, "{\"type\":\"before_provider_request\",\"payload\":");
+        jw_raw(payload, cur->p, cur->n);
+        jw_rawz(payload, "}");
+    }
+    return 0;
+}
+
+static int tap_payload(void *u, const llm_model *m, jw *body)
+{
+    pi_session *s = (pi_session *)u;
+    jw p, cur;
+    (void)m;
+    if (!pi_exts_has(&s->ext, "before_provider_request"))
+        return 0;
+    jw_init(&p);
+    jw_init(&cur);
+    jw_raw(&cur, body->p, body->n);
+    jw_rawz(&p, "{\"type\":\"before_provider_request\",\"payload\":");
+    jw_raw(&p, body->p, body->n);
+    jw_rawz(&p, "}");
+    if (!p.oom && !cur.oom) {
+        pi_exts_emit(&s->ext, "before_provider_request", &p, 0, tap_payload_apply, &cur);
+        if (!cur.oom && (cur.n != body->n || memcmp(cur.p, body->p, (size_t)cur.n))) {
+            jw_reset(body);
+            jw_raw(body, cur.p, cur.n);
+        }
+    }
+    jw_free(&p);
+    jw_free(&cur);
+    return 0;
+}
+
+/* "Name: value\r\n" lines as a JSON object / back */
+static void lines_to_json(const jw *lines, jw *o)
+{
+    const char *p = lines->p ? lines->p : "";
+    long n = lines->n, i = 0;
+    int first = 1;
+    jw_rawz(o, "{");
+    while (i < n) {
+        const char *e = memchr(p + i, '\n', (size_t)(n - i));
+        long end = e ? (long)(e - p) : n, ln = end - i, c;
+        const char *colon;
+        if (ln > 0 && p[i + ln - 1] == '\r')
+            ln--;
+        colon = ln > 0 ? memchr(p + i, ':', (size_t)ln) : 0;
+        if (colon) {
+            c = (long)(colon - (p + i));
+            if (!first)
+                jw_rawz(o, ",");
+            first = 0;
+            jw_str(o, p + i, c);
+            jw_rawz(o, ":");
+            {
+                const char *v = colon + 1;
+                long vl = ln - c - 1;
+                while (vl > 0 && *v == ' ') {
+                    v++;
+                    vl--;
+                }
+                jw_str(o, v, vl);
+            }
+        }
+        i = end + 1;
+    }
+    jw_rawz(o, "}");
+}
+
+static void json_to_lines(jv obj, jw *lines)
+{
+    jit it;
+    jv k, v;
+    json_iter(obj, &it);
+    while (json_next(&it, &k, &v)) {
+        char name[200];
+        long vn;
+        char *val;
+        if (json_type(v) == J_NULL)
+            continue;                                   /* a null value deletes the header (types.ts ProviderHeaders) */
+        json_str(k, name, sizeof(name));
+        val = json_type(v) == J_STR ? json_strdup(v, &vn) : 0;
+        if (!val) {
+            val = (char *)malloc((size_t)v.n + 1);
+            if (!val)
+                continue;
+            memcpy(val, v.p, (size_t)v.n);
+            vn = v.n;
+        }
+        jw_rawz(lines, name);
+        jw_rawz(lines, ": ");
+        jw_raw(lines, val, vn);
+        jw_rawz(lines, "\r\n");
+        free(val);
+    }
+}
+
+typedef struct taph {
+    jw *lines;
+    jw cur;                     /* the headers object the next handler gets */
+} taph;
+
+static void taph_payload(taph *t, jw *p)
+{
+    jw_reset(p);
+    jw_rawz(p, "{\"type\":\"before_provider_headers\",\"headers\":");
+    jw_raw(p, t->cur.p, t->cur.n);
+    jw_rawz(p, "}");
+}
+
+static int taph_apply(void *u, jv answer, jv after, jw *payload)
+{
+    taph *t = (taph *)u;
+    jv h;
+    /* handlers mutate `headers` in place and what they return is ignored (runner.ts emitBeforeProviderHeaders) */
+    if (after.p && json_get(after, "headers", &h) && json_type(h) == J_OBJ) {
+        jw n;
+        jv was;
+        jw_init(&n);
+        if (!json_parse(t->cur.p, t->cur.n, &was) && json_type(was) == J_OBJ)
+            pi_ext_reorder(was, h, &n);
+        else
+            jw_raw(&n, h.p, h.n);
+        jw_reset(&t->cur);
+        jw_raw(&t->cur, n.p, n.n);
+        jw_free(&n);
+        taph_payload(t, payload);
+    }
+    (void)answer;
+    return 0;
+}
+
+static int tap_headers(void *u, const llm_model *m, jw *lines)
+{
+    pi_session *s = (pi_session *)u;
+    taph t;
+    jw p;
+    jv obj;
+    (void)m;
+    if (!pi_exts_has(&s->ext, "before_provider_headers"))
+        return 0;
+    t.lines = lines;
+    jw_init(&t.cur);
+    lines_to_json(lines, &t.cur);
+    jw_init(&p);
+    taph_payload(&t, &p);
+    if (!p.oom)
+        pi_exts_emit(&s->ext, "before_provider_headers", &p, PI_EMIT_INPLACE, taph_apply, &t);
+    if (!t.cur.oom && !json_parse(t.cur.p, t.cur.n, &obj) && json_type(obj) == J_OBJ) {
+        jw_reset(lines);
+        json_to_lines(obj, lines);
+    }
+    jw_free(&p);
+    jw_free(&t.cur);
+    return 0;
+}
+
+static void tap_response(void *u, const llm_model *m, int status, const char *headers, long hn)
+{
+    pi_session *s = (pi_session *)u;
+    jw p;
+    (void)m;
+    if (!pi_exts_has(&s->ext, "after_provider_response"))
+        return;
+    jw_init(&p);
+    jw_rawz(&p, "{\"type\":\"after_provider_response\",\"status\":");
+    jw_long(&p, status);
+    jw_rawz(&p, ",\"headers\":");
+    jw_raw(&p, headers, hn);
+    jw_rawz(&p, "}");
+    plain(s, "after_provider_response", &p);
+}
+
+static void tap_stream(void *u, const llm_model *m, const char *data, long n)
+{
+    pi_session *s = (pi_session *)u;
+    jw p;
+    if (!pi_exts_has(&s->ext, "provider_stream_event"))
+        return;
+    jw_init(&p);
+    jw_rawz(&p, "{\"data\":");
+    jw_raw(&p, data, n);
+    jw_rawz(&p, ",\"type\":\"provider_stream_event\",\"provider\":");
+    jw_strz(&p, m->provider);
+    jw_rawz(&p, ",\"api\":");
+    jw_strz(&p, m->api);
+    jw_rawz(&p, ",\"model\":");
+    jw_strz(&p, m->id);
+    jw_rawz(&p, "}");
+    plain(s, "provider_stream_event", &p);
+}
+
+const llm_tap *pi_ev_tap(pi_session *s, llm_tap *out)
+{
+    int rq = pi_exts_has(&s->ext, "before_provider_request"), hd = pi_exts_has(&s->ext, "before_provider_headers"),
+        rs = pi_exts_has(&s->ext, "after_provider_response"), st = pi_exts_has(&s->ext, "provider_stream_event");
+    if (!rq && !hd && !rs && !st)
+        return 0;
+    memset(out, 0, sizeof(*out));
+    out->u = s;
+    out->payload = rq ? tap_payload : 0;
+    out->headers = hd ? tap_headers : 0;
+    out->response = rs ? tap_response : 0;
+    out->stream = st ? tap_stream : 0;
+    return out;
+}

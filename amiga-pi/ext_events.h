@@ -76,4 +76,11 @@ int pi_ev_message_end(pi_session *s, const char *msg, long msg_n, jw *out);
 /* an extension's error (runner.ts emitError); without a mode's reporter the notice reads as interactive-mode.ts showExtensionError */
 void pi_ev_error(pi_session *s, const char *path, const char *event, const char *message);
 
+/* the provider events (types.ts:887-917; sdk.ts:340-410 transformHeaders, onPayload, onResponse, onProviderStreamEvent) as the taps of one request
+ * (vtcon llm/request.h llm_tap): out is filled and returned when some extension has a handler for any of the four, else 0 (no tap,
+ * nothing built). before_provider_request: a handler's returned object replaces the body (members keep the body's order);
+ * before_provider_headers: the models.json header lines as an object, edited in place (nil removes one) or returned;
+ * after_provider_response: the status and the answer's headers; provider_stream_event: each event the stream decoded. */
+const llm_tap *pi_ev_tap(pi_session *s, llm_tap *out);
+
 #endif

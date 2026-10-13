@@ -573,6 +573,16 @@ EXT_UI_MISC = r'''export default function (pi) {
 sc('ext_ui_misc', steps=[('send', P('run it'))] + [('gate', 'extension_ui_request')] * 9 + [('ui', {'value': 'edited'}), ('settle',)],
    answers=[TOOL('read', {'path': 'notes.txt'}), A('Done.')], text_files={'agent/extensions/t.ts': EXT_UI_MISC})
 
+# L7: the provider events (types.ts:887-917): the four recorded; a request payload rewritten (the request carries it), a header put
+# in and one taken out (the server sees them)
+L7_PROV = ['before_provider_request', 'before_provider_headers', 'after_provider_response', 'provider_stream_event']
+sc('ext_prov_events', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')], ext=dump_ext(L7_PROV),
+   settings={'hooks': dump_hooks(L7_PROV)}, collect=['dump.jsonl'], provider_headers={'x-gone': 'g'})
+sc('ext_prov_payload', mode='json', args=['say hi'], answers=[A('Hi there.')], requests=True,
+   text_files={'agent/extensions/t.ts': ext_one('before_provider_request', 'event.payload.messages[0].content[0].text += " [p]"; return event.payload;')})
+sc('ext_prov_headers', mode='json', args=['say hi'], answers=[A('Hi there.')], xtest=True, provider_headers={'x-gone': 'g'},
+   text_files={'agent/extensions/t.ts': ext_one('before_provider_headers', 'event.headers["x-test"] = "1"; delete event.headers["x-gone"];')})
+
 
 # ---- L7: what handlers of the other events decide (hook-command twins answer with printf, the Lua twins are made from them) ----
 REWRITE = {'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': 'rewritten'}], 'timestamp': 1}]}
@@ -635,6 +645,7 @@ class Trickle(T.Fake):
         body = self.rfile.read(n)
         with T.Fake.lock:
             T.Fake.served.append(body)
+            T.Fake.seen.append('t=%s g=%s' % (self.headers.get('x-test') or '-', self.headers.get('x-gone') or '-'))     # L7: headers an extension set or took out
             a = T.Fake.answers.pop(0) if T.Fake.answers else ('http', 500, '{"type":"error","error":{"type":"api_error","message":"fixture out of answers"}}')
         if a[0] == 'slow':
             time.sleep(a[1])
@@ -670,6 +681,8 @@ def setup(name, s, port):
     open(os.path.join(proj, 'notes.txt'), 'w').write('one\ntwo\nthree\n')
     models = {'providers': {'fake': {'baseUrl': 'http://127.0.0.1:%d' % port, 'api': 'anthropic-messages', 'apiKey': 'k',
                                      'models': MODELS}}}
+    if s.get('provider_headers'):
+        models['providers']['fake']['headers'] = s['provider_headers']
     json.dump(models, open(os.path.join(agent, 'models.json'), 'w'), indent=1)
     json.dump({'defaultProvider': 'fake', 'defaultModel': s.get('model', 'fake-model'),
                'defaultThinkingLevel': s.get('thinking', 'off'),
@@ -731,6 +744,7 @@ def run(name, s, keep):
     Fake = T.Fake
     Fake.answers = list(s['answers'])
     Fake.served = []
+    Fake.seen = []
     srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Trickle)
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -833,6 +847,9 @@ def run(name, s, keep):
                 with open(os.path.join(OUT, '%s.req.%d.json' % (name, i + 1)), 'w') as f:
                     json.dump({'tools': b.get('tools', []), 'messages': b.get('messages', [])}, f, indent=1)
                     f.write('\n')
+        if s.get('xtest'):                              # the x-test / x-gone headers each request carried
+            with open(os.path.join(OUT, name + '.xtest'), 'w') as f:
+                f.write(''.join(l + '\n' for l in T.Fake.seen))
         out = pi.snapshot()
         with open(os.path.join(OUT, name + '.out'), 'w') as f:
             f.write(''.join(l + '\n' for l in out))
@@ -846,6 +863,10 @@ def run(name, s, keep):
                'answers': [a[0] for a in s['answers']], 'tools': 'read,bash,edit,write', 'collect': s.get('collect', [])}
         if s.get('requests'):
             cfg['requests'] = True
+        if s.get('xtest'):
+            cfg['xtest'] = True
+        if s.get('provider_headers'):
+            cfg['provider_headers'] = s['provider_headers']
         with open(os.path.join(OUT, name + '.cfg.json'), 'w') as f:
             json.dump(cfg, f, indent=1)
             f.write('\n')

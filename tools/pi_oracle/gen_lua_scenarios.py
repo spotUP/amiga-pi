@@ -201,6 +201,16 @@ for name, lua in L5.items():
 
 # ---- L7: the handlers that edit in place or keep state (no hook-command twin); the golden is pi's run of the TypeScript one ----
 L7 = {
+    'ext_prov_payload': '''pi.on("before_provider_request", function(event, ctx)
+  event.payload.messages[1].content[1].text = event.payload.messages[1].content[1].text .. " [p]"
+  return event.payload
+end)
+''',
+    'ext_prov_headers': '''pi.on("before_provider_headers", function(event, ctx)
+  event.headers["x-test"] = "1"
+  event.headers["x-gone"] = nil
+end)
+''',
     'ext_ui_misc': '''pi.on("tool_call", function(event, ctx)
   ctx.ui.setStatus("b-key", "second")
   ctx.ui.setStatus("a-key", "first")

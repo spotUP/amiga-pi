@@ -215,11 +215,12 @@ files with the masks both sides share (tests/pi/rpc/masks.json: timestamps, dura
 Differences from pi 1.1.0, on purpose or not yet closed (COMPATIBILITY.md, "extension events"):
 - the hook configuration and the answer format are amiga-pi's; `tool_call` mutation is a whole-object replacement;
 - the other events (`message_update`, `turn_end`, `agent_before_settle`, `context`, `context_with_system`, `before_agent_start`, the
-  session and model events, `user_bash`, `resources_discover`, `ui_prompt_*`) go through one generic path, `pi_exts_emit` (ext.h):
-  the payload is built once (ext_payload.c, the session-aware callers in ext_events.c), each extension kind delivers it (a hook
-  command's event file, a Lua table) and gives each handler's answer back as a JSON object to a decision function; seven members
-  are not planned, with their reasons, in COMPATIBILITY.md (the provider events, `cache_warming_decision`, `project_trust`,
-  `mcp_servers_change`);
+  session and model events, `user_bash`, `resources_discover`, `ui_prompt_*`, the four provider events) go through one generic path,
+  `pi_exts_emit` (ext.h): the payload is built once (ext_payload.c, the session-aware callers in ext_events.c), each extension kind
+  delivers it (a hook command's event file, a Lua table) and gives each handler's answer back as a JSON object to a decision function.
+  The provider events leave the request through `llm_tap` (vtcon llm/request.h; 0 in C:Claude): ext_events.c pi_ev_tap, called
+  from agent.c answer(). Three members are not planned, with their reasons in COMPATIBILITY.md (`cache_warming_decision`,
+  `project_trust`, `mcp_servers_change`);
 - `parentToolCallId` of the tool events is set by pi only for calls another tool made (codemode), which amiga-pi has not;
 - a hook command cannot edit an event in place (a Lua handler can: `context`, `before_agent_start`); it answers with the changed part;
 - how a handler error is told is the mode's (`Extension error (<path>): ...` on stderr in print and json mode, an `extension_error`

@@ -1,0 +1,22 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"before_provider_request\", function(event, ctx)\n  event.payload.messages[1].content[1].text = event.payload.messages[1].content[1].text .. \" [p]\"\n  return event.payload\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "requests": true,
+ "golden": "ext_prov_payload"
+}

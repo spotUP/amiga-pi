@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <limits.h>
 #include <sys/stat.h>
@@ -288,7 +289,9 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
         first = 0;
         jw_strz(o, key);
         jw_rawz(o, ":");
-        if (in_list(key, &star_keys) || ((flags & F_OVERFLOW) && !strcmp(key, "tokensBefore")))
+        if (in_list(key, &star_keys) || ((flags & F_OVERFLOW) && !strcmp(key, "tokensBefore")) ||
+            (!strcmp(key, "payload") && str_is(v, "type", "before_provider_request")) ||
+            (!strcmp(key, "headers") && str_is(v, "type", "after_provider_response")))
             jw_rawz(o, "\"*\"");
         else if ((flags & F_COST) && json_type(val) == J_NUM)
             micro_dollars(val, o);
@@ -613,7 +616,23 @@ static int setup_files(jv cfg, char *session_arg, long cap)
         return -1;
     strcpy(path, agent);
     strcat(path, "/models.json");
-    put_file(path, models, n);
+    if (json_get(cfg, "provider_headers", &v) && json_type(v) == J_OBJ) {
+        /* the provider's "headers" (models.json): put in front of its baseUrl */
+        char *at = strstr(models, "\"baseUrl\"");
+        if (at) {
+            jw nm;
+            jw_init(&nm);
+            jw_raw(&nm, models, (long)(at - models));
+            jw_rawz(&nm, "\"headers\":");
+            jw_raw(&nm, v.p, v.n);
+            jw_rawz(&nm, ",");
+            jw_raw(&nm, at, n - (long)(at - models));
+            put_file(path, nm.p, nm.n);
+            jw_free(&nm);
+        } else
+            put_file(path, models, n);
+    } else
+        put_file(path, models, n);
     free(models);
     strcpy(model, "fake-model");
     strcpy(think, "off");
@@ -970,6 +989,72 @@ static char *canon_text(const char *text)
 
 /* L4: the tools and the messages of request N that amiga-pi sent, against pi's (<name>.req.N.json), both with sorted keys:
  * a schema written as a Lua table has no key order. A request without tools has no "tools" in ours; pi's file has []. */
+/* the headers an extension set or took out (x-test, x-gone): what pi's server saw in each request (.xtest) and what ours was sent */
+static const char *head_value(const char *head, const char *name)
+{
+    static char v[80];
+    const char *p = head;
+    size_t nl = strlen(name);
+    while (p && *p) {
+        if (!strncasecmp(p, name, nl) && p[nl] == ':') {
+            size_t k = 0;
+            p += nl + 1;
+            while (*p == ' ')
+                p++;
+            while (*p && *p != '\r' && *p != '\n' && k < sizeof(v) - 1)
+                v[k++] = *p++;
+            v[k] = 0;
+            return v;
+        }
+        p = strchr(p, '\n');
+        if (p)
+            p++;
+    }
+    return "-";
+}
+
+static int compare_xtest(const char *name)
+{
+    char *want;
+    long wn;
+    int k = 0, ok = 1;
+    const char *p;
+    want = slurp_rpc(name, ".xtest", &wn);
+    if (!want)
+        return 1;
+    for (p = want; *p; k++) {
+        char line[160], t[80], g[80];
+        const char *e = strchr(p, '\n');
+        long ln = e ? (long)(e - p) : (long)strlen(p);
+        if (ln >= (long)sizeof(line))
+            ln = (long)sizeof(line) - 1;
+        memcpy(line, p, (size_t)ln);
+        line[ln] = 0;
+        if (k >= ps.nreq) {
+            ok = 0;
+            CHECK(0);
+            break;
+        }
+        cl_copy(t, head_value(ps.head[k], "x-test"), sizeof(t));
+        cl_copy(g, head_value(ps.head[k], "x-gone"), sizeof(g));
+        {
+            char got[200];
+            cl_copy(got, "t=", sizeof(got));
+            cl_cat(got, t, sizeof(got));
+            cl_cat(got, " g=", sizeof(got));
+            cl_cat(got, g, sizeof(got));
+            CHECK_STR(got, line);
+            if (strcmp(got, line))
+                ok = 0;
+        }
+        p += ln + 1;
+        if (!e)
+            break;
+    }
+    free(want);
+    return ok;
+}
+
 static int compare_requests(const char *name)
 {
     int k, ok = 1;
@@ -1250,6 +1335,8 @@ static int scenario(const char *name, run_opts *ro)
     jw_free(&wmask);
     jw_free(&gmask);
     if (json_get(cfg, "requests", &v) && json_type(v) == J_TRUE && !compare_requests(name))
+        ok = 0;
+    if (json_get(cfg, "xtest", &v) && json_type(v) == J_TRUE && !compare_xtest(name))
         ok = 0;
     /* the files the scenario's extension wrote in the project directory (pi) and its hook commands wrote (amiga-pi): the
      * same masks on both, line by line (L2) */
@@ -1868,7 +1955,8 @@ static void test_decisions(void)
                                          "ext_lua_bash_result", "ext_lua_settle_continue", "ext_lua_turn_entries",
                                          "ext_lua_resources", "ext_lua_ev_ui", "ext_term_block", "ext_lua_term_block",
                                          "ext_result_usage", "ext_lua_result_usage", "ext_lua_tool_usage", "ext_lua_msg_end",
-                                         "ext_lua_error_rpc", "ext_lua_ui_misc", 0 };
+                                         "ext_lua_error_rpc", "ext_lua_ui_misc", "ext_prov_events", "ext_lua_prov_events", "ext_lua_prov_payload",
+                                         "ext_lua_prov_headers", 0 };
     group(names);
 }
 
