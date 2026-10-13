@@ -59,7 +59,8 @@ typedef struct scen {
 /* the window's width: 80, tui_gen.py's default, except the scenarios that name their own (footer: foot_<columns> in its table) */
 static int sc_cols(const scen *sc)
 {
-    return !strcmp(sc->name, "foot_exact") ? 45 : !strcmp(sc->name, "foot_cut") ? 41 : !strcmp(sc->name, "foot_left") ? 30 : 80;
+    return !strcmp(sc->name, "start_w64") || !strcmp(sc->name, "pad0_start_w64") ? 64 :
+           !strcmp(sc->name, "foot_exact") ? 45 : !strcmp(sc->name, "foot_cut") ? 41 : !strcmp(sc->name, "foot_left") ? 30 : 80;
 }
 #define SC_THEME(sc) (!strncmp((sc)->name, "dark_", 5) ? 1 : !strncmp((sc)->name, "light_", 6) ? 2 : 0)
 static int cmp_shift;           /* the capture's row r is on our screen at row r + cmp_shift (a selector drawn at the bottom) */
@@ -2930,6 +2931,9 @@ static void test_footer_cost(void)
 #define HDR_VER { 2, 2, 5, 79, "start header" }
 #define HDR_HELP { 5, 5, 0, 79, "start header" }, { 7, 8, 0, 79, "start header" }
 
+#define HDR_VER64 { 2, 2, 5, 63, "start header" }
+#define HDR_HELP64 { 5, 9, 0, 63, "start header" }
+
 static const scen scenarios[] = {
     { "start", { 0 }, { 0 }, 0, 1, 0, { HDR_VER, HDR_HELP } },
     { "editor", { "hello there", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
@@ -3014,6 +3018,9 @@ static const scen scenarios[] = {
     { "light_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
     /* G2: the footer's right-aligned model at the widths where footer.ts:177-249 changes its mind: flush to the last column (45),
      * the model cut to the room left, never the usage (41), the usage itself cut with "..." (30) */
+    /* G3: the start header at 64 columns, where the hint wraps, whatever outputPad is (BuiltInHeader's own padding of one) */
+    { "start_w64", { 0 }, { 0 }, 0, 1, 0, { HDR_VER64, HDR_HELP64 } },
+    { "pad0_start_w64", { 0 }, { 0 }, 0, 1, 0, { HDR_VER64, HDR_HELP64 } },
     { "foot_exact", { "first\r", 0 }, { "foot_exact.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "foot_cut", { "first\r", 0 }, { "foot_cut.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "foot_left", { "first\r", 0 }, { "foot_left.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },

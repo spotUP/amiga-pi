@@ -546,6 +546,15 @@ SCENARIOS.update({
 })
 
 
+# G3 (U1b): the start header at 64 columns, where the hint line wraps, with outputPad 1 and 0. The header is a BuiltInHeader(.., 1, 0)
+# (interactive-mode.ts:1055-1075): its own padding of one column, whatever outputPad says (settings.md:100); the wrapped part of the
+# hint starts under the logo, in that padding column, not in the text column
+SCENARIOS.update({
+    'start_w64': dict(steps=[], answers=[], cols=64),
+    'pad0_start_w64': dict(steps=[], answers=[], cols=64, settings={'outputPad': 0}),
+})
+
+
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []
     served = []
@@ -675,7 +684,7 @@ def run(name, sc, cols, rows, keep):
               open(os.path.join(agent, 'models.json'), 'w'))
     # quietStartup hides the header: only the scenarios about the header show it (the rest would scroll by its height)
     settings = {'defaultProvider': 'fake', 'defaultModel': MODEL, 'defaultThinkingLevel': 'off',
-                'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start', 'skills_start'),
+                'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start', 'skills_start', 'start_w64', 'pad0_start_w64'),
                 'tuiMode': sc.get('tui', 'fullscreen'), 'theme': sc.get('theme', 'system')}
     settings.update(sc.get('settings', {}))
     json.dump(settings, open(os.path.join(agent, 'settings.json'), 'w'))
