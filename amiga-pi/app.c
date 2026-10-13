@@ -134,6 +134,27 @@ static int default_tools_setting(const pi_platform *pl, char *out, long cap)
     return present;
 }
 
+/* settings.json's thinkingBudgets (pi 1.1.0 getThinkingBudgets): {minimal, low, medium, high} token counts the Google request
+ * uses in place of its own (google-generative-ai.ts getGoogleBudget) */
+static void thinking_budgets_setting(const pi_platform *pl, pi_session *s)
+{
+    static const char *const names[] = { "off", "minimal", "low", "medium", "high" };
+    char *b, path[300];
+    long n;
+    jv o, a, x;
+    int i;
+    s->think_budget_set = 0;
+    if (settings_text(pl, &b, &n, path, sizeof(path)))
+        return;
+    if (!json_parse(b, n, &o) && json_get(o, "thinkingBudgets", &a) && json_type(a) == J_OBJ)
+        for (i = LT_MINIMAL; i <= LT_HIGH; i++)
+            if (json_get(a, names[i], &x) && json_type(x) == J_NUM) {
+                s->think_budget_set |= 1u << i;
+                s->think_budget[i] = json_long(x, 0);
+            }
+    CL_FREE(b);
+}
+
 /* settings.json's outputPad (pi 1.1.0 getOutputPad): 0 gives 0, anything else 1 */
 static int output_pad_setting(const pi_platform *pl)
 {
@@ -819,6 +840,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         cl_copy(models.cfg.runtime_key, a.api_key, sizeof(models.cfg.runtime_key));
         cl_copy(models.cfg.runtime_provider, m.provider, sizeof(models.cfg.runtime_provider));
     }
+    thinking_budgets_setting(pl, &s);
     pi_models_attach(&models, &s, &store);
     store.models = &models;
     s.now = pl->now;

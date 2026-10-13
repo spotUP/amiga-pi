@@ -839,6 +839,25 @@ static void test_google_reach(void)
     }
     CHECK(out.p && strstr(out.p, "Hello from the Amiga.") != 0);
     CHECK(llm_feeds_google > f0);
+    CHECK(strstr(ps.head[0], "x-goog-api-client: google-genai-sdk/2.21.0 gl-node/v24.10.0\r\n") != 0);
+    /* M10: settings.json's thinkingBudgets replace the level's own budget (gemini 2.5 asks a budget: medium is 8192) */
+    {
+        char *b[] = { "amiga-pi", "--model", "google/gemini-2.5-flash", "--thinking", "medium", 0 };
+        static const char *const one[] = { "../pi/google/plain.sse" };
+        extra_name[0] = "GEMINI_API_KEY";
+        extra_val[0] = "gm-test-key";
+        in_lines[0] = "hello";
+        in_lines[1] = 0;
+        CHECK_INT(run(ARGC(b), b, one, 1), 0);
+        CHECK(ps.nreq >= 1 && strstr(ps.body[0], "\"thinkingBudget\":8192") != 0);
+        write_file(agent, "settings.json", "{\"thinkingBudgets\":{\"medium\":1234,\"high\":99}}");
+        in_lines[0] = "hello";
+        in_lines[1] = 0;
+        CHECK_INT(run(ARGC(b), b, one, 1), 0);
+        CHECK(ps.nreq >= 1 && strstr(ps.body[0], "\"thinkingBudget\":1234") != 0);
+        remove(strcat(strcpy(marker, agent), "/settings.json"));
+        extra_name[0] = 0;
+    }
 }
 
 /* M8: azure-openai-responses through pi_app. The endpoint comes from the environment (the catalog has no base URL):

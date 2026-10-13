@@ -55,6 +55,8 @@ typedef struct pi_session {
     const char *key;            /* 0 none: used when cfg is 0 */
     llm_cfg *cfg;               /* credentials and config values (models.json, auth.json, --api-key); 0: key */
     int thinking;               /* the thinking level, LT_*, as the model supports it */
+    unsigned think_budget_set;  /* settings.json thinkingBudgets: bit LT_x set when that level has a custom budget (google) */
+    long think_budget[8];       /* its tokens, by LT_* */
     long ctx_tokens;            /* tokens the last answer reported (its input, output and cache): the context in use */
     long cost_micro;            /* what the answers of this run cost, micro-dollars, from the model's price */
     long tok_in, tok_out, tok_cr, tok_cw;   /* the answers' tokens summed (the footer's usage line) */
@@ -166,7 +168,7 @@ typedef struct pi_session {
     int sys_seen;               /* the transcript's system messages announced as message events so far */
     jw structured;              /* the tool call running now: pi's structuredContent of its result (JSON), empty none */
     jw details;                 /* the same call's result.details (a JSON object: an MCP tool's server, tool, fullOutputPath), empty none */
-    char err[256];              /* its errorMessage, or why the prompt stopped */
+    char err[LLM_ERR_MAX];       /* its errorMessage, or why the prompt stopped */
 } pi_session;
 
 /* model copied; pool and hooks the caller's; extensions are subscribed to the events */
