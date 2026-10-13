@@ -129,6 +129,8 @@ void s3_set_leaf(pi_s3 *st, int i);
 int s3_branched(pi_s3 *st, int leaf);
 
 /* ---- names and finding sessions ---- */
+/* <data_dir>/sessions: the directory that holds one directory per working directory */
+void s3_root(const char *data_dir, char *out, long cap);
 /* <data dir>/sessions/<pi's --<cwd>-- cut to 30> into out: 0, -1 */
 int s3_dir(const char *data_dir, const char *cwd, char *out, long cap);
 /* the newest .jsonl in dir (by mtime) whose header is a session: 0 with out, -1 none */
@@ -139,6 +141,21 @@ int s3_by_id(cl_sys *sys, const char *dir, const char *id, char *out, long cap);
  * message); at most max. Their number */
 int s3_list(cl_sys *sys, const char *dir, int max, void (*fn)(void *c, const char *path, const char *id,
                                                                 const char *title), void *c);
+
+/* one session as pi's buildSessionInfo reads it (SessionInfo, session-manager.ts:799): the header's id, cwd and
+ * parentSession; the latest session_info name; the first user message; the number of "message" entries; the last
+ * activity of a user or assistant message (milliseconds since 1970, else the header's time, else the file's); text
+ * the messages' words, cut, for the search */
+typedef struct s3_info {
+    char path[360], id[48], name[100], first[100], parent[360], cwd[256], text[1024];
+    int count;
+    double modified;
+} s3_info;
+/* the sessions of dir, newest activity first, at most max (the newest files are read): malloc'd into *out (0 when
+ * none), their number. s3_list is this with the title picked */
+int s3_infos(cl_sys *sys, const char *dir, int max, s3_info **out);
+/* the same over every directory below root (pi's SessionManager.listAll: <data>/sessions), newest activity first */
+int s3_infos_all(cl_sys *sys, const char *root, int max, s3_info **out);
 
 /* the object o re-written into out (appended) with member key set to the raw JSON val: replaced where it is,
  * else appended; a member named drop left out (drop 0: none). 0, -1 out of memory */
