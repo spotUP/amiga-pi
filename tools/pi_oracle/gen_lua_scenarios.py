@@ -230,3 +230,15 @@ for name, lua in L7.items():
     cfg['text_files'] = dict(cfg.get('text_files', {}), **{'agent/extensions/t.lua': lua})
     open(os.path.join(D, 'ext_lua_' + name[4:] + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
     print('wrote ext_lua_' + name[4:])
+
+
+# ---- L7: ui_prompt_start / ui_prompt_end around the dialogs of LUA_UI (the TypeScript one is rpc_gen.py's ext_ev_ui) ----
+cfg = json.load(open(os.path.join(D, 'ext_ev_ui.cfg.json')))
+cfg['golden'] = 'ext_ev_ui'
+cfg['text_files'] = {'agent/extensions/t.lua': LUA_UI + '''pi.on("ui_prompt_start", function(event) print(json.encode(event)) end)
+pi.on("ui_prompt_end", function(event) print(json.encode(event)) end)
+'''}
+cfg['lua_dump'] = 'dump.jsonl'
+cfg['canonical'] = True
+open(os.path.join(D, 'ext_lua_ev_ui.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
+print('wrote ext_lua_ev_ui')

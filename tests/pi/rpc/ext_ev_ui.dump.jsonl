@@ -1,0 +1,6 @@
+{"type":"ui_prompt_start","reason":"ui_prompt","kind":"select","title":"Run it?"}
+{"type":"ui_prompt_end","reason":"ui_prompt","kind":"select","title":"Run it?"}
+{"type":"ui_prompt_start","reason":"ui_prompt","kind":"confirm","title":"Sure?"}
+{"type":"ui_prompt_end","reason":"ui_prompt","kind":"confirm","title":"Sure?"}
+{"type":"ui_prompt_start","reason":"ui_prompt","kind":"input","title":"Why?"}
+{"type":"ui_prompt_end","reason":"ui_prompt","kind":"input","title":"Why?"}

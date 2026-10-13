@@ -1866,7 +1866,7 @@ static void test_decisions(void)
                                          "ext_lua_ctx_rewrite", "ext_lua_ctx_inplace", "ext_lua_bas_message",
                                          "ext_lua_cancel_session", "ext_lua_cancel_compact", "ext_lua_compact_own",
                                          "ext_lua_bash_result", "ext_lua_settle_continue", "ext_lua_turn_entries",
-                                         "ext_lua_resources", 0 };
+                                         "ext_lua_resources", "ext_lua_ev_ui", 0 };
     group(names);
 }
 

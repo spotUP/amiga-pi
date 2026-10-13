@@ -497,6 +497,15 @@ export default function (pi) {
 '''
 sc('ext_ui_print', mode='json', args=['run it'], answers=[TOOL('read', {'path': 'notes.txt'}), A('Done.')],
    text_files={'agent/extensions/t.ts': EXT_UI_PRINT})
+# ui_prompt_start / ui_prompt_end around each dialog of an extension (runner.ts withUIPrompt); the dialogs are EXT_UI's
+EXT_UI_PROMPTS = EXT_UI.replace('export default function (pi) {', 'import { appendFileSync } from "node:fs";\nexport default function (pi) {\n'
+    '  for (const name of ["ui_prompt_start", "ui_prompt_end"]) pi.on(name, async (event) => { appendFileSync("dump.jsonl", JSON.stringify(event) + "\\n"); });', 1)
+sc('ext_ev_ui', steps=[('send', P('run it')), ('gate', 'extension_ui_request'), ('ui', {'value': 'Allow'}),
+                       ('gate', 'extension_ui_request'), ('ui', {'confirmed': True}),
+                       ('gate', 'extension_ui_request'), ('ui', {'value': 'because'}), ('settle',)],
+   answers=[TOOL('read', {'path': 'notes.txt'}), A('Ran it.')], text_files={'agent/extensions/t.ts': EXT_UI_PROMPTS},
+   collect=['dump.jsonl'])
+
 
 # ---- L7: what handlers of the other events decide (hook-command twins answer with printf, the Lua twins are made from them) ----
 REWRITE = {'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': 'rewritten'}], 'timestamp': 1}]}

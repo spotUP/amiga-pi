@@ -27,6 +27,7 @@
 #include "../amiga-pi/app.h"
 #include "../amiga-pi/ext_lua.h"
 #include "../amiga-pi/ui_pi.h"
+#include "../amiga-pi/ext_events.h"
 
 static char root[400];
 static sys_posix sp;
@@ -719,6 +720,123 @@ static void test_events_and_api(void)
     down();
 }
 
+/* ---- L7: the events beyond the goldens' reach (tree navigation is the terminal's, a cycle needs two usable models) ---- */
+
+static char drafts[4][200];
+static int ndrafts, can_continue;
+
+static int fake_boundary(void *u, pi_session *s, int settle, jw *ids, jw *ctx)
+{
+    (void)u;
+    (void)s;
+    (void)settle;
+    if (ids)
+        jw_rawz(ids, "\"messageEntryId\":\"m1\",\"toolResultEntryIds\":[]");
+    jw_rawz(ctx, can_continue ? "{\"contextEntries\":[],\"canContinue\":true}" : "{\"contextEntries\":[],\"canContinue\":false}");
+    return 0;
+}
+
+static int fake_draft(void *u, pi_session *s, const char *text, long n)
+{
+    (void)u;
+    (void)s;
+    if (ndrafts < 4) {
+        memcpy(drafts[ndrafts], text, (size_t)(n < 199 ? n : 199));
+        drafts[ndrafts][n < 199 ? n : 199] = 0;
+    }
+    ndrafts++;
+    return 0;
+}
+
+static char got_kind[4][16], got_path[4][80], got_from[4][40];
+static int got_n;
+
+static void fake_discovered(void *u, const char *kind, const char *path, const pi_ext *from)
+{
+    (void)u;
+    if (kind && got_n < 4) {
+        cl_copy(got_kind[got_n], kind, sizeof(got_kind[0]));
+        cl_copy(got_path[got_n], path, sizeof(got_path[0]));
+        cl_copy(got_from[got_n], from && from->name ? from->name : "", sizeof(got_from[0]));
+        got_n++;
+    }
+}
+
+static void test_l7_events(void)
+{
+    pi_tree_dec dec;
+    llm_model other;
+    up(0);
+    CHECK_INT(load("t.lua",
+                   "for _, n in ipairs({'session_before_tree','session_tree','model_select','thinking_level_select',\n"
+                   "  'ui_prompt_start'}) do\n"
+                   "  pi.on(n, function(e)\n"
+                   "    print(json.encode(e))\n"
+                   "    if e.type == 'session_before_tree' then return { customInstructions = 'be short', label = 'L', summary = { summary = 'by hand' } } end\n"
+                   "  end)\n"
+                   "end\n"), 0);
+    CHECK_INT(load("v.lua", "pi.on('turn_end', function(e) print(json.encode(e)) return { entries = { { type = 'custom', customType = 'k', "
+                            "data = { n = 1 } } }, continue = true } end)\n"), 0);
+    CHECK_INT(load("u.lua", "pi.on('resources_discover', function(e) return { skillPaths = { '/s/one' }, promptPaths = { '/p/two' }, "
+                            "themePaths = { '/t' } } end)\n"), 0);
+    /* session_before_tree: the preparation as types.ts has it, the answers kept */
+    pi_tree_dec_init(&dec);
+    CHECK_INT(pi_ev_before_tree(&ses, "t1", "o1", 0, "[{\"id\":\"x\"}]", 1, 0, 0, 0, 0, &dec), 0);
+    CHECK(strstr(told[0], "\"preparation\"") != 0 && strstr(told[0], "\"targetId\":\"t1\"") != 0);
+    CHECK(strstr(told[0], "\"userWantsSummary\":true") != 0);
+    CHECK(dec.has_instr && !strcmp(dec.instr.p, "be short"));
+    CHECK(dec.has_label && !strcmp(dec.label.p, "L"));
+    CHECK(dec.has_summary && !strcmp(dec.summary.p, "by hand"));
+    pi_tree_dec_free(&dec);
+    /* session_tree: the leaf ids, the summary entry and fromExtension only with one */
+    pi_ev_tree(&ses, "n1", "o1", "{\"id\":\"b\"}", 10, 1);
+    CHECK(strstr(told[1], "\"newLeafId\":\"n1\"") != 0 && strstr(told[1], "\"fromExtension\":true") != 0);
+    pi_ev_tree(&ses, 0, "o1", 0, 0, 0);
+    CHECK(strstr(told[2], "\"fromExtension\"") == 0 && strstr(told[2], "\"summaryEntry\"") == 0);
+    /* model_select: not for the same model; a cycle says so */
+    memset(&other, 0, sizeof(other));
+    model.provider = "p";
+    model.id = "m1";
+    model.api = "a";
+    other = model;
+    other.id = "m2";
+    told_n = 3;
+    pi_ev_model_select(&ses, &model, &model, "cycle");
+    CHECK_INT(told_n, 3);
+    pi_ev_model_select(&ses, &other, &model, "cycle");
+    CHECK_INT(told_n, 4);
+    CHECK(strstr(told[3], "\"source\":\"cycle\"") != 0);
+    pi_ev_thinking(&ses, "high", "off");
+    CHECK(strstr(told[4], "\"previousLevel\":\"off\"") != 0);
+    /* turn_end: the drafts reach the session, the continuation is honoured only with a request to make */
+    ses.boundary = fake_boundary;
+    ses.draft = fake_draft;
+    can_continue = 1;
+    ndrafts = 0;
+    CHECK_INT(pi_ev_turn_end(&ses, "{\"role\":\"assistant\"}", 20, "[]", 2), 1);
+    CHECK_INT(ndrafts, 1);
+    CHECK(strstr(drafts[0], "\"customType\":\"k\"") != 0);
+    can_continue = 0;
+    told_n = 6;
+    CHECK_INT(pi_ev_turn_end(&ses, "{\"role\":\"assistant\"}", 20, "[]", 2), 0);
+    CHECK(strstr(told[6], "turn_end") != 0);
+    CHECK(strstr(told[7], "requested continuation without runnable model context") != 0);
+    /* resources_discover: every path named, with the extension; the theme paths are left out */
+    ses.ext.discovered = fake_discovered;
+    got_n = 0;
+    pi_exts_session_start(&ses.ext, "reload", 0);
+    CHECK_INT(got_n, 2);
+    CHECK(!strcmp(got_kind[0], "skill") && !strcmp(got_path[0], "/s/one"));
+    CHECK(!strcmp(got_kind[1], "prompt") && !strcmp(got_path[1], "/p/two"));
+    CHECK(got_from[0][0] != 0);
+    /* ui_prompt: told for the outermost dialog only */
+    told_n = 0;
+    pi_ev_ui_prompt(&ses, 1, "select", "T");
+    CHECK_INT(told_n, 1);
+    CHECK(strstr(told[0], "\"kind\":\"select\"") != 0 && strstr(told[0], "\"title\":\"T\"") != 0);
+    down();
+}
+
 /* ---- one list with the C extensions ---- */
 
 static char seen[16];
@@ -1222,6 +1340,7 @@ void suite_pi_lua(void)
     test_env();
     test_ui();
     test_events_and_api();
+    test_l7_events();
     test_order();
     test_rank();
     test_register_tools();
