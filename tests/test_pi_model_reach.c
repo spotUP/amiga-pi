@@ -974,6 +974,53 @@ static void test_codex_reach(void)
     CHECK(llm_feeds_codex > f0 && llm_feeds_responses == r0);       /* its own backend ran, not openai-responses */
 }
 
+/* P2: anthropic-workspace-id. pi 1.1.0 reads ANTHROPIC_WORKSPACE_ID only for workload identity federation and sends the
+ * header with an API key only through the SDK's ANTHROPIC_CUSTOM_HEADERS (or models.json headers); a stored credential's
+ * `env` wins over the environment for its provider. Through pi_app: the credential's env gives the key, ANTHROPIC_WORKSPACE_ID
+ * alone sends nothing, ANTHROPIC_CUSTOM_HEADERS sends the header (goldens: vtcon tests/pi/anthropic ws_*, tests/pi/credenv) */
+static void test_workspace_header(void)
+{
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0 };
+    static const char *const sse[] = { "../pi/anthropic/plain.sse" };
+    char path[600];
+    long f0 = llm_feeds_anthropic;
+    write_file(agent, "auth.json",
+               "{\"anthropic\":{\"type\":\"api_key\",\"key\":\"$WS_KEY\",\"env\":{\"WS_KEY\":\"sk-ant-cred\"}}}");
+    extra_name[0] = "WS_KEY";
+    extra_val[0] = "sk-ant-proc";
+    extra_name[1] = "ANTHROPIC_WORKSPACE_ID";
+    extra_val[1] = "wrkspc_env";
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq < 1)
+        return;
+    CHECK(strstr(ps.head[0], "x-api-key: sk-ant-cred\r\n") != 0 && strstr(ps.head[0], "sk-ant-proc") == 0);
+    CHECK(strstr(ps.head[0], "anthropic-workspace-id") == 0);
+    extra_name[2] = "ANTHROPIC_CUSTOM_HEADERS";
+    extra_val[2] = "anthropic-workspace-id: wrkspc_rig";
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq >= 1)
+        CHECK(strstr(ps.head[0], "anthropic-workspace-id: wrkspc_rig\r\n") != 0);
+    /* models.json's provider headers (pi's other route), with no ANTHROPIC_CUSTOM_HEADERS */
+    extra_name[2] = 0;
+    write_file(agent, "models.json", "{\"providers\":{\"anthropic\":{\"headers\":{\"anthropic-workspace-id\":\"wrkspc_models\"}}}}");
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq >= 1)
+        CHECK(strstr(ps.head[0], "anthropic-workspace-id: wrkspc_models\r\n") != 0);
+    remove(strcat(strcpy(path, agent), "/models.json"));
+    extra_name[0] = extra_name[1] = extra_name[2] = 0;
+    remove(strcat(strcpy(path, agent), "/auth.json"));
+    CHECK(llm_feeds_anthropic > f0);
+}
+
 /* M8: a bearer token (AWS_BEARER_TOKEN_BEDROCK) goes in Authorization and nothing is signed, even with access keys set */
 static void test_bedrock_bearer(void)
 {
@@ -1087,6 +1134,7 @@ void suite_pi_model_reach(void)
     test_bedrock_bearer();
     test_bedrock_no_credentials();
     test_codex_reach();
+    test_workspace_header();
     test_no_credentials();
     jw_free(&out);
 }
