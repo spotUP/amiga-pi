@@ -1,0 +1,6 @@
+POST https://radius.pi.dev/v1/oauth/device
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+client_id=pi-gateway&scope=gateway+offline_access
+--

@@ -1,0 +1,11 @@
+GET https://radius.pi.dev/v1/oauth
+accept: application/json
+
+
+--
+POST https://radius.pi.dev/v1/oauth/token
+accept: application/json
+content-type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&client_id=pi-gateway&redirect_uri=http%3A%2F%2F127.0.0.1%3A1456%2Foauth%2Fcallback&code=CODE-1&code_verifier=CzBVep_E6Q4zWH2ix-wRNluApcrvFDleg6jN8hc8YYY
+--

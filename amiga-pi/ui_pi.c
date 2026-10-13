@@ -1812,15 +1812,24 @@ static int lg_cancelled(void *u)
     return tui_dialog_cancelled(l->t);
 }
 
-static int lg_menu(void *u, const char *title, const char *const *opt, int n)
+/* a titled list (ExtensionSelectorComponent), with a line under the title when desc is not 0. The pi look draws the line in the
+ * menu's question style (bold; pi has it in the text colour) */
+static int lg_menu_d(void *u, const char *title, const char *desc, const char *const *opt, int n)
 {
     lg *l = (lg *)u;
-    if (l->t && l->p->look)
-        return tui_ext_menu(l->t, title, opt, n, 0);
+    if (l->t && l->p->look) {
+        if (!desc)
+            return tui_ext_menu(l->t, title, opt, n, 0);
+        l->t->m_ext = 1;
+        l->t->m_timeout_ms = -1;
+        return tui_menu(l->t, title, desc, opt, n, 0, -1);
+    }
     {
         char ans[32], num[16];
         int i;
         ui_line(&l->p->ui, title);
+        if (desc)
+            ui_line(&l->p->ui, desc);
         for (i = 0; i < n; i++) {
             char row[400];
             cl_ltoa(i + 1, num);
@@ -1842,6 +1851,11 @@ static int lg_menu(void *u, const char *title, const char *const *opt, int n)
                 return i - 1;
         }
     }
+}
+
+static int lg_menu(void *u, const char *title, const char *const *opt, int n)
+{
+    return lg_menu_d(u, title, 0, opt, n);
 }
 
 static int lg_line(void *u, const char *message, const char *placeholder, char *out, long cap)
@@ -1889,6 +1903,7 @@ static int login_command(pi_ui *p, cl_tui *t, const char *line)
     memset(&ui, 0, sizeof(ui));
     ui.u = &l;
     ui.menu = lg_menu;
+    ui.menu_desc = lg_menu_d;
     ui.line = lg_line;
     ui.note = lg_note;
     if (t && p->look) {

@@ -3149,6 +3149,787 @@
     "access": "mkey-old",
     "expires": 1760099999000
    }
+  },
+  {
+   "name": "openrouter_login_code",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 200,
+     "json": {
+      "key": "sk-or-v1-abc"
+     }
+    }
+   ],
+   "paste": "or-code-1",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_login_url",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 200,
+     "json": {
+      "key": "sk-or-v1-abc"
+     }
+    }
+   ],
+   "paste": "http://127.0.0.1:1/oauth/callback/x?code=URLCODE&foo=1",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_login_query",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 200,
+     "json": {
+      "key": "sk-or-v1-abc"
+     }
+    }
+   ],
+   "paste": "code=Q%20CODE&x=1",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_login_padded",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 200,
+     "json": {
+      "key": "sk-or-v1-abc"
+     }
+    }
+   ],
+   "paste": "  padded-code \n",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_empty_paste",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [],
+   "paste": "   ",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_url_no_code",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [],
+   "paste": "http://127.0.0.1:1/cb?error=denied",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_400_error_object",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 400,
+     "json": {
+      "error": {
+       "message": "Invalid code"
+      }
+     }
+    }
+   ],
+   "paste": "c",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_400_description",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 400,
+     "json": {
+      "error_description": "code expired",
+      "error": "x",
+      "message": "m"
+     }
+    }
+   ],
+   "paste": "c",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_401_message",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 401,
+     "json": {
+      "message": "Unauthorized",
+      "error": "e"
+     }
+    }
+   ],
+   "paste": "c",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_403_error_string",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 403,
+     "json": {
+      "error": "forbidden"
+     }
+    }
+   ],
+   "paste": "c",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_500_text",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 500,
+     "text": "oops"
+    }
+   ],
+   "paste": "c",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_200_invalid_json",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 200,
+     "text": "not json"
+    }
+   ],
+   "paste": "c",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_200_no_key",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 200,
+     "json": {
+      "foo": 1
+     }
+    }
+   ],
+   "paste": "c",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_200_empty_key",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 200,
+     "json": {
+      "key": ""
+     }
+    }
+   ],
+   "paste": "c",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_empty_description_wins",
+   "provider": "openrouter",
+   "op": "login",
+   "responses": [
+    {
+     "url": "https://openrouter.ai/api/v1/auth/keys",
+     "status": 400,
+     "json": {
+      "error_description": "",
+      "message": "m"
+     }
+    }
+   ],
+   "paste": "c",
+   "dropListening": true,
+   "normalizePort": true
+  },
+  {
+   "name": "openrouter_refresh",
+   "provider": "openrouter",
+   "op": "refresh",
+   "responses": [],
+   "credential": {
+    "type": "oauth",
+    "access": "sk-or-v1-abc",
+    "refresh": "",
+    "expires": 9007199254740991
+   }
+  },
+  {
+   "name": "radius_device_login",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "authorization_pending"
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "slow_down"
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "rat-1",
+      "refresh_token": "rrt-1",
+      "expires_in": 3600,
+      "scope": "gateway offline_access"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_no_scope",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "rat-1",
+      "refresh_token": "rrt-1",
+      "expires_in": 3600
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_denied",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "access_denied"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_expired",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "expired_token"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_other_error",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "invalid_client",
+      "error_description": "Unknown client"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_error_only",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "invalid_client"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_text_error",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 502,
+     "text": "Bad gateway"
+    }
+   ]
+  },
+  {
+   "name": "radius_device_json_no_fields",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 500,
+     "json": {
+      "x": 1
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_empty_error",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600,
+      "interval": 2
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 500,
+     "text": ""
+    }
+   ]
+  },
+  {
+   "name": "radius_device_400",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 400,
+     "json": {
+      "error": "invalid_scope",
+      "error_description": "nope"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_missing_fields",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "x"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_no_interval",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "authorization_pending"
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "rat-1",
+      "refresh_token": "rrt-1",
+      "expires_in": 3600,
+      "scope": "gateway offline_access"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_zero_interval",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 600,
+      "interval": 0
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "authorization_pending"
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "rat-1",
+      "refresh_token": "rrt-1",
+      "expires_in": 3600,
+      "scope": "gateway offline_access"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_timeout",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 3,
+      "interval": 1
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "authorization_pending"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_device_slow_timeout",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    1
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/device",
+     "status": 200,
+     "json": {
+      "device_code": "rd-1",
+      "user_code": "RAD-42",
+      "verification_uri": "https://radius.pi.dev/device",
+      "expires_in": 12,
+      "interval": 1
+     }
+    },
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "slow_down"
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_browser_discovery_500",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 500,
+     "text": "down"
+    }
+   ]
+  },
+  {
+   "name": "radius_browser_discovery_invalid",
+   "provider": "radius",
+   "op": "login",
+   "select": [
+    0
+   ],
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth",
+     "status": 200,
+     "json": {
+      "x": 1
+     }
+    }
+   ]
+  },
+  {
+   "name": "radius_refresh",
+   "provider": "radius",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 200,
+     "json": {
+      "access_token": "rat-2",
+      "refresh_token": "rrt-2",
+      "expires_in": 1800,
+      "scope": "gateway offline_access"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "old",
+    "refresh": "rrt-1",
+    "expires": 1
+   }
+  },
+  {
+   "name": "radius_refresh_400",
+   "provider": "radius",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 400,
+     "json": {
+      "error": "invalid_grant",
+      "error_description": "Refresh token expired"
+     }
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "old",
+    "refresh": "rrt-1",
+    "expires": 1
+   }
+  },
+  {
+   "name": "radius_refresh_text",
+   "provider": "radius",
+   "op": "refresh",
+   "responses": [
+    {
+     "url": "https://radius.pi.dev/v1/oauth/token",
+     "status": 401,
+     "text": "nope"
+    }
+   ],
+   "credential": {
+    "type": "oauth",
+    "access": "old",
+    "refresh": "rrt-1",
+    "expires": 1
+   }
   }
  ]
 }

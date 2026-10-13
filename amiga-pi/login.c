@@ -10,6 +10,10 @@
 
 long pi_auth_refreshes, pi_auth_logins;
 
+#define RADIUS_ID "radius"
+/* interactive-mode.ts RADIUS_LOGIN_INTRO */
+#define RADIUS_LOGIN_INTRO "Radius is a service crafted for Pi by the builders of Pi, Earendil Works"
+
 #define AUTH_FILE "auth.json"
 #define EXPIRY_WINDOW_S (5L * 60)       /* resolveStoredOAuth: DEFAULT_OAUTH_MINIMUM_VALIDITY_MS */
 
@@ -322,6 +326,8 @@ static int a_select(void *u, const char *message, const char *const *labels, int
 {
     pi_auth *a = (pi_auth *)u;
     const pi_login_ui *ui = a->ui;
+    if (ui && ui->menu_desc && a->login_desc)
+        return ui->menu_desc(ui->u, message, a->login_desc, labels, n);
     return ui && ui->menu ? ui->menu(ui->u, message, labels, n) : -1;
 }
 
@@ -658,7 +664,8 @@ static const char *default_model(const char *provider)
     static const char *const t[][2] = {
         { "openai", "gpt-5.5" }, { "openai-codex", "gpt-6.1-sol" }, { "github-copilot", "gpt-5.4" },
         { "xai", "grok-4.7" }, { "kimi-coding", "kimi-for-coding" }, { "meta", "muse-spark-1.3" },
-        { "anthropic", "claude-opus-4-8" }, { "azure", "gpt-5.4" }, { "google", "gemini-3.1-pro-preview" }
+        { "anthropic", "claude-opus-4-8" }, { "azure", "gpt-5.4" }, { "google", "gemini-3.1-pro-preview" },
+        { "openrouter", "moonshotai/kimi-k2.6" }, { "radius", "balanced" }
     };
     unsigned i;
     for (i = 0; i < sizeof(t) / sizeof(t[0]); i++)
@@ -838,7 +845,10 @@ static int login_oauth(pi_auth *a, const pi_login_ui *ui, const oa_provider *p)
     a->ui = ui;
     a->cancel = 0;
     err[0] = 0;
+    /* showAuthSelect: the selectors of Radius' login carry its intro under the title */
+    a->login_desc = !strcmp(p->id, RADIUS_ID) ? RADIUS_LOGIN_INTRO : 0;
     rc = p->login(&io, &entry, err, sizeof(err));
+    a->login_desc = 0;
     a->ui = 0;
     dlg_close(ui);
     if (rc == OA_CANCEL) {
@@ -928,6 +938,25 @@ static int pick_method(const pi_login_ui *ui, const oa_provider *q)
     return -1;
 }
 
+/* the option that signs in to Radius from the top-level selector: "Sign in with Radius" and formatAuthSelectorProviderStatus
+ * (" • not configured", " ✓ configured", " • API key configured" when the key is the one configured; pi's look draws the
+ * glyphs, the numbered list the ASCII words of the provider list). The suffix is drawn muted in pi; the selector here
+ * takes plain text */
+static void radius_label(pi_auth *a, const oa_provider *p, int glyphs, char *out, long cap)
+{
+    char src[96];
+    const char *have = auth_status(a, p, src, sizeof(src));
+    cl_copy(out, "Sign in with ", cap);
+    cl_cat(out, p->name, cap);
+    if (!have)
+        cl_cat(out, glyphs ? " \342\200\242 not configured" : " - not configured", cap);
+    else if (strcmp(have, "oauth")) {
+        cl_cat(out, glyphs ? " \342\200\242 " : " - ", cap);
+        cl_cat(out, "API key configured", cap);
+    } else
+        cl_cat(out, glyphs ? " \342\234\223 configured" : " - configured", cap);
+}
+
 /* handleLoginCommand (interactive-mode.ts:5851): a typed provider is logged in to at once (the kind asked when it has both),
  * else the kind is asked, then the providers listed (the typed text in the search box). In pi's look a cancelled provider
  * list goes back to the kind */
@@ -968,13 +997,22 @@ int pi_login_run(pi_auth *a, const char *arg, const pi_login_ui *ui)
     }
     for (;;) {
         if (stage == S_TYPE) {
-            const char *opt[2];
-            int c;
+            const char *opt[3];
+            char radius[160];
+            const oa_provider *rp = oa_find(RADIUS_ID);
+            int c, n = 2;
             opt[0] = "Sign in with an account";
             opt[1] = "Sign in with an API key";
-            c = ui->menu(ui->u, "Select authentication method:", opt, 2);
+            /* the top-level selector offers Radius directly, as its last option (showLoginAuthTypeSelector) */
+            if (rp && rp->login) {
+                radius_label(a, rp, ui->pick != 0, radius, sizeof(radius));
+                opt[n++] = radius;
+            }
+            c = ui->menu(ui->u, "Select authentication method:", opt, n);
             if (c < 0)
                 return 0;
+            if (c == 2)
+                return login_by(a, ui, rp, 1) == 1;
             type = c == 0;
             stage = S_PROVIDERS;
         }

@@ -124,6 +124,8 @@ static pi_session sess;
 static pi_auth auth;
 static char url_base[64];
 static const char *env_kimi_host;       /* KIMI_OAUTH_HOST, for the plain-http test */
+static char env_cb_host[80];            /* PI_OAUTH_CALLBACK_HOST of a scenario ("callbackHost") */
+#define LOCAL_COUNT 14
 
 static llm_ts t_now(void *u)
 {
@@ -160,6 +162,10 @@ static int t_random(void *u, unsigned char *b, long n)
 
 static long t_getenv(const char *name, char *out, long cap)
 {
+    if (env_cb_host[0] && !strcmp(name, "PI_OAUTH_CALLBACK_HOST")) {
+        cl_copy(out, env_cb_host, cap);
+        return (long)strlen(out);
+    }
     if (env_kimi_host && !strcmp(name, "KIMI_OAUTH_HOST")) {
         cl_copy(out, env_kimi_host, cap);
         return (long)strlen(out);
@@ -307,6 +313,32 @@ static void cmp_text(const char *what, const char *name, const char *want, const
     printf("  FAIL %s of %s differs:\n--- pi\n%s\n--- here\n%s\n", what, name, want ? want : "(missing)", got);
 }
 
+/* "normalizePort": the digits of a 127.0.0.1 port are replaced by PORT (pi listens on a port of its own, this build on none) */
+static void norm_port(jw *w)
+{
+    jw out;
+    const char *p = w->p, *end = w->p + w->n;
+    jw_init(&out);
+    while (p < end) {
+        if (end - p > 10 && !strncmp(p, "127.0.0.1", 9) && (p[9] == ':' || !strncmp(p + 9, "%3A", 3))) {
+            int k = p[9] == ':' ? 1 : 3;
+            const char *q = p + 9 + k;
+            if (*q >= '0' && *q <= '9') {
+                jw_raw(&out, p, 9 + k);
+                while (*q >= '0' && *q <= '9')
+                    q++;
+                jw_rawz(&out, "PORT");
+                p = q;
+                continue;
+            }
+        }
+        jw_raw(&out, p, 1);
+        p++;
+    }
+    jw_free(w);
+    *w = out;
+}
+
 static void run_scenario(jv sc)
 {
     char name[96], prov[40], op[16], path[600], err[600];
@@ -360,6 +392,9 @@ static void run_scenario(jv sc)
         json_str(v, paste, sizeof(paste));
     if (json_get(sc, "deviceId", &v))
         json_str(v, devid, sizeof(devid));
+    env_cb_host[0] = 0;
+    if (json_get(sc, "callbackHost", &v))
+        json_str(v, env_cb_host, sizeof(env_cb_host));
     p = oa_find(prov);
     CHECK(p != 0);
     if (!p)
@@ -381,6 +416,8 @@ static void run_scenario(jv sc)
     jw_rawz(&ev, rc ? err : end.p);
     jw_rawz(&ev, "\n");
     jw_free(&end);
+    if (json_get(sc, "normalizePort", &v))
+        norm_port(&ev);
     strcpy(path, name);
     strcat(path, ".out");
     want_out = golden(path);
@@ -395,7 +432,10 @@ static void run_scenario(jv sc)
     free(got_req);
 }
 
-static void test_scenarios(void)
+/* the scenarios of a file: scenarios.json is the oracle's (tools/pi_oracle/gen_oauth.mjs writes their goldens from pi's own run);
+ * scenarios_local.json is what pi cannot be run on here -- its loopback callback server has no counterpart on this machine, so a
+ * redirect is pasted back -- with goldens written by hand from oauth/radius.ts and oauth/openrouter.ts */
+static void test_scenarios(const char *file, int expect)
 {
     char *text;
     long n;
@@ -404,7 +444,8 @@ static void test_scenarios(void)
     int count = 0;
     char path[600];
     const char *only = getenv("PI_LOGIN_ONLY");
-    strcpy(path, PI_TESTS "/pi/oauth/scenarios.json");
+    strcpy(path, PI_TESTS "/pi/oauth/");
+    strcat(path, file);
     text = slurp(path, &n);
     CHECK(text != 0);
     if (!text)
@@ -424,7 +465,7 @@ static void test_scenarios(void)
         run_scenario(sc);
         count++;
     }
-    CHECK(only || count == 125);        /* every scenario: 125 (scenarios.json) */
+    CHECK(only || count == expect);     /* every scenario of the file */
     free(text);
 }
 
@@ -702,7 +743,7 @@ static int run_app(int argc, char **argv)
 /* ---- no token byte anywhere it must not be ---- */
 
 static const char *const secrets[] = { "cgat-old-token", "cgrt-1", "cgat-new-token", "cgrt-new", "kmat-access-0001", "kmrt-refresh-0001", "kmat-access-0002", "gho_githubtoken1",
-                                       "xat-access-0001", "xrt-refresh-0001", "mkey-minted-0001", "mid-identity-1", "sk-typed-key", J1, 0 };
+                                       "xat-access-0001", "xrt-refresh-0001", "mkey-minted-0001", "mid-identity-1", "sk-typed-key", "rat-access-0001", "rrt-refresh-0001", "sk-or-v1-dialog", J1, 0 };
 
 static int has_secret(const char *text, long n)
 {
@@ -1388,6 +1429,136 @@ static void test_login_dialog(void)
 }
 
 
+/* position of needle in hay, -1 when it is not there */
+static long pos_of(const char *hay, const char *needle)
+{
+    const char *p = hay ? strstr(hay, needle) : 0;
+    return p ? (long)(p - hay) : -1;
+}
+
+/* OpenRouter and Radius through /login (pi 1.1.0: oauth/openrouter.ts, oauth/radius.ts, interactive-mode.ts
+ * showLoginAuthTypeSelector, showAuthSelect): the top-level selector's last option is Radius with its status; the account list
+ * has both providers in pi's order and never Anthropic; Radius' selector carries its intro; both logins end in auth.json and the
+ * flow went through the program's own entry (pi_auth_logins) */
+static void test_openrouter_radius_dialog(void)
+{
+    char *a[] = { "amiga-pi", "--model", "openai/gpt-4.1", 0 };
+    static const char *const intro = "Radius is a service crafted for Pi by the builders of Pi, Earendil Works";
+    long l0, i_codex, i_or, i_rad, i_xai;
+    char *file;
+    const char *list;
+    jv r, e, v;
+    /* the top-level selector: Radius is the third and last option, with the status suffix of the provider list */
+    remove_agent_files();
+    in_lines[0] = "/login";
+    in_lines[1] = "";
+    in_lines[2] = 0;
+    run_app(ARGC(a), a);
+    i_or = pos_of(out.p, "1) Sign in with an account");
+    i_rad = pos_of(out.p, "2) Sign in with an API key");
+    i_xai = pos_of(out.p, "3) Sign in with Radius - not configured");
+    CHECK(i_or >= 0 && i_rad > i_or && i_xai > i_rad);
+    CHECK(pos_of(out.p, "4) ") < 0);
+    /* the status of the option: an account, an API key stored, an API key in the environment */
+    write_agent("auth.json", "{\"radius\":{\"type\":\"oauth\",\"access\":\"x\",\"refresh\":\"y\",\"expires\":99999999999999}}");
+    run_app(ARGC(a), a);
+    CHECK(pos_of(out.p, "3) Sign in with Radius - configured") >= 0);
+    write_agent("auth.json", "{\"radius\":{\"type\":\"api_key\",\"key\":\"k\"}}");
+    run_app(ARGC(a), a);
+    CHECK(pos_of(out.p, "3) Sign in with Radius - API key configured") >= 0);
+    remove_agent_files();
+    env_name[0] = "RADIUS_API_KEY";
+    env_val[0] = "e";
+    run_app(ARGC(a), a);
+    CHECK(pos_of(out.p, "3) Sign in with Radius - API key configured") >= 0);
+    env_name[0] = 0;
+    /* the account list: OpenRouter and Radius between OpenAI Codex and xAI, no Anthropic */
+    in_lines[0] = "/login";
+    in_lines[1] = "1";
+    in_lines[2] = "";
+    in_lines[3] = 0;
+    run_app(ARGC(a), a);
+    list = out.p ? strstr(out.p, "Select provider to configure:") : 0;
+    CHECK(list != 0);
+    i_codex = pos_of(list, "OpenAI Codex (legacy) - not configured");
+    i_or = pos_of(list, ") OpenRouter - not configured");
+    i_rad = pos_of(list, ") Radius - not configured");
+    i_xai = pos_of(list, ") xAI - not configured");
+    CHECK(i_codex >= 0 && i_or > i_codex && i_rad > i_or && i_xai > i_rad);
+    CHECK(pos_of(out.p, "Anthropic") < 0);
+    /* /login radius: the provider has an account and an API key, so only the two kinds are offered (no Radius option on top) */
+    in_lines[0] = "/login radius";
+    in_lines[1] = "";
+    in_lines[2] = 0;
+    run_app(ARGC(a), a);
+    CHECK(pos_of(out.p, "Select authentication method for Radius:") >= 0 && pos_of(out.p, "Sign in with an account") >= 0);
+    CHECK(pos_of(out.p, "Sign in with Radius") < 0);
+    /* Sign in with Radius: the method (with the intro under the title), the device code, the credential kept */
+    remove_agent_files();
+    l0 = pi_auth_logins;
+    q_http(200, "{\"device_code\":\"rd-1\",\"user_code\":\"RAD-42\",\"verification_uri\":\"https://radius.pi.dev/device\",\"expires_in\":600,\"interval\":1}");
+    q_http(400, "{\"error\":\"authorization_pending\"}");
+    q_http(200, "{\"access_token\":\"rat-access-0001\",\"refresh_token\":\"rrt-refresh-0001\",\"expires_in\":3600,\"scope\":\"gateway offline_access\"}");
+    in_lines[0] = "/login";
+    in_lines[1] = "3";
+    in_lines[2] = "2";
+    in_lines[3] = 0;
+    run_app(ARGC(a), a);
+    CHECK_INT(pi_auth_logins - l0, 1);
+    i_or = pos_of(out.p, "Sign in to Radius:");
+    i_rad = pos_of(out.p, intro);
+    CHECK(i_or >= 0 && i_rad > i_or && pos_of(out.p, "1) Sign in with browser (recommended)") > i_rad);
+    CHECK(pos_of(out.p, "2) Sign in with device code (when signing in from another device)") >= 0);
+    CHECK(pos_of(out.p, "Login to Radius") >= 0 && pos_of(out.p, "Enter code: RAD-42") >= 0);
+    CHECK(pos_of(out.p, "Logged in to Radius") >= 0);
+    CHECK_INT(ps.nreq, 3);
+    if (ps.nreq == 3) {
+        CHECK(strstr(ps.head[0], "POST /v1/oauth/device HTTP/1.1\r\nHost: radius.pi.dev\r\n") == ps.head[0]);
+        CHECK(strstr(ps.body[0], "client_id=pi-gateway&scope=gateway+offline_access") == ps.body[0]);
+        CHECK(strstr(ps.body[2], "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&client_id=pi-gateway&device_code=rd-1") == ps.body[2]);
+    }
+    file = read_agent("auth.json");
+    CHECK(file != 0);
+    if (file) {
+        CHECK_INT(json_parse(file, (long)strlen(file), &r), 0);
+        CHECK(json_get(r, "radius", &e) && json_get(e, "type", &v) && json_streq(v, "oauth"));
+        CHECK(json_get(e, "access", &v) && json_streq(v, "rat-access-0001") && json_get(e, "refresh", &v) && json_streq(v, "rrt-refresh-0001"));
+        CHECK(json_get(e, "scope", &v) && json_streq(v, "gateway offline_access"));
+        free(file);
+    }
+    no_leaks();
+    /* the intro belongs to Radius' selector alone: Codex' method selector has none */
+    remove_agent_files();
+    in_lines[0] = "/login openai-codex";
+    in_lines[1] = "";
+    in_lines[2] = 0;
+    run_app(ARGC(a), a);
+    CHECK(pos_of(out.p, "Select OpenAI Codex login method:") >= 0 && pos_of(out.p, intro) < 0);
+    /* Sign in with OpenRouter: the method of the provider, the authorization URL, the code pasted back, the key exchanged */
+    remove_agent_files();
+    l0 = pi_auth_logins;
+    q_http(200, "{\"key\":\"sk-or-v1-dialog\"}");
+    in_lines[0] = "/login openrouter";
+    in_lines[1] = "1";
+    in_lines[2] = "http://127.0.0.1:50000/oauth/callback/x?code=my-code";
+    in_lines[3] = 0;
+    run_app(ARGC(a), a);
+    CHECK_INT(pi_auth_logins - l0, 1);
+    CHECK(pos_of(out.p, "Select authentication method for OpenRouter:") >= 0 && pos_of(out.p, "1) Sign in with OpenRouter") >= 0);
+    CHECK(pos_of(out.p, "Login to OpenRouter") >= 0 && pos_of(out.p, "https://openrouter.ai/auth?callback_url=http%3A%2F%2F127.0.0.1%3A") >= 0);
+    CHECK(pos_of(out.p, "Logged in to OpenRouter") >= 0);
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq == 1) {
+        CHECK(strstr(ps.head[0], "POST /api/v1/auth/keys HTTP/1.1\r\nHost: openrouter.ai\r\n") == ps.head[0]);
+        CHECK(strstr(ps.body[0], "{\"code\":\"my-code\",\"code_verifier\":\"") == ps.body[0]);
+    }
+    file = read_agent("auth.json");
+    CHECK(file && !strcmp(file, "{\n  \"openrouter\": {\n    \"type\": \"oauth\",\n    \"access\": \"sk-or-v1-dialog\",\n    \"refresh\": \"\",\n    \"expires\": 9007199254740991\n  }\n}"));
+    free(file);
+    no_leaks();
+}
+
+
 /* Sign in with ChatGPT through the dialog: the URL to open elsewhere, the redirect pasted back, the device id kept */
 static void test_chatgpt_dialog(void)
 {
@@ -1534,7 +1705,8 @@ void suite_pi_login(void)
     CHECK(fx_port > 0);
     if (fx_port > 0) {
         world_up();
-        test_scenarios();
+        test_scenarios("scenarios.json", 161);
+        test_scenarios("scenarios_local.json", LOCAL_COUNT);
         world_down();
         test_refusals();
     }
@@ -1546,6 +1718,7 @@ void suite_pi_login(void)
     test_plain_http_key();
     test_login_dialog();
     test_chatgpt_dialog();
+    test_openrouter_radius_dialog();
     if (fx_h)
         sys.spawn2_close(sys.u, fx_h, 500);
     jw_free(&ev);

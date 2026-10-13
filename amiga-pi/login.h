@@ -54,6 +54,8 @@ typedef struct pi_login_ui {
     void (*dialog)(void *u, int op, const char *a, const char *b);
     /* ... a line asked inside the dialog: manual: the redirect URL or code pasted back. 0 with the text, -1 cancelled */
     int (*ask)(void *u, int manual, const char *message, const char *placeholder, char *out, long cap);
+    /* optional: the same list with a line of text under the title (ExtensionSelectorComponent's description) */
+    int (*menu_desc)(void *u, const char *title, const char *description, const char *const *opt, int n);
     /* ... Esc or Ctrl+C was typed while the program waits for the provider */
     int (*cancelled)(void *u);
 } pi_login_ui;
@@ -74,6 +76,7 @@ typedef struct pi_auth {
      * then allowed (to the loopback address only). 0 in the program */
     const char *url_base;
     const pi_login_ui *ui;      /* while a login runs */
+    const char *login_desc;     /* the text under the title of the login's own selectors (Radius' intro), 0 none */
     int cancel;                 /* Ctrl+C was pressed during the login */
     char device_id[40];
 } pi_auth;

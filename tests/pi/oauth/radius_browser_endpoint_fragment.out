@@ -1,0 +1,4 @@
+prompt select Sign in to Radius: [Sign in with browser (recommended) | Sign in with device code (when signing in from another device)]
+auth_url https://radius.pi.dev/oauth/authorize?response_type=code&client_id=pi-gateway&redirect_uri=http%3A%2F%2F127.0.0.1%3A1456%2Foauth%2Fcallback&scope=gateway+offline_access&code_challenge=F-83crhCIQCO17sRSfkFanE5VeZRT-XclLYfcgKs150&code_challenge_method=S256&handoff=url&state=abd0f51a-3f64-49ae-93f8-1d42678cb1d6#frag | Continue in your browser. If the callback does not complete, paste the final redirect URL here.
+prompt manual Complete login in your browser, or paste the final redirect URL here: | http://127.0.0.1:1456/oauth/callback
+ok {"type":"oauth","access":"rat-1","refresh":"rrt-1","expires":1760103540000,"scope":"gateway offline_access"}

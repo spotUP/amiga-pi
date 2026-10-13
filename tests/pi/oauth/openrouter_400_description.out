@@ -1,0 +1,4 @@
+auth_url https://openrouter.ai/auth?callback_url=http%3A%2F%2F127.0.0.1%3APORT%2Foauth%2Fcallback%2Fabd0f51a-3f64-49ae-93f8-1d42678cb1d6&code_challenge=F-83crhCIQCO17sRSfkFanE5VeZRT-XclLYfcgKs150&code_challenge_method=S256 | Complete sign-in in your browser. If the browser is on another machine, paste the final redirect URL here.
+prompt manual Complete sign-in in your browser, or paste the authorization code / redirect URL here: | http://127.0.0.1:PORT/oauth/callback/abd0f51a-3f64-49ae-93f8-1d42678cb1d6
+progress Exchanging authorization code for an API key...
+error OpenRouter OAuth key exchange failed (HTTP 400): code expired

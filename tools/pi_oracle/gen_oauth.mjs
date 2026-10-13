@@ -44,6 +44,18 @@ Object.defineProperty(globalThis.crypto, "getRandomValues", {
 	},
 });
 
+// crypto.randomUUID() from the same counting generator (OpenRouter's callback path, Radius' state)
+Object.defineProperty(globalThis.crypto, "randomUUID", {
+	configurable: true,
+	value: () => {
+		const b = rnd(16);
+		b[6] = (b[6] & 0x0f) | 0x40;
+		b[8] = (b[8] & 0x3f) | 0x80;
+		const h = b.toString("hex");
+		return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+	},
+});
+
 const imp = (p) => import(pathToFileURL(join(dist, p)).href);
 const mods = {
 	openai: (await imp("auth/oauth/openai-chatgpt.js")).openaiChatGPTOAuth,
@@ -52,6 +64,8 @@ const mods = {
 	"kimi-coding": (await imp("auth/oauth/kimi-coding.js")).kimiCodingOAuth,
 	xai: (await imp("auth/oauth/xai.js")).xaiOAuth,
 	meta: (await imp("auth/oauth/meta.js")).metaOAuth,
+	openrouter: (await imp("auth/oauth/openrouter.js")).openRouterOAuth,
+	radius: (await imp("auth/oauth/radius.js")).createRadiusOAuth({ name: "Radius", gateway: "https://radius.pi.dev" }),
 };
 const { MODELS } = await imp("models.generated.js");
 
@@ -122,7 +136,14 @@ async function run(sc) {
 	} catch (e) {
 		end = `error ${e instanceof Error ? e.message : String(e)}`;
 	}
-	return { req: requests.join(""), out: events.map((l) => l + "\n").join("") + end + "\n" };
+	// A scenario that listens on a loopback port of pi's choosing (OpenRouter): amiga-pi has no listener and picks its own port, so
+	// the port is left out of both sides ("normalizePort"), and pi's line that says it is listening is not part of the golden
+	// ("dropListening").
+	let shown = events;
+	if (sc.dropListening) shown = shown.filter((l) => !l.startsWith("progress Listening for "));
+	let out = shown.map((l) => l + "\n").join("") + end + "\n";
+	if (sc.normalizePort) out = out.replace(/127\.0\.0\.1(%3A|:)\d+/g, "127.0.0.1$1PORT");
+	return { req: requests.join(""), out };
 }
 
 let n = 0;

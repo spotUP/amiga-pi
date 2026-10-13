@@ -65,6 +65,8 @@ static int sc_cols(const scen *sc)
            !strcmp(sc->name, "foot_exact") ? 45 : !strcmp(sc->name, "foot_cut") ? 41 : !strcmp(sc->name, "foot_left") ? 30 : 80;
 }
 #define SC_THEME(sc) (!strncmp((sc)->name, "dark_", 5) ? 1 : !strncmp((sc)->name, "light_", 6) ? 2 : 0)
+static int xm_row, xm_c0, xm_c1;  /* one more masked span (row 1-based, columns), 0 none */
+static const char *xm_why;
 static int cmp_shift;           /* the capture's row r is on our screen at row r + cmp_shift (a selector drawn at the bottom) */
 static int cmp_split = 1000;    /* ... for the rows above this one (0-based) only, the rows from it on are where they are */
 
@@ -1657,7 +1659,13 @@ static void skills_case(const char *name, const char *settings, const char **key
         sc.masks[k].c1 = 79;
         sc.masks[k].why = "the start header's tips, or the editor border and the footer of the capture's fake model";
     }
-    skills_masks(&sc, name, k);
+    k = skills_masks(&sc, name, k);
+    if (xm_row && k < 12) {
+        sc.masks[k].r0 = sc.masks[k].r1 = xm_row;
+        sc.masks[k].c0 = xm_c0;
+        sc.masks[k].c1 = xm_c1;
+        sc.masks[k].why = xm_why;
+    }
     cmp_shift = shift;
     app_session = session ? path : 0;
     app_agent = with_skills ? skdir : 0;
@@ -1748,14 +1756,18 @@ static void test_login_screens(void)
     static const char *k_device[] = { "/login github-copilot\r", "\r", "\r", 0 };
     static const char *const sse_device[] = { "login_device.1.http" };
     static const int m_device[] = { 17, 17, 24, 25, 0 };
-    static const int m_foot[] = { 24, 25, 0 }, m_method[] = { 19, 19, 24, 25, 0 }, m_cancel[] = { 1, 2, 21, 21, 23, 25, 0 };
+    static const int m_foot[] = { 24, 25, 0 }, m_cancel[] = { 1, 2, 21, 21, 23, 25, 0 };
     static const int m_openai[] = { 8, 9, 11, 14, 15, 15, 24, 25, 0 };
     const char *settings = "{\"quietStartup\":true}\n";
     fresh_agent();
-    /* pi offers Radius as a third method (not a login this build has): its row is left out and the rows above it shift */
-    cmp_split = 19;
-    skills_case("login_method", settings, k_method, 0, 0, 0, 1, m_method, 0);
-    cmp_split = 1000;
+    /* pi offers Radius as a third method, and so does this build (L2). The status after its name is muted in pi; the extension
+     * selector of vtcon's tui_menu draws plain text (a control character in a row becomes '?'), so the style of that span is not
+     * compared: row 19, columns 22-38 (" \342\200\242 not configured") */
+    xm_row = 19;
+    xm_c0 = 22;
+    xm_c1 = 38;
+    xm_why = "the muted status of the Radius option: tui_menu rows take no styled text";
+    skills_case("login_method", settings, k_method, 0, 0, 0, 0, m_foot, 0);
     CHECK(load_login_rows(1) == 9);
     pi_ui_set_login_rows(lrow, lrow_n, lrow_oauth);
     skills_case("login_providers", settings, k_accounts, 0, 0, 0, 0, m_foot, 0);
@@ -1773,9 +1785,8 @@ static void test_login_screens(void)
     CHECK(app_out && strstr(app_out, "Error: Failed to login to GitHub Copilot: This operation was aborted") != 0);
     skills_case("login_openai_cancel", settings, k_openai_esc, 0, 0, 0, 0, m_cancel, 0);
     CHECK(app_out && strstr(app_out, "Error: Failed to login to OpenAI: This operation was aborted") != 0);
-    cmp_split = 19;
-    skills_case("login_method", settings, k_back, 0, 0, 0, 1, m_method, 0);
-    cmp_split = 1000;
+    skills_case("login_method", settings, k_back, 0, 0, 0, 0, m_foot, 0);
+    xm_row = 0;
     /* the device code screen, up to the first poll of the provider (the answer to the device code request is played, the golden's
      * sign-in URL row has pi's "Cmd+click to open" where this build says how to copy it) */
     rest_any = 1;                   /* (the provider is polled while the request runs: the screen is taken once it shows the code) */
