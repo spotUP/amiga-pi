@@ -1237,6 +1237,64 @@ static void test_copilot_headers(void)
     jw_free(&hdr);
 }
 
+
+/* a login's token, like any key, never goes over plain http: not as a key, not in the Bearer form */
+static void test_plain_http_key(void)
+{
+    llm_req q;
+    llm_ctx c;
+    llm_model m;
+    llm_sink k;
+    jw um;
+    const char *msgs[1];
+    long mn[1];
+    llm_ts ts;
+    int bearer;
+    ts.sec = NOW_SEC;
+    ts.ms = 0;
+    for (bearer = 0; bearer < 2; bearer++) {
+        memset(&q, 0, sizeof(q));
+        jw_init(&um);
+        llm_m_user(&um, "[{\"type\":\"text\",\"text\":\"hi\"}]", (long)strlen("[{\"type\":\"text\",\"text\":\"hi\"}]"), ts);
+        llm_model_init(&m);
+        m.id = "kimi-for-coding";
+        m.provider = "kimi-coding";
+        m.api = bearer ? "anthropic-messages" : "openai-responses";
+        m.base_url = "http://192.168.1.10:8080";
+        m.max_tokens = 4096;
+        m.context_window = 100000;
+        memset(&c, 0, sizeof(c));
+        c.model = &m;
+        msgs[0] = um.p;
+        mn[0] = um.n;
+        c.msgs = msgs;
+        c.msg_n = mn;
+        c.nmsg = 1;
+        k.u = 0;
+        k.ev = t_sink;
+        q_begin();
+        q_sse(bearer ? "../pi/switch_anthropic.sse" : "../pi/responses/plain.sse");
+        q.pool = &ps_pool;
+        q.model = &m;
+        q.be = llm_backend_of(m.api);
+        q.ctx = &c;
+        q.user_agent = "UP-Term-amiga-pi/0.1 (AmigaOS)";
+        q.sink = &k;
+        q.key = "kmat-access-0001";
+        q.bearer = bearer;
+        q.h.resolve = ps_resolve;
+        q.h.notice = ps_notice;
+        q.retries = -1;
+        llm_request(&q);
+        CHECK_INT(ps.nreq, 1);
+        if (ps.nreq == 1)
+            CHECK(strstr(ps.head[0], "kmat-access-0001") == 0 && strstr(ps.head[0], "Authorization") == 0 && strstr(ps.head[0], "x-api-key") == 0);
+        CHECK(!q.key_sent);                   /* the notice is given once per provider and run */
+        stale = 1;
+        jw_free(&um);
+    }
+}
+
 /* the dialog: /login and /logout typed at the prompt, through pi_app */
 static void test_login_dialog(void)
 {
@@ -1485,6 +1543,7 @@ void suite_pi_login(void)
     test_requests();
     test_creds();
     test_copilot_headers();
+    test_plain_http_key();
     test_login_dialog();
     test_chatgpt_dialog();
     if (fx_h)
