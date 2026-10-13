@@ -39,6 +39,10 @@ void pi_ui_set_theme(const cl_pitheme *th);
 void pi_ui_set_keybindings(const char *json, long n);
 /* the slash commands the menu offers (claude/tui.h cl_cmd: "/name", the description); 0: amiga-pi's own */
 void pi_ui_set_commands(const cl_cmd *cmds, int n);
+/* the tests: the provider selector of /login shows these rows (pi's whole list, tests/pi/tui/login_rows.txt) instead of the
+ * providers this build has; 0 rows: the build's own */
+struct pi_login_row;
+void pi_ui_set_login_rows(const struct pi_login_row *rows, int n, int show_type);
 /* more rows after the built-in ones, by slot (0 prompt templates; the others for the other kinds of command, in pi's
  * order); the array stays valid until the run ends, 0 clears the slot */
 void pi_ui_set_extra_commands(int slot, const cl_cmd *cmds, int n);

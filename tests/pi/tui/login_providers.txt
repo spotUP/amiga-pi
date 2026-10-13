@@ -1,0 +1,25 @@
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+ Select provider to configure:
+
+>
+
+ → Anthropic • not configured
+   GitHub Copilot • not configured
+   Kimi For Coding • not configured
+   Meta • not configured
+   OpenAI • not configured
+   OpenAI Codex (legacy) • not configured
+   OpenRouter • not configured
+   Radius • not configured
+   (1/9)
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

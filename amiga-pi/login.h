@@ -20,6 +20,21 @@
 #include "oauth.h"
 #include "claude/sys.h"
 
+/* a row of the provider selector (interactive-mode.ts AuthSelectorProvider; oauth-selector.ts formatAuthSelectorProviderType and
+ * formatAuthSelectorProviderStatus): the status is "not configured" (PL_ST_NONE), configured with the other kind of login (PL_ST_OTHER;
+ * status_text "API key configured") or configured (PL_ST_OK; status_text "" for a stored credential, else the source: "env: NAME") */
+enum { PL_ST_NONE, PL_ST_OTHER, PL_ST_OK };
+typedef struct pi_login_row {
+    const char *name;           /* the provider's name */
+    const char *type;           /* "subscription", "account" or "API key" */
+    const char *search;         /* what the search box matches: the name, the id, the type, the login method's name */
+    int status;
+    const char *status_text;
+} pi_login_row;
+
+/* the steps of a sign-in dialog (login-dialog.ts), pi's look */
+enum { PD_OPEN, PD_CLOSE, PD_AUTH, PD_DEVICE, PD_INFO, PD_PROGRESS };
+
 /* how the screen asks and tells (ui_pi.c gives it the pi look, or plain lines) */
 typedef struct pi_login_ui {
     void *u;
@@ -29,6 +44,18 @@ typedef struct pi_login_ui {
     int (*line)(void *u, const char *message, const char *placeholder, char *out, long cap);
     /* a note in the conversation: PL_* kind */
     void (*note)(void *u, int kind, const char *text);
+    /* pi's look only (0 in the line mode and in the tests that script it by lines): the searchable provider selector
+     * (oauth-selector.ts): the row chosen, -1 cancelled; show_type: the rows say which login they are; initial: the search
+     * box's text; empty: the row for no match. */
+    int (*pick)(void *u, const char *title, const pi_login_row *rows, int n, int show_type, const char *initial,
+                const char *empty);
+    /* ... the sign-in dialog that replaces the editor: op PD_*; a, b by op (PD_OPEN: title; PD_AUTH: url, instructions;
+     * PD_DEVICE: user code, verification URL; PD_INFO, PD_PROGRESS: the text) */
+    void (*dialog)(void *u, int op, const char *a, const char *b);
+    /* ... a line asked inside the dialog: manual: the redirect URL or code pasted back. 0 with the text, -1 cancelled */
+    int (*ask)(void *u, int manual, const char *message, const char *placeholder, char *out, long cap);
+    /* ... Esc or Ctrl+C was typed while the program waits for the provider */
+    int (*cancelled)(void *u);
 } pi_login_ui;
 
 enum { PL_TEXT, PL_DIM, PL_WARNING, PL_ERROR, PL_ACCENT, PL_OK };

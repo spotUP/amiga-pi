@@ -1258,17 +1258,310 @@ static void lg_note(void *u, int kind, const char *text)
 {
     lg *l = (lg *)u;
     static const int role[] = { PR_TEXT, PR_DIM, PR_WARNING, PR_ERROR, PR_ACCENT, PR_SUCCESS };
-    if (l->p->look)
+    if (l->p->look && kind == PL_ERROR) {
+        char line[1200];                            /* showError: "Error: " and the message */
+        cl_copy(line, "Error: ", sizeof(line));
+        cl_cat(line, text, sizeof(line));
+        pshow_error(&l->p->ps, line);
+    } else if (l->p->look)
         pshow_note(&l->p->ps, role[kind], text);
     else
         ui_line(&l->p->ui, text);
+}
+
+/* the provider selector (oauth-selector.ts OAuthSelectorComponent) over the screen's picker: the rows the login code gave, the
+ * search box's text filtering them as pi's fuzzyFilter does */
+typedef struct lgpick {
+    lg *l;
+    const pi_login_row *rows;
+    int n, show_type;
+    int *vis;                   /* the rows matching the search, in order of score */
+    long *score;
+    tui_pick pk;
+} lgpick;
+
+static void lgp_filter(lgpick *k)
+{
+    int i, m = 0, j;
+    const char *q = k->pk.query;
+    for (i = 0; i < k->n; i++) {
+        long sc;
+        if (!q[0] || pi_fuzzy_item(q, (long)strlen(q), k->rows[i].search, (long)strlen(k->rows[i].search), &sc)) {
+            if (!q[0])
+                sc = 0;
+            j = m++;
+            while (j > 0 && k->score[j - 1] > sc) {      /* Array.sort is stable: ties stay in row order */
+                k->vis[j] = k->vis[j - 1];
+                k->score[j] = k->score[j - 1];
+                j--;
+            }
+            k->vis[j] = i;
+            k->score[j] = sc;
+        }
+    }
+    k->pk.n = m;
+    if (k->pk.sel > m - 1)
+        k->pk.sel = m ? m - 1 : 0;
+}
+
+/* a row: the arrow and the name in the accent colour when selected, the type in muted, the status (formatAuthSelectorProviderStatus) */
+static void lgp_row(void *u, int i, int selected, char *out, long cap)
+{
+    lgpick *k = (lgpick *)u;
+    const pi_login_row *r = &k->rows[k->vis[i]];
+    const cl_pitheme *th = &k->l->p->theme;
+    char acc[48], txt[48], mut[48], suc[48], warn[48];
+    pitheme_sgr(th, PR_ACCENT, acc);
+    pitheme_sgr(th, PR_TEXT, txt);
+    pitheme_sgr(th, PR_MUTED, mut);
+    pitheme_sgr(th, PR_SUCCESS, suc);
+    pitheme_sgr(th, PR_WARNING, warn);
+    cl_copy(out, selected ? acc : "", cap);
+    cl_cat(out, selected ? "\342\206\222 " : "  ", cap);
+    cl_cat(out, selected ? "" : txt, cap);
+    cl_cat(out, r->name, cap);
+    cl_cat(out, "\033[0m", cap);
+    if (k->show_type) {
+        cl_cat(out, mut, cap);
+        cl_cat(out, " [", cap);
+        cl_cat(out, r->type, cap);
+        cl_cat(out, "]\033[0m", cap);
+    }
+    if (r->status == PL_ST_NONE) {
+        cl_cat(out, mut, cap);
+        cl_cat(out, " \342\200\242 not configured\033[0m", cap);
+    } else if (r->status == PL_ST_OTHER) {
+        cl_cat(out, mut, cap);
+        cl_cat(out, " \342\200\242 \033[0m", cap);
+        cl_cat(out, warn, cap);
+        cl_cat(out, r->status_text, cap);
+        cl_cat(out, "\033[0m", cap);
+    } else {
+        cl_cat(out, suc, cap);
+        cl_cat(out, " \342\234\223 ", cap);
+        cl_cat(out, r->status_text[0] ? r->status_text : "configured", cap);
+        cl_cat(out, "\033[0m", cap);
+    }
+}
+
+/* the keys of the selector: up and down stop at the ends, typing goes to the search box, Enter and Esc are the picker's */
+static int lgp_key(void *u, const cl_key *key, int act)
+{
+    lgpick *k = (lgpick *)u;
+    long ql = (long)strlen(k->pk.query);
+    (void)act;
+    switch (key->k) {
+    case K_UP:
+        if (k->pk.sel > 0)
+            k->pk.sel--;
+        return 1;
+    case K_DOWN:
+        if (k->pk.sel + 1 < k->pk.n)
+            k->pk.sel++;
+        return 1;
+    case K_ENTER:
+    case K_ESC:
+        return 0;
+    case K_BS:
+        if (ql) {
+            do
+                ql--;
+            while (ql > 0 && ((unsigned char)k->pk.query[ql] & 0xc0) == 0x80);
+            k->pk.query[ql] = 0;
+            lgp_filter(k);
+        }
+        return 1;
+    case K_CHAR:
+        if (key->ch >= 0x20 && ql + 5 < (long)sizeof(k->pk.query)) {
+            ql += vw_put_utf8(k->pk.query + ql, key->ch);
+            k->pk.query[ql] = 0;
+            lgp_filter(k);
+        }
+        return 1;
+    case K_PASTE: {
+        long i;
+        for (i = 0; i < key->n && ql + 1 < (long)sizeof(k->pk.query); i++)
+            if ((unsigned char)key->text[i] >= 0x20)
+                k->pk.query[ql++] = key->text[i];
+        k->pk.query[ql] = 0;
+        lgp_filter(k);
+        return 1;
+    }
+    default:
+        return key->k == K_CTRL && key->ch == 'c' ? 0 : 1;
+    }
+}
+
+static const pi_login_row *test_rows;
+static int test_nrows, test_show_type;
+
+void pi_ui_set_login_rows(const struct pi_login_row *rows, int n, int show_type)
+{
+    test_rows = rows;
+    test_nrows = rows ? n : 0;
+    test_show_type = show_type;
+}
+
+static int lg_pick(void *u, const char *title, const pi_login_row *rows, int n, int show_type, const char *initial,
+                   const char *empty)
+{
+    lg *l = (lg *)u;
+    lgpick k;
+    int res;
+    if (test_nrows) {
+        rows = test_rows;
+        n = test_nrows;
+        show_type = test_show_type;
+    }
+    memset(&k, 0, sizeof(k));
+    k.l = l;
+    k.rows = rows;
+    k.n = n;
+    k.show_type = show_type;
+    k.vis = (int *)malloc(sizeof(int) * (size_t)(n ? n : 1));
+    k.score = (long *)malloc(sizeof(long) * (size_t)(n ? n : 1));
+    if (!k.vis || !k.score) {
+        free(k.vis);
+        free(k.score);
+        return -1;
+    }
+    k.pk.title = title;
+    k.pk.maxrows = 8;
+    k.pk.row = lgp_row;
+    k.pk.key = lgp_key;
+    k.pk.u = &k;
+    k.pk.layout = TUI_PICK_AUTH;
+    k.pk.empty = empty;
+    cl_copy(k.pk.query, initial ? initial : "", sizeof(k.pk.query));
+    lgp_filter(&k);
+    res = tui_pick_run(l->t, &k.pk);
+    res = res < 0 ? -1 : k.vis[res];
+    free(k.vis);
+    free(k.score);
+    return res;
+}
+
+/* the sign-in dialog (login-dialog.ts): its rows, and the hint "(escape/ctrl+c to cancel)" as pi's keyHint colours it */
+static void lg_hint(lg *l, const char *a, const char *b, const char *c, const char *d)
+{
+    char dim[48], mut[48], row[300];
+    pitheme_sgr(&l->p->theme, PR_DIM, dim);
+    pitheme_sgr(&l->p->theme, PR_MUTED, mut);
+    cl_copy(row, "(", sizeof(row));
+    cl_cat(row, dim, sizeof(row));
+    cl_cat(row, a, sizeof(row));
+    cl_cat(row, "\033[0m", sizeof(row));
+    cl_cat(row, mut, sizeof(row));
+    cl_cat(row, b, sizeof(row));
+    cl_cat(row, "\033[0m", sizeof(row));
+    if (c) {
+        cl_cat(row, " ", sizeof(row));
+        cl_cat(row, dim, sizeof(row));
+        cl_cat(row, c, sizeof(row));
+        cl_cat(row, "\033[0m", sizeof(row));
+        cl_cat(row, mut, sizeof(row));
+        cl_cat(row, d, sizeof(row));
+        cl_cat(row, "\033[0m", sizeof(row));
+    }
+    cl_cat(row, ")", sizeof(row));
+    tui_dialog_add(l->t, TUI_DLG_ANSI, 0, row);
+}
+
+static void lg_hint_url(lg *l)
+{
+    char dim[48], row[200];
+    pitheme_sgr(&l->p->theme, PR_DIM, dim);
+    cl_copy(row, dim, sizeof(row));
+    cl_cat(row, "Select the URL with the mouse to copy it\033[0m", sizeof(row));
+    tui_dialog_add(l->t, TUI_DLG_ANSI, 0, row);
+}
+
+static void lg_dialog(void *u, int op, const char *a, const char *b)
+{
+    lg *l = (lg *)u;
+    cl_tui *t = l->t;
+    switch (op) {
+    case PD_OPEN:
+        tui_dialog_open(t, a);
+        break;
+    case PD_CLOSE:
+        tui_dialog_close(t);
+        break;
+    case PD_AUTH:
+        tui_dialog_clear(t);
+        tui_dialog_add(t, TUI_DLG_BLANK, 0, 0);
+        tui_dialog_add(t, TUI_DLG_TEXT, PR_ACCENT, a);
+        lg_hint_url(l);
+        if (b && *b) {
+            tui_dialog_add(t, TUI_DLG_BLANK, 0, 0);
+            tui_dialog_add(t, TUI_DLG_TEXT, PR_WARNING, b);
+        }
+        break;
+    case PD_DEVICE: {
+        char code[300];
+        tui_dialog_clear(t);
+        tui_dialog_add(t, TUI_DLG_BLANK, 0, 0);
+        tui_dialog_add(t, TUI_DLG_TEXT, PR_ACCENT, b);
+        lg_hint_url(l);
+        tui_dialog_add(t, TUI_DLG_BLANK, 0, 0);
+        cl_copy(code, "Enter code: ", sizeof(code));
+        cl_cat(code, a, sizeof(code));
+        tui_dialog_add(t, TUI_DLG_TEXT, PR_WARNING, code);
+        tui_dialog_add(t, TUI_DLG_BLANK, 0, 0);
+        tui_dialog_add(t, TUI_DLG_TEXT, PR_DIM, "Waiting for authentication...");
+        lg_hint(l, "escape/ctrl+c", " to cancel", 0, 0);
+        break;
+    }
+    case PD_INFO:
+        tui_dialog_add(t, TUI_DLG_BLANK, 0, 0);
+        tui_dialog_add(t, TUI_DLG_TEXT, PR_TEXT, a);
+        break;
+    default:
+        tui_dialog_add(t, TUI_DLG_TEXT, PR_DIM, a);
+        break;
+    }
+}
+
+static int lg_ask(void *u, int manual, const char *message, const char *placeholder, char *out, long cap)
+{
+    lg *l = (lg *)u;
+    cl_tui *t = l->t;
+    char *buf = (char *)malloc(1100);
+    int r;
+    if (!buf)
+        return -1;
+    tui_dialog_add(t, TUI_DLG_BLANK, 0, 0);
+    tui_dialog_add(t, TUI_DLG_TEXT, manual ? PR_DIM : PR_TEXT, message);
+    if (!manual && placeholder && *placeholder) {
+        char ph[400];
+        cl_copy(ph, "e.g., ", sizeof(ph));
+        cl_cat(ph, placeholder, sizeof(ph));
+        tui_dialog_add(t, TUI_DLG_TEXT, PR_DIM, ph);
+    }
+    tui_dialog_add(t, TUI_DLG_INPUT, 0, "");
+    if (manual)
+        lg_hint(l, "escape/ctrl+c", " to cancel", 0, 0);
+    else
+        lg_hint(l, "escape/ctrl+c", " to cancel,", "enter", " to submit");
+    r = tui_dialog_read(t, buf, 1100);
+    if (r == 1)
+        cl_copy(out, buf, cap);
+    memset(buf, 0, 1100);
+    free(buf);
+    return r == 1 ? 0 : -1;
+}
+
+static int lg_cancelled(void *u)
+{
+    lg *l = (lg *)u;
+    return tui_dialog_cancelled(l->t);
 }
 
 static int lg_menu(void *u, const char *title, const char *const *opt, int n)
 {
     lg *l = (lg *)u;
     if (l->t && l->p->look)
-        return tui_menu(l->t, title, 0, opt, n, 0, -1);
+        return tui_ext_menu(l->t, title, opt, n, 0);
     {
         char ans[32], num[16];
         int i;
@@ -1338,9 +1631,17 @@ static int login_command(pi_ui *p, cl_tui *t, const char *line)
     l.p = p;
     l.t = t;
     ui.u = &l;
+    memset(&ui, 0, sizeof(ui));
+    ui.u = &l;
     ui.menu = lg_menu;
     ui.line = lg_line;
     ui.note = lg_note;
+    if (t && p->look) {
+        ui.pick = lg_pick;
+        ui.dialog = lg_dialog;
+        ui.ask = lg_ask;
+        ui.cancelled = lg_cancelled;
+    }
     if (p->pst_on)
         pi_pstatus_blocked(&p->pst, logout ? PSK_QUESTION : PSK_AUTH, logout ? "Log out" : "Log in");
     if (logout)
