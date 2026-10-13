@@ -3,6 +3,7 @@
 #include <string.h>
 #include "tools_pi.h"
 #include "truncate.h"
+#include "jsdiff.h"
 #include "image.h"
 #include "claude/tools_int.h"   /* tl_resolve: ls's path as C:Claude's tools resolve one */
 #include "claude/schema.h"
@@ -366,7 +367,7 @@ static int ls_cmp(const void *x, const void *y)
     return c;
 }
 
-static int run_ls(pi_tools *p, jv a, jw *text)
+static int run_ls(pi_tools *p, jv a, jw *text, jw *det)
 {
     char *arg;
     char full[512], num[16], note[80];
@@ -400,6 +401,7 @@ static int run_ls(pi_tools *p, jv a, jw *text)
         jw_rawz(text, "(empty directory)");
     else {
         jw rows;
+        pi_trunc tr;
         jw_init(&rows);
         qsort(l.e, (size_t)l.n, sizeof(char *), ls_cmp);
         for (i = 0; i < l.n && i < limit; i++) {
@@ -416,7 +418,20 @@ static int run_ls(pi_tools *p, jv a, jw *text)
             cl_cat(note, num, sizeof(note));
             cl_cat(note, " for more", sizeof(note));
         }
-        pi_head(rows.p ? rows.p : "", rows.n, note[0] ? note : 0, 0, text);
+        pi_head(rows.p ? rows.p : "", rows.n, note[0] ? note : 0, 0, text, &tr);
+        /* ls.ts: details {entryLimitReached, truncation} when either happened */
+        if (l.n > limit || tr.by != PT_NONE) {
+            jw_rawz(det, "{");
+            if (l.n > limit) {
+                jw_rawz(det, "\"entryLimitReached\":");
+                jw_long(det, limit);
+            }
+            if (tr.by != PT_NONE) {
+                jw_rawz(det, l.n > limit ? ",\"truncation\":" : "\"truncation\":");
+                pi_trunc_json(det, &tr, rows.p ? rows.p : "", 0x7fffffffL);
+            }
+            jw_rawz(det, "}");
+        }
         jw_free(&rows);
     }
     for (i = 0; i < l.n; i++)
@@ -450,7 +465,7 @@ static void put_long(jw *w, long v)
     jw_rawz(w, num);
 }
 
-static int run_read(pi_tools *p, jv a, jw *text, jw *imgs, int *nimg)
+static int run_read(pi_tools *p, jv a, jw *text, jw *imgs, int *nimg, jw *det)
 {
     char *arg, *b = 0, full[512], what[300], sz[32];
     const char *mime;
@@ -572,6 +587,11 @@ static int run_read(pi_tools *p, jv a, jw *text, jw *imgs, int *nimg)
     {
         pi_trunc tr;
         pi_truncate(b + from, to - from, 0, PI_MAX_LINES, PI_MAX_BYTES, &tr);
+        if (tr.by != PT_NONE) {         /* read.ts: details {truncation} */
+            jw_rawz(det, "{\"truncation\":");
+            pi_trunc_json(det, &tr, b + from, PI_MAX_LINES);
+            jw_rawz(det, "}");
+        }
         if (tr.first_over) {
             long le = from;
             while (le < n && b[le] != '\n')
@@ -625,9 +645,10 @@ static int run_read(pi_tools *p, jv a, jw *text, jw *imgs, int *nimg)
 }
 
 /* grep and find (claude/search_pi.c) with pi's endings */
-static int run_search(pi_tools *p, int kind, const char *args, long an, jw *text)
+static int run_search(pi_tools *p, int kind, const char *args, long an, jw *text, jw *det)
 {
     pi_rows r;
+    pi_trunc tr;
     char first[120], num[16];
     int e = kind == PT_GREP ? tools_pi_grep(&p->t, args, an, &r) : tools_pi_find(&p->t, args, an, &r);
     if (e)
@@ -646,7 +667,25 @@ static int run_search(pi_tools *p, int kind, const char *args, long an, jw *text
             cl_cat(first, " for more, or refine pattern", sizeof(first));
         }
         pi_head(r.text.p ? r.text.p : "", r.text.n, first[0] ? first : 0,
-                r.lines_cut ? "Some lines truncated to 500 chars. Use read tool to see full lines" : 0, text);
+                r.lines_cut ? "Some lines truncated to 500 chars. Use read tool to see full lines" : 0, text, &tr);
+        /* find.ts / grep.ts: details {resultLimitReached | matchLimitReached, truncation, linesTruncated} */
+        if (r.limit_hit || tr.by != PT_NONE || (kind == PT_GREP && r.lines_cut)) {
+            int k = 0;
+            jw_rawz(det, "{");
+            if (r.limit_hit) {
+                jw_rawz(det, kind == PT_GREP ? "\"matchLimitReached\":" : "\"resultLimitReached\":");
+                jw_long(det, r.limit);
+                k = 1;
+            }
+            if (tr.by != PT_NONE) {
+                jw_rawz(det, k ? ",\"truncation\":" : "\"truncation\":");
+                pi_trunc_json(det, &tr, r.text.p ? r.text.p : "", 0x7fffffffL);
+                k = 1;
+            }
+            if (kind == PT_GREP && r.lines_cut)
+                jw_rawz(det, k ? ",\"linesTruncated\":true" : "\"linesTruncated\":true");
+            jw_rawz(det, "}");
+        }
     }
     jw_free(&r.text);
     return e;
@@ -841,7 +880,7 @@ static void bash_emit(bash_stream *b)
 {
     jw cut;
     jw_init(&cut);
-    pi_cut(b->p->t.sys, b->p->tmp, b->id, b->acc.p ? b->acc.p : "", b->acc.n, 1, &cut);
+    pi_cut(b->p->t.sys, b->p->tmp, b->id, b->acc.p ? b->acc.p : "", b->acc.n, 1, &cut, 0);
     bash_update(b->s, b->id, b->args, b->an, cut.p ? cut.p : "", cut.n);
     jw_free(&cut);
     b->dirty = 0;
@@ -865,6 +904,70 @@ static void bash_chunk(void *u, const char *data, long n)
         bash_emit(b);
 }
 
+/* edit's preview hook (tools.h): the file before and after, kept for the details of a successful call */
+static void edit_preview(void *u, int tool, const char *path, const char *before, long bn, const char *after, long an)
+{
+    pi_tools *p = (pi_tools *)u;
+    (void)path;
+    if (tool != T_EDIT)
+        return;
+    jw_reset(&p->edit_before);
+    jw_reset(&p->edit_after);
+    jw_raw(&p->edit_before, before ? before : "", before ? bn : 0);
+    jw_raw(&p->edit_after, after ? after : "", after ? an : 0);
+    p->edit_seen = 1;
+}
+
+/* text without its BOM, every line end an LF (pi's normalizeToLF of the content edit.ts diffs) */
+static void edit_lf(const jw *in, jw *out)
+{
+    long i = in->n >= 3 && !memcmp(in->p, "\357\273\277", 3) ? 3 : 0;
+    for (; i < in->n; i++) {
+        if (in->p[i] == '\r') {
+            jw_raw(out, "\n", 1);
+            if (i + 1 < in->n && in->p[i + 1] == '\n')
+                i++;
+        } else
+            jw_raw(out, in->p + i, 1);
+    }
+}
+
+/* edit.ts: details {diff, patch, firstChangedLine} of the file as it was (LF) and as it is */
+static void edit_details(pi_tools *p, jv a, jw *det)
+{
+    jw old, nw, diff, patch;
+    char *path;
+    long first = 0;
+    jv x;
+    path = json_get(a, "path", &x) && json_type(x) == J_STR ? json_strdup(x, 0) : 0;
+    jw_init(&old);
+    jw_init(&nw);
+    jw_init(&diff);
+    jw_init(&patch);
+    edit_lf(&p->edit_before, &old);
+    edit_lf(&p->edit_after, &nw);
+    if (path && !pi_edit_diff(old.p ? old.p : "", old.n, nw.p ? nw.p : "", nw.n, &diff, &first) &&
+        !pi_edit_patch(path, old.p ? old.p : "", old.n, nw.p ? nw.p : "", nw.n, &patch)) {
+        jw_rawz(det, "{\"diff\":");
+        jw_str(det, diff.p ? diff.p : "", diff.n);
+        jw_rawz(det, ",\"patch\":");
+        jw_str(det, patch.p ? patch.p : "", patch.n);
+        if (first) {
+            jw_rawz(det, ",\"firstChangedLine\":");
+            jw_long(det, first);
+        }
+        jw_rawz(det, "}");
+    }
+    jw_free(&old);
+    jw_free(&nw);
+    jw_free(&diff);
+    jw_free(&patch);
+    free(path);
+    jw_reset(&p->edit_before);
+    jw_reset(&p->edit_after);
+    p->edit_seen = 0;
+}
+
 static int run(void *u, pi_session *s, const char *args, long an, jw *content, int *is_error)
 {
     pi_tslot *sl = (pi_tslot *)u;
@@ -873,7 +976,7 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
     const char *id = s && s->call_id ? s->call_id : "call";
     char err[300];
     jv a, sch;
-    jw text, res, imgs, in;
+    jw text, res, imgs, in, det;
     llm_ts t0 = { 0, 0 }, t1 = { 0, 0 };
     long sn0 = 0;
     int ran = 0;
@@ -883,9 +986,12 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
     jw_init(&res);
     jw_init(&imgs);
     jw_init(&in);
+    jw_init(&det);
     *is_error = 0;
-    if (s)
+    if (s) {
         jw_reset(&s->structured);
+        jw_reset(&s->details);
+    }
     if (json_parse(args, an, &a) || json_type(a) != J_OBJ) {
         jw_rawz(&text, "Validation failed for tool \"");
         jw_rawz(&text, names[kind]);
@@ -907,15 +1013,16 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
             bash_update(s, id, args, an, 0, 0);
         t0 = clock_of(s);
         if (kind == PT_LS)
-            *is_error = run_ls(p, a, &text);
+            *is_error = run_ls(p, a, &text, &det);
         else if (kind == PT_GREP || kind == PT_FIND)
-            *is_error = run_search(p, kind, args, an, &text);
+            *is_error = run_search(p, kind, args, an, &text, &det);
         else if (kind == PT_READ)
-            *is_error = run_read(p, a, &text, &imgs, &nimg);
+            *is_error = run_read(p, a, &text, &imgs, &nimg, &det);
         else {
-            if (kind == PT_EDIT)
+            if (kind == PT_EDIT) {
+                p->edit_seen = 0;
                 tools_edit_orig(&p->t, id, args, an, &res);
-            else if (pi_tools_claude(kind, args, an, &tool, &in) == 0) {
+            } else if (pi_tools_claude(kind, args, an, &tool, &in) == 0) {
                 if (kind == PT_BASH && s && s->call_id) {
                     memset(&bs, 0, sizeof(bs));
                     bs.p = p;
@@ -948,6 +1055,8 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
             structured_bash(&s->structured, text.p ? text.p : "", text.n - sn0, code,
                             ((t1.sec - t0.sec) * 1000L + (t1.ms - t0.ms) + 50) / 100);
     }
+    if (kind == PT_EDIT && ran && !*is_error && p->edit_seen)
+        edit_details(p, a, &det);
     jw_rawz(content, "[");
     if (kind == PT_BASH) {
         /* pi: the output's tail (the whole of it kept in a file when cut),
@@ -955,7 +1064,7 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
         jw cut;
         long sn = p->t.pi_status_n > 0 && p->t.pi_status_n <= text.n ? p->t.pi_status_n : 0;
         jw_init(&cut);
-        pi_cut(p->t.sys, p->tmp, id, text.p ? text.p : "", text.n - sn, 1, &cut);
+        pi_cut(p->t.sys, p->tmp, id, text.p ? text.p : "", text.n - sn, 1, &cut, &det);      /* bash.ts: details {truncation, fullOutputPath} */
         if (sn)
             jw_raw(&cut, text.p + text.n - sn, sn);
         if (bs.p) {
@@ -974,10 +1083,15 @@ static int run(void *u, pi_session *s, const char *args, long an, jw *content, i
     if (imgs.n)
         jw_raw(content, imgs.p, imgs.n);
     jw_rawz(content, "]");
+    if (s && det.n && !det.oom) {
+        jw_reset(&s->details);
+        jw_raw(&s->details, det.p, det.n);
+    }
     jw_free(&text);
     jw_free(&res);
     jw_free(&imgs);
     jw_free(&in);
+    jw_free(&det);
     return stopped;
 }
 
@@ -1010,6 +1124,10 @@ int pi_tools_init(pi_tools *p, cl_sys *sys, const char *root, const char *tmp, i
     if (sys->canon(sys->u, root, p->t.root, sizeof(p->t.root)))
         cl_copy(p->t.root, root, sizeof(p->t.root));
     p->t.ask = yes;
+    p->t.u = p;
+    p->t.preview = edit_preview;
+    jw_init(&p->edit_before);
+    jw_init(&p->edit_after);
     p->t.pi_rules = 1;
     p->t.no_background = 1;     /* pi: a command stops at its time limit */
     p->t.no_cd_keep = 1;        /* pi: every command starts in the working directory */
@@ -1051,6 +1169,8 @@ int pi_tools_init(pi_tools *p, cl_sys *sys, const char *root, const char *tmp, i
 
 void pi_tools_free(pi_tools *p)
 {
+    jw_free(&p->edit_before);
+    jw_free(&p->edit_after);
     tools_free(&p->t);
 }
 

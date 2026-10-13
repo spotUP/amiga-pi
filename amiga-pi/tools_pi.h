@@ -55,6 +55,8 @@ struct pi_tools {
     char exclude[512];          /* --exclude-tools as given: names and '*' patterns, comma-separated */
     pi_tool tool[PT_COUNT];
     pi_tslot slot[PT_COUNT];
+    jw edit_before, edit_after; /* the file an edit changed, before and after (tools.h preview), for its details */
+    int edit_seen;
 };
 
 enum { PI_NO_TOOLS_NONE, PI_NO_TOOLS_ALL, PI_NO_TOOLS_BUILTIN };   /* main.ts:540-544 noTools: undefined, "all", "builtin" */
