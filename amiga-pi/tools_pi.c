@@ -1137,6 +1137,52 @@ static void apply_modifiers(unsigned *on, const char *list)
     }
 }
 
+/* toolPatternRegExp (core/mcp-servers.ts:11-19): '*' matches any run of characters, every other character itself */
+int pi_tool_glob(const char *pattern, const char *name)
+{
+    if (!*pattern)
+        return !*name;
+    if (*pattern == '*') {
+        for (;; name++) {
+            if (pi_tool_glob(pattern + 1, name))
+                return 1;
+            if (!*name)
+                return 0;
+        }
+    }
+    return *name && *pattern == *name && pi_tool_glob(pattern + 1, name + 1);
+}
+
+/* createToolNameMatcher(entries)(name): an entry is the name, or a pattern with '*' that matches it */
+static int list_matches(const char *list, const char *name)
+{
+    const char *q = list ? list : "";
+    char e[64];
+    while (next_entry(&q, e, sizeof(e)))
+        if (!is_modifier(e) && (strchr(e, '*') ? pi_tool_glob(e, name) : !strcmp(e, name)))
+            return 1;
+    return 0;
+}
+
+int pi_tools_ext_allowed(const pi_tools *p, const char *list, const char *name)
+{
+    const char *q = list ? list : "";
+    char e[64];
+    int mods = 0, on = 0;
+    while (next_entry(&q, e, sizeof(e)))
+        mods |= is_modifier(e);
+    if (!mods)
+        return list && *list ? list_matches(list, name) : !p->no_tools;
+    if (!p->no_tools)
+        return 1;                       /* +name and -name entries change the default selection; nothing is filtered */
+    /* --no-tools with modifiers: allowedToolNames is applyToolModifiers([], list) (sdk.ts:287-291) */
+    q = list;
+    while (next_entry(&q, e, sizeof(e)))
+        if (is_modifier(e) && !strcmp(e + 1, name))
+            on = e[0] == '+';
+    return on;
+}
+
 #define PI_DEFAULT_TOOLS ((1u << PT_READ) | (1u << PT_BASH) | (1u << PT_EDIT) | (1u << PT_WRITE))
 
 void pi_tools_defaults(pi_tools *p, const char *entries, int no_tools)
@@ -1189,15 +1235,11 @@ int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long c
             /* only +name/-name entries: they change the default selection (sdk.ts:284-286) */
             apply_modifiers(&on, list);
         } else {
-            /* an allowlist of plain names, "*" for every tool */
+            /* an allowlist of plain names and patterns ("*" every tool, "gre*" grep) */
             on = 0;
-            q = list;
-            while (next_entry(&q, name, sizeof(name))) {
-                if (!strcmp(name, "*"))
-                    on = (1u << PT_COUNT) - 1;
-                else if (pi_tools_kind(name) >= 0)
-                    on |= 1u << pi_tools_kind(name);
-            }
+            for (i = 0; i < PT_COUNT; i++)
+                if (list_matches(list, names[i]))
+                    on |= 1u << i;
         }
     }
     /* user bash runs the backend whatever the list (agent-session.ts:3841-3858 createLocalBashOperations) */

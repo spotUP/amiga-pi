@@ -580,6 +580,7 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     jw_init(&content);
     jw_reset(&s->structured);
     jw_reset(&s->details);
+    s->result_error = 0;
     if (b->a.n)
         jw_raw(&args, b->a.p, b->a.n);
     else
@@ -629,7 +630,7 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
         s->call_args = 0;
         if (!content.n)
             jw_rawz(&content, "[]");
-        thrown = is_error;              /* the tool's own failure: its result has details {}; an extension's isError does not */
+        thrown = is_error && !s->result_error;  /* the tool's own failure: its result has details {}; an extension's isError does not */
         s->ext.structured = &s->structured;     /* a tool_result extension may replace them with the content */
         s->ext.details = &s->details;
         s->ext.thrown = thrown;
@@ -644,6 +645,7 @@ static int run_call(pi_session *s, const llm_ablock *b, int length_stop)
     e.result = content.p;
     e.result_n = content.n;
     e.is_error = is_error;
+    e.result_error = s->result_error;
     if (thrown < 0)
         thrown = is_error;
     e.thrown = thrown;
@@ -1154,27 +1156,36 @@ static int prompt_run(pi_session *s, const char *typed)
     return rc;
 }
 
-/* agent-session.ts prompt(): the extensions' input event (1993) comes before the skill command and the prompt template expand
- * (2005-2010; prompt_run) and before the compaction check; "handled" ends the call with no run, "transform" is the new text */
+/* preflightResult("handled"): the prompt ended with no run (an extension command ran, or the input event consumed it) */
+static int prompt_handled(pi_session *s)
+{
+    s->err[0] = 0;
+    if (s->started) {
+        void (*f)(void *) = s->started;
+        s->started = 0;
+        s->disposition = "handled";
+        f(s->started_u);
+        s->disposition = 0;
+    }
+    return 0;
+}
+
+/* agent-session.ts prompt(): a registered extension command runs first (1977-1983), then the extensions' input event (1993)
+ * comes before the skill command and the prompt template expand (2005-2010; prompt_run) and before the compaction check;
+ * "handled" ends the call with no run, "transform" is the new text */
 int pi_prompt(pi_session *s, const char *text)
 {
     jw t;
     int rc;
+    if (text && text[0] == '/' && pi_exts_run_command(&s->ext, text))
+        return prompt_handled(s);
     if (!text || !s->ext.n)
         return prompt_run(s, text);
     jw_init(&t);
     jw_rawz(&t, text);
     if (pi_exts_input(&s->ext, &t)) {
         jw_free(&t);
-        s->err[0] = 0;
-        if (s->started) {               /* preflightResult("handled") */
-            void (*f)(void *) = s->started;
-            s->started = 0;
-            s->disposition = "handled";
-            f(s->started_u);
-            s->disposition = 0;
-        }
-        return 0;
+        return prompt_handled(s);
     }
     rc = prompt_run(s, t.p ? t.p : "");
     jw_free(&t);

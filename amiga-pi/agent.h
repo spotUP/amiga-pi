@@ -145,6 +145,12 @@ typedef struct pi_session {
      * entry); 0, -1 */
     int (*omit)(void *u, struct pi_session *s, int i);
     void *omit_u;
+    /* pi.appendEntry (agent-session.ts bindExtensions' appendEntry): a custom entry -- customType and data, a JSON value or 0
+     * -- appended to the session and announced as entry_appended; 0, -1 */
+    int (*append_entry)(void *u, struct pi_session *s, const char *custom_type, const char *data);
+    void *append_u;
+    int result_error;           /* the tool running now returned a result with isError set, which is no thrown error (an extension's
+                                 * tool; its details stay as it gave them): reset by the loop before each call */
     int active;                 /* a prompt is running (pi's isStreaming) */
     int retry_waiting;          /* the run waits out a retry delay (abort_retry cuts only this) */
     int aborted;                /* pi's _agentRunAbortRequested (agent-session.ts abort(), 1.1.0): set by the abort of a run in

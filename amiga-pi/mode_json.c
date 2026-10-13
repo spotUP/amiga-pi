@@ -194,7 +194,7 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
             jw_rawz(w, ",\"structuredContent\":");
             jw_raw(w, e->structured, e->structured_n);
         }
-        if (e->details && e->is_error)
+        if ((e->details && e->is_error) || e->result_error)
             jw_rawz(w, ",\"isError\":true");
         if (e->thrown && !e->structured && !e->details)     /* a thrown error has details {}; bash's non-zero exit is a result */
             jw_rawz(w, ",\"details\":{}");

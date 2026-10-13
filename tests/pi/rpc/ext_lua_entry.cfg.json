@@ -1,0 +1,26 @@
+{
+ "mode": "json",
+ "args": [
+  "note it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"session_start\", function() pi.appendEntry(\"boot\", { n = 1 }) end)\npi.registerTool({\n  name = \"note\", label = \"note\", description = \"note tool.\",\n  parameters = { type = \"object\", properties = { text = { type = \"string\" } }, required = { \"text\" } },\n  execute = function(toolCallId, params, signal, onUpdate, ctx)\n    pi.appendEntry(\"note\", { text = params.text, tags = { \"a\", \"b\" } })\n    pi.appendEntry(\"bare\")\n    return { content = { { type = \"text\", text = \"noted\" } }, details = {} }\n  end,\n})\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "requests": true,
+ "golden": "ext_entry",
+ "canonical": true
+}

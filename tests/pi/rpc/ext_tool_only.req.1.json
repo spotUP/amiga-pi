@@ -1,0 +1,38 @@
+{
+ "tools": [
+  {
+   "name": "greet",
+   "description": "greet tool.",
+   "eager_input_streaming": true,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "Who to greet"
+     }
+    },
+    "required": [
+     "name"
+    ]
+   },
+   "cache_control": {
+    "type": "ephemeral"
+   }
+  }
+ ],
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "greet Ada",
+     "cache_control": {
+      "type": "ephemeral"
+     }
+    }
+   ]
+  }
+ ]
+}

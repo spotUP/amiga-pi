@@ -8,12 +8,16 @@
 #include "ext_payload.h"
 #include "claude/util.h"
 #include "claude/path.h"
+#include "claude/schema.h"
 
 long pi_lua_calls;
+long pi_lua_tool_calls;
 
 #define K_HANDLERS "pi.handlers"        /* registry: event name -> array of handler functions */
 #define K_CTX "pi.ctx"                  /* registry: the ctx table every handler gets */
 #define K_ARRAY "pi.array"              /* registry: the metatable that marks a table as a JSON array */
+#define K_TOOLS "pi.tools"              /* registry: tool slot + 1 -> its execute function */
+#define K_CMDS "pi.commands"            /* registry: command slot + 1 -> its handler function */
 
 static pi_lua_ext *self(lua_State *L)
 {
@@ -504,6 +508,537 @@ static int ctx_trusted(lua_State *L)
     return 1;
 }
 
+static void ext_error_at(pi_lua_ext *x, const char *shown, const char *msg);
+static void settle(pi_lua_ext *x, int top);
+
+/* ---- tools, commands and entries an extension registers (L4, L6) ---- */
+
+static void tell(pi_lua *h, const char *m);
+
+static char *dupn(const char *s, size_t n)
+{
+    char *p = (char *)malloc(n + 1);
+    if (p) {
+        memcpy(p, s, n);
+        p[n] = 0;
+    }
+    return p;
+}
+
+/* agent-session.ts _normalizePromptSnippet: the text on one line, white space collapsed; 0 when nothing is left */
+static char *normal_snippet(const char *s)
+{
+    size_t n = strlen(s), i, k = 0;
+    char *p = (char *)malloc(n + 1);
+    int space = 0;
+    if (!p)
+        return 0;
+    for (i = 0; i < n; i++) {
+        char c = s[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            space = k > 0;
+            continue;
+        }
+        if (space)
+            p[k++] = ' ';
+        space = 0;
+        p[k++] = c;
+    }
+    p[k] = 0;
+    if (!k) {
+        free(p);
+        return 0;
+    }
+    return p;
+}
+
+static void free_tool(pi_lua_tool *t)
+{
+    int i;
+    free(t->name);
+    free(t->desc);
+    free(t->params);
+    free(t->snippet);
+    free(t->constrained);
+    for (i = 0; t->guide && t->guide[i]; i++)
+        free(t->guide[i]);
+    free(t->guide);
+    t->name = t->desc = t->params = t->snippet = t->constrained = 0;
+    t->guide = 0;
+}
+
+static void free_registered(pi_lua_ext *x)
+{
+    int i;
+    for (i = 0; i < x->ntool; i++)
+        free_tool(&x->tool[i]);
+    for (i = 0; i < x->ncmd; i++) {
+        free(x->cmd[i]);
+        free(x->cmd_desc[i]);
+    }
+    x->ntool = x->ncmd = 0;
+}
+
+static int lt_run(void *u, pi_session *s, const char *args, long an, jw *content, int *is_error);
+
+/* the tool joins the session's tools (a tool of that name from a built-in is replaced as agent-session.ts
+ * _refreshToolRegistry does, an earlier extension's wins as runner.ts getAllRegisteredTools), when --tools allows it */
+static void add_tool(pi_lua_ext *x, pi_lua_tool *t)
+{
+    pi_lua *h = x->host;
+    pi_session *s = h->s;
+    int i;
+    if (t->in_session || (h->tool_allowed && !h->tool_allowed(h->tool_u, t->name)))
+        return;
+    for (i = 0; i < s->ntools; i++)
+        if (!strcmp(s->tools[i]->name, t->name)) {
+            if (s->tools[i]->run != lt_run)
+                s->tools[i] = &t->t;
+            else
+                return;
+            t->in_session = 1;
+            return;
+        }
+    if (pi_tool_add(s, &t->t))
+        tell(h, "Too many tools: the extension's tool is not available");
+    else
+        t->in_session = 1;
+}
+
+/* the commands and tools an extension registered while it loaded, put in the session's lists once it loaded */
+static void commit(pi_lua_ext *x)
+{
+    int i;
+    x->loaded = 1;
+    for (i = 0; i < x->ncmd; i++)
+        pi_exts_add_command(&x->host->s->ext, &x->ext, x->cmd[i], x->cmd_desc[i], i);
+    for (i = 0; i < x->ntool; i++)
+        add_tool(x, &x->tool[i]);
+}
+
+/* the field key of the table at idx as a string, 0 when it is not one (the pointer is valid while the value stays in the table) */
+static const char *str_field(lua_State *L, int idx, const char *key)
+{
+    const char *r;
+    lua_getfield(L, idx, key);
+    r = lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : 0;
+    lua_pop(L, 1);
+    return r;
+}
+
+/* the value at idx encoded into w (a table that is empty or an array of blocks); 0 or the reason */
+static int enc_to(lua_State *L, int idx, jw *w, char *err, long cap)
+{
+    jw_reset(w);
+    return enc_protected(L, idx, w, err, cap);
+}
+
+/* pi.registerTool(def): types.ts ToolDefinition as a table (loader.ts:289-301) */
+static int pi_register_tool(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    pi_lua_tool *t;
+    const char *name, *desc, *snip;
+    char err[200], msg[400];
+    jw params, cons;
+    char **guide = 0;
+    int i, n = 0, ng = 0, rc = 0;
+    luaL_checktype(L, 1, LUA_TTABLE);
+    name = str_field(L, 1, "name");
+    if (!name || !*name)
+        return luaL_error(L, "pi.registerTool: the tool needs a name");
+    lua_getfield(L, 1, "parameters");                       /* 2 */
+    if (lua_type(L, 2) != LUA_TTABLE || lua_rawlen(L, 2) > 0) {
+        cl_copy(msg, "Tool \"", sizeof(msg));
+        cl_cat(msg, name, sizeof(msg));
+        cl_cat(msg, "\" registered by extension \"", sizeof(msg));
+        cl_cat(msg, x->path, sizeof(msg));
+        cl_cat(msg, "\" must define an object parameter schema.", sizeof(msg));
+        return luaL_error(L, "%s", msg);
+    }
+    lua_getfield(L, 1, "promptGuidelines");                 /* 3 */
+    if (lua_type(L, 3) == LUA_TTABLE) {
+        ng = (int)lua_rawlen(L, 3);
+        for (i = 1; i <= ng; i++) {
+            lua_rawgeti(L, 3, (lua_Integer)i);
+            if (lua_type(L, -1) != LUA_TSTRING)
+                return luaL_error(L, "pi.registerTool: promptGuidelines must be an array of strings");
+            lua_pop(L, 1);
+        }
+    }
+    if (x->ntool == PI_LUA_TOOLS) {
+        for (i = 0; i < x->ntool; i++)
+            if (!strcmp(x->tool[i].name, name))
+                break;
+        if (i == x->ntool)
+            return luaL_error(L, "pi.registerTool: too many tools (at most %d per extension)", PI_LUA_TOOLS);
+    }
+    jw_init(&params);
+    jw_init(&cons);
+    if (enc_to(L, 2, &params, err, sizeof(err))) {
+        jw_free(&params);
+        jw_free(&cons);
+        return luaL_error(L, "pi.registerTool: parameters: %s", err);
+    }
+    lua_getfield(L, 1, "constrainedSampling");              /* 4 */
+    if (lua_type(L, 4) == LUA_TTABLE && enc_to(L, 4, &cons, err, sizeof(err))) {
+        jw_free(&params);
+        jw_free(&cons);
+        return luaL_error(L, "pi.registerTool: constrainedSampling: %s", err);
+    }
+    desc = str_field(L, 1, "description");
+    snip = str_field(L, 1, "promptSnippet");
+    /* nothing below raises a Lua error: what is allocated is freed on the way out */
+    for (i = 0; i < x->ntool; i++)
+        if (!strcmp(x->tool[i].name, name))
+            break;
+    n = i;
+    t = &x->tool[n];
+    if (n < x->ntool)
+        free_tool(t);                                       /* the extension registers the name again: it replaces the first */
+    else {
+        memset(t, 0, sizeof(*t));
+        x->ntool++;
+    }
+    t->x = x;
+    t->idx = n;
+    t->name = dupn(name, strlen(name));
+    t->desc = dupn(desc ? desc : "", desc ? strlen(desc) : 0);
+    t->params = dupn(params.p ? params.p : "{}", params.p ? (size_t)params.n : 2);
+    t->snippet = snip ? normal_snippet(snip) : 0;
+    t->constrained = cons.n ? dupn(cons.p, (size_t)cons.n) : 0;
+    guide = (char **)calloc((size_t)ng + 1, sizeof(char *));
+    if (guide) {
+        int k = 0, j;
+        for (i = 1; i <= ng; i++) {
+            const char *g, *e;
+            size_t len;
+            lua_rawgeti(L, 3, (lua_Integer)i);
+            g = lua_tostring(L, -1);
+            while (*g == ' ' || *g == '\t' || *g == '\r' || *g == '\n')
+                g++;
+            e = g + strlen(g);
+            while (e > g && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '\r' || e[-1] == '\n'))
+                e--;
+            len = (size_t)(e - g);
+            for (j = 0; j < k; j++)                         /* _normalizePromptGuidelines: trimmed, empty ones and repeats dropped */
+                if (strlen(guide[j]) == len && !memcmp(guide[j], g, len))
+                    break;
+            if (len && j == k && (guide[k] = dupn(g, len)) != 0)
+                k++;
+            lua_pop(L, 1);
+        }
+        if (!k) {
+            free(guide);
+            guide = 0;
+        }
+    }
+    t->guide = guide;
+    jw_free(&params);
+    jw_free(&cons);
+    if (!t->name || !t->desc || !t->params) {
+        rc = 1;
+    } else {
+        memset(&t->t, 0, sizeof(t->t));
+        t->t.name = t->name;
+        t->t.description = t->desc;
+        t->t.parameters = t->params;
+        t->t.snippet = t->snippet;
+        t->t.guide = (const char *const *)t->guide;
+        t->t.constrained = t->constrained;
+        t->t.u = t;
+        t->t.run = lt_run;
+        lua_getfield(L, LUA_REGISTRYINDEX, K_TOOLS);
+        lua_getfield(L, 1, "execute");
+        lua_rawseti(L, -2, (lua_Integer)(n + 1));
+        lua_pop(L, 1);
+        if (x->loaded)
+            add_tool(x, t);
+    }
+    if (rc)
+        return luaL_error(L, "pi.registerTool: out of memory");
+    return 0;
+}
+
+/* pi.registerCommand(name, { description, handler }) (loader.ts:303-322) */
+static int pi_register_command(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    size_t n;
+    const char *name, *desc;
+    char msg[500];
+    int i;
+    if (lua_type(L, 1) != LUA_TSTRING || !(name = lua_tolstring(L, 1, &n)) || n == 0) {
+        cl_copy(msg, "Command registered by extension \"", sizeof(msg));
+        cl_cat(msg, x->path, sizeof(msg));
+        cl_cat(msg, "\" must have a non-empty string name. Use pi.registerCommand(\"name\", { description, handler }).", sizeof(msg));
+        return luaL_error(L, "%s", msg);
+    }
+    if (lua_type(L, 2) != LUA_TTABLE) {
+        lua_pushnil(L);
+        lua_replace(L, 2);
+    } else
+        lua_getfield(L, 2, "handler");                      /* 3 */
+    if (lua_type(L, -1) != LUA_TFUNCTION) {
+        cl_copy(msg, "Command \"/", sizeof(msg));
+        cl_cat(msg, name, sizeof(msg));
+        cl_cat(msg, "\" registered by extension \"", sizeof(msg));
+        cl_cat(msg, x->path, sizeof(msg));
+        cl_cat(msg, "\" must define handler().", sizeof(msg));
+        return luaL_error(L, "%s", msg);
+    }
+    desc = lua_type(L, 2) == LUA_TTABLE ? str_field(L, 2, "description") : 0;
+    for (i = 0; i < x->ncmd; i++)
+        if (!strcmp(x->cmd[i], name))
+            break;
+    if (i == x->ncmd && x->ncmd == PI_LUA_CMDS)
+        return luaL_error(L, "pi.registerCommand: too many commands (at most %d per extension)", PI_LUA_CMDS);
+    {
+        char *nm = i < x->ncmd ? x->cmd[i] : dupn(name, n), *ds = desc ? dupn(desc, strlen(desc)) : 0;
+        if (!nm || (desc && !ds)) {
+            if (i == x->ncmd)
+                free(nm);
+            free(ds);
+            return luaL_error(L, "pi.registerCommand: out of memory");
+        }
+        free(x->cmd_desc[i]);
+        x->cmd[i] = nm;
+        x->cmd_desc[i] = ds;
+        if (i == x->ncmd)
+            x->ncmd++;
+    }
+    lua_getfield(L, LUA_REGISTRYINDEX, K_CMDS);
+    lua_pushvalue(L, 3);
+    lua_rawseti(L, -2, (lua_Integer)(i + 1));
+    lua_pop(L, 1);
+    if (x->loaded)
+        pi_exts_add_command(&x->host->s->ext, &x->ext, x->cmd[i], x->cmd_desc[i], i);
+    return 0;
+}
+
+/* pi.appendEntry(customType, data): not while the extension loads (loader.ts:163 notInitialized); data nil leaves the key out,
+ * as JSON.stringify does for undefined, json.null writes null */
+static int pi_append_entry(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    pi_session *s = x->host->s;
+    const char *type = luaL_checkstring(L, 1);
+    jw w;
+    char err[200];
+    int rc;
+    if (x->loading)
+        return luaL_error(L, "Extension runtime not initialized. Action methods cannot be called during extension loading.");
+    jw_init(&w);
+    if (!lua_isnoneornil(L, 2) && enc_protected(L, 2, &w, err, sizeof(err))) {
+        jw_free(&w);
+        return luaL_error(L, "pi.appendEntry: %s", err);
+    }
+    rc = s->append_entry ? s->append_entry(s->append_u, s, type, w.n ? w.p : 0) : 0;
+    jw_free(&w);
+    if (rc)
+        return luaL_error(L, "pi.appendEntry: the entry could not be written");
+    return 0;
+}
+
+/* onUpdate({ content, details }) of a running tool: a tool_execution_update (agent-loop.ts emitToolExecutionUpdate) */
+static int lt_update(lua_State *L)
+{
+    pi_lua_tool *t = (pi_lua_tool *)lua_touserdata(L, lua_upvalueindex(1));
+    pi_session *s = t->x->host->s;
+    pi_event e;
+    jw c, d;
+    char err[200];
+    luaL_checktype(L, 1, LUA_TTABLE);
+    if (!s->call_id)
+        return 0;
+    jw_init(&c);
+    jw_init(&d);
+    lua_getfield(L, 1, "content");
+    if (lua_istable(L, -1)) {
+        if (enc_to(L, -1, &c, err, sizeof(err))) {
+            jw_free(&c);
+            jw_free(&d);
+            return luaL_error(L, "onUpdate: content: %s", err);
+        }
+        if (c.n == 2 && !memcmp(c.p, "{}", 2))
+            jw_reset(&c);
+    }
+    lua_pop(L, 1);
+    if (!c.n)
+        jw_rawz(&c, "[]");
+    lua_getfield(L, 1, "details");
+    if (!lua_isnil(L, -1) && enc_to(L, -1, &d, err, sizeof(err))) {
+        jw_free(&c);
+        jw_free(&d);
+        return luaL_error(L, "onUpdate: details: %s", err);
+    }
+    lua_pop(L, 1);
+    pi_event_init(&e, PE_TOOL_UPDATE);
+    e.tool_id = s->call_id;
+    e.tool_name = t->name;
+    e.args = s->call_args ? s->call_args : "{}";
+    e.args_n = s->call_args ? s->call_args_n : 2;
+    e.result = c.p;
+    e.result_n = c.n;
+    e.structured = d.n ? d.p : 0;
+    e.structured_n = d.n;
+    pi_emit(&s->em, &e);
+    jw_free(&c);
+    jw_free(&d);
+    return 0;
+}
+
+/* a failed call's text as the tool's error result (agent-loop.ts createErrorToolResult) */
+static int tool_fail(jw *content, const char *text)
+{
+    jw_reset(content);
+    jw_rawz(content, "[");
+    llm_b_text(content, text, (long)strlen(text), 0);
+    jw_rawz(content, "]");
+    return 0;
+}
+
+/* the tool's call: arguments checked against its schema (the same check as the built-in tools and MCP: claude/schema.c),
+ * execute(toolCallId, params, signal, onUpdate, ctx); its result {content, details, structuredContent, isError} or its error */
+static int lt_run(void *u, pi_session *s, const char *args, long an, jw *content, int *is_error)
+{
+    pi_lua_tool *t = (pi_lua_tool *)u;
+    pi_lua_ext *x = t->x;
+    lua_State *L = x->L;
+    jv a, sch;
+    char err[300];
+    int top, rc;
+    *is_error = 1;
+    if (!L) {
+        cl_copy(err, "Extension \"", sizeof(err));
+        cl_cat(err, x->path, sizeof(err));
+        cl_cat(err, "\" is disabled", sizeof(err));
+        return tool_fail(content, err);
+    }
+    if (json_parse(args, an, &a) || json_type(a) != J_OBJ) {
+        cl_copy(err, "Validation failed for tool \"", sizeof(err));
+        cl_cat(err, t->name, sizeof(err));
+        cl_cat(err, "\": the arguments are not a JSON object", sizeof(err));
+        return tool_fail(content, err);
+    }
+    if (!json_parse(t->params, (long)strlen(t->params), &sch) && schema_check(sch, a, err, sizeof(err))) {
+        char m[500];
+        cl_copy(m, "Validation failed for tool \"", sizeof(m));
+        cl_cat(m, t->name, sizeof(m));
+        cl_cat(m, "\":\n  - ", sizeof(m));
+        cl_cat(m, err, sizeof(m));
+        return tool_fail(content, m);
+    }
+    top = lua_gettop(L);
+    lua_getfield(L, LUA_REGISTRYINDEX, K_TOOLS);
+    lua_rawgeti(L, -1, (lua_Integer)(t->idx + 1));
+    lua_remove(L, -2);
+    if (!lua_isfunction(L, -1)) {
+        lua_settop(L, top);
+        return tool_fail(content, "tool.execute is not a function");
+    }
+    lua_pushstring(L, s && s->call_id ? s->call_id : "call");
+    if (push_json(L, args, an)) {
+        lua_settop(L, top);
+        settle(x, top);
+        return tool_fail(content, "out of memory");
+    }
+    lua_pushnil(L);                                         /* signal */
+    lua_pushlightuserdata(L, t);
+    lua_pushcclosure(L, lt_update, 1);
+    lua_getfield(L, LUA_REGISTRYINDEX, K_CTX);
+    arm(x);
+    pi_lua_tool_calls++;
+    rc = lua_pcall(L, 5, 1, 0);
+    if (rc != LUA_OK) {
+        /* a thrown error is the tool's error result with details {} (the loop's `thrown`) */
+        cl_copy(err, lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "the error value is not a string", sizeof(err));
+        lua_settop(L, top);
+        return tool_fail(content, err);
+    }
+    if (!lua_istable(L, -1)) {
+        lua_settop(L, top);
+        return tool_fail(content, "the tool must return a table with content");
+    }
+    {
+        jw w;
+        int ok = 1;
+        jw_init(&w);
+        lua_getfield(L, -1, "content");
+        if (lua_istable(L, -1) && enc_to(L, -1, &w, err, sizeof(err)) == 0) {
+            if (w.n == 2 && !memcmp(w.p, "{}", 2))
+                jw_reset(&w);
+            jw_reset(content);
+            jw_raw(content, w.n ? w.p : "[]", w.n ? w.n : 2);
+        } else if (lua_isnil(L, -1)) {
+            jw_reset(content);
+            jw_rawz(content, "[]");
+        } else
+            ok = 0;
+        lua_pop(L, 1);
+        if (ok && s) {
+            lua_getfield(L, -1, "details");
+            if (!lua_isnil(L, -1) && enc_to(L, -1, &w, err, sizeof(err)) == 0) {
+                jw_reset(&s->details);
+                jw_raw(&s->details, w.p, w.n);
+            }
+            lua_pop(L, 1);
+            lua_getfield(L, -1, "structuredContent");
+            if (!lua_isnil(L, -1) && enc_to(L, -1, &w, err, sizeof(err)) == 0) {
+                jw_reset(&s->structured);
+                jw_raw(&s->structured, w.p, w.n);
+            }
+            lua_pop(L, 1);
+        }
+        jw_free(&w);
+        if (!ok) {
+            lua_settop(L, top);
+            return tool_fail(content, "the tool's content must be an array of blocks");
+        }
+    }
+    lua_getfield(L, -1, "isError");
+    *is_error = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    if (*is_error && s)
+        s->result_error = 1;                                /* the result carries isError: it is no thrown error */
+    lua_settop(L, top);
+    return 0;
+}
+
+/* a registered command run: handler(args, ctx) (agent-session.ts _tryExecuteExtensionCommand); an error is told as pi tells it,
+ * "command:<name>" the extension, and the extension stops like for any handler error */
+static int lx_command(void *u, int handle, const char *args)
+{
+    pi_lua_ext *x = (pi_lua_ext *)u;
+    lua_State *L = x->L;
+    int top, rc;
+    char err[300], shown[140];
+    if (!L) {
+        cl_copy(err, "Extension \"", sizeof(err));
+        cl_cat(err, x->path, sizeof(err));
+        cl_cat(err, "\" is disabled", sizeof(err));
+        tell(x->host, err);
+        return -1;
+    }
+    top = lua_gettop(L);
+    lua_getfield(L, LUA_REGISTRYINDEX, K_CMDS);
+    lua_rawgeti(L, -1, (lua_Integer)(handle + 1));
+    lua_remove(L, -2);
+    lua_pushstring(L, args);
+    lua_getfield(L, LUA_REGISTRYINDEX, K_CTX);
+    arm(x);
+    pi_lua_calls++;
+    rc = lua_pcall(L, 2, 0, 0);
+    if (rc != LUA_OK) {
+        cl_copy(err, lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "the error value is not a string", sizeof(err));
+        cl_copy(shown, "command:", sizeof(shown));
+        cl_cat(shown, x->cmd[handle], sizeof(shown));
+        ext_error_at(x, shown, err);
+    }
+    settle(x, top);
+    return rc == LUA_OK ? 0 : -1;
+}
+
 /* the state's contents, in a protected call (memory errors raise) */
 static int c_setup(lua_State *L)
 {
@@ -530,6 +1065,10 @@ static int c_setup(lua_State *L)
     lua_pop(L, 1);
     lua_newtable(L);
     lua_setfield(L, LUA_REGISTRYINDEX, K_HANDLERS);
+    lua_newtable(L);
+    lua_setfield(L, LUA_REGISTRYINDEX, K_TOOLS);
+    lua_newtable(L);
+    lua_setfield(L, LUA_REGISTRYINDEX, K_CMDS);
     /* json */
     lua_newtable(L);
     lua_pushcfunction(L, l_json_encode);
@@ -552,6 +1091,12 @@ static int c_setup(lua_State *L)
     lua_newtable(L);
     lua_pushcfunction(L, pi_on);
     lua_setfield(L, -2, "on");
+    lua_pushcfunction(L, pi_register_tool);
+    lua_setfield(L, -2, "registerTool");
+    lua_pushcfunction(L, pi_register_command);
+    lua_setfield(L, -2, "registerCommand");
+    lua_pushcfunction(L, pi_append_entry);
+    lua_setfield(L, -2, "appendEntry");
     lua_setglobal(L, "pi");
     return 0;
 }
@@ -565,17 +1110,23 @@ static void tell(pi_lua *h, const char *m)
         h->s->h.notice(h->s->h.u, m);
 }
 
-/* pi's text for an extension that failed: interactive-mode.ts showExtensionError, and the extension stops */
-static void ext_error(pi_lua_ext *x, const char *msg)
+/* pi's text for an extension that failed: interactive-mode.ts showExtensionError, and the extension stops; shown is the
+ * path pi names (the file's, or "command:<name>" for a command's handler: agent-session.ts _tryExecuteExtensionCommand) */
+static void ext_error_at(pi_lua_ext *x, const char *shown, const char *msg)
 {
     char m[900];
     cl_copy(m, "Extension \"", sizeof(m));
-    cl_cat(m, x->path, sizeof(m));
+    cl_cat(m, shown, sizeof(m));
     cl_cat(m, "\" error: ", sizeof(m));
     cl_cat(m, msg, sizeof(m) - 40);
     cl_cat(m, " (the extension is disabled)", sizeof(m));
     x->disabled = 1;
     tell(x->host, m);
+}
+
+static void ext_error(pi_lua_ext *x, const char *msg)
+{
+    ext_error_at(x, x->path, msg);
 }
 
 /* after a dispatch, back on the stack's base: a disabled extension's state is closed */
@@ -899,7 +1450,8 @@ static const char *base_name(const char *path)
     return sl && (!co || sl > co) ? sl + 1 : co ? co + 1 : path;
 }
 
-int pi_lua_load(pi_lua *h, const char *path)
+/* one extension file of the given SourceInfo scope and baseDir (loader.ts createSourceInfo): 0 loaded and listed, -1 failed */
+static int load_file(pi_lua *h, const char *path, const char *scope, const char *base)
 {
     pi_lua_ext *x;
     char *src = 0, err[400], chunk[120];
@@ -919,6 +1471,13 @@ int pi_lua_load(pi_lua *h, const char *path)
     x->host = h;
     cl_copy(x->path, path, sizeof(x->path));
     x->ext.name = base_name(x->path);
+    x->ext.rank = PI_EXT_LUA;
+    x->scope = scope;
+    cl_copy(x->base, base ? base : "", sizeof(x->base));
+    x->ext.path = x->path;
+    x->ext.scope = scope;
+    x->ext.base_dir = x->base[0] ? x->base : 0;
+    x->ext.command = lx_command;
     x->ext.u = x;
     x->ext.event = lx_event;
     x->ext.tool_call = lx_tool_call;
@@ -944,7 +1503,9 @@ int pi_lua_load(pi_lua *h, const char *path)
             /* the file is the extension's factory: `pi` is its global and its first argument (types.ts: the factory
              * receives the ExtensionAPI) */
             lua_getglobal(L, "pi");
+            x->loading = 1;
             rc = lua_pcall(L, 1, 0, 0);
+            x->loading = 0;
         }
     }
     CL_FREE(src);
@@ -953,6 +1514,7 @@ int pi_lua_load(pi_lua *h, const char *path)
         load_failed(h, path, err);
         lua_close(L);
         x->L = 0;
+        free_registered(x);
         return -1;
     }
     lua_settop(L, 0);
@@ -960,10 +1522,17 @@ int pi_lua_load(pi_lua *h, const char *path)
         load_failed(h, path, "the extension list is full");
         lua_close(L);
         x->L = 0;
+        free_registered(x);
         return -1;
     }
     h->n++;
+    commit(x);                                  /* the tools and commands it registered while loading join the session now */
     return 0;
+}
+
+int pi_lua_load(pi_lua *h, const char *path)
+{
+    return load_file(h, path, "temporary", 0);
 }
 
 typedef struct names {
@@ -1000,7 +1569,7 @@ static int cmp_name(const void *a, const void *b)
 }
 
 /* loader.ts discoverExtensionsInDir: the files, and the directories with an index (resolveExtensionEntries) */
-static int load_dir(pi_lua *h, const char *dir)
+static int load_dir(pi_lua *h, const char *dir, const char *scope, const char *base)
 {
     names ns;
     int i, loaded = 0;
@@ -1019,7 +1588,7 @@ static int load_dir(pi_lua *h, const char *dir)
                 continue;
             cl_copy(p, q, sizeof(p));
         }
-        if (pi_lua_load(h, p) == 0)
+        if (load_file(h, p, scope, base) == 0)
             loaded++;
     }
     free(ns.n);
@@ -1030,12 +1599,16 @@ int pi_lua_discover(pi_lua *h, const char *agent_dir, const char *data_dir)
 {
     char d[400];
     int loaded = 0;
-    if (h->trusted && h->cwd && h->cwd[0] && !path_join(h->cwd, ".pi/extensions", d, sizeof(d)))
-        loaded += load_dir(h, d);
+    char base[400];
+    /* the files' SourceInfo: a project's extensions are scope "project" with baseDir <cwd>/.pi, the user's "user" with the
+     * agent directory (the data directory for its own) */
+    if (h->trusted && h->cwd && h->cwd[0] && !path_join(h->cwd, ".pi/extensions", d, sizeof(d)) &&
+        !path_join(h->cwd, ".pi", base, sizeof(base)))
+        loaded += load_dir(h, d, "project", base);
     if (agent_dir && agent_dir[0] && !path_join(agent_dir, "extensions", d, sizeof(d)))
-        loaded += load_dir(h, d);
+        loaded += load_dir(h, d, "user", agent_dir);
     if (data_dir && data_dir[0] && (!agent_dir || strcmp(data_dir, agent_dir)) && !path_join(data_dir, "extensions", d, sizeof(d)))
-        loaded += load_dir(h, d);
+        loaded += load_dir(h, d, "user", data_dir);
     return loaded;
 }
 
@@ -1050,10 +1623,12 @@ int pi_lua_active(const pi_lua *h)
 void pi_lua_free(pi_lua *h)
 {
     int i;
-    for (i = 0; i < h->n; i++)
+    for (i = 0; i < h->n; i++) {
         if (h->x[i].L) {
             lua_close(h->x[i].L);
             h->x[i].L = 0;
         }
+        free_registered(&h->x[i]);
+    }
     h->n = 0;
 }

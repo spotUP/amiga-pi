@@ -1,0 +1,24 @@
+{
+ "mode": "json",
+ "args": [
+  "--tools",
+  "read",
+  "greet Ada"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "import { appendFileSync } from \"node:fs\";\nexport default function (pi) {\n  pi.registerTool({\n    name: \"greet\", label: \"greet\", description: \"greet tool.\", promptSnippet: \"Greet a person by name\", promptGuidelines: [\"Use greet when asked to greet someone.\"],\n    parameters: { type: \"object\", properties: { name: { type: \"string\", description: \"Who to greet\" } }, required: [\"name\"] },\n    async execute(toolCallId, params, signal, onUpdate, ctx) {\n      appendFileSync(\"exec.jsonl\", JSON.stringify({ toolCallId, params }) + \"\\n\");\n      onUpdate({ content: [{ type: \"text\", text: \"greeting \" + params.name }], details: { step: 1 } });\n      return { content: [{ type: \"text\", text: \"Hello, \" + params.name + \"!\" }], details: { greeted: params.name } };\n    },\n  });\n  pi.registerTool({\n    name: \"flaky\", label: \"flaky\", description: \"flaky tool.\",\n    parameters: { type: \"object\", properties: {} },\n    async execute(toolCallId, params, signal, onUpdate, ctx) {\n      return { content: [{ type: \"text\", text: \"flaked\" }], details: { code: 7 }, isError: true };\n    },\n  });\n  pi.registerTool({\n    name: \"boom\", label: \"boom\", description: \"boom tool.\",\n    parameters: { type: \"object\", properties: {} },\n    async execute(toolCallId, params, signal, onUpdate, ctx) {\n      throw new Error(\"boom\");\n    },\n  });\n  pi.registerTool({\n    name: \"soft\", label: \"soft\", description: \"soft tool.\",\n    parameters: { type: \"object\", properties: {} },\n    async execute(toolCallId, params, signal, onUpdate, ctx) {\n      return { content: [{ type: \"text\", text: \"soft failure\" }], isError: true };\n    },\n  });\n}\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "requests": true
+}

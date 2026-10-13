@@ -42,6 +42,8 @@ void pi_ui_set_commands(const cl_cmd *cmds, int n);
 /* more rows after the built-in ones, by slot (0 prompt templates; the others for the other kinds of command, in pi's
  * order); the array stays valid until the run ends, 0 clears the slot */
 void pi_ui_set_extra_commands(int slot, const cl_cmd *cmds, int n);
+/* the slash menu's rows for the commands extensions registered (ext.h): malloc'ed rows and their text, freed by the caller; the count */
+int pi_ui_ext_menu(const pi_exts *x, cl_cmd **menu, char **menu_text);
 /* -p: 0 when the answer completed (stop), 1 otherwise (the error on io) */
 int pi_ui_print(pi_session *s, cl_io *io, const char *prompt);
 /* the conversation until /exit, /quit or the end of input; first: a prompt

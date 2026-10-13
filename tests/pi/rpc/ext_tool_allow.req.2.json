@@ -1,0 +1,70 @@
+{
+ "tools": [
+  {
+   "name": "read",
+   "description": "Read the contents of a file. Supports text files and images (jpg, png, gif, webp, bmp). Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.",
+   "eager_input_streaming": true,
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string",
+      "description": "Path to the file to read (relative or absolute)"
+     },
+     "offset": {
+      "type": "number",
+      "description": "Line number to start reading from (1-indexed)"
+     },
+     "limit": {
+      "type": "number",
+      "description": "Maximum number of lines to read"
+     }
+    },
+    "required": [
+     "path"
+    ]
+   },
+   "cache_control": {
+    "type": "ephemeral"
+   }
+  }
+ ],
+ "messages": [
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "greet Ada"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_1",
+     "name": "greet",
+     "input": {
+      "name": "Ada"
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_1",
+     "content": "Tool greet not found",
+     "is_error": true,
+     "cache_control": {
+      "type": "ephemeral"
+     }
+    }
+   ]
+  }
+ ]
+}

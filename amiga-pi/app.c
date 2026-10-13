@@ -598,6 +598,12 @@ static pi_session s;
 static pi_models models;
 static pi_tools tools;
 static pi_gate gate;
+
+/* --tools and --no-tools on the tools Lua extensions register (ext_lua.h tool_allowed; tools_pi.h) */
+static int ext_tool_allowed(void *u, const char *name)
+{
+    return pi_tools_ext_allowed((const pi_tools *)u, a.tools, name);
+}
 static pi_hooks hooks;
 static pi_lua lua;
 static pi_store store;
@@ -761,8 +767,9 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
             pi_gate_project(&gate, pl->data_dir, pl->cwd);
         if (a.gate >= 0)
             gate.on = a.gate;
-        /* the hook commands (ext_hooks.h) before the gate: a hook that rewrites a call's arguments is seen by the
-         * gate's decision, as Claude Code's PreToolUse hooks come before its permission check; one list (L8) */
+        /* the gate, the hook commands (ext_hooks.h) and the Lua extensions (below) are entries of the one list (ext.h): each
+         * names its rank and pi_ext_add puts it in place, so the order is read from the list and not from this function (L8) */
+        pi_ext_add(&s.ext, &gate.ext);
         pi_hooks_init(&hooks, &s, pl->sys, pl->tmp, pl->cwd);
         {
             char *hb, hpath[300];
@@ -773,7 +780,6 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
             }
         }
         pi_hooks_add(&hooks);
-        /* the gate joins the list after the Lua extensions (below, once the project's trust is known) */
     }
     /* project trust (resources.h): -a / -na, a saved decision, defaultProjectTrust, else the question (not in print
      * mode); then the context files, SYSTEM.md and APPEND_SYSTEM.md for the prompt */
@@ -809,12 +815,12 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
             pi_skills_load(&res.skills, pl->sys, &so);
         }
         s.res = &res;
-        /* Lua extensions (ext_lua.h): the project's when it is trusted, then the user's, after the hook commands and ahead
-         * of the gate, so the gate decides on the arguments an extension produced; -ne leaves discovery out */
+        /* Lua extensions (ext_lua.h): the project's when it is trusted, then the user's; -ne leaves discovery out */
         pi_lua_init(&lua, &s, pl->sys, pl->cwd, trusted);
+        lua.tool_allowed = ext_tool_allowed;
+        lua.tool_u = &tools;
         if (!a.no_extensions)
             pi_lua_discover(&lua, pl->agent_dir, pl->data_dir);
-        pi_ext_add(&s.ext, &gate.ext);
     }
     /* prompt templates (templates.h): --prompt-template paths, then the project's (when trusted) and the agent directory's */
     memset(&tmpls, 0, sizeof(tmpls));

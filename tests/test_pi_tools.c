@@ -1040,6 +1040,25 @@ static void test_select(void)
     CHECK_INT(pi_tools_add(&pt, &ses, 0, err, sizeof(err)), 0);
     CHECK_INT(ses.ntools, 0);
     pi_tools_defaults(&pt, 0, 0);
+    /* L4: --tools patterns select built-in tools as well (createToolNameMatcher: "gre*" is grep) */
+    memset(&ses, 0, sizeof(ses));
+    CHECK_INT(pi_tools_add(&pt, &ses, "read,gre*", err, sizeof(err)), 0);
+    names_of(got);
+    CHECK_STR(got, "read,grep");
+    CHECK(pi_tool_glob("mcp__*", "mcp__fake__echo") && !pi_tool_glob("mcp__*", "mcp_x") && pi_tool_glob("a*b*c", "aXXbYc") &&
+          !pi_tool_glob("read", "reads") && pi_tool_glob("*", ""));
+    /* L4: whether a tool an extension registers may join (sdk.ts:282-294 allowedToolNames, agent-session.ts _isAllowedTool):
+     * no flags yes; --no-tools none; a list of names and patterns only what it names (--no-tools or not); only +name / -name
+     * entries every name, or with --no-tools the ones they add */
+    CHECK(pi_tools_ext_allowed(&pt, "", "greet") && pi_tools_ext_allowed(&pt, 0, "greet"));
+    CHECK(!pi_tools_ext_allowed(&pt, "read", "greet") && pi_tools_ext_allowed(&pt, "read,greet", "greet"));
+    CHECK(pi_tools_ext_allowed(&pt, "read,gre*", "greet") && !pi_tools_ext_allowed(&pt, "read,gre*", "other"));
+    CHECK(pi_tools_ext_allowed(&pt, "-greet", "greet") && pi_tools_ext_allowed(&pt, "+ls", "greet"));
+    pi_tools_defaults(&pt, 0, 1);
+    CHECK(!pi_tools_ext_allowed(&pt, 0, "greet") && !pi_tools_ext_allowed(&pt, "", "greet"));
+    CHECK(pi_tools_ext_allowed(&pt, "+greet", "greet") && !pi_tools_ext_allowed(&pt, "+read", "greet"));
+    CHECK(!pi_tools_ext_allowed(&pt, "+greet,-greet", "greet") && pi_tools_ext_allowed(&pt, "greet", "greet"));
+    pi_tools_defaults(&pt, 0, 0);
     CHECK_INT(pi_args_parse(&a, 5, argv), 0);
     CHECK_STR(a.tools, "read,grep");
     CHECK_INT(a.gate, 0);

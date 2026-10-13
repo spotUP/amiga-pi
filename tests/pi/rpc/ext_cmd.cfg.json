@@ -1,0 +1,20 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "import { appendFileSync } from \"node:fs\";\nexport default function (pi) {\n  pi.registerCommand(\"hello\", { description: \"Say hello\", async handler(args, ctx) {\n    appendFileSync(\"cmd.jsonl\", JSON.stringify({ command: \"hello\", args }) + \"\\n\");\n  } });\n  pi.registerCommand(\"quiet\", { async handler(args, ctx) {\n    appendFileSync(\"cmd.jsonl\", JSON.stringify({ command: \"quiet\", args }) + \"\\n\");\n  } });\n}\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "cmd.jsonl"
+ ]
+}

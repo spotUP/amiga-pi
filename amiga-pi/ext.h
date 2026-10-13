@@ -13,9 +13,19 @@
  *               {action: "transform", text}) or consume it ({action:
  *               "handled"}: no run); the first "handled" wins;
  *   session_start the session began (startup) or was replaced (new, resume).
- * One ordered list: the built-in gate, the hook commands (ext_hooks.h) and later
- * extensions are dispatched in the order they were added (plan L8: the gate joins
- * the same list). Portable C89. */
+ * One ordered list (plan L8), kept here and nowhere else: the hook commands (ext_hooks.h),
+ * the Lua extensions (ext_lua.h) in load order, then the permission gate (ext_gate.h). An
+ * extension names its rank (PI_EXT_HOOKS, PI_EXT_LUA, PI_EXT_GATE) and pi_ext_add puts it
+ * in place, so the order does not depend on who registers first; an extension without a rank
+ * (0) goes to the end in the order it was added. A hook that rewrites a call's arguments is
+ * seen by the gate's decision, as Claude Code's PreToolUse hooks come before its permission
+ * check.
+ *   command     a slash command an extension registered (pi.registerCommand): the line
+ *               "/name args" runs its handler before the input event and the prompt
+ *               templates (agent-session.ts prompt() 1977-1983, _tryExecuteExtensionCommand
+ *               2116-2142); get_commands and the slash menu list them, extension by extension
+ *               in list order, each name resolved as runner.ts resolveRegisteredCommands.
+ * Portable C89. */
 #ifndef PI_EXT_H
 #define PI_EXT_H
 
@@ -23,6 +33,12 @@
 #include "events.h"
 
 #define PI_EXTS 16
+#define PI_EXT_CMDS 64                  /* extension commands registered at most */
+
+/* pi_ext.rank: where pi_ext_add puts the extension (0: no rank, the end) */
+#define PI_EXT_HOOKS 1
+#define PI_EXT_LUA 2
+#define PI_EXT_GATE 3
 
 typedef struct pi_ext {
     const char *name;
@@ -39,7 +55,27 @@ typedef struct pi_ext {
     int (*input)(void *u, const char *source, const char *streaming, jw *text);
     /* pi's SessionStartEvent: reason "startup", "reload", "new", "resume", "fork"; prev the previous session file, 0 none */
     void (*session_start)(void *u, const char *reason, const char *prev);
+    int rank;                   /* PI_EXT_*: the place in the list */
+    /* the command registered as handle (pi_exts_add_command) run with args (the text after the first space, "" none):
+     * 0 ran, -1 could not (the extension is gone); the handler's own failure is the extension's to report */
+    int (*command)(void *u, int handle, const char *args);
+    /* pi's SourceInfo of the extension for get_commands: its file, scope ("user", "project", "temporary") and baseDir;
+     * 0 for a built-in */
+    const char *path, *scope, *base_dir;
 } pi_ext;
+
+/* a command an extension registered; name and description belong to the owner */
+typedef struct pi_ext_cmd {
+    const pi_ext *owner;
+    const char *name, *description;     /* description 0: none */
+    int handle;
+} pi_ext_cmd;
+
+/* a command as the list shows it (get_commands, the slash menu): invocation is the name /invocation runs */
+typedef struct pi_ext_rcmd {
+    const pi_ext_cmd *c;
+    char invocation[120];
+} pi_ext_rcmd;
 
 typedef struct pi_exts {
     const pi_ext *e[PI_EXTS];
@@ -53,11 +89,22 @@ typedef struct pi_exts {
     jw *structured, *details;
     int turn;                   /* turn_start's turnIndex: 0 at agent_start, +1 after each turn_end (kept by pi_exts_event) */
     int thrown;                 /* the tool itself failed: its result's details are {} when it has none */
+    pi_ext_cmd cmd[PI_EXT_CMDS];
+    int ncmd;
 } pi_exts;
 
 void pi_exts_init(pi_exts *x);
-/* registered after the ones before it: 0, -1 full */
+/* put in its place by rank (after the ones of its rank before it); no rank: at the end. 0, -1 full */
 int pi_ext_add(pi_exts *x, const pi_ext *e);
+/* a slash command of an extension (pi.registerCommand): 0, -1 full. A name the owner registered before is replaced. */
+int pi_exts_add_command(pi_exts *x, const pi_ext *owner, const char *name, const char *description, int handle);
+/* the commands in list order with their invocation names (runner.ts resolveRegisteredCommands: a name more than one
+ * extension registered is name:1, name:2, ... by occurrence, one taken already moves on to the next number); at most max,
+ * the count */
+int pi_exts_commands(const pi_exts *x, pi_ext_rcmd *out, int max);
+/* agent-session.ts _tryExecuteExtensionCommand: the line "/name args" ran a registered command (by invocation name): 1,
+ * 0 not one (the line goes on to the input event). */
+int pi_exts_run_command(pi_exts *x, const char *line);
 /* the emitter's listener (u: the pi_exts) */
 void pi_exts_event(void *u, const pi_event *e);
 /* 1 blocked (reason), 0 run it */

@@ -317,6 +317,7 @@ void pi_hooks_init(pi_hooks *k, pi_session *s, cl_sys *sys, const char *tmp, con
     k->h.cwd = cwd;
     k->h.session_id = s->session_id;
     k->ext.name = "hook-commands";
+    k->ext.rank = PI_EXT_HOOKS;
     k->ext.u = k;
     k->ext.event = hk_event;
     k->ext.tool_call = hk_tool_call;

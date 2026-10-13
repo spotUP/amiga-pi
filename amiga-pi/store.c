@@ -49,6 +49,8 @@ void pi_store_free(pi_store *st)
         st->s->compact_u = 0;
         st->s->declare = 0;
         st->s->declare_u = 0;
+        st->s->append_entry = 0;
+        st->s->append_u = 0;
     }
     jw_free(&st->system);
     jw_free(&st->cp_result);
@@ -764,24 +766,39 @@ static long answer_tokens(pi_store *st, pi_session *s, int when)
     return tokens;
 }
 
-/* pi's context_edit with no replacement for the entry j, announced as entry_appended: -1 when it was not made */
-static int omit_entry(pi_store *st, pi_session *s, int j)
+/* an entry just appended, announced as pi's entry_appended event (agent-session.ts _emit({ type: "entry_appended" })) */
+static void announce_entry(pi_store *st, pi_session *s, int idx)
 {
-    pi_s3 *t = &st->s3;
-    int idx;
     long n;
-    const char *line;
+    const char *line = s3_text(&st->s3, idx, &n);
     pi_event e;
-    idx = s3_context_edit(t, j, 0);
-    if (idx < 0)
-        return -1;
-    line = s3_text(t, idx, &n);
     if (line) {
         pi_event_init(&e, PE_ENTRY_APPENDED);
         e.msg = line;
         e.msg_n = n;
         pi_emit(&s->em, &e);
     }
+}
+
+/* pi's context_edit with no replacement for the entry j, announced as entry_appended: -1 when it was not made */
+static int omit_entry(pi_store *st, pi_session *s, int j)
+{
+    int idx = s3_context_edit(&st->s3, j, 0);
+    if (idx < 0)
+        return -1;
+    announce_entry(st, s, idx);
+    return 0;
+}
+
+/* pi.appendEntry (agent-session.ts:3406-3412): sessionManager.appendCustomEntry, then the entry_appended event. The entry
+ * takes part in no request: ctx_build leaves custom entries out (session-manager.ts buildSessionContext) */
+static int append_custom(void *u, pi_session *s, const char *custom_type, const char *data)
+{
+    pi_store *st = (pi_store *)u;
+    int idx = s3_custom(&st->s3, custom_type, data);
+    if (idx < 0)
+        return -1;
+    announce_entry(st, s, idx);
     return 0;
 }
 
@@ -1134,5 +1151,7 @@ int pi_store_attach(pi_store *st, pi_session *s)
     s->cycle_u = st;
     s->omit = omit_answer;
     s->omit_u = st;
+    s->append_entry = append_custom;
+    s->append_u = st;
     return pi_subscribe(&s->em, on_event, st);
 }
