@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "oauth.h"
-#include "sha256.h"
+#include "llm/sha256.h"
 #include "claude/util.h"
 #include "llm/creds.h"
 
@@ -263,13 +263,13 @@ static int rand_hex(oa_io *io, int n, char *out)
 /* pkce.ts generatePKCE: a 32 byte verifier (base64url) and its SHA-256 challenge */
 static int pkce(oa_io *io, char *verifier, char *challenge)
 {
-    pi_sha256 c;
+    llm_sha256 c;
     unsigned char d[32];
     if (rand_b64(io, 32, verifier))
         return -1;
-    pi_sha256_init(&c);
-    pi_sha256_add(&c, verifier, (long)strlen(verifier));
-    pi_sha256_end(&c, d);
+    llm_sha256_init(&c);
+    llm_sha256_add(&c, verifier, (long)strlen(verifier));
+    llm_sha256_end(&c, d);
     b64url(d, 32, challenge);
     return 0;
 }
