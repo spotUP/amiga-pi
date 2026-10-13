@@ -121,8 +121,13 @@ static int run(int argc, char **argv, const char *const *sse, int nsse)
     pl.utc = 1;
     pl.data_dir = data;
     pl.agent_dir = agent;
-    for (i = 0; i < nsse; i++)
-        ps_sse(sse[i], 0);
+    for (i = 0; i < nsse; i++) {
+        long l = (long)strlen(sse[i]);
+        if (l > 3 && !strcmp(sse[i] + l - 3, ".es"))
+            ps_stream(sse[i], "application/vnd.amazon.eventstream");        /* an AWS event stream (Amazon Bedrock) */
+        else
+            ps_sse(sse[i], 0);
+    }
     return pi_app(argc, argv, &pl);
 }
 
@@ -879,6 +884,92 @@ static void test_azure_no_endpoint(void)
     CHECK(out.p && strstr(out.p, "Azure OpenAI base URL is required. Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME") != 0);
 }
 
+/* M8: bedrock-converse-stream through pi_app. The credentials come from the environment (AWS_ACCESS_KEY_ID and
+ * AWS_SECRET_ACCESS_KEY, AWS_REGION): the request is signed with Signature Version 4 for the region's endpoint and carries
+ * no Authorization: Bearer. Prompt one: the recorded event stream (tests/pi/bedrock/tools2.es) holds two read calls whose
+ * ids the API gave; the second request carries them in toolUse and toolResult blocks, one user message holding both
+ * results. The answer to that is a text (plain.es). The sentinel counts the backend's decoder. */
+static void test_bedrock_reach(void)
+{
+    char *a[] = { "amiga-pi", "--model", "amazon-bedrock/anthropic.claude-sonnet-5-5", 0 };
+    static const char *const sse[] = { "../pi/bedrock/tools2.es", "../pi/bedrock/plain.es" };
+    long f0 = llm_feeds_bedrock;
+    extra_name[0] = "AWS_ACCESS_KEY_ID";
+    extra_val[0] = "AKIDEXAMPLE";
+    extra_name[1] = "AWS_SECRET_ACCESS_KEY";
+    extra_val[1] = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
+    extra_name[2] = "AWS_REGION";
+    extra_val[2] = "eu-west-1";
+    in_lines[0] = "show me the startup sequence";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 2), 0);
+    extra_name[0] = extra_name[1] = extra_name[2] = 0;
+    CHECK_INT(ps.nreq, 2);
+    if (ps.nreq < 2)
+        return;
+    CHECK(strstr(ps.head[0], "POST /model/anthropic.claude-sonnet-5-5/converse-stream HTTP/1.1\r\n"
+                             "Host: bedrock-runtime.eu-west-1.amazonaws.com\r\n") == ps.head[0]);
+    CHECK(strstr(ps.head[0], "Authorization: AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/") != 0 &&
+          strstr(ps.head[0], "/eu-west-1/bedrock/aws4_request, SignedHeaders=content-type;host;x-amz-date, Signature=") != 0);
+    CHECK(strstr(ps.head[0], "x-amz-date: 20251010T1") != 0 && strstr(ps.head[0], "Bearer") == 0);
+    CHECK(strstr(ps.head[0], "wJalrXUtnFEMI") == 0 && strstr(ps.body[0], "wJalrXUtnFEMI") == 0);
+    CHECK(strstr(ps.body[0], "{\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"show me the startup sequence\"},"
+                             "{\"cachePoint\":{\"type\":\"default\"}}]}],\"system\":[{\"text\":") == ps.body[0]);
+    /* the ids the API gave, in the call and in the results; both results in one user message */
+    CHECK(strstr(ps.body[1], "{\"toolUse\":{\"toolUseId\":\"tooluse_abc123\",\"name\":\"read\",\"input\":{\"path\":\"/work/a.txt\"}}}") != 0);
+    CHECK(strstr(ps.body[1], "{\"toolUse\":{\"toolUseId\":\"tooluse_def456\",\"name\":\"read\"") != 0);
+    CHECK(strstr(ps.body[1], "{\"role\":\"user\",\"content\":[{\"toolResult\":{\"toolUseId\":\"tooluse_abc123\",\"content\":[{\"text\":") != 0);
+    CHECK(strstr(ps.body[1], "\"status\":\"error\"}},{\"toolResult\":{\"toolUseId\":\"tooluse_def456\"") != 0);
+    CHECK(out.p && strstr(out.p, "Hello from the Amiga.") != 0);
+    CHECK(llm_feeds_bedrock > f0);
+}
+
+/* M8: a bearer token (AWS_BEARER_TOKEN_BEDROCK) goes in Authorization and nothing is signed, even with access keys set */
+static void test_bedrock_bearer(void)
+{
+    char *a[] = { "amiga-pi", "--model", "amazon-bedrock/amazon.nova-pro-v1:0", 0 };
+    static const char *const sse[] = { "../pi/bedrock/plain.es" };
+    extra_name[0] = "AWS_BEARER_TOKEN_BEDROCK";
+    extra_val[0] = "brk-test-token-not-real";
+    extra_name[1] = "AWS_ACCESS_KEY_ID";
+    extra_val[1] = "AKIDEXAMPLE";
+    extra_name[2] = "AWS_SECRET_ACCESS_KEY";
+    extra_val[2] = "secret";
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 1), 0);
+    extra_name[0] = extra_name[1] = extra_name[2] = 0;
+    CHECK_INT(ps.nreq, 1);
+    if (ps.nreq < 1)
+        return;
+    CHECK(strstr(ps.head[0], "POST /model/amazon.nova-pro-v1%3A0/converse-stream HTTP/1.1\r\n"
+                             "Host: bedrock-runtime.us-east-1.amazonaws.com\r\n") == ps.head[0]);
+    CHECK(strstr(ps.head[0], "Authorization: Bearer brk-test-token-not-real\r\n") != 0 && strstr(ps.head[0], "x-amz-date") == 0);
+    CHECK(out.p && strstr(out.p, "Hello from the Amiga.") != 0);
+}
+
+/* no credential at all: the model is not usable (pi's checkAuth); a profile alone is (pi counts it) and the request says
+ * this build reads no ~/.aws */
+static void test_bedrock_no_credentials(void)
+{
+    char *a[] = { "amiga-pi", "--model", "amazon-bedrock/anthropic.claude-sonnet-5-5", 0 };
+    static const char *const sse[] = { "../pi/bedrock/plain.es" };
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    run(ARGC(a), a, sse, 1);
+    CHECK_INT(ps.nreq, 0);
+    extra_name[0] = "AWS_PROFILE";
+    extra_val[0] = "work";
+    extra_name[1] = "AWS_REGION";
+    extra_val[1] = "eu-west-1";
+    in_lines[0] = "hello";
+    in_lines[1] = 0;
+    run(ARGC(a), a, sse, 1);
+    extra_name[0] = extra_name[1] = 0;
+    CHECK_INT(ps.nreq, 0);
+    CHECK(out.p && strstr(out.p, "No Amazon Bedrock credentials amiga-pi can use") != 0);
+}
+
 void suite_pi_model_reach(void)
 {
     const char *base = getenv("TMPDIR");
@@ -915,5 +1006,8 @@ void suite_pi_model_reach(void)
     test_google_reach();
     test_azure_reach();
     test_azure_no_endpoint();
+    test_bedrock_reach();
+    test_bedrock_bearer();
+    test_bedrock_no_credentials();
     jw_free(&out);
 }
