@@ -22,6 +22,7 @@
 #include "claude/sys_posix.h"
 #include "pi_stub.h"
 #include "../amiga-pi/agent.h"
+#include "../amiga-pi/app.h"
 #include "../amiga-pi/ext_lua.h"
 
 static char root[400];
@@ -577,6 +578,125 @@ static void test_order(void)
     jw_free(&args);
 }
 
+/* ---- through pi_app: discovery, trust and -ne on the real command line ---- */
+
+static jw out;
+
+static llm_ts adv_now(void *u)
+{
+    llm_ts t;
+    static long clock_s;
+    (void)u;
+    t.sec = 1760100000L + clock_s++;
+    t.ms = 7;
+    return t;
+}
+
+static long no_env(const char *name, char *o, long cap)
+{
+    (void)name;
+    (void)o;
+    (void)cap;
+    return -1;
+}
+
+static void l_write(void *u, const char *s, long n)
+{
+    (void)u;
+    jw_raw(&out, s, n);
+}
+
+static int l_brk(void *u)
+{
+    (void)u;
+    return 0;
+}
+
+/* pi_app -p in root/w with the agent directory root/agent, the message hello, one more flag (0 none) */
+static int app_run(const char *flag)
+{
+    cl_io io;
+    pi_platform pl;
+    char cwd[400], agent[400], tmp[420], *argv[16];
+    int a = 0;
+    at(cwd, "app/w");
+    at(agent, "app/agent");
+    mkdirs(cwd);
+    cl_copy(tmp, root, sizeof(tmp));
+    cl_cat(tmp, "/", sizeof(tmp));
+    memset(&io, 0, sizeof(io));
+    io.write = l_write;
+    io.brk = l_brk;
+    jw_free(&out);
+    jw_init(&out);
+    ps_reset();
+    ps_pool_up(LLM_POOL);
+    ps_sse("../pi/openai_text.sse", 0);
+    memset(&pl, 0, sizeof(pl));
+    pl.io = &io;
+    pl.pool = &ps_pool;
+    pl.h.poll = ps_poll;
+    pl.h.sleep = ps_sleep;
+    pl.h.ms = ps_ms;
+    pl.h.resolve = ps_resolve;
+    pl.now = adv_now;
+    pl.getenv = no_env;
+    pl.cwd = cwd;
+    pl.sys = &sys;
+    pl.tmp = tmp;
+    pl.utc = 1;
+    pl.agent_dir = agent;
+    argv[a++] = "amiga-pi";
+    argv[a++] = "-p";
+    argv[a++] = "--no-session";
+    argv[a++] = "--no-mcp";
+    if (flag)
+        argv[a++] = (char *)flag;
+    argv[a++] = "--model";
+    argv[a++] = "fixture/qwen2.5-coder:7b";
+    argv[a++] = "--base-url";
+    argv[a++] = "http://192.168.1.10:11434/v1";
+    argv[a++] = "hello";
+    argv[a] = 0;
+    return pi_app(a, argv, &pl);
+}
+
+static int sent(const char *needle)
+{
+    return ps.nreq >= 1 && strstr(ps.body[0], needle) != 0;
+}
+
+/* the input event of the extensions found by pi_app: the project's (only when trusted: -a) then the user's, each
+ * appending its mark to the text the model gets; -ne finds none */
+static void test_app(void)
+{
+    long c0;
+    put("app/agent/extensions/u.lua", "pi.on('input', function(e) return { action = 'transform', text = e.text .. ' [user]' } end)");
+    put("app/w/.pi/extensions/p.lua", "pi.on('input', function(e) return { action = 'transform', text = e.text .. ' [project]' } end)");
+    c0 = pi_lua_calls;
+    CHECK_INT(app_run("-a"), 0);
+    CHECK(sent("hello [project] [user]"));
+    CHECK_INT(pi_lua_calls - c0, 2);                    /* the sentinel: both handlers ran */
+    CHECK_INT(app_run("-na"), 0);
+    CHECK(sent("hello [user]") && !sent("[project]"));
+    CHECK_INT(app_run(0), 0);                           /* print mode does not trust the project */
+    CHECK(sent("hello [user]") && !sent("[project]"));
+    c0 = pi_lua_calls;
+    CHECK_INT(app_run("--no-extensions"), 0);
+    CHECK(sent("hello") && !sent("[user]") && !sent("[project]"));
+    CHECK_INT(pi_lua_calls - c0, 0);
+    CHECK_INT(app_run("-ne"), 0);
+    CHECK(!sent("[user]"));
+    /* an extension that does not load or throws is told on the console and the prompt still goes out */
+    put("app/agent/extensions/a_bad.lua", "this is not lua");
+    put("app/agent/extensions/b_throw.lua", "pi.on('input', function() error('oops', 0) end)");
+    CHECK_INT(app_run(0), 0);
+    CHECK(sent("hello [user]"));
+    CHECK(strstr(out.p, "Failed to load extension \"") != 0 && strstr(out.p, "a_bad.lua") != 0);
+    CHECK(strstr(out.p, "b_throw.lua\" error: oops (the extension is disabled)") != 0);
+    ps_reset();
+}
+
 void suite_pi_lua(void)
 {
     const char *tmp = getenv("TMPDIR");
@@ -598,6 +718,9 @@ void suite_pi_lua(void)
     test_env();
     test_events_and_api();
     test_order();
+    jw_init(&out);
+    test_app();
+    jw_free(&out);
     {
         char cmd[600];
         strcpy(cmd, "rm -rf ");
