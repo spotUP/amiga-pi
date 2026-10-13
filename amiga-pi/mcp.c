@@ -2330,7 +2330,7 @@ int mcp_search(mcp *m, pi_session *s, const char *query, long limit, jw *text)
     for (k = 0; k < m->n; k++)
         for (j = 0; j < m->srv[k].ntools; j++) {
             mcp_tool *t = &m->srv[k].tools[j];
-            if (t->exposure == MX_DEFERRED && !t->active && m->srv[k].connected)
+            if (t->exposure == MX_DEFERRED && !t->active && !t->blocked && m->srv[k].connected)
                 cand[nc++] = t;
         }
     jw_init(&q);
@@ -2653,12 +2653,15 @@ static void server_section(mcp *m)
 
 int mcp_attach(mcp *m, pi_session *s)
 {
-    int i, j, deferred = 0, rc = 0;
+    int i, j, deferred = 0, rc = 0, search_ok = !m->tool_ok || m->tool_ok(m->tool_u, "tool_search", 0);
     m->s = s;
     for (i = 0; i < m->n; i++) {
-        for (j = 0; j < m->srv[i].ntools; j++)
-            if (m->srv[i].tools[j].exposure == MX_DEFERRED)
+        for (j = 0; j < m->srv[i].ntools; j++) {
+            mcp_tool *t = &m->srv[i].tools[j];
+            t->blocked = m->tool_ok && !m->tool_ok(m->tool_u, t->name, t->exposure == MX_DIRECT);
+            if (t->exposure == MX_DEFERRED && !t->blocked)
                 deferred = 1;
+        }
         if (m->srv[i].enabled && !m->srv[i].connected &&
             (m->srv[i].exposure == MX_DEFERRED || m->srv[i].exposure == MX_CODEMODE))
             deferred = 1;
@@ -2668,11 +2671,11 @@ int mcp_attach(mcp *m, pi_session *s)
     for (i = 0; i < m->n; i++)
         for (j = 0; j < m->srv[i].ntools; j++) {
             mcp_tool *t = &m->srv[i].tools[j];
-            if (t->exposure == MX_DIRECT && s->ntools + (deferred ? 1 : 0) < PI_TOOLS && !pi_tool_add(s, &t->pt))
+            if (t->exposure == MX_DIRECT && !t->blocked && s->ntools + (deferred ? 1 : 0) < PI_TOOLS && !pi_tool_add(s, &t->pt))
                 t->active = 1;
         }
     server_section(m);
-    if (deferred) {
+    if (deferred && search_ok) {
         m->search.name = "tool_search";
         m->search.description = search_desc;
         m->search.parameters = search_params;

@@ -64,6 +64,7 @@ typedef struct mcp_tool {
     char *desc, *params;
     int exposure;               /* MX_* in effect: codemode counts as deferred */
     int active;                 /* declared to the model (direct, or loaded by tool_search) */
+    int blocked;                /* --tools / --no-tools / --exclude-tools leave it out: not declared, not found by tool_search */
     mcp_server *srv;
 } mcp_tool;
 
@@ -105,6 +106,8 @@ typedef struct mcp {
     mcp_server *srv;
     int n, cap;
     jw errors;                  /* one line each: what the config or a connection refused */
+    int (*tool_ok)(void *u, const char *name, int direct);   /* whether a tool (mcp__ name, or tool_search) may join; 0 all */
+    void *tool_u;
     pi_tool search;             /* tool_search, added when a deferred tool exists */
     int search_on;
     jw section;                 /* the mcp_servers section, empty none */

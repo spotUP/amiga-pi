@@ -51,10 +51,13 @@ struct pi_tools {
     char edit_schema[1100], grep_schema[1100];  /* the two schemas over C90's string length, joined */
     char defaults[256];         /* settings.json's defaultTools, joined by commas */
     int defaults_set;           /* the setting is there (an empty list is no tools) */
-    int no_tools;               /* --no-tools: the default selection is empty */
+    int no_tools;               /* PI_NO_TOOLS_*: the default selection is empty (all: extension and MCP tools too) */
+    char exclude[512];          /* --exclude-tools as given: names and '*' patterns, comma-separated */
     pi_tool tool[PT_COUNT];
     pi_tslot slot[PT_COUNT];
 };
+
+enum { PI_NO_TOOLS_NONE, PI_NO_TOOLS_ALL, PI_NO_TOOLS_BUILTIN };   /* main.ts:540-544 noTools: undefined, "all", "builtin" */
 
 /* the tests' sentinels: calls of each tool that passed the argument check
  * and reached C:Claude's code (or ls's lister) */
@@ -68,6 +71,8 @@ void pi_tools_free(pi_tools *p);
  * absent: read, bash, edit, write; plain names replace the defaults, +name/-name entries change them; an empty list is
  * no tools) and --no-tools (the defaults are empty). pi 1.1.0 core/settings-manager.ts resolveDefaultTools. */
 void pi_tools_defaults(pi_tools *p, const char *entries, int no_tools);
+/* --exclude-tools (cli/args.ts:162): names and patterns removed from every tool source, after all other selection */
+void pi_tools_exclude(pi_tools *p, const char *list);
 /* pi's getToolListError for a --tools list: 0 when it is valid, else the problem (a literal, or buf for the one that
  * names an entry). A list is an allowlist of plain names ("*" all) or only +name/-name entries with exact names. */
 const char *pi_tool_list_error(const char *list, char *buf, long cap);
@@ -82,6 +87,11 @@ int pi_tool_glob(const char *pattern, const char *name);
  * list of plain names and patterns only the ones it names; only +name / -name entries allow every name, or with --no-tools
  * the ones they add; --no-tools alone none */
 int pi_tools_ext_allowed(const pi_tools *p, const char *list, const char *name);
+/* whether an MCP tool of this name (exposure direct or not) may be declared or loaded under --tools list, --no-tools and
+ * --exclude-tools (agent-session.ts _isAllowedTool, _isActivatable): excluded never; no allowlist yes; named by the
+ * allowlist yes; an allowlist that names mcp__ tools or is empty filters MCP tools; else a tool that is not direct, when
+ * tool_search is allowed */
+int pi_tools_mcp_ok(const pi_tools *p, const char *list, const char *name, int direct);
 /* PT_*, -1 not one of these */
 int pi_tools_kind(const char *name);
 /* C:Claude's tool (T_*) and its input for a pi call (the gate decides on

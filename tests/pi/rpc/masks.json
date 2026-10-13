@@ -15,7 +15,7 @@
  },
  "rules": {
   "cost.total": "the sum: pi adds binary floats (0.0036149999999999997), ours prints decimal micro-dollars; the four parts are compared",
-  "errorMessage of an HTTP error": "pi: status and the raw body (`400 {...}`, the SDK's APIError text), ours `HTTP 400: <message>`; the value is masked, the key and its place are compared",
+  "errorMessage of an HTTP error": "pi: status and the raw body (`400 {...}`, the SDK's APIError text), ours is the SDK text too since M10 (the recorded body differs from the fixture's); the value is masked, the key and its place are compared",
   "tokensBefore of an overflow compaction that asks again": "the failed answer was omitted first (a context_edit), so pi counts the context by estimate alone (compaction.ts estimateProjectedContextTokens), the system message included, whose text is amiga-pi's prompt (as estimatedTokensAfter: both differ by the same 273 tokens in overflow); a silent overflow (willRetry false), a threshold or a manual compaction is usage-based and compared",
   "message_start usage and responseId": "pi serializes the shared partial message when its consumer runs: the first counts and the response id (both set by the stream's message_start event) are in or not from run to run of pi itself",
   "baseUrl": "the fixture's port",

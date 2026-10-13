@@ -538,6 +538,8 @@ static int answer(pi_session *s, stream *t)
     c.tools = s->ntools ? tools.p : 0;
     c.tools_n = tools.n;
     c.thinking = s->thinking;
+    c.think_budget_set = s->think_budget_set;
+    memcpy(c.think_budget, s->think_budget, sizeof(c.think_budget));
     llm_acc_init(&t->acc, s->model.api, s->model.provider);
     llm_acc_model(&t->acc, s->model.id, s->model.cost);
     llm_acc_fallbacks(&t->acc, s->model.compat.fb, s->model.compat.nfb);
