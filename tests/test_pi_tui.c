@@ -56,6 +56,11 @@ typedef struct scen {
 #define SC_BAR(sc) (strstr((sc)->name, "_bar") != 0)
 #define SC_HINT(sc) (strstr((sc)->name, "exit_hint") != 0)     /* fullscreenExitOutput "resume-hint" */
 #define SC_PAD0(sc) (strstr((sc)->name, "pad0") != 0)          /* settings.json outputPad 0 (pi 1.1.0) */
+/* the window's width: 80, tui_gen.py's default, except the scenarios that name their own (footer: foot_<columns> in its table) */
+static int sc_cols(const scen *sc)
+{
+    return !strcmp(sc->name, "foot_exact") ? 45 : !strcmp(sc->name, "foot_cut") ? 41 : !strcmp(sc->name, "foot_left") ? 30 : 80;
+}
 #define SC_THEME(sc) (!strncmp((sc)->name, "dark_", 5) ? 1 : !strncmp((sc)->name, "light_", 6) ? 2 : 0)
 static int cmp_shift;           /* the capture's row r is on our screen at row r + cmp_shift (a selector drawn at the bottom) */
 static int cmp_split = 1000;    /* ... for the rows above this one (0-based) only, the rows from it on are where they are */
@@ -179,6 +184,8 @@ static llm_ts fixed_now(void *u)
 static vt_term *want;
 static int want_rows;
 
+static int cur_cols = 80;       /* the running scenario's width */
+
 static void load_golden(const char *name)
 {
     char fn[80];
@@ -194,7 +201,7 @@ static void load_golden(const char *name)
     for (i = 0; i < n; i++)
         rows += g[i] == '\n';
     want_rows = rows;
-    want = h_new(80, rows, VT_XTERM);
+    want = h_new(cur_cols, rows, VT_XTERM);
     rows = want_rows;
     for (i = 0; i < n; i++)
         if (g[i] == '\n') {
@@ -238,7 +245,7 @@ static void compare(void)
         snap[r][sizeof(snap[r]) - 1] = 0;
     }
     for (r = 0; r < want_rows && r < cs.rows; r++)
-        for (c = 0; c < 80; c++) {
+        for (c = 0; c < cur_cols; c++) {
             const vt_cell *a = h_cell(want, c, r), *b;
             vt_color af, ab, bf, bb;
             vt_attr mask = (vt_attr)(VT_ATTR_BOLD | VT_ATTR_FAINT | VT_ATTR_ITALIC | VT_ATTR_UNDERLINE | VT_ATTR_INVERSE | VT_ATTR_STRIKE);
@@ -413,7 +420,7 @@ static void hook(void)
 {
     int r, up = 0;
     for (r = 0; r < cs.rows; r++)           /* the footer is up (regular mode: not on the last row) */
-        up |= strstr(cs_row(r), "fake-model") != 0;
+        up |= strstr(cs_row(r), "fake-m") != 0 || strstr(cs_row(r), "/200k") != 0;     /* (cut at the narrow widths) */
     if (cur->when == 4)
         cs.clock += 12000;            /* every read of a long turn is twelve seconds on: C:Claude would ring at its end */
     if (taken || !up || cur->when == 2 || cur->when == 3)     /* when 2: compare_in_tool takes the screen */
@@ -446,6 +453,7 @@ static void run(const scen *sc)
     const char *script[10];
     int nk = 0;
     cur = sc;
+    cur_cols = sc_cols(sc);
     pi_ui_set_theme(0);                 /* the system theme and pi's keys, whatever an earlier test left */
     pi_ui_set_keybindings(0, 0);
     pi_ui_set_tui(SC_REGULAR(sc), SC_HINT(sc), SC_BAR(sc));
@@ -516,7 +524,7 @@ static void run(const scen *sc)
     CHECK(want != 0);
     if (!want)
         return;
-    cs_open(80, want_rows + (sc->when == 3 ? 8 : 0), script);
+    cs_open(cur_cols, want_rows + (sc->when == 3 ? 8 : 0), script);
     cs.before_read = hook;
     cs_io(&io);
     pi_ui_set_cwd("~/project");
@@ -573,6 +581,7 @@ static void run(const scen *sc)
     }
     CHECK_INT(diffs, 0);
     cs_close();
+    cur_cols = 80;
     vt_free(want);
     pi_session_free(&ses);
     for (i = 0; i < nk - 1; i++)
@@ -3003,6 +3012,11 @@ static const scen scenarios[] = {
       { { 28, 28, 3, 3, "spinner frame" } } },
     { "light_twice", { "first\r", "second\r", 0 }, { "twice.1.sse", "twice.2.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "light_tool", { "read the file\r", 0 }, { "tool.1.sse", "tool.2.sse", 0 }, 1, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* G2: the footer's right-aligned model at the widths where footer.ts:177-249 changes its mind: flush to the last column (45),
+     * the model cut to the room left, never the usage (41), the usage itself cut with "..." (30) */
+    { "foot_exact", { "first\r", 0 }, { "foot_exact.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "foot_cut", { "first\r", 0 }, { "foot_cut.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "foot_left", { "first\r", 0 }, { "foot_left.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
 };
 
 void suite_pi_tui(void)

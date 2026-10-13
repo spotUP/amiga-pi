@@ -534,6 +534,18 @@ SCENARIOS.update({
 
 
 
+# G2 (U1b): pi's footer at the widths where its rules differ (footer.ts:177-249): the usage "left" is 33 columns after one answer,
+# the model "fake-model" 10. 45 columns: both fit with the two spaces of padding (flush to the last column); 41: the model is cut to
+# the room left ("fake-m"), never the usage; 30: the usage alone is wider than the window and is cut with "..."
+FOOT_ANS = [('sse', text_answer('msg_a', 'answer one', 20))]
+FOOT_STEPS = [('type', 'first'), ('enter',), ('wait', 'one')]
+SCENARIOS.update({
+    'foot_exact': dict(steps=FOOT_STEPS, answers=FOOT_ANS, cols=45),
+    'foot_cut': dict(steps=FOOT_STEPS, answers=FOOT_ANS, cols=41),
+    'foot_left': dict(steps=FOOT_STEPS, answers=FOOT_ANS, cols=30),
+})
+
+
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []
     served = []
@@ -625,6 +637,7 @@ def run(name, sc, cols, rows, keep):
     global HIST
     HIST = False
     rows = sc.get('rows', rows)
+    cols = sc.get('cols', cols)         # a scenario at its own width (U1b: the footer and header at 64 columns)
     work = '/private/tmp/' + TAG      # the trust prompt and the footer show the path; PITUI_TAG gives a run its own directory and tmux sessions
     shutil.rmtree(work, ignore_errors=True)
     os.makedirs(work)
