@@ -1036,7 +1036,7 @@ static void totals(pi_ui *p, long *in, long *out, long *cr, long *cw, long *cost
 }
 
 /* the window title as pi's updateTerminalTitle sets it: "pi - <session name> - <directory name>", or
- * "pi - <directory name>" with no name (APP_TITLE is the letter pi). Set at the start and with every status. */
+ * "pi - <directory name>" with no name (pi's APP_TITLE is U+03C0, which the console's Latin-1 stand-in shows as "p": spelled "pi" here, T2). Set at the start and with every status. */
 void pi_dir_name(const char *path, char *out, int n)
 {
     int end = (int)strlen(path), start;
@@ -1059,7 +1059,7 @@ static void window_title(pi_ui *p, cl_tui *t)
     pi_store *st = (pi_store *)p->s->command_u;
     char nm[128], base[128];
     pi_dir_name(ui_cwd, base, sizeof(base));
-    cl_copy(t->pi_title, "\317\200 - ", sizeof(t->pi_title));
+    cl_copy(t->pi_title, "pi - ", sizeof(t->pi_title));
     if (st && p->s->command && s3_name(&st->s3, nm, sizeof(nm))) {
         cl_cat(t->pi_title, nm, sizeof(t->pi_title));
         cl_cat(t->pi_title, " - ", sizeof(t->pi_title));

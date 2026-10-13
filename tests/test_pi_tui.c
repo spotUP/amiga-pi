@@ -958,7 +958,7 @@ static void test_title_dir_name(void)
     CHECK_STR(out, "abc");
 }
 
-/* the window title is pi's -- "pi - <directory name>", the letter pi first -- set once at the start and left alone while
+/* the window title is pi's -- "pi - <directory name>", spelled "pi", not U+03C0 which reads "p" on the console (T2) -- set once at the start and left alone while
  * the agent works and after (TM2; pi 1.0.4 updateTerminalTitle): never C:Claude's "Claude", "Claude - working" */
 static void test_window_title(void)
 {
@@ -987,7 +987,7 @@ static void test_window_title(void)
         if (!e)
             break;
         n++;
-        if (e - (p + 4) != (long)strlen("\317\200 - project") || strncmp(p + 4, "\317\200 - project", (size_t)(e - (p + 4))))
+        if (e - (p + 4) != (long)strlen("pi - project") || strncmp(p + 4, "pi - project", (size_t)(e - (p + 4))))
             bad++;
     }
     CHECK_INT(n, 1);
