@@ -2,7 +2,8 @@
  * (packages/coding-agent/src/core/skills.ts, core/resource-loader.ts, core/package-manager.ts addAutoDiscoveredResources
  * and resolveLocalEntries, core/agent-session.ts _expandSkillCommand):
  *
- * Where skills come from, in pi's order (the first of two with one name wins, the other is a "collision"):
+ * Where skills come from is pkgres.h's (pi's DefaultPackageManager.resolve(): settings.json entries and local packages, the default
+ * directories, ranked); in pi's order (the first of two with one name wins, the other is a "collision"):
  *   settings.json "skills" paths (the project's <cwd>/.pi/settings.json first, when trusted; then <agent dir>/settings.json),
  *   <cwd>/.pi/skills (trusted), <dir>/.agents/skills for the working directory and every ancestor up to the one holding
  *   .git (all the way up without one; trusted), <agent dir>/skills, <agent dir>/agents-skills (pi's ~/.agents/skills: the
