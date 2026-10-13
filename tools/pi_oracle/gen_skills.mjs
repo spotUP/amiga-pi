@@ -347,13 +347,14 @@ L.packages = {
 L.cli = {
 	cwd: "w/proj",
 	trusted: true,
-	skillPaths: ["extra/one.md", "extra/dir", "extra/none.md", "extra/x.txt", "../abs/two.md"],
+	skillPaths: ["extra/one.md", "extra/dir", "extra/none.md", "extra/x.txt", "../abs/two.md", "@ROOT@/cli/w/abs-skill.md"],
 	files: {
 		"agent/skills/base/SKILL.md": sk("base", "Discovered"),
 		"w/proj/extra/one.md": sk("one", "A file given with --skill"),
 		"w/proj/extra/dir/d1/SKILL.md": sk("d1", "In a directory given with --skill"),
 		"w/proj/extra/x.txt": "not markdown\n",
 		"w/abs/two.md": sk("two", "Outside the project"),
+		"w/abs-skill.md": sk("abs-skill", "An absolute host path"),
 	},
 	expand: ["/skill:one"],
 	tools: [["read"]],
@@ -420,7 +421,7 @@ for (const [name, lay] of Object.entries(L)) {
 		noPromptTemplates: true,
 		noThemes: true,
 		noSkills: !!lay.noSkills,
-		additionalSkillPaths: (lay.skillPaths ?? []).map((p) => piResolvePath(p, cwd)), // main.ts resolveCliPaths
+		additionalSkillPaths: (lay.skillPaths ?? []).map((p) => piResolvePath(p.split("@ROOT@").join(root), cwd)), // main.ts resolveCliPaths
 	});
 	await loader.reload();
 	const { skills, diagnostics } = loader.getSkills();

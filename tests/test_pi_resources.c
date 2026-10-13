@@ -773,7 +773,16 @@ static void skills_layout(const char *name, jv lay)
     if (json_get(lay, "skillPaths", &v) && json_type(v) == J_ARR) {
         json_iter(v, &it);
         while (json_next(&it, 0, &item) && np < 8) {
-            json_str(item, paths[np], sizeof(paths[0]));
+            char raw[300], *at_root;
+            json_str(item, raw, sizeof(raw));
+            at_root = strstr(raw, "@ROOT@");
+            if (at_root) {                          /* an absolute host path: @ROOT@ is the temp directory */
+                *at_root = 0;
+                cl_copy(paths[np], raw, sizeof(paths[0]));
+                cl_cat(paths[np], root, sizeof(paths[0]));
+                cl_cat(paths[np], at_root + 6, sizeof(paths[0]));
+            } else
+                cl_copy(paths[np], raw, sizeof(paths[0]));
             pp[np] = paths[np];
             np++;
         }

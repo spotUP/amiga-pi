@@ -265,11 +265,13 @@
    "extra/none.md",
    "extra/x.txt",
    "../abs/two.md",
-   "extra/one.md"
+   "extra/one.md",
+   "@ROOT@/cli/w/abs-one.md"
   ],
   "expand": [
    "/one",
-   "/d1"
+   "/d1",
+   "/abs-one"
   ],
   "files": {
    "agent/prompts/base.md": "base\n",
@@ -280,7 +282,8 @@
    "w/proj/extra/dir/ignored.md": "ignore files are not read for a directory given by hand\n",
    "w/proj/extra/dir/.gitignore": "ignored.md\n",
    "w/proj/extra/x.txt": "not markdown\n",
-   "w/abs/two.md": "outside the project\n"
+   "w/abs/two.md": "outside the project\n",
+   "w/abs-one.md": "an absolute host path\n"
   }
  },
  "nodefaults": {
@@ -293,7 +296,8 @@
   ],
   "expand": [
    "/one",
-   "/d1"
+   "/d1",
+   "/abs-one"
   ],
   "files": {
    "agent/prompts/base.md": "base\n",
@@ -304,7 +308,8 @@
    "w/proj/extra/dir/ignored.md": "ignore files are not read for a directory given by hand\n",
    "w/proj/extra/dir/.gitignore": "ignored.md\n",
    "w/proj/extra/x.txt": "not markdown\n",
-   "w/abs/two.md": "outside the project\n"
+   "w/abs/two.md": "outside the project\n",
+   "w/abs-one.md": "an absolute host path\n"
   }
  }
 }

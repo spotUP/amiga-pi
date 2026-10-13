@@ -89,6 +89,21 @@
     "baseDir": "@ROOT@/cli/w/abs"
    },
    "command": "[t] outside the project"
+  },
+  {
+   "name": "abs-one",
+   "description": "an absolute host path",
+   "argumentHint": null,
+   "content": "an absolute host path\n",
+   "filePath": "@ROOT@/cli/w/abs-one.md",
+   "sourceInfo": {
+    "path": "@ROOT@/cli/w/abs-one.md",
+    "source": "local",
+    "scope": "temporary",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/cli/w"
+   },
+   "command": "[t] an absolute host path"
   }
  ],
  "diagnostics": [
@@ -98,7 +113,7 @@
    "path": "@ROOT@/cli/w/proj/extra/none.md"
   }
  ],
- "rpcCommands": "[{\"name\":\"base\",\"description\":\"base\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/agent/prompts/base.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/agent\"}},{\"name\":\"one\",\"description\":\"one\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/one.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra\"}},{\"name\":\".d2\",\"description\":\"hidden but read\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/dir/.d2.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra/dir\"}},{\"name\":\"d1\",\"description\":\"d1\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/dir/d1.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra/dir\"}},{\"name\":\"ignored\",\"description\":\"ignore files are not read for a directory given by hand\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/dir/ignored.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra/dir\"}},{\"name\":\"two\",\"description\":\"outside the project\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/abs/two.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/abs\"}}]",
+ "rpcCommands": "[{\"name\":\"base\",\"description\":\"base\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/agent/prompts/base.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/agent\"}},{\"name\":\"one\",\"description\":\"one\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/one.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra\"}},{\"name\":\".d2\",\"description\":\"hidden but read\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/dir/.d2.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra/dir\"}},{\"name\":\"d1\",\"description\":\"d1\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/dir/d1.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra/dir\"}},{\"name\":\"ignored\",\"description\":\"ignore files are not read for a directory given by hand\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/proj/extra/dir/ignored.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/proj/extra/dir\"}},{\"name\":\"two\",\"description\":\"outside the project\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/abs/two.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w/abs\"}},{\"name\":\"abs-one\",\"description\":\"an absolute host path\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/cli/w/abs-one.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/cli/w\"}}]",
  "expand": [
   {
    "input": "/one",
@@ -107,6 +122,10 @@
   {
    "input": "/d1",
    "output": "d1\n"
+  },
+  {
+   "input": "/abs-one",
+   "output": "an absolute host path\n"
   }
  ]
 }

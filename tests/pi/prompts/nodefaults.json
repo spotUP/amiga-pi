@@ -71,6 +71,10 @@
   {
    "input": "/d1",
    "output": "d1\n"
+  },
+  {
+   "input": "/abs-one",
+   "output": "/abs-one"
   }
  ]
 }

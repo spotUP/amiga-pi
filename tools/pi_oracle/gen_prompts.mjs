@@ -227,7 +227,7 @@ L.cli = {
 	// markdown, a path twice; the defaults come first; -np leaves them out
 	cwd: "w/proj",
 	trusted: true,
-	promptPaths: ["extra/one.md", "extra/dir", "extra/none.md", "extra/x.txt", "../abs/two.md", "extra/one.md"],
+	promptPaths: ["extra/one.md", "extra/dir", "extra/none.md", "extra/x.txt", "../abs/two.md", "extra/one.md", "@ROOT@/cli/w/abs-one.md"],
 	files: {
 		"agent/prompts/base.md": "base\n",
 		"w/proj/extra/one.md": "one\n",
@@ -238,8 +238,9 @@ L.cli = {
 		"w/proj/extra/dir/.gitignore": "ignored.md\n",
 		"w/proj/extra/x.txt": "not markdown\n",
 		"w/abs/two.md": "outside the project\n",
+		"w/abs-one.md": "an absolute host path\n",
 	},
-	expand: ["/one", "/d1"],
+	expand: ["/one", "/d1", "/abs-one"],
 };
 L.nodefaults = { ...L.cli, noTemplates: true, promptPaths: ["extra/one.md", "extra/dir"] };
 
@@ -281,7 +282,7 @@ for (const [name, lay] of Object.entries(L)) {
 		noSkills: true,
 		noThemes: true,
 		noPromptTemplates: !!lay.noTemplates,
-		additionalPromptTemplatePaths: (lay.promptPaths ?? []).map((p) => piResolvePath(p, cwd)), // main.ts resolveCliPaths
+		additionalPromptTemplatePaths: (lay.promptPaths ?? []).map((p) => piResolvePath(p.split("@ROOT@").join(root), cwd)), // main.ts resolveCliPaths
 	});
 	await loader.reload();
 	const { prompts, diagnostics } = loader.getPrompts();

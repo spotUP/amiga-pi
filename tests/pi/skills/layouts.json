@@ -477,7 +477,8 @@
    "extra/dir",
    "extra/none.md",
    "extra/x.txt",
-   "../abs/two.md"
+   "../abs/two.md",
+   "@ROOT@/cli/w/abs-skill.md"
   ],
   "expand": [
    "/skill:one"
@@ -492,7 +493,8 @@
    "w/proj/extra/one.md": "---\nname: one\ndescription: A file given with --skill\n---\nBody of one.\n\nSecond paragraph.\n",
    "w/proj/extra/dir/d1/SKILL.md": "---\nname: d1\ndescription: In a directory given with --skill\n---\nBody of d1.\n\nSecond paragraph.\n",
    "w/proj/extra/x.txt": "not markdown\n",
-   "w/abs/two.md": "---\nname: two\ndescription: Outside the project\n---\nBody of two.\n\nSecond paragraph.\n"
+   "w/abs/two.md": "---\nname: two\ndescription: Outside the project\n---\nBody of two.\n\nSecond paragraph.\n",
+   "w/abs-skill.md": "---\nname: abs-skill\ndescription: An absolute host path\n---\nBody of abs-skill.\n\nSecond paragraph.\n"
   }
  },
  "noskills": {
@@ -515,7 +517,8 @@
    "w/proj/extra/one.md": "---\nname: one\ndescription: A file given with --skill\n---\nBody of one.\n\nSecond paragraph.\n",
    "w/proj/extra/dir/d1/SKILL.md": "---\nname: d1\ndescription: In a directory given with --skill\n---\nBody of d1.\n\nSecond paragraph.\n",
    "w/proj/extra/x.txt": "not markdown\n",
-   "w/abs/two.md": "---\nname: two\ndescription: Outside the project\n---\nBody of two.\n\nSecond paragraph.\n"
+   "w/abs/two.md": "---\nname: two\ndescription: Outside the project\n---\nBody of two.\n\nSecond paragraph.\n",
+   "w/abs-skill.md": "---\nname: abs-skill\ndescription: An absolute host path\n---\nBody of abs-skill.\n\nSecond paragraph.\n"
   }
  }
 }
