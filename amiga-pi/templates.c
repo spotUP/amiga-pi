@@ -294,27 +294,31 @@ static int add(pi_tmpls *ts, const pi_tmpl *t)
 /* mergePaths' result: the paths in order, each once by its canonical name; explicit_[i] says it came from --prompt-template */
 typedef struct sl_paths {
     char **v;
+    char **canon;
     int *explicit_;
     int n, cap;
 } sl_paths;
 
 static int mp_add(sl_paths *l, cl_sys *sys, const char *path, int explicit_flag)
 {
-    char canon[300], c2[300];
+    char canon[300];
     int i;
     pm_canon(sys, path, canon, sizeof(canon));
-    for (i = 0; i < l->n; i++) {
-        pm_canon(sys, l->v[i], c2, sizeof(c2));
-        if (!strcmp(c2, canon))
+    for (i = 0; i < l->n; i++)
+        if (!strcmp(l->canon[i], canon))
             return 0;
-    }
     if (l->n == l->cap) {
         int nc = l->cap ? l->cap * 2 : 16;
         char **q = (char **)realloc(l->v, sizeof(char *) * (size_t)nc);
+        char **c2;
         int *e;
         if (!q)
             return -1;
         l->v = q;
+        c2 = (char **)realloc(l->canon, sizeof(char *) * (size_t)nc);
+        if (!c2)
+            return -1;
+        l->canon = c2;
         e = (int *)realloc(l->explicit_, sizeof(int) * (size_t)nc);
         if (!e)
             return -1;
@@ -322,7 +326,8 @@ static int mp_add(sl_paths *l, cl_sys *sys, const char *path, int explicit_flag)
         l->cap = nc;
     }
     l->v[l->n] = dupn(path, (long)strlen(path));
-    if (!l->v[l->n])
+    l->canon[l->n] = dupn(canon, (long)strlen(canon));
+    if (!l->v[l->n] || !l->canon[l->n])
         return -1;
     l->explicit_[l->n] = explicit_flag;
     l->n++;
@@ -558,9 +563,12 @@ int pi_tmpl_load(pi_tmpls *ts, cl_sys *sys, const pi_tmpl_opts *o)
             if (!have)
                 rc = add_diag(ts, TD_ERROR, "Prompt template path does not exist", merged.v[i], 0, 0);
         }
-    for (i = 0; i < merged.n; i++)
+    for (i = 0; i < merged.n; i++) {
         free(merged.v[i]);
+        free(merged.canon[i]);
+    }
     free(merged.v);
+    free(merged.canon);
     free(merged.explicit_);
     pm_free(&res);
     return rc;
