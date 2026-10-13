@@ -22,6 +22,8 @@ typedef struct jd_res {
 int jd_lines(const char *a, long an, const char *b, long bn, jd_res *r);
 int jd_words(const char *a, long an, const char *b, long bn, jd_res *r);
 void jd_free(jd_res *r);
+/* the length of the leading whitespace of s[0..n) (JavaScript's \s) */
+long jd_leading_ws(const char *s, long n);
 
 /* generateDiffString(oldContent, newContent) with 4 lines of context: the diff text ("+12 new", "-12 old", " 12 same",
  * "    ..." ) joined by newlines into diff; *first is firstChangedLine, 0 when there is none. 0, -1 out of memory */

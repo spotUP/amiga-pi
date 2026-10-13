@@ -25,6 +25,7 @@
 #include "../amiga-pi/pstatus.h"
 #include "../amiga-pi/templates.h"
 #include "../amiga-pi/settings_diag.h"
+#include "../amiga-pi/tools_pi.h"
 #include "claude/sys_posix.h"
 #include "claude/theme.h"
 #include "view/hl_style.h"
@@ -45,7 +46,7 @@ typedef struct scen {
     const char *name;           /* the golden's name */
     const char *keys[8];        /* typed chunks; a '!' chunk is typed while the agent works */
     const char *answers[4];     /* tests/pi/tui/<file>: .sse streamed, .http whole */
-    int tools;                  /* 1 read answers, 2 bash fails, 3 bash echoes, 4 bash counts to 12, 5 ls lists 25 files */
+    int tools;                  /* 1 read answers, 2 bash fails, 3 bash echoes, 4 bash counts to 12, 5 ls lists 25 files, 6 amiga-pi's own tools on the scenario's files */
     int header;                 /* the start header is shown (else settings.json has quietStartup)  */
     int when;                   /* 0 at rest after the keys, 1 while the agent works (after the keys), 2 while a tool runs, 4 at rest like 0 with the clock running (a turn long enough for C:Claude's notice),
                                  * 3 the screen pi leaves on the main screen when it ends (the golden's .txt) */
@@ -443,6 +444,81 @@ static void dump_rows(void)
         printf("    %2d|%s\n", r + 1, snap[r]);
 }
 
+/* U1b: the scenarios whose tools are amiga-pi's own (tools 6) run them on the files tui_gen.py gave pi (tests/pi/tui/scenario_files.json, and
+ * the notes.txt every project has), in a directory of their own */
+static pi_tools real_pt;
+static sys_posix real_sp;
+static cl_sys real_sys;
+static char real_dir[80];
+
+static void real_tools_up(pi_session *ses, const char *scenario)
+{
+    char *b, p[300], d[300], *e, err[200];
+    long n;
+    jv all, files, k, v;
+    jit it;
+    FILE *f;
+    strcpy(real_dir, "/tmp/pit_XXXXXX");
+    if (!mkdtemp(real_dir)) {
+        CHECK(0);
+        return;
+    }
+    strcpy(p, real_dir);
+    strcat(p, "/notes.txt");
+    f = fopen(p, "wb");
+    if (f) {
+        fputs("one\ntwo\nthree\n", f);
+        fclose(f);
+    }
+    b = slurp("scenario_files.json", &n);
+    CHECK(b != 0);
+    if (b && !json_parse(b, n, &all) && json_get(all, scenario, &files)) {
+        json_iter(files, &it);
+        while (json_next(&it, &k, &v)) {
+            char *rel = json_strdup(k, 0), *text = json_strdup(v, 0);
+            strcpy(p, real_dir);
+            strcat(p, "/");
+            strcat(p, rel ? rel : "");
+            strcpy(d, p);
+            e = strrchr(d, '/');
+            for (e = d + strlen(real_dir) + 1; *e; e++)
+                if (*e == '/') {
+                    *e = 0;
+                    mkdir(d, 0777);
+                    *e = '/';
+                }
+            f = fopen(p, "wb");
+            if (f) {
+                fputs(text ? text : "", f);
+                fclose(f);
+            }
+            free(rel);
+            free(text);
+        }
+    }
+    free(b);
+    sys_posix_init(&real_sp, &real_sys);
+    strcpy(d, real_dir);
+    strcat(d, "-t/");
+    mkdir(d, 0777);
+    CHECK_INT(pi_tools_init(&real_pt, &real_sys, real_dir, d, PI_SH_HOST), 0);
+    CHECK_INT(pi_tools_add(&real_pt, ses, "read,write,edit,ls,find,grep", err, sizeof(err)), 0);
+}
+
+static void real_tools_down(void)
+{
+    char cmd[200];
+    pi_tools_free(&real_pt);
+    strcpy(cmd, "rm -rf ");
+    strcat(cmd, real_dir);
+    strcat(cmd, " ");
+    strcat(cmd, real_dir);
+    strcat(cmd, "-t");
+    if (system(cmd))
+        CHECK(0);
+    real_dir[0] = 0;
+}
+
 static void run(const scen *sc)
 {
     llm_hooks h;
@@ -501,6 +577,8 @@ static void run(const scen *sc)
         pi_tool_add(&ses, &t_seq);
     if (sc->tools == 5)
         pi_tool_add(&ses, &t_ls);
+    if (sc->tools == 6)
+        real_tools_up(&ses, sc->name);
     for (i = 0; sc->answers[i]; i++) {
         long n;
         char *b = slurp(sc->answers[i], &n);
@@ -586,6 +664,8 @@ static void run(const scen *sc)
     cur_cols = 80;
     vt_free(want);
     pi_session_free(&ses);
+    if (sc->tools == 6)
+        real_tools_down();
     for (i = 0; i < nk - 1; i++)
         free(keys[i]);
 }
@@ -2789,6 +2869,49 @@ static int screen_has(const char *what)
     return 0;
 }
 
+/* U1b: bash's details (renderers/bash.ts:53-60, 85-100): the tool's own "[... Full output: <path>]" footer is left out of the output and one
+ * warning row says where the output is and how much of it is shown. pi's own run puts a random temp path there, so no capture holds it: the
+ * rows are those of the renderer's code. */
+static void test_bash_details(void)
+{
+    static const char *script[] = { 0 };
+    static const char det_lines[] =
+        "{\"truncation\":{\"content\":\"x\",\"truncated\":true,\"truncatedBy\":\"lines\",\"totalLines\":3000,\"totalBytes\":13893,"
+        "\"outputLines\":2000,\"outputBytes\":9999,\"lastLinePartial\":false,\"firstLineExceedsLimit\":false,\"maxLines\":2000,\"maxBytes\":51200},"
+        "\"fullOutputPath\":\"/tmp/pi-bash-1.log\"}";
+    static const char det_bytes[] =
+        "{\"truncation\":{\"content\":\"x\",\"truncated\":true,\"truncatedBy\":\"bytes\",\"totalLines\":3000,\"totalBytes\":13893,"
+        "\"outputLines\":243,\"outputBytes\":9999,\"lastLinePartial\":false,\"firstLineExceedsLimit\":false,\"maxLines\":2000,\"maxBytes\":51200}}";
+    static const char res_lines[] =
+        "[{\"type\":\"text\",\"text\":\"L2999\\nL3000\\n\\n[Showing lines 1001-3000 of 3000. Full output: /tmp/pi-bash-1.log]\"}]";
+    static const char res_plain[] = "[{\"type\":\"text\",\"text\":\"L3000\\n\"}]";
+    cl_io io;
+    cl_tui t;
+    cl_pitheme th;
+    pi_show ps;
+    cs_open(80, 25, script);
+    cs_io(&io);
+    pitheme_system(&th);
+    CHECK_INT(tui_init(&t, &io), 0);
+    t.look = TUI_LOOK_PI;
+    t.pith = &th;
+    CHECK_INT(tui_start(&t), 0);
+    pshow_init(&ps, &t, &th);
+    pshow_tool_start(&ps, "t1", "bash", "{\"command\":\"seq 1 3000\"}", 25);
+    pshow_tool_end(&ps, "t1", res_lines, (long)strlen(res_lines), 0, 100, det_lines, (long)strlen(det_lines));
+    pshow_tool_start(&ps, "t2", "bash", "{\"command\":\"seq 1 3000\"}", 25);
+    pshow_tool_end(&ps, "t2", res_plain, (long)strlen(res_plain), 0, 100, det_bytes, (long)strlen(det_bytes));
+    tui_frame(&t);
+    CHECK(screen_has("L3000"));
+    CHECK(!screen_has("[Showing lines"));       /* the footer is the warning row's */
+    CHECK(screen_has("[Full output: /tmp/pi-bash-1.log. Truncated: showing 2000 of 3000 lines]"));
+    CHECK(screen_has("[Truncated: 243 lines shown (50.0KB limit)]"));
+    pshow_free(&ps);
+    tui_stop(&t);
+    tui_free(&t);
+    cs_close();
+}
+
 static void test_bash_rows_uncapped(void)
 {
     static const char *script[] = { 0 };
@@ -2818,7 +2941,7 @@ static void test_bash_rows_uncapped(void)
     }
     jw_rawz(&res, "\"}]");
     pshow_tool_start(&ps, "t1", "bash", "{\"command\":\"seq\"}", 17);
-    pshow_tool_end(&ps, "t1", res.p, res.n, 0, 100);
+    pshow_tool_end(&ps, "t1", res.p, res.n, 0, 100, 0, 0);
     tui_frame(&t);
     CHECK(screen_has("L300"));
     CHECK(screen_has("(295 earlier lines, ctrl+o to expand)"));
@@ -3065,6 +3188,22 @@ static const scen scenarios[] = {
       { { 19, 19, 6, 8, "elapsed time of the run" } } },
     { "dark_ls_long", { "list\r", 0 }, { "dark_ls_long.1.sse", "dark_ls_long.2.sse", 0 }, 5, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "dark_ls_long_expanded", { "list\r", "\017", 0 }, { "dark_ls_long_expanded.1.sse", "dark_ls_long_expanded.2.sse", 0 }, 5, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* U1b: the tool boxes of pi's renderers on amiga-pi's own tools: a read highlighted and in its short forms (renderers/read.ts), a write's
+     * content, an edit's diff (renderers/edit.ts, components/diff.ts), the warnings of the results' details (read.ts, ls.ts) */
+    { "dark_read_hl", { "show main\r", "\017", 0 }, { "dark_read_hl.1.sse", "dark_read_hl.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_read_hl_py", { "show it\r", "\017", 0 }, { "dark_read_hl_py.1.sse", "dark_read_hl_py.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_read_skill", { "read\r", 0 }, { "dark_read_skill.1.sse", "dark_read_skill.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_read_skill_expanded", { "read\r", "\017", 0 }, { "dark_read_skill_expanded.1.sse", "dark_read_skill_expanded.2.sse", 0 }, 6, 0, 0,
+      { { 0, 0, 0, 0, 0 } } },
+    { "dark_write", { "write it\r", 0 }, { "dark_write.1.sse", "dark_write.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_write_expanded", { "write it\r", "\017", 0 }, { "dark_write_expanded.1.sse", "dark_write_expanded.2.sse", 0 }, 6, 0, 0,
+      { { 0, 0, 0, 0, 0 } } },
+    { "dark_write_txt", { "write it\r", 0 }, { "dark_write_txt.1.sse", "dark_write_txt.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_edit", { "edit it\r", 0 }, { "dark_edit.1.sse", "dark_edit.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_edit_err", { "edit it\r", 0 }, { "dark_edit_err.1.sse", "dark_edit_err.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "dark_read_trunc_expanded", { "read big\r", "\017", 0 }, { "dark_read_trunc_expanded.1.sse", "dark_read_trunc_expanded.2.sse", 0 }, 6, 0, 0,
+      { { 0, 0, 0, 0, 0 } } },
+    { "dark_ls_limit", { "list\r", 0 }, { "dark_ls_limit.1.sse", "dark_ls_limit.2.sse", 0 }, 6, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "error_expanded", { "hello\r", "\017", 0 }, { "error_expanded.1.http", 0 }, 0, 0, 0,
       { { 5, 12, 0, 79, "error text: pi prints the response body and a hint row; the status is checked in expanded_checks" },
         { 25, 25, 0, 6, "context estimate" } } },
@@ -3131,6 +3270,7 @@ void suite_pi_tui(void)
     test_ext_uix_screen();
     test_footer_cost();
     test_bash_rows_uncapped();
+    test_bash_details();
     test_slash_fuzzy();
     test_menu_rows_uncapped();
     app_cleanup();

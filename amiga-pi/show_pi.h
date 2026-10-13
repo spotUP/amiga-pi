@@ -27,6 +27,7 @@ typedef struct ps_box {
     int is_error, replay;       /* replay: the result of an earlier run (no duration unless recorded) */
     long duration_ms;           /* the recorded durationMs, or the call's own clock when it ended live; -1 none */
     jw result;
+    jw det;                     /* the result's details (a JSON object), empty none: the truncation warnings, the edit diff */
 } ps_box;
 
 /* one thing in the chat, as pi's chatContainer holds a component: what is needed to draw it again (the screen is lines
@@ -62,6 +63,7 @@ typedef struct pi_show {
     int details;                /* the start shows the loaded resources too (quietStartup not "header"): the header says so */
     int expanded;               /* pi's toolOutputExpanded (ctrl+o): the summaries show their text; drawn from here on, redraw_chat redraws the rest */
     int replay;                 /* tool results of an earlier run: no duration */
+    char root[400];             /* the working directory (absolute), for the short form of a read of a skill or context file */
     /* an extension's renderer for a custom message (ext.h pi_exts_render): 1 when it drew lines into lines, 0 the default box */
     int (*render)(void *u, const char *type, const char *msg, long n, const struct pi_ext_render *r, jw *lines);
     void *render_u;
@@ -107,7 +109,9 @@ void pshow_tool_update(pi_show *s, const char *id, const char *result, long rn);
 void pshow_tick(pi_show *s);
 /* duration_ms: the result's recorded durationMs (bash's `Took`), -1 when none is recorded: the call's clock is used live and
  * nothing is shown on replay */
-void pshow_tool_end(pi_show *s, const char *id, const char *result, long rn, int is_error, long duration_ms);
+void pshow_tool_end(pi_show *s, const char *id, const char *result, long rn, int is_error, long duration_ms, const char *details, long dn);
+/* the working directory the tools run in (absolute) */
+void pshow_set_root(pi_show *s, const char *root);
 /* a result's JSON blocks ([{"type":"text","text":...}]) as the text of their text blocks, joined by newlines */
 long pshow_result_text(const char *json, long n, jw *out);
 

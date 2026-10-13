@@ -580,6 +580,63 @@ SCENARIOS.update({
 })
 
 
+# U1b (tool boxes): read highlights a file of a known language when expanded (renderers/read.ts:121-136), shows a skill, a context file
+# or a pi docs file in its short form while collapsed (read.ts:22-111, 155-158); write shows its content under the call, ten lines
+# collapsed (renderers/write.ts:96-127); edit shows the diff under the call, in the box coloured by the preview (renderers/edit.ts);
+# the result's details warn of truncation (read.ts:138-147, ls.ts:48-55)
+CODE_C = ('/* a greeting */\nstatic const char *name = "world";\nunsigned long n = 42;\nif (n > 1) {\n\tname = "again";\n} else {\n\tn = 0x1f; // hex\n}\n'
+          'while (n) {\n\tn--;\n}\nreturn 0;\n')
+CODE_PY = '\n'.join(['import os', 'import sys', '', '# count the lines', 'total = 0', 'for line in sys.stdin:', '    if line:', '        total += 1',
+                    '    else:', '        total -= 1', 'while total > 3:', '    total = total - 1', 'name = "box"', 'size = 3.5',
+                    'flag = total and not size', 'other = size or 2', 'result = total if flag else 0']) + '\n'
+SKILL_MD = '---\nname: greet\ndescription: Greets people.\n---\n\n# Greet\n\nSay hello.\n'
+R_ANS = lambda name, path, extra=None: [('sse', tool_answer('msg_h1', 'toolu_h', name, dict({'path': path}, **(extra or {})), 'Looking.')),
+                                         ('sse', text_answer('msg_h2', 'Finished.', 20))]
+SCENARIOS.update({
+    'dark_read_hl': dict(steps=[('type', 'show main'), ('enter',), ('wait', 'Finished'), ('key', 'C-o'), ('sleep', 1.0)],
+                         answers=R_ANS('read', 'main.c'), theme='dark', files={'main.c': CODE_C}, rows=30),
+    'dark_read_hl_py': dict(steps=[('type', 'show it'), ('enter',), ('wait', 'Finished'), ('key', 'C-o'), ('sleep', 1.0)],
+                            answers=R_ANS('read', 'count.py'), theme='dark', files={'count.py': CODE_PY}, rows=30),
+    'dark_read_skill': dict(steps=[('type', 'read'), ('enter',), ('wait', 'Done compact')], theme='dark', rows=30,
+                            files={'skills/greet/SKILL.md': SKILL_MD, 'docs/AGENTS.md': 'Be brief.\n'},
+                            answers=[('sse', tool_answer2('msg_k1', [('toolu_k1', 'read', {'path': 'skills/greet/SKILL.md'}),
+                                                                     ('toolu_k2', 'read', {'path': 'docs/AGENTS.md', 'offset': 1, 'limit': 5}),
+                                                                     ('toolu_k3', 'read', {'path': 'notes.txt'})])),
+                                     ('sse', text_answer('msg_k2', 'Done compact.', 20))]),
+    'dark_read_skill_expanded': dict(steps=[('type', 'read'), ('enter',), ('wait', 'Done compact'), ('key', 'C-o'), ('sleep', 1.0)],
+                                     theme='dark', rows=40, files={'skills/greet/SKILL.md': SKILL_MD, 'docs/AGENTS.md': 'Be brief.\n'},
+                                     answers=[('sse', tool_answer2('msg_k1', [('toolu_k1', 'read', {'path': 'skills/greet/SKILL.md'}),
+                                                                              ('toolu_k2', 'read', {'path': 'docs/AGENTS.md', 'offset': 1, 'limit': 5})])),
+                                              ('sse', text_answer('msg_k2', 'Done compact.', 20))]),
+    'dark_write': dict(steps=[('type', 'write it'), ('enter',), ('wait', 'Finished')], theme='dark', rows=40,
+                       answers=[('sse', tool_answer('msg_w1', 'toolu_w', 'write', {'path': 'count.py', 'content': CODE_PY}, 'Writing.')),
+                                ('sse', text_answer('msg_w2', 'Finished.', 20))]),
+    'dark_write_expanded': dict(steps=[('type', 'write it'), ('enter',), ('wait', 'Finished'), ('key', 'C-o'), ('sleep', 1.0)], theme='dark',
+                                rows=40,
+                                answers=[('sse', tool_answer('msg_w1', 'toolu_w', 'write', {'path': 'count.py', 'content': CODE_PY}, 'Writing.')),
+                                         ('sse', text_answer('msg_w2', 'Finished.', 20))]),
+    'dark_write_txt': dict(steps=[('type', 'write it'), ('enter',), ('wait', 'Finished')], theme='dark', rows=30,
+                           answers=[('sse', tool_answer('msg_w1', 'toolu_w', 'write', {'path': 'out.txt', 'content': 'one\ntwo\n'}, 'Writing.')),
+                                    ('sse', text_answer('msg_w2', 'Finished.', 20))]),
+    'dark_edit': dict(steps=[('type', 'edit it'), ('enter',), ('wait', 'Finished')], theme='dark', rows=30,
+                      files={'count.py': CODE_PY},
+                      answers=[('sse', tool_answer('msg_e1', 'toolu_e', 'edit',
+                                                   {'path': 'count.py', 'edits': [{'oldText': 'total = 0\n', 'newText': 'total = 1\n'},
+                                                                                  {'oldText': 'name = "box"', 'newText': 'name = "crate"\n# done'}]},
+                                                   'Editing.')),
+                               ('sse', text_answer('msg_e2', 'Finished.', 20))]),
+    'dark_edit_err': dict(steps=[('type', 'edit it'), ('enter',), ('wait', 'Finished')], theme='dark', rows=30,
+                          files={'count.py': CODE_PY},
+                          answers=[('sse', tool_answer('msg_e1', 'toolu_e', 'edit',
+                                                       {'path': 'count.py', 'edits': [{'oldText': 'no such text', 'newText': 'x'}]}, 'Editing.')),
+                                   ('sse', text_answer('msg_e2', 'Finished.', 20))]),
+    'dark_read_trunc_expanded': dict(steps=[('type', 'read big'), ('enter',), ('wait', 'Finished'), ('key', 'C-o'), ('sleep', 1.5)], theme='dark',
+                                     rows=30, files={'big.txt': ''.join('line %d\n' % i for i in range(1, 2501))},
+                                     answers=R_ANS('read', 'big.txt')),
+    'dark_ls_limit': dict(steps=[('type', 'list'), ('enter',), ('wait', 'Finished')], theme='dark', rows=30, files=LS_FILES,
+                          settings={'defaultTools': ['+ls']}, answers=R_ANS('ls', 'files', {'limit': 3})),
+})
+
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []
     served = []
@@ -831,6 +888,8 @@ def main():
     json.dump(CONFLICT_FILES, open(os.path.join(OUT, 'conflict_files.json'), 'w'), indent=1)
     json.dump(RELOAD_FILES, open(os.path.join(OUT, 'reload_files.json'), 'w'), indent=1)
     json.dump(RELOAD_WRITES, open(os.path.join(OUT, 'reload_writes.json'), 'w'), indent=1)
+    # the project files of the scenarios that have some (the tool scenarios of tests/test_pi_tui.c run amiga-pi's own tools on them)
+    json.dump({n: sc['files'] for n, sc in SCENARIOS.items() if 'files' in sc}, open(os.path.join(OUT, 'scenario_files.json'), 'w'), indent=1)
     for n, sc in SCENARIOS.items():
         if a.only and a.only != n:
             continue

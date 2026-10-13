@@ -1,0 +1,30 @@
+
+ list
+
+
+ Looking.
+
+
+ ls files (limit 3)
+
+ f01.txt
+ f02.txt
+ f03.txt
+
+ [3 entries limit reached. Use limit=6 for more]
+ [Truncated: 3 entries limit]
+
+
+ Finished.
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model

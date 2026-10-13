@@ -1,0 +1,40 @@
+
+ read
+
+
+
+ read skills/greet/SKILL.md
+
+ ---
+ name: greet
+ description: Greets people.
+ ---
+
+ # Greet
+
+ Say hello.
+
+
+
+ read docs/AGENTS.md:1-5
+
+ Be brief.
+
+
+ Done compact.
+
+ Tool output: expanded
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model

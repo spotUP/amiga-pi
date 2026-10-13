@@ -67,6 +67,11 @@ static long trail_ws(const char *s, long n)
     return n - a;
 }
 
+long jd_leading_ws(const char *s, long n)
+{
+    return lead_ws(s, n);
+}
+
 /* ---- the Myers walk (base.js diffWithOptionsObj) ---- */
 
 typedef struct jwalk {

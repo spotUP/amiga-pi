@@ -1,0 +1,40 @@
+
+ write it
+
+
+ Writing.
+
+
+ write count.py
+
+ import os
+ import sys
+
+ # count the lines
+ total = 0
+ for line in sys.stdin:
+     if line:
+         total += 1
+     else:
+         total -= 1
+ ... (7 more lines, 17 total, ctrl+o to expand)
+
+
+ Finished.
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑2.4k ↓60 $0.008 0.6%/200k (auto)                                     fake-model

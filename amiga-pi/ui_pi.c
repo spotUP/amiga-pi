@@ -442,7 +442,7 @@ static void on_event(void *u, const pi_event *e)
         break;
     case PE_TOOL_END:
         if (p->look) {
-            pshow_tool_end(&p->ps, e->tool_id, e->result, e->result_n, e->is_error, e->duration_ms);    /* pi 1.1.0: the recorded durationMs, -1 the clock */
+            pshow_tool_end(&p->ps, e->tool_id, e->result, e->result_n, e->is_error, e->duration_ms, e->details, e->details_n);    /* pi 1.1.0: the recorded durationMs, -1 the clock */
             break;
         }
         if (e->is_error) {
@@ -1399,6 +1399,7 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     p->ps.render = ps_render;
     p->ps.render_u = p;
     pshow_set_pad(&p->ps, ui_pad);
+    pshow_set_root(&p->ps, ui_cwd);
     pshow_render(&p->ps, &p->render);
     footer(p);
     tui_frame(t);
