@@ -1164,7 +1164,73 @@ static int list_matches(const char *list, const char *name)
     return 0;
 }
 
-int pi_tools_ext_allowed(const pi_tools *p, const char *list, const char *name)
+/* createToolNameMatcher(entries)(name) over --exclude-tools: every entry a name or a '*' pattern (no +/- forms) */
+static int excluded(const pi_tools *p, const char *name)
+{
+    const char *q = p->exclude;
+    char e[64];
+    while (next_entry(&q, e, sizeof(e)))
+        if (strchr(e, '*') ? pi_tool_glob(e, name) : !strcmp(e, name))
+            return 1;
+    return 0;
+}
+
+void pi_tools_exclude(pi_tools *p, const char *list)
+{
+    cl_copy(p->exclude, list ? list : "", sizeof(p->exclude));
+}
+
+/* sdk.ts:282-294 allowedToolNames: whether there is an allowlist (a plain --tools list, --no-tools = [] or the
+ * +name entries applyToolModifiers([]) leaves), and whether it filters MCP tools (agent-session.ts:503-506: empty, or an
+ * entry starting with mcp__). *filters_mcp is set only for an allowlist. */
+static int allowlist(const pi_tools *p, const char *list, int *filters_mcp)
+{
+    const char *q = list ? list : "";
+    char e[64];
+    int mods = 0;
+    *filters_mcp = 0;
+    while (next_entry(&q, e, sizeof(e)))
+        mods |= is_modifier(e);
+    if (!mods && list && *list) {
+        q = list;
+        while (next_entry(&q, e, sizeof(e)))
+            if (!strncmp(e, "mcp__", 5))
+                *filters_mcp = 1;
+        return 1;
+    }
+    if (p->no_tools != PI_NO_TOOLS_ALL)
+        return 0;               /* nothing, or modifiers on the defaults: nothing is filtered (--no-builtin-tools too) */
+    if (!mods) {
+        *filters_mcp = 1;       /* --no-tools: allowedToolNames is [] */
+        return 1;
+    }
+    /* --no-tools with modifiers: the names they add and keep */
+    {
+        int n = 0;
+        q = list;
+        while (next_entry(&q, e, sizeof(e))) {
+            const char *r = list;
+            char f[64];
+            int on = 0;
+            if (e[0] != '+')
+                continue;
+            while (next_entry(&r, f, sizeof(f)))
+                if (is_modifier(f) && !strcmp(f + 1, e + 1))
+                    on = f[0] == '+';
+            if (on) {
+                n++;
+                if (!strncmp(e + 1, "mcp__", 5))
+                    *filters_mcp = 1;
+            }
+        }
+        if (!n)
+            *filters_mcp = 1;
+    }
+    return 1;
+}
+
+/* the allowlist's createToolNameMatcher(name): the plain list's entries, or the names the modifiers added */
+static int allow_matches(const pi_tools *p, const char *list, const char *name)
 {
     const char *q = list ? list : "";
     char e[64];
@@ -1172,15 +1238,34 @@ int pi_tools_ext_allowed(const pi_tools *p, const char *list, const char *name)
     while (next_entry(&q, e, sizeof(e)))
         mods |= is_modifier(e);
     if (!mods)
-        return list && *list ? list_matches(list, name) : !p->no_tools;
-    if (!p->no_tools)
-        return 1;                       /* +name and -name entries change the default selection; nothing is filtered */
-    /* --no-tools with modifiers: allowedToolNames is applyToolModifiers([], list) (sdk.ts:287-291) */
+        return list && *list ? list_matches(list, name) : 0;
+    (void)p;
     q = list;
     while (next_entry(&q, e, sizeof(e)))
         if (is_modifier(e) && !strcmp(e + 1, name))
             on = e[0] == '+';
     return on;
+}
+
+int pi_tools_ext_allowed(const pi_tools *p, const char *list, const char *name)
+{
+    int filters;
+    if (excluded(p, name))
+        return 0;
+    return !allowlist(p, list, &filters) || allow_matches(p, list, name);
+}
+
+int pi_tools_mcp_ok(const pi_tools *p, const char *list, const char *name, int direct)
+{
+    int filters;
+    if (excluded(p, name))
+        return 0;                       /* _isAllowedTool: --exclude-tools removes MCP tools too */
+    if (!allowlist(p, list, &filters) || allow_matches(p, list, name))
+        return 1;
+    if (filters)
+        return 0;                       /* the allowlist names mcp__ tools or is empty: it filters MCP tools */
+    /* kept registered, never named: only tool_search can load it (_isActivatable, agent-session.ts:1549) */
+    return !direct && pi_tools_ext_allowed(p, list, "tool_search");
 }
 
 #define PI_DEFAULT_TOOLS ((1u << PT_READ) | (1u << PT_BASH) | (1u << PT_EDIT) | (1u << PT_WRITE))
@@ -1217,7 +1302,7 @@ static unsigned resolve_defaults(const pi_tools *p)
 
 int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long cap)
 {
-    unsigned on = p->no_tools ? 0 : resolve_defaults(p);
+    unsigned on = p->no_tools ? 0 : resolve_defaults(p);   /* --no-tools and --no-builtin-tools: sdk.ts:282 */
     int i;
     if (list && *list) {
         const char *bad = pi_tool_list_error(list, err, cap);
@@ -1242,6 +1327,10 @@ int pi_tools_add(pi_tools *p, pi_session *s, const char *list, char *err, long c
                     on |= 1u << i;
         }
     }
+    /* --exclude-tools after every other selection, built-in tools included (sdk.ts:293, agent-session.ts:1538) */
+    for (i = 0; i < PT_COUNT; i++)
+        if (excluded(p, names[i]))
+            on &= ~(1u << i);
     /* user bash runs the backend whatever the list (agent-session.ts:3841-3858 createLocalBashOperations) */
     s->user_bash = &p->tool[PT_BASH];
     /* pi's order: read, bash, edit, write, grep, find, ls */

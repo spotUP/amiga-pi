@@ -92,6 +92,17 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
             a->gate = !strcmp(s, "--gate");
         else if (!strcmp(s, "--no-tools") || !strcmp(s, "-nt"))
             a->no_tools = 1;
+        else if (!strcmp(s, "--no-builtin-tools") || !strcmp(s, "-nbt"))
+            a->no_builtin_tools = 1;
+        else if (!strcmp(s, "--exclude-tools") || !strcmp(s, "-xt")) {
+            /* cli/args.ts:162-166: a comma-separated list of names and patterns, trimmed, empty entries dropped */
+            if (i + 1 >= argc) {
+                cl_copy(a->err, s, sizeof(a->err));
+                cl_cat(a->err, " needs a value", sizeof(a->err));
+                return -1;
+            }
+            cl_copy(a->exclude, argv[++i], sizeof(a->exclude));
+        }
         else if (!strcmp(s, "--tools") || !strcmp(s, "-t")) {
             if (i + 1 >= argc) {
                 cl_copy(a->err, s, sizeof(a->err));

@@ -1,7 +1,8 @@
 /* args -- amiga-pi's command line (plan C7): pi's flags that exist so far.
  *   amiga-pi [-p|--print] [--mode text|json|rpc] [--model provider/id] [--base-url URL]
  *            [--provider name] [--thinking level] [--api-key key] [--list-models [search]]
- *            [--tools|-t list] [--no-tools|-nt] [--gate|--no-gate] [--no-mcp]
+ *            [--tools|-t list] [--no-tools|-nt] [--no-builtin-tools|-nbt]
+ *            [--exclude-tools|-xt list] [--gate|--no-gate] [--no-mcp]
  *            [--skill path] [--no-skills|-ns]
  *            [--continue|-c] [--session path-or-id] [--resume|-r] [--no-session]
  *            [--name|-n name] [--approve|-a|--no-approve|-na] [--version|-v] [prompt ...]
@@ -13,7 +14,9 @@
  * -n names the session (a session_info entry).
  * --tools: pi's allowlist of tools ("read,grep,find,ls") or, as a list of only +name/-name entries, changes to the
  * defaults read, bash, edit, write ("+ls", "-write"; mixing the two or a * in a modifier is an error, pi 1.1.0);
- * --no-tools: the defaults are empty. --gate / --no-gate
+ * --no-tools: the defaults are empty and no extension or MCP tool joins; --no-builtin-tools: the defaults are empty,
+ * extension and MCP tools stay; --exclude-tools: names and * patterns removed from every source, last (pi 1.1.0 cli/args.ts:147-165,
+ * main.ts:540-550, sdk.ts:282-294). --gate / --no-gate
  * switch the permission gate (ext_gate.h) over settings.json's
  * permissionGate.
  * The model (--model takes pi's pattern: provider/id, an id, or part of one, with an optional :thinking level;
@@ -45,6 +48,8 @@ typedef struct pi_args {
     int nmsg;
     char tools[256];            /* --tools as given, "" none given */
     int no_tools;               /* --no-tools: the default selection is empty (a --tools list still applies) */
+    int no_builtin_tools;       /* --no-builtin-tools / -nbt: the default selection is empty, extension and MCP tools stay */
+    char exclude[512];          /* --exclude-tools / -xt as given, "" none */
     int gate;                   /* --gate 1, --no-gate 0, -1 settings.json decides */
     int cont, resume, no_session;
     int approve;                /* -a / --approve 1 trusts the project's .pi/ resources, -na / --no-approve 0, -1 ask */

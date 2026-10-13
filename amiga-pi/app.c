@@ -605,6 +605,12 @@ static int ext_tool_allowed(void *u, const char *name)
 {
     return pi_tools_ext_allowed((const pi_tools *)u, a.tools, name);
 }
+/* --tools, --no-tools and --exclude-tools on MCP's tools and tool_search (mcp.h tool_ok; tools_pi.h) */
+static int mcp_tool_ok(void *u, const char *name, int direct)
+{
+    return strncmp(name, "mcp__", 5) ? pi_tools_ext_allowed((const pi_tools *)u, a.tools, name)
+                                     : pi_tools_mcp_ok((const pi_tools *)u, a.tools, name, direct);
+}
 static pi_hooks hooks;
 static pi_lua lua;
 static pi_store store;
@@ -826,7 +832,9 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         if (tools_ok) {
             /* the default selection (defaultTools, --no-tools) and --tools through the one applyToolModifiers */
             char dt[256];
-            pi_tools_defaults(&tools, default_tools_setting(pl, dt, sizeof(dt)) ? dt : 0, a.no_tools);
+            pi_tools_defaults(&tools, default_tools_setting(pl, dt, sizeof(dt)) ? dt : 0,
+                              a.no_tools ? PI_NO_TOOLS_ALL : a.no_builtin_tools ? PI_NO_TOOLS_BUILTIN : PI_NO_TOOLS_NONE);
+            pi_tools_exclude(&tools, a.exclude);
         }
         if (!tools_ok || pi_tools_add(&tools, &s, a.tools, err, sizeof(err))) {
             say(pl->io, "amiga-pi: ", err);
@@ -895,6 +903,10 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     /* MCP servers from <agent dir>/mcp.json (pi: ~/.pi/agent/mcp.json), then the project's <cwd>/.pi/mcp.json for a
      * trusted project (pi: guarded by trust) */
     mcp_init(&mc, pl->sys, pl->mcp_pool ? pl->mcp_pool : pl->pool, &s.h, pl->getenv, pl->cwd, pl->tmp);
+    if (pl->sys) {
+        mc.tool_ok = mcp_tool_ok;
+        mc.tool_u = &tools;
+    }
     if (pl->sys && !a.no_mcp) {
         char path[300];
         long i, st = 0;

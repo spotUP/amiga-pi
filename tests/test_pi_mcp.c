@@ -1338,7 +1338,7 @@ static int app_run(int no_mcp)
 {
     cl_io io;
     pi_platform pl;
-    char *argv[14];
+    char *argv[14], fl[64];
     int a = 0;
     memset(&io, 0, sizeof(io));
     io.read_line = l_read;
@@ -1370,8 +1370,17 @@ static int app_run(int no_mcp)
     argv[a++] = "--no-session";
     if (no_mcp)
         argv[a++] = "--no-mcp";
-    if (app_flag)
-        argv[a++] = (char *)app_flag;
+    if (app_flag) {
+        /* "flag value" is two arguments */
+        char *sp;
+        cl_copy(fl, app_flag, sizeof(fl));
+        sp = strchr(fl, ' ');
+        if (sp)
+            *sp++ = 0;
+        argv[a++] = fl;
+        if (sp)
+            argv[a++] = sp;
+    }
     if (app_mode) {
         argv[a++] = "--mode";
         argv[a++] = (char *)app_mode;
@@ -1415,6 +1424,32 @@ static void test_reach(void)
     app_run(1);
     CHECK_INT(mcp_call_count - calls, 0);
     CHECK(ps.nreq >= 1 && strstr(ps.body[0], "mcp__fake__echo") == 0);
+    /* L15: --exclude-tools, --no-tools and --tools on MCP's tools through pi_app (pi_tools_mcp_ok decides; sdk.ts:282-294,
+     * agent-session.ts _isAllowedTool): excluded, filtered by --no-tools or by a list that names an mcp__ entry, or left
+     * undeclared by a list that does not name the direct tool: nothing is declared, nothing is called; named: declared */
+    calls = mcp_call_count;
+    app_flag = "--exclude-tools mcp__*";
+    CHECK_INT(app_run(0), 0);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "mcp__fake__echo") == 0);
+    app_flag = "-xt mcp__fake__echo";
+    CHECK_INT(app_run(0), 0);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "mcp__fake__echo") == 0);
+    app_flag = "--no-tools";
+    CHECK_INT(app_run(0), 0);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "mcp__fake__echo") == 0);
+    app_flag = "--tools read";
+    CHECK_INT(app_run(0), 0);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "mcp__fake__echo") == 0);
+    CHECK_INT(mcp_call_count - calls, 0);
+    app_flag = "--tools read,mcp__fake__*";
+    CHECK_INT(app_run(0), 0);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "\"name\":\"mcp__fake__echo\"") != 0);
+    CHECK_INT(mcp_call_count - calls, 1);
+    app_flag = "--no-builtin-tools";
+    CHECK_INT(app_run(0), 0);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "\"name\":\"mcp__fake__echo\"") != 0 &&
+          strstr(ps.body[0], "\"name\":\"bash\"") == 0);
+    app_flag = 0;
     /* Q7: the call's tool_execution_end in the json stream carries convertMcpResult's details and structuredContent */
     app_mode = "json";
     app_run(0);
