@@ -6,6 +6,7 @@
 #include "settings_diag.h"
 #include "ext_events.h"
 #include "login.h"
+#include "resume_pi.h"
 #include "args.h"
 #include "prompt.h"
 #include "ui_pi.h"
@@ -466,46 +467,76 @@ static int gate_setting(const pi_platform *pl, pi_gate *g)
     return on == 1;
 }
 
-/* -r: the sessions of this directory listed, one picked by number (0 or no input: none) */
+/* -r on a console without a screen: the sessions of this directory, numbered */
 typedef struct pick {
     cl_io *io;
     int n;
-    char path[9][320];
+    char path[9][320], line[9][160];
 } pick;
 
 static void pick_fn(void *c, const char *path, const char *id, const char *title)
 {
     pick *p = (pick *)c;
-    char line[160], num[8];
+    char *line = p->line[p->n], num[8];
     if (p->n >= 9)
         return;
     cl_copy(p->path[p->n], path, sizeof(p->path[0]));
     num[0] = (char)('1' + p->n);
     num[1] = 0;
-    cl_copy(line, "  ", sizeof(line));
-    cl_cat(line, num, sizeof(line));
-    cl_cat(line, "  ", sizeof(line));
+    cl_copy(line, "  ", sizeof(p->line[0]));
+    cl_cat(line, num, sizeof(p->line[0]));
+    cl_cat(line, "  ", sizeof(p->line[0]));
     cl_copy(line + strlen(line), id, 9);
-    cl_cat(line, "  ", sizeof(line));
-    cl_cat(line, title, sizeof(line));
-    say(p->io, line, 0);
+    cl_cat(line, "  ", sizeof(p->line[0]));
+    cl_cat(line, title, sizeof(p->line[0]));
     p->n++;
 }
 
+/* -r: pi's selector on the screen (resume_pi.c) when the console has one, else the sessions of this directory listed and
+ * one picked by number. 0 picked (out), 1 none picked (pi: "No session selected", exit 0), -1 a new session */
 static int pick_session(const pi_platform *pl, const char *data_dir, const char *sdir, char *out, long cap)
 {
     pick p;
-    char dir[300], buf[16];
-    long n;
+    char dir[300], def[300], root[300], buf[16], *kb;
+    long n, kn = 0;
+    int r;
+    if (s3_dir(data_dir, pl->cwd, def, sizeof(def)))
+        return -1;
+    cl_copy(dir, sdir[0] ? sdir : def, sizeof(dir));
+    if (pl->io->read && pl->io->raw) {
+        static cl_pitheme th;
+        llm_ts now;
+        now.sec = 0;
+        now.ms = 0;
+        if (pl->now)
+            now = pl->now(pl->h.u);
+        load_theme(pl, &th);
+        theme_depth(pl, &th);
+        s3_root(data_dir, root, sizeof(root));
+        kb = keybindings_text(pl, &kn);
+        /* pi's SessionManager.list filters by the header's cwd when the directory is not the default one */
+        r = pi_resume_pick(pl->io, pl->sys, &th, now, pl->cwd, dir, sdir[0] ? sdir : root, sdir[0] != 0,
+                           sdir[0] && strcmp(sdir, def), kb, kb ? kn : 0, out, cap);
+        if (kb)
+            CL_FREE(kb);
+        if (r >= 0) {
+            if (!r)
+                say(pl->io, "\033[2mNo session selected\033[22m", 0);
+            return r ? 0 : 1;
+        }
+    }
     p.io = pl->io;
     p.n = 0;
-    if (sdir[0])
-        cl_copy(dir, sdir, sizeof(dir));
-    else if (s3_dir(data_dir, pl->cwd, dir, sizeof(dir)))
-        return -1;
-    say(pl->io, "Sessions in this directory (number to resume, anything else to start a new one):", 0);
     s3_list(pl->sys, dir, 9, pick_fn, &p);
-    if (!p.n || !pl->io->read_line)
+    if (!p.n) {
+        say(pl->io, "No sessions in current folder.", 0);
+        say(pl->io, "No session selected", 0);
+        return 1;
+    }
+    say(pl->io, "Sessions in this directory (number to resume, anything else to start a new one):", 0);
+    for (r = 0; r < p.n; r++)
+        say(pl->io, p.line[r], 0);
+    if (!pl->io->read_line)
         return -1;
     n = pl->io->read_line(pl->io->u, buf, sizeof(buf));
     if (n != 1 || buf[0] < '1' || buf[0] >= '1' + p.n)
@@ -904,6 +935,27 @@ static void retry_settings(const pi_platform *pl, pi_session *ses)
     CL_FREE(b);
 }
 
+/* PI_DEBUG_LOG=<file> (amiga-pi's own, unset: off): llm_request's debug log appended to that file -- each request's
+ * head with the credential redacted, each event of the answer, and for pi's bare "Connection error." the transport's
+ * reason (no route, no AmiSSL, the certificate). Not set when the platform brings a log of its own (the tests). */
+static const cl_sys *dlog_sys;
+static char dlog_path[256];
+
+static void dlog(void *u, const char *s, long n)
+{
+    (void)u;
+    dlog_sys->append(dlog_sys->u, dlog_path, s, n);
+}
+
+static void debug_log(pi_platform *pl)
+{
+    if (!pl->h.log && pl->getenv && pl->sys && pl->sys->append &&
+        pl->getenv("PI_DEBUG_LOG", dlog_path, sizeof(dlog_path)) > 0) {
+        dlog_sys = pl->sys;
+        pl->h.log = dlog;
+    }
+}
+
 int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
 {
     const pi_platform *pl;
@@ -913,6 +965,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     int mode, level0 = 0, trusted = 0;
     memset(rt, 0, sizeof(*rt));
     rt->pl = *plat;
+    debug_log(&rt->pl);
     rt->io = plat->io;
     pl = &rt->pl;
     if (pi_args_parse(&a, argc, argv)) {
@@ -941,9 +994,16 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     /* the session first: the model it names is the default (pi restores it on resume) */
     mode = a.no_session || !pl->sys || !pl->data_dir || !pl->data_dir[0] ? PS_MODE_NONE : PS_MODE_NEW;
     picked[0] = 0;
-    if (mode != PS_MODE_NONE && a.resume && !pick_session(pl, pl->data_dir, a.session_dir, picked, sizeof(picked)))
-        mode = PS_MODE_SESSION;
-    else if (mode != PS_MODE_NONE && a.session[0]) {
+    if (mode != PS_MODE_NONE && a.resume) {
+        int pr = pick_session(pl, pl->data_dir, a.session_dir, picked, sizeof(picked));
+        if (pr == 1)
+            return -1;                  /* pi main.ts:421-424: "No session selected", exit 0 */
+        if (!pr)
+            mode = PS_MODE_SESSION;
+    }
+    if (mode == PS_MODE_SESSION && picked[0]) {
+        /* the selector's choice */
+    } else if (mode != PS_MODE_NONE && a.session[0]) {
         mode = PS_MODE_SESSION;
         cl_copy(picked, a.session, sizeof(picked));
     } else if (mode != PS_MODE_NONE && a.cont)

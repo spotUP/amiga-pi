@@ -1,0 +1,25 @@
+
+────────────────────────────────────────────────────────────────────────────────
+
+Resume Session (Current Fold ◉ Current Folder | ○ All  Name: All  Sort: Threaded
+tab scope · re:<pattern> regex · "phrase" exact
+ctrl+s sort · ctrl+n named · ctrl+d delete · ctrl+p path (on)
+
+>
+
+› why does … ~/agent/sessions/--private-tmp-u2-project--/20240615T180000_cccc...
+  verbose f… ~/agent/sessions/--private-tmp-u2-project--/20220815T093000_bbbb...
+  fix the b… ~/agent/sessions/--private-tmp-u2-project--/20200301T100000_aaaa...
+
+────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+
+
+
