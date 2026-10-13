@@ -1907,15 +1907,15 @@ static void test_gate_in_list(void)
     }
 }
 
-/* L4: tools and commands a Lua extension registers, against pi 1.1.0 running the TypeScript twin
- * (tools/pi_oracle/rpc_gen.py ext_tool*, ext_cmd*; the Lua extensions are in gen_lua_scenarios.py): the records pi
+/* L4, L6: tools, commands and entries a Lua extension registers, against pi 1.1.0 running the TypeScript twin
+ * (tools/pi_oracle/rpc_gen.py ext_tool*, ext_cmd*, ext_entry; the Lua extensions are in gen_lua_scenarios.py): the records pi
  * prints, the tools and messages of each request, what execute and the handlers were handed, the session file */
 static void test_lua_register(void)
 {
     static const char *const names[] = { "ext_lua_tool", "ext_lua_tool_results", "ext_lua_tool_allow", "ext_lua_tool_named",
                                          "ext_lua_tool_only", "ext_lua_tool_none", "ext_lua_tool_minus", "ext_lua_tool_plus_none",
                                          "ext_lua_tool_pattern", "ext_lua_tool_default", "ext_lua_cmd", "ext_lua_cmd_dup",
-                                         "ext_lua_cmd_scope", 0 };
+                                         "ext_lua_cmd_scope", "ext_lua_entry", 0 };
     group(names);
 }
 
@@ -1928,6 +1928,17 @@ static void test_lua_tool_reach(void)
     if (getenv("PI_MODES_ONLY") && strcmp(getenv("PI_MODES_ONLY"), "ext_lua_tool"))
         return;
     CHECK(scenario("ext_lua_tool", 0));
+    CHECK_INT(pi_lua_tool_calls - c0, 1);
+}
+
+/* L6 reachability: the same path with the tool "note", whose pi.appendEntry calls leave custom entries in the session file and
+ * none in the second request */
+static void test_lua_entry_reach(void)
+{
+    long c0 = pi_lua_tool_calls;
+    if (getenv("PI_MODES_ONLY") && strcmp(getenv("PI_MODES_ONLY"), "ext_lua_entry"))
+        return;
+    CHECK(scenario("ext_lua_entry", 0));
     CHECK_INT(pi_lua_tool_calls - c0, 1);
 }
 
@@ -1965,5 +1976,6 @@ void suite_pi_modes(void)
     test_lua_reach();
     test_lua_register();
     test_lua_tool_reach();
+    test_lua_entry_reach();
     test_gate_in_list();
 }

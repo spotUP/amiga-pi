@@ -590,7 +590,7 @@ static void test_order(void)
     jw_free(&args);
 }
 
-/* ---- L4: tools and commands an extension registers ---- */
+/* ---- L4, L6: tools, commands and entries an extension registers ---- */
 
 static pi_tool *tool_named(const char *name)
 {
@@ -780,6 +780,47 @@ static void test_register_commands(void)
     CHECK_INT(load("c5.lua", "pi.registerCommand('nohandler', { description = 'd' })"), -1);
     CHECK(strstr(told[3], "Command \"/nohandler\" registered by extension \"") != 0 && strstr(told[3], "must define handler().") != 0);
     CHECK_INT(ses.ext.ncmd, 4);
+    down();
+}
+
+static char ent_type[8][40], ent_data[8][80];
+static int ent_n;
+
+static int rec_entry(void *u, pi_session *s, const char *type, const char *data)
+{
+    (void)u;
+    (void)s;
+    if (ent_n < 8) {
+        strcpy(ent_type[ent_n], type);
+        strcpy(ent_data[ent_n], data ? data : "<none>");
+    }
+    ent_n++;
+    return 0;
+}
+
+static void test_append_entry(void)
+{
+    up(0);
+    ses.append_entry = rec_entry;
+    ent_n = 0;
+    /* not while the extension loads (loader.ts notInitialized) */
+    CHECK_INT(load("e1.lua", "pi.appendEntry('early', {})"), -1);
+    CHECK(strstr(told[0], "Extension runtime not initialized. Action methods cannot be called during extension loading.") != 0);
+    CHECK_INT(ent_n, 0);
+    CHECK_INT(load("e2.lua", "pi.on('input', function()\n  pi.appendEntry('t1', { a = 1, b = { 'x' } })\n  pi.appendEntry('t2')\n"
+                             "  pi.appendEntry('t3', json.null)\n  pi.appendEntry('t4', 'text')\nend)"), 0);
+    run_input("x");
+    CHECK_INT(ent_n, 4);
+    CHECK_STR(ent_type[0], "t1");
+    CHECK_STR(ent_data[0], "{\"a\":1,\"b\":[\"x\"]}");
+    CHECK_STR(ent_type[1], "t2");
+    CHECK_STR(ent_data[1], "<none>");                       /* undefined data: no "data" key (JSON.stringify drops it) */
+    CHECK_STR(ent_data[2], "null");
+    CHECK_STR(ent_data[3], "\"text\"");
+    /* a function cannot be written: the handler fails, the extension stops */
+    CHECK_INT(load("e3.lua", "pi.on('input', function() pi.appendEntry('t5', { f = print }) end)"), 0);
+    run_input("x");
+    CHECK(strstr(told[0], "pi.appendEntry: ") != 0 || strstr(told[1], "pi.appendEntry: ") != 0);
     down();
 }
 
@@ -1014,6 +1055,7 @@ void suite_pi_lua(void)
     test_rank();
     test_register_tools();
     test_register_commands();
+    test_append_entry();
     test_ext_menu();
     jw_init(&out);
     test_app();

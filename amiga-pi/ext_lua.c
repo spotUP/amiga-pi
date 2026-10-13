@@ -816,6 +816,30 @@ static int pi_register_command(lua_State *L)
     return 0;
 }
 
+/* pi.appendEntry(customType, data): not while the extension loads (loader.ts:163 notInitialized); data nil leaves the key out,
+ * as JSON.stringify does for undefined, json.null writes null */
+static int pi_append_entry(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    pi_session *s = x->host->s;
+    const char *type = luaL_checkstring(L, 1);
+    jw w;
+    char err[200];
+    int rc;
+    if (x->loading)
+        return luaL_error(L, "Extension runtime not initialized. Action methods cannot be called during extension loading.");
+    jw_init(&w);
+    if (!lua_isnoneornil(L, 2) && enc_protected(L, 2, &w, err, sizeof(err))) {
+        jw_free(&w);
+        return luaL_error(L, "pi.appendEntry: %s", err);
+    }
+    rc = s->append_entry ? s->append_entry(s->append_u, s, type, w.n ? w.p : 0) : 0;
+    jw_free(&w);
+    if (rc)
+        return luaL_error(L, "pi.appendEntry: the entry could not be written");
+    return 0;
+}
+
 /* onUpdate({ content, details }) of a running tool: a tool_execution_update (agent-loop.ts emitToolExecutionUpdate) */
 static int lt_update(lua_State *L)
 {
@@ -1071,6 +1095,8 @@ static int c_setup(lua_State *L)
     lua_setfield(L, -2, "registerTool");
     lua_pushcfunction(L, pi_register_command);
     lua_setfield(L, -2, "registerCommand");
+    lua_pushcfunction(L, pi_append_entry);
+    lua_setfield(L, -2, "appendEntry");
     lua_setglobal(L, "pi");
     return 0;
 }

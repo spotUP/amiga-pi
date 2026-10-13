@@ -19,14 +19,14 @@
  * table an array), `print` (a notice). The libraries: base (no dofile / loadfile; load accepts text only), coroutine,
  * table, string, math, utf8. No io, os, package, debug: files and processes come with pi.exec (L4).
  *
- * Also (L4): `pi.registerTool(def)` -- def is pi's ToolDefinition (core/extensions/types.ts:573) as a table: name,
+ * Also (L4, L6): `pi.registerTool(def)` -- def is pi's ToolDefinition (core/extensions/types.ts:573) as a table: name,
  * description, parameters (a JSON schema table, type "object"), promptSnippet, promptGuidelines (an array), constrainedSampling
  * and execute(toolCallId, params, signal, onUpdate, ctx), which returns { content, details, structuredContent, isError } or
  * raises an error (the model gets its message as the tool's error); `signal` is nil (nothing aborts a Lua call but Ctrl+C
  * before it starts), onUpdate({ content, details }) is a tool_execution_update. The tool joins the tools the model sees after
  * the built-in ones, as --tools / --no-tools allow it (pi_tools_ext_allowed). `pi.registerCommand(name, { description,
  * handler })` registers /name: handler(args, ctx) runs when the line "/name args" is entered, in the slash menu and in RPC
- * get_commands (ext.h).
+ * get_commands (ext.h). `pi.appendEntry(customType, data)` appends a custom entry to the session; it takes part in no request.
  * Not read: label, renderShell, prepareArguments, outputSchema, exposure, namespace, annotations, defaultActive,
  * prepareLoadout, executionMode, renderCall / renderResult, getArgumentCompletions (COMPATIBILITY.md).
  *

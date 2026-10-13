@@ -338,7 +338,7 @@ sc('ext_rpc_new', steps=[('cmd', {'type': 'new_session'})], answers=[], ext=EXT_
    collect=['dump.jsonl'], session=True)
 
 
-# ---- L4: tools and commands an extension registers (pi.registerTool, pi.registerCommand) ----
+# ---- L4: tools, commands and entries an extension registers (pi.registerTool, pi.registerCommand, pi.appendEntry) ----
 # The extensions sit in <agent dir>/extensions/ (pi finds them there: sourceInfo source "auto", scope "user"), as the Lua twins of
 # gen_lua_scenarios.py do. A tool's execute writes what it was handed to exec.jsonl; the requests the model got are kept
 # (<name>.req.N.json: tools and messages).
@@ -409,6 +409,14 @@ sc('ext_cmd_scope', steps=[('cmd', {'type': 'get_commands'}), ('send', P('/hello
    text_files={'project/.pi/extensions/p.ts': EXT_DUP % ('project', 'project'), 'agent/extensions/dirx/index.ts': EXT_DUP % ('user', 'user')},
    collect=['cmd.jsonl'])
 
+EXT_ENTRY = '''export default function (pi) {
+  pi.on("session_start", async () => { pi.appendEntry("boot", { n: 1 }); });
+''' + tool_def('note', '', '{ type: "object", properties: { text: { type: "string" } }, required: ["text"] }',
+'''      pi.appendEntry("note", { text: params.text, tags: ["a", "b"] });
+      pi.appendEntry("bare");
+      return { content: [{ type: "text", text: "noted" }], details: {} };''') + "}\n"
+sc('ext_entry', mode='json', args=['note it'], answers=[TOOL('note', {'text': 'remember'}), A('Noted.')], session=True,
+   text_files={'agent/extensions/t.ts': EXT_ENTRY}, requests=True, collect=['session.jsonl'])
 
 
 class Trickle(T.Fake):

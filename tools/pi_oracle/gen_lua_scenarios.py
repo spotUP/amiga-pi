@@ -52,7 +52,7 @@ for f in sorted(os.listdir(D)):
     print('wrote ext_lua_' + name[4:])
 
 
-# ---- L4: the scenarios of rpc_gen.py that register tools and commands (ext_tool*, ext_cmd*): the Lua
+# ---- L4, L6: the scenarios of rpc_gen.py that register tools, commands and entries (ext_tool*, ext_cmd*, ext_entry): the Lua
 # extension that does the same, written by hand next to the TypeScript one there. The record of what execute / a handler was
 # handed goes through print (the notice sink, "lua_dump") instead of appendFileSync; the object members of a JSON text have no
 # order in Lua (json.encode sorts them), so the scenarios compare with sorted keys ("canonical"). ----
@@ -103,6 +103,17 @@ LUA_DUP = '''pi.registerCommand("hello", { description = "Say hello from %s", ha
   print(json.encode({ command = "hello", from = "%s", args = args }))
 end })
 '''
+LUA_ENTRY = '''pi.on("session_start", function() pi.appendEntry("boot", { n = 1 }) end)
+pi.registerTool({
+  name = "note", label = "note", description = "note tool.",
+  parameters = { type = "object", properties = { text = { type = "string" } }, required = { "text" } },
+  execute = function(toolCallId, params, signal, onUpdate, ctx)
+    pi.appendEntry("note", { text = params.text, tags = { "a", "b" } })
+    pi.appendEntry("bare")
+    return { content = { { type = "text", text = "noted" } }, details = {} }
+  end,
+})
+'''
 L4 = {
     'ext_tool': {'agent/extensions/t.lua': LUA_TOOLS},
     'ext_tool_results': {'agent/extensions/t.lua': LUA_TOOLS},
@@ -118,6 +129,7 @@ L4 = {
     'ext_cmd_dup': {'agent/extensions/a.lua': LUA_DUP % ('a', 'a'), 'agent/extensions/b.lua': LUA_DUP % ('b', 'b')},
     'ext_cmd_scope': {'project/.pi/extensions/p.lua': LUA_DUP % ('project', 'project'),
                       'agent/extensions/dirx/index.lua': LUA_DUP % ('user', 'user')},
+    'ext_entry': {'agent/extensions/t.lua': LUA_ENTRY},
 }
 for name, files in L4.items():
     p = os.path.join(D, name + '.cfg.json')
@@ -127,7 +139,9 @@ for name, files in L4.items():
     cfg['golden'] = name
     cfg['text_files'] = files
     if cfg.get('collect'):
-        cfg['lua_dump'] = cfg['collect'][0]
+        cfg['lua_dump'] = cfg['collect'][0] if name != 'ext_entry' else None
         cfg['canonical'] = True
+        if cfg['lua_dump'] is None:
+            del cfg['lua_dump']
     open(os.path.join(D, 'ext_lua_' + name[4:] + '.cfg.json'), 'w').write(json.dumps(cfg, indent=1) + '\n')
     print('wrote ext_lua_' + name[4:])
