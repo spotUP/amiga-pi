@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "mode_rpc.h"
+#include "ext_events.h"
 #include "mode_json.h"
 #include "export.h"
 #include "compact.h"
@@ -170,35 +171,6 @@ static int rpc_poll(void *u)
 
 /* ---- JSON pieces ---- */
 
-static void model_json(const llm_model *m, jw *w)
-{
-    jw_rawz(w, "{\"id\":");
-    jw_strz(w, m->id);
-    jw_rawz(w, ",\"name\":");
-    jw_strz(w, m->name ? m->name : m->id);
-    jw_rawz(w, ",\"api\":");
-    jw_strz(w, m->api);
-    jw_rawz(w, ",\"provider\":");
-    jw_strz(w, m->provider);
-    jw_rawz(w, ",\"baseUrl\":");
-    jw_strz(w, m->base_url ? m->base_url : "");
-    jw_rawz(w, m->reasoning ? ",\"reasoning\":true" : ",\"reasoning\":false");
-    jw_rawz(w, m->image ? ",\"input\":[\"text\",\"image\"]" : ",\"input\":[\"text\"]");
-    jw_rawz(w, ",\"cost\":{\"input\":");
-    llm_w_micro(w, m->cost[0]);
-    jw_rawz(w, ",\"output\":");
-    llm_w_micro(w, m->cost[1]);
-    jw_rawz(w, ",\"cacheRead\":");
-    llm_w_micro(w, m->cost[2]);
-    jw_rawz(w, ",\"cacheWrite\":");
-    llm_w_micro(w, m->cost[3]);
-    jw_rawz(w, "},\"contextWindow\":");
-    jw_long(w, m->context_window);
-    jw_rawz(w, ",\"maxTokens\":");
-    jw_long(w, m->max_tokens);
-    jw_rawz(w, "}");
-}
-
 /* v as a string into a malloc'ed copy (0 when it is not a string) */
 static char *str_of(jv obj, const char *key, long *n)
 {
@@ -233,7 +205,7 @@ static void state_json(pi_rpc *r, jw *w)
     pi_s3 *t = &r->st->s3;
     char nm[200];
     jw_rawz(w, "{\"model\":");
-    model_json(&s->model, w);
+    pi_model_json(&s->model, w);
     jw_rawz(w, ",\"thinkingLevel\":");
     jw_strz(w, llm_think_name(s->thinking));
     jw_rawz(w, s->active ? ",\"isStreaming\":true" : ",\"isStreaming\":false");
@@ -651,8 +623,112 @@ static void rpc_ui_notify(void *u, const char *message, const char *type)
     jw_free(&w);
 }
 
-/* what an extension's ctx.ui reaches while RPC mode runs (ext.h pi_ext_ui): requests out, the client's responses in */
-static pi_ext_ui rpc_ui = { 0, rpc_ui_select, rpc_ui_confirm, rpc_ui_input, rpc_ui_notify };
+/* the requests that need no answer (rpc-mode.ts:212-290): setStatus, setWidget (string arrays only), setTitle, set_editor_text */
+static void rpc_ui_status(void *u, const char *key, const char *text)
+{
+    pi_rpc *r = (pi_rpc *)u;
+    jw w;
+    char id[48];
+    jw_init(&w);
+    ui_open(r, &w, "setStatus", id);
+    jw_rawz(&w, ",\"statusKey\":");
+    jw_strz(&w, key);
+    if (text) {
+        jw_rawz(&w, ",\"statusText\":");
+        jw_strz(&w, text);
+    }
+    jw_rawz(&w, "}");
+    put_line(r, &w);
+    jw_free(&w);
+}
+
+static void rpc_ui_widget(void *u, const char *key, const char *const *lines, int n, const char *placement)
+{
+    pi_rpc *r = (pi_rpc *)u;
+    jw w;
+    char id[48];
+    int i;
+    jw_init(&w);
+    ui_open(r, &w, "setWidget", id);
+    jw_rawz(&w, ",\"widgetKey\":");
+    jw_strz(&w, key);
+    if (n >= 0) {
+        jw_rawz(&w, ",\"widgetLines\":[");
+        for (i = 0; i < n; i++) {
+            if (i)
+                jw_rawz(&w, ",");
+            jw_strz(&w, lines[i]);
+        }
+        jw_rawz(&w, "]");
+    }
+    if (placement) {
+        jw_rawz(&w, ",\"widgetPlacement\":");
+        jw_strz(&w, placement);
+    }
+    jw_rawz(&w, "}");
+    put_line(r, &w);
+    jw_free(&w);
+}
+
+static void rpc_ui_title(void *u, const char *title)
+{
+    pi_rpc *r = (pi_rpc *)u;
+    jw w;
+    char id[48];
+    jw_init(&w);
+    ui_open(r, &w, "setTitle", id);
+    jw_rawz(&w, ",\"title\":");
+    jw_strz(&w, title);
+    jw_rawz(&w, "}");
+    put_line(r, &w);
+    jw_free(&w);
+}
+
+static void rpc_ui_editor_text(void *u, const char *text)
+{
+    pi_rpc *r = (pi_rpc *)u;
+    jw w;
+    char id[48];
+    jw_init(&w);
+    ui_open(r, &w, "set_editor_text", id);
+    jw_rawz(&w, ",\"text\":");
+    jw_strz(&w, text);
+    jw_rawz(&w, "}");
+    put_line(r, &w);
+    jw_free(&w);
+}
+
+/* the editor dialog: no timeout (rpc-mode.ts:300-320 waits for the response as long as it takes) */
+static int rpc_ui_editor(void *u, const char *title, const char *prefill, char *value, long cap)
+{
+    pi_rpc *r = (pi_rpc *)u;
+    jw w;
+    char id[48];
+    jv o, v;
+    int ok = 0;
+    jw_init(&w);
+    ui_open(r, &w, "editor", id);
+    jw_rawz(&w, ",\"title\":");
+    jw_strz(&w, title);
+    if (prefill) {
+        jw_rawz(&w, ",\"prefill\":");
+        jw_strz(&w, prefill);
+    }
+    jw_rawz(&w, "}");
+    put_line(r, &w);
+    jw_free(&w);
+    if (dialog_wait(r, id, 0) && !cancelled(&r->ui_resp) && !json_parse(r->ui_resp.p, r->ui_resp.n, &o) &&
+        json_get(o, "value", &v) && json_type(v) == J_STR) {
+        json_str(v, value, cap);
+        ok = 1;
+    }
+    return ok;
+}
+
+/* what an extension's ctx.ui reaches while RPC mode runs (ext.h pi_ext_ui): requests out, the client's responses in. The loader's label
+ * (setWorkingMessage) is the terminal's: rpc-mode.ts ignores it */
+static pi_ext_ui rpc_ui = { 0, rpc_ui_select, rpc_ui_confirm, rpc_ui_input, rpc_ui_notify, rpc_ui_status, rpc_ui_widget, rpc_ui_title,
+                            rpc_ui_editor_text, 0, rpc_ui_editor };
 
 /* the permission gate's question (ext_gate.h) as a select */
 static int rpc_ask(void *u, int tool, const char *name, const char *what, int outside)
@@ -719,45 +795,67 @@ static void prompt_started(void *u)
     ok(c, c->r->s->disposition ? "{\"disposition\":\"handled\"}" : "{\"disposition\":\"started\"}");
 }
 
+/* the command's "images" array (ImageContent[]) as malloc'ed JSON text, 0 when it has none */
+static char *images_of(jv obj)
+{
+    jv v;
+    char *z;
+    if (!json_get(obj, "images", &v) || json_type(v) != J_ARR)
+        return 0;
+    z = (char *)malloc((size_t)v.n + 1);
+    if (z) {
+        memcpy(z, v.p, (size_t)v.n);
+        z[v.n] = 0;
+    }
+    return z;
+}
+
 static void cmd_prompt(const cmd *c)
 {
     pi_rpc *r = c->r;
     pi_session *s = r->s;
     long n;
-    char *msg = str_of(c->obj, "message", &n), *sb;
+    char *msg = str_of(c->obj, "message", &n), *sb, *imgs;
     long bn;
     if (!msg) {
         fail(c, "Missing message");
         return;
     }
     sb = str_of(c->obj, "streamingBehavior", &bn);
+    imgs = images_of(c->obj);
     if (s->active) {
         int rc = -1;
+        s->ext.source = "rpc";
         if (sb && !strcmp(sb, "steer"))
-            rc = pi_steer(s, msg);
+            rc = pi_steer_images(s, msg, imgs);
         else if (sb && !strcmp(sb, "followUp"))
-            rc = pi_follow_up(s, msg);
+            rc = pi_follow_up_images(s, msg, imgs);
         else {
+            s->ext.source = 0;
             fail(c, "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.");
             free(msg);
             free(sb);
+            free(imgs);
             return;
         }
+        s->ext.source = 0;
         if (rc)
             fail(c, "The queue is full");
         else
             ok(c, "{\"disposition\":\"queued\"}");
         free(msg);
         free(sb);
+        free(imgs);
         return;
     }
     free(sb);
     s->started = prompt_started;        /* the response follows the check before the prompt, as pi's preflightResult */
     s->started_u = (void *)c;
     s->ext.source = "rpc";              /* the input event's InputSource (rpc-mode.ts: source: "rpc") */
-    pi_prompt(s, msg);
+    pi_prompt_images(s, msg, imgs);
     s->ext.source = 0;
     free(msg);
+    free(imgs);
     r->abort_req = 0;
     if (r->abort_wait) {
         r->abort_wait = 0;
@@ -768,14 +866,18 @@ static void cmd_prompt(const cmd *c)
 static void cmd_queue(const cmd *c, int follow)
 {
     long n;
-    char *msg = str_of(c->obj, "message", &n);
+    char *msg = str_of(c->obj, "message", &n), *imgs = images_of(c->obj);
     int rc;
     if (!msg) {
         fail(c, "Missing message");
+        free(imgs);
         return;
     }
-    rc = follow ? pi_follow_up(c->r->s, msg) : pi_steer(c->r->s, msg);
+    c->r->s->ext.source = "rpc";        /* rpc-mode.ts: session.steer(message, images, { source: "rpc" }) */
+    rc = follow ? pi_follow_up_images(c->r->s, msg, imgs) : pi_steer_images(c->r->s, msg, imgs);
+    c->r->s->ext.source = 0;
     free(msg);
+    free(imgs);
     if (rc)
         fail(c, "The queue is full");
     else
@@ -868,13 +970,15 @@ static void cmd_new_session(const cmd *c)
     pi_rpc *r = c->r;
     char *parent;
     long n;
+    int rc;
     if (busy(c))
         return;
     parent = str_of(c->obj, "parentSession", &n);
-    if (pi_store_new_session(r->st, parent))
+    rc = pi_store_new_session(r->st, parent);
+    if (rc < 0)
         fail(c, r->st->err);
     else
-        ok(c, "{\"cancelled\":false}");
+        ok(c, rc ? "{\"cancelled\":true}" : "{\"cancelled\":false}");
     free(parent);
 }
 
@@ -917,7 +1021,7 @@ static void cmd_set_model(const cmd *c)
     else {
         jw d;
         jw_init(&d);
-        model_json(&r->s->model, &d);
+        pi_model_json(&r->s->model, &d);
         okw(c, &d);
         jw_free(&d);
     }
@@ -938,7 +1042,7 @@ static void cmd_cycle_model(const cmd *c)
         jw d;
         jw_init(&d);
         jw_rawz(&d, "{\"model\":");
-        model_json(&r->s->model, &d);
+        pi_model_json(&r->s->model, &d);
         jw_rawz(&d, ",\"thinkingLevel\":");
         jw_strz(&d, llm_think_name(r->s->thinking));
         jw_rawz(&d, r->rt->models->scope ? ",\"isScoped\":true}" : ",\"isScoped\":false}");
@@ -958,7 +1062,7 @@ static void cmd_get_available_models(const cmd *c)
         if (pi_model_usable(ms, &ms->reg.m[i])) {
             if (k++)
                 jw_rawz(&d, ",");
-            model_json(&ms->reg.m[i], &d);
+            pi_model_json(&ms->reg.m[i], &d);
         }
     jw_rawz(&d, "]}");
     okw(c, &d);
@@ -1058,7 +1162,7 @@ static void cmd_bash(const cmd *c)
     long n;
     char *line = str_of(c->obj, "command", &n);
     jw text, d;
-    int code = 0, stopped = 0, excl = flag_of(c->obj, "excludeFromContext", 0);
+    int code = 0, stopped = 0, by_ext = 0, excl = flag_of(c->obj, "excludeFromContext", 0);
     if (!line) {
         fail(c, "Missing command");
         return;
@@ -1071,11 +1175,11 @@ static void cmd_bash(const cmd *c)
     jw_init(&text);
     r->in_bash = 1;
     r->bash_abort = 0;
-    if (pi_store_bash_run(r->st, line, excl, &text, &code, &stopped)) {
+    if (pi_store_bash_run(r->st, line, excl, &text, &code, &stopped, &by_ext)) {
         fail(c, "The bash tool is not available");
     } else {
         jw_init(&d);
-        if (text.n) {
+        if (text.n && !by_ext) {       /* a handler's result arrives whole, with no output chunks */
             jw u;
             jw_init(&u);
             jw_rawz(&u, "{\"type\":\"bash_execution_update\"");
@@ -1141,14 +1245,16 @@ static void cmd_switch_session(const cmd *c)
     else {
         /* a relative path is the working directory's, as pi's process has it */
         char full[600];
+        int rc;
         if (path[0] != '/' && !strchr(path, ':') && !path_join(r->st->cwd, path, full, sizeof(full)))
             ;
         else
             cl_copy(full, path, sizeof(full));
-        if (pi_store_switch(r->st, full))
+        rc = pi_store_switch(r->st, full, path);
+        if (rc < 0)
             fail(c, r->st->err);
         else
-            ok(c, "{\"cancelled\":false}");
+            ok(c, rc ? "{\"cancelled\":true}" : "{\"cancelled\":false}");
     }
     free(path);
 }
@@ -1159,22 +1265,30 @@ static void cmd_fork(const cmd *c)
     pi_s3 *t = &r->st->s3;
     long n;
     char *id;
-    int idx;
+    int idx, rc;
     jw text, reply, d;
     if (busy(c))
         return;
     id = str_of(c->obj, "entryId", &n);
     idx = id ? s3_find(t, id) : -1;
-    free(id);
     if (idx < 0 || t->e[idx].type != S3_MESSAGE || t->e[idx].role != S3R_USER) {
-        fail(c, "Invalid entry ID for forking");
+        /* runtime.fork emits session_before_fork before it looks at the entry */
+        if (pi_ev_before_fork(r->s, id ? id : "", "before"))
+            ok(c, "{\"cancelled\":true}");
+        else
+            fail(c, "Invalid entry ID for forking");
+        free(id);
         return;
     }
+    free(id);
     jw_init(&text);
     jw_init(&reply);
     pi_user_text(t, idx, &text);
-    if (pi_store_branch(r->st, t->e[idx].parent, &reply))
+    rc = pi_store_branch(r->st, t->e[idx].parent, s3_id(t, idx), "before", &reply);
+    if (rc < 0)
         fail(c, reply.p && !strncmp(reply.p, "[ERROR] ", 8) ? reply.p + 8 : "Failed to fork");
+    else if (rc)
+        ok(c, "{\"cancelled\":true}");           /* result.selectedText is undefined: JSON.stringify leaves `text` out */
     else {
         jw_init(&d);
         jw_rawz(&d, "{\"text\":");
@@ -1191,6 +1305,7 @@ static void cmd_clone(const cmd *c)
 {
     pi_rpc *r = c->r;
     jw reply;
+    int rc;
     if (busy(c))
         return;
     if (r->st->s3.leaf < 0) {
@@ -1198,10 +1313,11 @@ static void cmd_clone(const cmd *c)
         return;
     }
     jw_init(&reply);
-    if (pi_store_branch(r->st, r->st->s3.leaf, &reply))
+    rc = pi_store_branch(r->st, r->st->s3.leaf, s3_id(&r->st->s3, r->st->s3.leaf), "at", &reply);
+    if (rc < 0)
         fail(c, reply.p && !strncmp(reply.p, "[ERROR] ", 8) ? reply.p + 8 : "Failed to clone");
     else
-        ok(c, "{\"cancelled\":false}");
+        ok(c, rc ? "{\"cancelled\":true}" : "{\"cancelled\":false}");
     jw_free(&reply);
 }
 

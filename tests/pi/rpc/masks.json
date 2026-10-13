@@ -5,22 +5,28 @@
   "durationMs": "pi 1.1.0: ms measured per run (a message's request time, a tool's execute() time); the key and its place are compared, the value is not",
   "labelTimestamp": "made per run",
   "sessionFile": "pi names session files by time and uuid, ours by the session's own naming",
+  "targetSessionFile": "the same names, in session_shutdown and session_before_switch",
+  "previousSessionFile": "the same names, in session_start",
+  "systemPrompt": "before_agent_start: the prompt's words are amiga-pi's (compared where it lives, test_pi_store)",
+  "systemPromptOptions": "before_agent_start: pi's options object holds its own tool snippets and guidelines; amiga-pi reports the active tools and the directory",
   "sections": "the system prompt is compared where it lives (test_pi_store, test_pi_resources); its text is amiga-pi's",
   "wall_time_seconds": "made per run",
   "estimatedTokensAfter": "counts the compacted context with its system message, whose text is amiga-pi's prompt"
  },
  "ids": {
-  "keys": ["id", "parentId", "sessionId", "leafId", "firstKeptEntryId", "targetId", "fromId"],
+  "keys": ["id", "parentId", "sessionId", "leafId", "firstKeptEntryId", "targetId", "fromId", "entryId", "messageEntryId", "toolResultEntryIds", "newLeafId", "oldLeafId"],
   "why": "a uuid or an 8-hex entry id is made per run; the fixed ids of the session fixtures start d000 and are compared"
  },
  "rules": {
   "cost.total": "the sum: pi adds binary floats (0.0036149999999999997), ours prints decimal micro-dollars; the four parts are compared",
   "errorMessage of an HTTP error": "pi: status and the raw body (`400 {...}`, the SDK's APIError text), ours is the SDK text too since M10 (the recorded body differs from the fixture's); the value is masked, the key and its place are compared",
   "tokensBefore of an overflow compaction that asks again": "the failed answer was omitted first (a context_edit), so pi counts the context by estimate alone (compaction.ts estimateProjectedContextTokens), the system message included, whose text is amiga-pi's prompt (as estimatedTokensAfter: both differ by the same 273 tokens in overflow); a silent overflow (willRetry false), a threshold or a manual compaction is usage-based and compared",
-  "message_start usage and responseId": "pi serializes the shared partial message when its consumer runs: the first counts and the response id (both set by the stream's message_start event) are in or not from run to run of pi itself",
+  "message_start usage, responseId and responseModel": "pi serializes the shared partial message when its consumer runs: the first counts, the response id and the server's model name (all set by the stream's message_start event) are in or not from run to run of pi itself",
   "baseUrl": "the fixture's port",
   "parse error text": "V8's JSON.parse message",
   "get_commands rows of pi's built-in extensions": "pi lists `mcp` and `llama` (sourceInfo.source builtin) after the extension commands; amiga-pi has no such commands (COMPATIBILITY.md, extensions); the rows are left out on both sides",
+  "before_provider_request payload": "the request body is the provider API's params: its system prompt is amiga-pi's text and its caching marks and limits are the backend's own; the effect of a rewrite is compared in the requests (messages, tools)",
+  "after_provider_response headers": "the fixture server's own (Date, Server): the status and the key are compared, the values are not",
   "extension file suffix": "a scenario's extension is t.ts (or a.ts, dirx/index.ts) for pi and t.lua here; in a path under /extensions/ the suffix .ts or .lua is compared as .<ext>",
   "get_available_models": "compared for the fixture's provider only (the catalog's plain-http providers are available here without a key)"
  },

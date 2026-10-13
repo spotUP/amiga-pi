@@ -296,6 +296,39 @@ sc('ext_events', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')],
    settings={'hooks': L_DUMP_HOOKS}, collect=['dump.jsonl'])
 
 
+# L7: the events beyond the first thirteen, dumped the same way (dump_ext: the TypeScript extension and the hook commands)
+def dump_ext(events):
+    return EXT_DUMP.replace(json.dumps(L_EVENTS), json.dumps(events))
+
+
+def dump_hooks(events):
+    return {e: hook('cat >> $CLAUDE_PROJECT_DIR/dump.jsonl') for e in events}
+
+
+L7_RUN = ['resources_discover', 'before_agent_start', 'context', 'context_with_system', 'message_update', 'turn_end',
+          'agent_before_settle', 'session_shutdown']
+sc('ext_ev_run', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')], ext=dump_ext(L7_RUN),
+   settings={'hooks': dump_hooks(L7_RUN)}, collect=['dump.jsonl'])
+L7_SESSION = ['session_start', 'session_before_switch', 'session_before_fork', 'session_shutdown', 'model_select',
+              'thinking_level_select', 'session_info_changed', 'user_bash', 'session_before_compact', 'session_compact',
+              'session_compact_failed', 'resources_discover']
+sc('ext_ev_model', steps=[('cmd', {'type': 'set_model', 'provider': 'fake', 'modelId': 'fake-think'}),
+                     ('cmd', {'type': 'set_thinking_level', 'level': 'high'}),
+                     ('cmd', {'type': 'set_session_name', 'name': 'my session'}),
+                     ('cmd', {'type': 'set_model', 'provider': 'fake', 'modelId': 'fake-model'}), ('cmd', {'type': 'cycle_thinking_level'})],
+   answers=[], session=True, ext=dump_ext(L7_SESSION), settings={'hooks': dump_hooks(L7_SESSION)}, collect=['dump.jsonl'])
+sc('ext_ev_fork', steps=[('cmd', {'type': 'fork', 'entryId': 'd0000006'}), ('cmd', {'type': 'clone'}), ('cmd', {'type': 'new_session'}),
+                    ('cmd', {'type': 'switch_session', 'sessionPath': 'other.jsonl'})],
+   answers=[], session='doc_branch', files={'other.jsonl': 'doc_branch'}, ext=dump_ext(L7_SESSION),
+   settings={'hooks': dump_hooks(L7_SESSION)}, collect=['dump.jsonl'])
+sc('ext_ev_compact', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('cmd', {'type': 'compact'})],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20), A('## Goal\nSay hello.\n\n## Progress\nDone.', 40)],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}, 'hooks': dump_hooks(L7_SESSION)}, ext=dump_ext(L7_SESSION),
+   collect=['dump.jsonl'])
+sc('ext_ev_bash', steps=[('cmd', {'type': 'bash', 'command': 'echo hi'}), ('cmd', {'type': 'bash', 'command': 'echo quiet', 'excludeFromContext': True})],
+   answers=[], session=True, ext=dump_ext(L7_SESSION), settings={'hooks': dump_hooks(L7_SESSION)}, collect=['dump.jsonl'])
+
+
 def ext_one(event, body):
     return 'export default function (pi) { pi.on("%s", async (event) => { %s }); }\n' % (event, body)
 
@@ -464,6 +497,142 @@ export default function (pi) {
 '''
 sc('ext_ui_print', mode='json', args=['run it'], answers=[TOOL('read', {'path': 'notes.txt'}), A('Done.')],
    text_files={'agent/extensions/t.ts': EXT_UI_PRINT})
+# ui_prompt_start / ui_prompt_end around each dialog of an extension (runner.ts withUIPrompt); the dialogs are EXT_UI's
+EXT_UI_PROMPTS = EXT_UI.replace('export default function (pi) {', 'import { appendFileSync } from "node:fs";\nexport default function (pi) {\n'
+    '  for (const name of ["ui_prompt_start", "ui_prompt_end"]) pi.on(name, async (event) => { appendFileSync("dump.jsonl", JSON.stringify(event) + "\\n"); });', 1)
+sc('ext_ev_ui', steps=[('send', P('run it')), ('gate', 'extension_ui_request'), ('ui', {'value': 'Allow'}),
+                       ('gate', 'extension_ui_request'), ('ui', {'confirmed': True}),
+                       ('gate', 'extension_ui_request'), ('ui', {'value': 'because'}), ('settle',)],
+   answers=[TOOL('read', {'path': 'notes.txt'}), A('Ran it.')], text_files={'agent/extensions/t.ts': EXT_UI_PROMPTS},
+   collect=['dump.jsonl'])
+
+# L12: images in the input event and in the message (a 2x2 PNG), through a prompt and a steer typed during the run
+import base64, struct, zlib
+
+
+def _png(w, h):
+    raw = b''.join(b'\x00' + b'\xff\x00\x00' * w for _ in range(h))
+    def chunk(t, d):
+        c = struct.pack('>I', len(d)) + t + d
+        return c + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b'')
+
+
+IMG = {'type': 'image', 'data': base64.b64encode(_png(2, 2)).decode(), 'mimeType': 'image/png'}
+sc('ext_input_images', steps=[('send', P('read it', images=[IMG])), ('gate', 'turn_end'),
+                              ('cmd', {'type': 'steer', 'message': 'go left', 'images': [IMG]}), ('settle',)],
+   answers=[R1(), SLOW(2, A('Read it.')), A('Left it is.')], model='fake-think', requests=True,
+   ext=dump_ext(['input']), settings={'hooks': dump_hooks(['input'])}, collect=['dump.jsonl'])
+
+# L12: terminate (a blocked call, a tool's own result), usage (a tool's, a tool_result handler's), message_end's replacement
+sc('ext_term_block', mode='json', args=['run it'], answers=[L_BASH()],
+   ext=ext_one('tool_call', 'return { block: true, reason: "stop here", terminate: true };'),
+   settings={'hooks': {'tool_call': hook(say({'block': True, 'reason': 'stop here', 'terminate': True}))}})
+USAGE = {'input': 5, 'output': 6, 'cacheRead': 0, 'cacheWrite': 0, 'totalTokens': 11,
+         'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0, 'total': 0}}
+EXT_USAGE = ('import { appendFileSync } from "node:fs";\nexport default function (pi) {\n'
+             '  for (const name of ["tool_result", "tool_execution_end"]) pi.on(name, async (event) => { appendFileSync("dump.jsonl", JSON.stringify(event) + "\\n"); });\n'
+             + tool_def('usagey', '', '{ type: "object", properties: {} }',
+                        '      return { content: [{ type: "text", text: "ok" }], details: {}, usage: %s, terminate: true };' % json.dumps(USAGE))
+             + '}\n')
+sc('ext_tool_usage', mode='json', args=['use it'], answers=[TOOL('usagey', {})], text_files={'agent/extensions/t.ts': EXT_USAGE},
+   session=True, collect=['dump.jsonl', 'session.jsonl'])
+RU = {'usage': USAGE}
+sc('ext_result_usage', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')], session=True,
+   ext=ext_one('tool_result', 'return %s;' % json.dumps(RU)), settings={'hooks': {'tool_result': hook(say(RU))}},
+   collect=['session.jsonl'])
+sc('ext_msg_end', mode='json', args=['say hi'], answers=[A('Hi there.')], session=True,
+   ext=ext_one('message_end', 'if (event.message.role === "assistant") { event.message.content = [{ type: "text", text: "replaced" }]; return { message: event.message }; }'),
+   collect=['session.jsonl'])
+sc('ext_msg_end_role', mode='json', args=['say hi'], answers=[A('Hi there.')],
+   text_files={'agent/extensions/t.ts': ext_one('message_end', 'if (event.message.role === "assistant") return { message: { role: "user", content: "x", timestamp: 1 } };')})
+
+# L16: an extension handler that throws: pi 1.1.0 tells json and print mode on stderr (print-mode.ts:101) and RPC with an extension_error record
+THROW = {'agent/extensions/t.ts': 'export default function (pi) { pi.on("input", async () => { throw new Error("boom"); }); }\n'}
+sc('ext_error_json', mode='json', args=['say hi'], answers=[A('Hi there.')], text_files=THROW)
+sc('ext_error_rpc', steps=[('prompt', 'hello')], answers=[A('Hi there.')], text_files=THROW)
+
+# L16: the rest of ctx.ui over RPC (rpc-mode.ts:212-290): setStatus, setWidget, setTitle, set_editor_text go out as requests that need no
+# answer, the editor dialog waits for one; setWorkingMessage and getEditorText have nothing to say
+EXT_UI_MISC = r'''export default function (pi) {
+  pi.on("tool_call", async (event, ctx) => {
+    ctx.ui.setStatus("b-key", "second");
+    ctx.ui.setStatus("a-key", "first");
+    ctx.ui.setStatus("a-key", undefined);
+    ctx.ui.setWidget("w1", ["line one", "line two"]);
+    ctx.ui.setWidget("w2", ["below"], { placement: "belowEditor" });
+    ctx.ui.setWidget("w1", undefined);
+    ctx.ui.setTitle("My title");
+    ctx.ui.setEditorText("draft");
+    ctx.ui.setWorkingMessage("Busy");
+    const v = await ctx.ui.editor("Edit it", "prefill");
+    return { block: true, reason: "done " + v + " [" + ctx.ui.getEditorText() + "]" };
+  });
+}
+'''
+sc('ext_ui_misc', steps=[('send', P('run it'))] + [('gate', 'extension_ui_request')] * 9 + [('ui', {'value': 'edited'}), ('settle',)],
+   answers=[TOOL('read', {'path': 'notes.txt'}), A('Done.')], text_files={'agent/extensions/t.ts': EXT_UI_MISC})
+
+# L7: the provider events (types.ts:887-917): the four recorded; a request payload rewritten (the request carries it), a header put
+# in and one taken out (the server sees them)
+L7_PROV = ['before_provider_request', 'before_provider_headers', 'after_provider_response', 'provider_stream_event']
+sc('ext_prov_events', mode='json', args=['run it'], answers=[L_BASH(), A('Ran it.')], ext=dump_ext(L7_PROV),
+   settings={'hooks': dump_hooks(L7_PROV)}, collect=['dump.jsonl'], provider_headers={'x-gone': 'g'})
+sc('ext_prov_payload', mode='json', args=['say hi'], answers=[A('Hi there.')], requests=True,
+   text_files={'agent/extensions/t.ts': ext_one('before_provider_request', 'event.payload.messages[0].content[0].text += " [p]"; return event.payload;')})
+sc('ext_prov_headers', mode='json', args=['say hi'], answers=[A('Hi there.')], xtest=True, provider_headers={'x-gone': 'g'},
+   text_files={'agent/extensions/t.ts': ext_one('before_provider_headers', 'event.headers["x-test"] = "1"; delete event.headers["x-gone"];')})
+
+
+# ---- L7: what handlers of the other events decide (hook-command twins answer with printf, the Lua twins are made from them) ----
+REWRITE = {'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': 'rewritten'}], 'timestamp': 1}]}
+sc('ext_ctx_rewrite', mode='json', args=['say hi'], answers=[A('Hi there.')], requests=True,
+   ext=ext_one('context', 'return %s;' % json.dumps(REWRITE)),
+   settings={'hooks': {'context': hook(say(REWRITE))}})
+# context_with_system: the handler edits event.messages in place (no Lua-free twin: a hook command answers with whole lists)
+EXT_CWS = ext_one('context_with_system', 'for (const m of event.messages) { if (m.role === "user") m.content[0].text += " [seen]"; }')
+sc('ext_ctx_inplace', mode='json', args=['say hi'], answers=[A('Hi there.')], requests=True, ext=EXT_CWS)
+# before_agent_start: a custom message joins the user's (display true), saved in the session and sent to the model
+BAS = {'message': {'customType': 'note', 'content': 'extra context', 'display': True}}
+sc('ext_bas_message', mode='json', args=['say hi'], answers=[A('Hi there.')], requests=True, session=True,
+   ext=ext_one('before_agent_start', 'return %s;' % json.dumps(BAS)),
+   settings={'hooks': {'before_agent_start': hook(say(BAS))}}, collect=['session.jsonl'])
+# the before events cancel: a new session, a fork, a switch; the compaction
+CANCEL = {'cancel': True}
+CANCEL_EV = ['session_before_switch', 'session_before_fork']
+sc('ext_cancel_session', steps=[('cmd', {'type': 'new_session'}), ('cmd', {'type': 'fork', 'entryId': 'd0000006'}),
+                                ('cmd', {'type': 'clone'}), ('cmd', {'type': 'switch_session', 'sessionPath': 'other.jsonl'}),
+                                ('cmd', {'type': 'get_state'})],
+   answers=[], session='doc_branch', files={'other.jsonl': 'doc_branch'},
+   ext='export default function (pi) {\n' + ''.join('  pi.on("%s", async () => (%s));\n' % (e, json.dumps(CANCEL)) for e in CANCEL_EV) + '}\n',
+   settings={'hooks': {e: hook(say(CANCEL)) for e in CANCEL_EV}})
+sc('ext_cancel_compact', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('cmd', {'type': 'compact'}), ('cmd', {'type': 'get_state'})],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20)],
+   session=True, settings={'compaction': {'keepRecentTokens': 10}, 'hooks': {'session_before_compact': hook(say(CANCEL))}},
+   ext=ext_one('session_before_compact', 'return { cancel: true };'))
+# an extension's own compaction: its summary, the entries kept as pi chose them
+EXT_COMP = ext_one('session_before_compact', 'return { compaction: { summary: "by the extension", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 777 } };')
+sc('ext_compact_own', steps=[('prompt', 'hello'), ('prompt', 'and again'), ('cmd', {'type': 'compact'}), ('cmd', {'type': 'get_state'})],
+   answers=[A('Hello from the fixture.', 20), A('Hello once more.', 20)], session=True, requests=False,
+   settings={'compaction': {'keepRecentTokens': 10}}, ext=EXT_COMP, collect=['session.jsonl'])
+# user_bash: a handler's result stands for the run
+UB = {'result': {'output': 'from the extension', 'exitCode': 3, 'cancelled': False, 'truncated': False}}
+sc('ext_bash_result', steps=[('cmd', {'type': 'bash', 'command': 'echo hi'}), ('prompt', 'hello')], answers=[A('Hello.')], session=True,
+   requests=True, ext=ext_one('user_bash', 'return %s;' % json.dumps(UB)),
+   settings={'hooks': {'user_bash': hook(say(UB))}}, collect=['session.jsonl'])
+# agent_before_settle: a custom message draft and continue: the run asks the model once more
+SETTLE = EXT_SETTLE = 'export default function (pi) { let n = 0; pi.on("agent_before_settle", async () => { if (n++ === 0) return { entries: [{ type: "custom_message", customType: "more", content: "keep going", display: true }], continue: true }; }); }\n'
+sc('ext_settle_continue', mode='json', args=['say hi'], answers=[A('Hi there.'), A('And more.')], requests=True, session=True,
+   ext=SETTLE, collect=['session.jsonl'])
+# turn_end: custom entry drafts, appended and announced
+TE = {'entries': [{'type': 'custom', 'customType': 'tally', 'data': {'n': 1}}]}
+sc('ext_turn_entries', mode='json', args=['say hi'], answers=[A('Hi there.')], session=True,
+   ext=ext_one('turn_end', 'return %s;' % json.dumps(TE)), settings={'hooks': {'turn_end': hook(say(TE))}}, collect=['session.jsonl'])
+# resources_discover: a prompt template directory the extension names
+sc('ext_resources', steps=[('cmd', {'type': 'get_commands'}), ('prompt', '/ext one "two words"')], answers=[A('Extra.')],
+   args=['--no-prompt-templates'], settings={'defaultProjectTrust': 'always'},
+   text_files={'project/extra/ext.md': 'Extra $2 then $1\n',
+               'agent/extensions/t.ts': ext_one('resources_discover', 'return { promptPaths: [event.cwd + "/extra"] };')})
 
 
 class Trickle(T.Fake):
@@ -476,6 +645,7 @@ class Trickle(T.Fake):
         body = self.rfile.read(n)
         with T.Fake.lock:
             T.Fake.served.append(body)
+            T.Fake.seen.append('t=%s g=%s' % (self.headers.get('x-test') or '-', self.headers.get('x-gone') or '-'))     # L7: headers an extension set or took out
             a = T.Fake.answers.pop(0) if T.Fake.answers else ('http', 500, '{"type":"error","error":{"type":"api_error","message":"fixture out of answers"}}')
         if a[0] == 'slow':
             time.sleep(a[1])
@@ -511,6 +681,8 @@ def setup(name, s, port):
     open(os.path.join(proj, 'notes.txt'), 'w').write('one\ntwo\nthree\n')
     models = {'providers': {'fake': {'baseUrl': 'http://127.0.0.1:%d' % port, 'api': 'anthropic-messages', 'apiKey': 'k',
                                      'models': MODELS}}}
+    if s.get('provider_headers'):
+        models['providers']['fake']['headers'] = s['provider_headers']
     json.dump(models, open(os.path.join(agent, 'models.json'), 'w'), indent=1)
     json.dump({'defaultProvider': 'fake', 'defaultModel': s.get('model', 'fake-model'),
                'defaultThinkingLevel': s.get('thinking', 'off'),
@@ -572,6 +744,7 @@ def run(name, s, keep):
     Fake = T.Fake
     Fake.answers = list(s['answers'])
     Fake.served = []
+    Fake.seen = []
     srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Trickle)
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -674,6 +847,9 @@ def run(name, s, keep):
                 with open(os.path.join(OUT, '%s.req.%d.json' % (name, i + 1)), 'w') as f:
                     json.dump({'tools': b.get('tools', []), 'messages': b.get('messages', [])}, f, indent=1)
                     f.write('\n')
+        if s.get('xtest'):                              # the x-test / x-gone headers each request carried
+            with open(os.path.join(OUT, name + '.xtest'), 'w') as f:
+                f.write(''.join(l + '\n' for l in T.Fake.seen))
         out = pi.snapshot()
         with open(os.path.join(OUT, name + '.out'), 'w') as f:
             f.write(''.join(l + '\n' for l in out))
@@ -687,6 +863,10 @@ def run(name, s, keep):
                'answers': [a[0] for a in s['answers']], 'tools': 'read,bash,edit,write', 'collect': s.get('collect', [])}
         if s.get('requests'):
             cfg['requests'] = True
+        if s.get('xtest'):
+            cfg['xtest'] = True
+        if s.get('provider_headers'):
+            cfg['provider_headers'] = s['provider_headers']
         with open(os.path.join(OUT, name + '.cfg.json'), 'w') as f:
             json.dump(cfg, f, indent=1)
             f.write('\n')
@@ -698,6 +878,8 @@ def run(name, s, keep):
                 with open(os.path.join(OUT, '%s.%d.http' % (name, i + 1)), 'w') as f:
                     f.write('HTTP/1.1 %d X\r\ncontent-type: application/json\r\ncontent-length: %d\r\n\r\n%s' % (a[1], len(a[2]), a[2]))
         if pi.err.strip():
+            with open(os.path.join(OUT, name + '.err'), 'wb') as f:      # L16: what pi wrote on stderr (extension errors in print and json mode)
+                f.write(pi.err)
             print('[WARN] %s: stderr: %s' % (name, pi.err.decode()[:300].strip()), file=sys.stderr)
         print('[OK] %s (%d lines)' % (name, len(out)))
     finally:

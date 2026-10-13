@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <limits.h>
 #include <sys/stat.h>
@@ -281,14 +282,16 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
     while (json_next(&it, &k, &val)) {
         jv t;
         json_str(k, key, sizeof(key));
-        if ((flags & F_STARTMSG) && !strcmp(key, "responseId"))
+        if ((flags & F_STARTMSG) && (!strcmp(key, "responseId") || !strcmp(key, "responseModel")))
             continue;           /* set by message_start: in pi's shared partial or not, as its consumer runs */
         if (!first)
             jw_rawz(o, ",");
         first = 0;
         jw_strz(o, key);
         jw_rawz(o, ":");
-        if (in_list(key, &star_keys) || ((flags & F_OVERFLOW) && !strcmp(key, "tokensBefore")))
+        if (in_list(key, &star_keys) || ((flags & F_OVERFLOW) && !strcmp(key, "tokensBefore")) ||
+            (!strcmp(key, "payload") && str_is(v, "type", "before_provider_request")) ||
+            (!strcmp(key, "headers") && str_is(v, "type", "after_provider_response")))
             jw_rawz(o, "\"*\"");
         else if ((flags & F_COST) && json_type(val) == J_NUM)
             micro_dollars(val, o);
@@ -301,6 +304,27 @@ static void m_obj(jv v, int flags, jw *o, const char *cwd)
                 jw_rawz(o, "\"*\"");
             else
                 m_val(val, 0, o, cwd);
+        } else if (in_list(key, &id_keys) && json_type(val) == J_ARR) {
+            /* a list of ids (turn_end's toolResultEntryIds) */
+            jit ai;
+            jv e;
+            int f2 = 1;
+            jw_rawz(o, "[");
+            json_iter(val, &ai);
+            while (json_next(&ai, 0, &e)) {
+                char id[64];
+                if (!f2)
+                    jw_rawz(o, ",");
+                f2 = 0;
+                id[0] = 0;
+                if (json_type(e) == J_STR)
+                    json_str(e, id, sizeof(id));
+                if (id[0] && fresh_id(id))
+                    jw_rawz(o, "\"*\"");
+                else
+                    m_val(e, 0, o, cwd);
+            }
+            jw_rawz(o, "]");
         } else if (!strcmp(key, "cost") && json_type(val) == J_OBJ && json_get(val, "total", &t))
             m_obj(val, F_COST, o, cwd);
         else if (!strcmp(key, "baseUrl") && json_type(val) == J_STR)
@@ -592,7 +616,23 @@ static int setup_files(jv cfg, char *session_arg, long cap)
         return -1;
     strcpy(path, agent);
     strcat(path, "/models.json");
-    put_file(path, models, n);
+    if (json_get(cfg, "provider_headers", &v) && json_type(v) == J_OBJ) {
+        /* the provider's "headers" (models.json): put in front of its baseUrl */
+        char *at = strstr(models, "\"baseUrl\"");
+        if (at) {
+            jw nm;
+            jw_init(&nm);
+            jw_raw(&nm, models, (long)(at - models));
+            jw_rawz(&nm, "\"headers\":");
+            jw_raw(&nm, v.p, v.n);
+            jw_rawz(&nm, ",");
+            jw_raw(&nm, at, n - (long)(at - models));
+            put_file(path, nm.p, nm.n);
+            jw_free(&nm);
+        } else
+            put_file(path, models, n);
+    } else
+        put_file(path, models, n);
     free(models);
     strcpy(model, "fake-model");
     strcpy(think, "off");
@@ -892,6 +932,8 @@ static void canon_val(jv v, jw *o)
         long n = 0, i;
         json_iter(v, &it);
         while (ks && json_next(&it, &k, &e)) {
+            if (json_type(e) == J_NULL)
+                continue;       /* a Lua table has no null member (json.decode reads it as nil): both sides leave it out */
             json_str(k, ks[n].name, sizeof(ks[n].name));
             ks[n++].v = e;
         }
@@ -947,6 +989,72 @@ static char *canon_text(const char *text)
 
 /* L4: the tools and the messages of request N that amiga-pi sent, against pi's (<name>.req.N.json), both with sorted keys:
  * a schema written as a Lua table has no key order. A request without tools has no "tools" in ours; pi's file has []. */
+/* the headers an extension set or took out (x-test, x-gone): what pi's server saw in each request (.xtest) and what ours was sent */
+static const char *head_value(const char *head, const char *name)
+{
+    static char v[80];
+    const char *p = head;
+    size_t nl = strlen(name);
+    while (p && *p) {
+        if (!strncasecmp(p, name, nl) && p[nl] == ':') {
+            size_t k = 0;
+            p += nl + 1;
+            while (*p == ' ')
+                p++;
+            while (*p && *p != '\r' && *p != '\n' && k < sizeof(v) - 1)
+                v[k++] = *p++;
+            v[k] = 0;
+            return v;
+        }
+        p = strchr(p, '\n');
+        if (p)
+            p++;
+    }
+    return "-";
+}
+
+static int compare_xtest(const char *name)
+{
+    char *want;
+    long wn;
+    int k = 0, ok = 1;
+    const char *p;
+    want = slurp_rpc(name, ".xtest", &wn);
+    if (!want)
+        return 1;
+    for (p = want; *p; k++) {
+        char line[160], t[80], g[80];
+        const char *e = strchr(p, '\n');
+        long ln = e ? (long)(e - p) : (long)strlen(p);
+        if (ln >= (long)sizeof(line))
+            ln = (long)sizeof(line) - 1;
+        memcpy(line, p, (size_t)ln);
+        line[ln] = 0;
+        if (k >= ps.nreq) {
+            ok = 0;
+            CHECK(0);
+            break;
+        }
+        cl_copy(t, head_value(ps.head[k], "x-test"), sizeof(t));
+        cl_copy(g, head_value(ps.head[k], "x-gone"), sizeof(g));
+        {
+            char got[200];
+            cl_copy(got, "t=", sizeof(got));
+            cl_cat(got, t, sizeof(got));
+            cl_cat(got, " g=", sizeof(got));
+            cl_cat(got, g, sizeof(got));
+            CHECK_STR(got, line);
+            if (strcmp(got, line))
+                ok = 0;
+        }
+        p += ln + 1;
+        if (!e)
+            break;
+    }
+    free(want);
+    return ok;
+}
+
 static int compare_requests(const char *name)
 {
     int k, ok = 1;
@@ -1227,6 +1335,8 @@ static int scenario(const char *name, run_opts *ro)
     jw_free(&wmask);
     jw_free(&gmask);
     if (json_get(cfg, "requests", &v) && json_type(v) == J_TRUE && !compare_requests(name))
+        ok = 0;
+    if (json_get(cfg, "xtest", &v) && json_type(v) == J_TRUE && !compare_xtest(name))
         ok = 0;
     /* the files the scenario's extension wrote in the project directory (pi) and its hook commands wrote (amiga-pi): the
      * same masks on both, line by line (L2) */
@@ -1829,8 +1939,89 @@ static void test_hooks_pi(void)
 {
     static const char *const names[] = { "ext_events", "ext_block_plain", "ext_mutate", "ext_matcher", "ext_result",
                                          "ext_input_transform", "ext_input_handled", "ext_rpc_prompt", "ext_rpc_handled",
-                                         "ext_rpc_new", 0 };
+                                         "ext_rpc_new", "ext_ev_model", "ext_ev_fork", "ext_ev_run", "ext_ev_compact", "ext_ev_bash", 0 };
     group(names);
+}
+
+/* L7: what handlers of the other events decide (context rewrites, a custom message from before_agent_start, the before events
+ * cancelling, an extension's own compaction, user_bash's result, a boundary that continues, turn_end's entries, resources
+ * the extension names): hook commands and Lua extensions against pi 1.1.0's records, requests and session files */
+static void test_decisions(void)
+{
+    static const char *const names[] = { "ext_ctx_rewrite", "ext_bas_message", "ext_cancel_session", "ext_cancel_compact",
+                                         "ext_bash_result", "ext_turn_entries", "ext_input_images", "ext_lua_input_images",
+                                         "ext_lua_ctx_rewrite", "ext_lua_ctx_inplace", "ext_lua_bas_message",
+                                         "ext_lua_cancel_session", "ext_lua_cancel_compact", "ext_lua_compact_own",
+                                         "ext_lua_bash_result", "ext_lua_settle_continue", "ext_lua_turn_entries",
+                                         "ext_lua_resources", "ext_lua_ev_ui", "ext_term_block", "ext_lua_term_block",
+                                         "ext_result_usage", "ext_lua_result_usage", "ext_lua_tool_usage", "ext_lua_msg_end",
+                                         "ext_lua_error_rpc", "ext_lua_ui_misc", "ext_prov_events", "ext_lua_prov_events", "ext_lua_prov_payload",
+                                         "ext_lua_prov_headers", 0 };
+    group(names);
+}
+
+/* a diagnostic line with this run's directories and pi's fixed ones written as <cwd> and <agent>, an extension's suffix as .<ext> */
+static void mask_diag(const char *text, jw *o)
+{
+    const char *from[4], *to[4];
+    int i, k;
+    from[0] = GOLD_CWD;
+    from[1] = GOLD_AGENT;
+    from[2] = proj;
+    from[3] = mask_agent;
+    to[0] = to[2] = "<cwd>";
+    to[1] = to[3] = "<agent>";
+    for (i = 0; text[i];) {
+        for (k = 0; k < 4; k++)
+            if (from[k][0] && !strncmp(text + i, from[k], strlen(from[k]))) {
+                jw_rawz(o, to[k]);
+                i += (int)strlen(from[k]);
+                break;
+            }
+        if (k < 4)
+            continue;
+        if (!strncmp(text + i, ".lua)", 5) || !strncmp(text + i, ".ts)", 4)) {
+            jw_rawz(o, ".<ext>)");
+            i += text[i + 1] == 'l' ? 5 : 4;
+            continue;
+        }
+        jw_raw(o, text + i++, 1);
+    }
+}
+
+/* L16: in print and json mode pi tells an extension's error on stderr, `Extension error (<path>): <message>` (print-mode.ts:101); the
+ * golden is pi's stderr (.err) with the path masked as the records' are */
+static void test_ext_error_stderr(void)
+{
+    static const char *const names[] = { "ext_lua_error_json", 0 };
+    int i;
+    for (i = 0; names[i]; i++) {
+        run_opts ro;
+        char *want;
+        long wn;
+        jw wm, gm;
+        if (getenv("PI_MODES_ONLY") && strcmp(getenv("PI_MODES_ONLY"), names[i]))
+            continue;
+        memset(&ro, 0, sizeof(ro));
+        ro.diag = 1;
+        CHECK(scenario(names[i], &ro));
+        want = slurp_rpc("ext_error_json", ".err", &wn);
+        CHECK(want != 0);
+        if (want) {
+            jw_init(&wm);
+            jw_init(&gm);
+            while (wn && (want[wn - 1] == '\n'))
+                want[--wn] = 0;
+            mask_diag(want, &wm);
+            mask_diag(diag_log, &gm);
+            CHECK(wm.p && gm.p && !strcmp(wm.p, gm.p));
+            if (!wm.p || !gm.p || strcmp(wm.p, gm.p))
+                printf("  stderr want %s\n  stderr got  %s\n", wm.p ? wm.p : "", gm.p ? gm.p : "");
+            jw_free(&wm);
+            jw_free(&gm);
+            free(want);
+        }
+    }
 }
 
 /* L1 reachability: pi_app -> the agent loop -> the hook dispatcher -> a hook command that blocks bash: the command ran
@@ -1851,7 +2042,8 @@ static void test_lua_pi(void)
 {
     static const char *const names[] = { "ext_lua_events", "ext_lua_block_plain", "ext_lua_mutate", "ext_lua_matcher",
                                          "ext_lua_result", "ext_lua_input_transform", "ext_lua_input_handled",
-                                         "ext_lua_rpc_prompt", "ext_lua_rpc_handled", "ext_lua_rpc_new", 0 };
+                                         "ext_lua_rpc_prompt", "ext_lua_rpc_handled", "ext_lua_rpc_new", "ext_lua_ev_model",
+                                         "ext_lua_ev_fork", "ext_lua_ev_run", "ext_lua_ev_compact", "ext_lua_ev_bash", 0 };
     group(names);
 }
 
@@ -1963,6 +2155,8 @@ void suite_pi_modes(void)
     test_thinking_warning();
     test_hooks_pi();
     test_hooks_reach();
+    test_decisions();
+    test_ext_error_stderr();
     test_lua_pi();
     test_lua_reach();
     test_lua_register();

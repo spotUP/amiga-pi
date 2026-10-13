@@ -43,14 +43,201 @@ static void partial_message(const pi_session *s, const llm_acc *a, jw *w)
     llm_m_assistant(w, "[]", 2, &m, ts);
 }
 
-/* message_update: pi's assistantMessageEvent for the stream event, without the cumulative message or `partial` */
-static int update_event(const pi_event *e, jw *w)
+/* pi-ai's streaming parser keeps a tool call's arguments as far as the JSON text has come (partial-json): the text closed at
+ * its end, an unfinished key or value left out; "{}" when nothing usable is there yet */
+static void partial_args(const jw *a, jw *w)
+{
+    char *t, stack[64];
+    long n = a->n, i, keep = 0;
+    int depth = 0, in_str = 0, esc = 0, key_str = 0, expect_key = 0;
+    jv v;
+    if (!n) {
+        jw_rawz(w, "{}");
+        return;
+    }
+    if (json_parse(a->p, n, &v) == 0 && json_type(v) == J_OBJ) {
+        jw_raw(w, a->p, n);
+        return;
+    }
+    t = (char *)malloc((size_t)n + 80);
+    if (!t) {
+        jw_rawz(w, "{}");
+        return;
+    }
+    /* keep: the length up to the last point where the text is a complete prefix that closing the open containers makes valid */
+    for (i = 0; i < n; i++) {
+        char c = a->p[i];
+        if (in_str) {
+            if (esc)
+                esc = 0;
+            else if (c == '\\')
+                esc = 1;
+            else if (c == '"') {
+                in_str = 0;
+                if (!key_str)
+                    keep = i + 1;
+            }
+            continue;
+        }
+        if (c == '"') {
+            in_str = 1;
+            key_str = expect_key;
+        } else if (c == '{' || c == '[') {
+            if (depth < 64)
+                stack[depth] = c;
+            depth++;
+            expect_key = c == '{';
+            keep = i + 1;
+        } else if (c == '}' || c == ']') {
+            depth--;
+            expect_key = 0;
+            keep = i + 1;
+        } else if (c == ',') {
+            expect_key = depth > 0 && depth <= 64 && stack[depth - 1] == '{';
+            keep = i;
+        } else if (c == ':') {
+            expect_key = 0;
+        } else if ((c >= '0' && c <= '9') || c == 'e' || c == 'E' || c == '+' || c == '-' || c == '.' || c == 't' ||
+                   c == 'r' || c == 'u' || c == 'f' || c == 'a' || c == 'l' || c == 's' || c == 'n') {
+            /* a number or literal: complete only when something ends it (checked by the parse below) */
+            long k = i;
+            while (k < n && a->p[k] != ',' && a->p[k] != '}' && a->p[k] != ']' && a->p[k] != ' ')
+                k++;
+            if (k < n || (c >= '0' && c <= '9'))
+                keep = k;
+            i = k - 1;
+        }
+    }
+    if (in_str && !key_str)
+        keep = n;                               /* an open string value: closed where it stands */
+    memcpy(t, a->p, (size_t)keep);
+    t[keep] = 0;
+    {
+        /* the containers still open at keep, closed in reverse; a dangling key (`"a":`) or comma is cut */
+        char open[64];
+        int d = 0, st = 0, es = 0;
+        long k, last_sig = 0;
+        for (k = 0; k < keep; k++) {
+            char c = t[k];
+            if (st) {
+                if (es)
+                    es = 0;
+                else if (c == '\\')
+                    es = 1;
+                else if (c == '"')
+                    st = 0;
+                continue;
+            }
+            if (c == '"')
+                st = 1;
+            else if (c == '{' || c == '[') {
+                if (d < 64)
+                    open[d] = c;
+                d++;
+            } else if (c == '}' || c == ']')
+                d--;
+        }
+        k = keep;
+        if (st) {
+            t[k++] = '"';
+            st = 0;
+        }
+        while (k > 0 && (t[k - 1] == ' ' || t[k - 1] == ',' || t[k - 1] == ':'))
+            k--;
+        last_sig = k;
+        /* a key with no value: `{"a":1,"b"` or `{"b":` -> drop back to the comma or brace before it */
+        if (k > 0 && d > 0 && d <= 64 && open[d - 1] == '{') {
+            long q = k - 1;
+            if (t[q] == '"') {
+                long r = q - 1;
+                while (r >= 0 && !(t[r] == '"' && (r == 0 || t[r - 1] != '\\')))
+                    r--;
+                if (r >= 0) {
+                    long b = r - 1;
+                    while (b >= 0 && t[b] == ' ')
+                        b--;
+                    if (b >= 0 && (t[b] == '{' || t[b] == ','))
+                        k = b + (t[b] == '{' ? 1 : 0);
+                    last_sig = k;
+                }
+            }
+        }
+        k = last_sig;
+        while (k > 0 && (t[k - 1] == ' ' || t[k - 1] == ','))
+            k--;
+        while (d > 0) {
+            d--;
+            t[k++] = d < 64 && open[d] == '{' ? '}' : ']';
+        }
+        t[k] = 0;
+        if (json_parse(t, k, &v) == 0 && json_type(v) == J_OBJ)
+            jw_raw(w, t, k);
+        else
+            jw_rawz(w, "{}");
+    }
+    free(t);
+}
+
+/* the answer so far with the blocks so far (pi-ai's partial AssistantMessage, shared by message_update's `message` and every
+ * `partial`): a block that has not ended carries its `index`, a tool call its raw `partialJson` and the arguments as far as
+ * they parse */
+void pi_partial_message(const pi_session *s, const llm_acc *a, jw *w)
+{
+    llm_meta m;
+    llm_ts ts;
+    jw c;
+    int i;
+    llm_acc_meta(a, &m);
+    m.thinking_level = 0;
+    m.stop = LS_PENDING;
+    ts.sec = 0;
+    ts.ms = 0;
+    if (s->now)
+        ts = s->now(s->h.u);
+    jw_init(&c);
+    jw_rawz(&c, "[");
+    for (i = 0; i < a->nb; i++) {
+        const llm_ablock *b = &a->b[i];
+        if (i)
+            jw_rawz(&c, ",");
+        if (b->kind == LB_TOOLCALL) {
+            jw_rawz(&c, "{\"type\":\"toolCall\",\"id\":");
+            jw_strz(&c, b->id);
+            jw_rawz(&c, ",\"name\":");
+            jw_strz(&c, b->name);
+            jw_rawz(&c, ",\"arguments\":");
+            partial_args(&b->a, &c);
+            if (!b->done) {
+                jw_rawz(&c, ",\"partialJson\":");
+                jw_str(&c, b->a.p ? b->a.p : "", b->a.n);
+            }
+        } else {
+            jw_rawz(&c, b->kind == LB_THINKING ? "{\"type\":\"thinking\",\"thinking\":" : "{\"type\":\"text\",\"text\":");
+            jw_str(&c, b->a.p ? b->a.p : "", b->a.n);
+            if (b->sig.n) {
+                jw_rawz(&c, b->kind == LB_THINKING ? ",\"thinkingSignature\":" : ",\"textSignature\":");
+                jw_str(&c, b->sig.p, b->sig.n);
+            }
+        }
+        if (!b->done) {
+            jw_rawz(&c, ",\"index\":");
+            jw_long(&c, b->index);
+        }
+        jw_rawz(&c, "}");
+    }
+    jw_rawz(&c, "]");
+    llm_m_assistant(w, c.p, c.n, &m, ts);
+    jw_free(&c);
+}
+
+/* pi's assistantMessageEvent for the stream event, appended to w; with_partial adds the cumulative `partial` (last). 1, or 0
+ * for an event pi-ai does not model */
+int pi_assistant_event(const pi_session *s, const pi_event *e, int with_partial, jw *w)
 {
     const llm_event *a = e->ae;
     const llm_acc *acc = e->acc;
     const llm_ablock *b;
     const char *name = 0;
-    llm_meta m;
     if (!a || !acc)
         return 0;
     b = block_of(acc, a->index);
@@ -73,14 +260,10 @@ static int update_event(const pi_event *e, jw *w)
         name = b->kind == LB_TEXT ? "text_end" : b->kind == LB_THINKING ? "thinking_end" : "toolcall_end";
     } else
         return 0;               /* a signature delta is part of the block, not an event */
-    llm_acc_meta(acc, &m);      /* the usage so far with its cost, as pi-ai's calculateCost keeps it on every update */
-    jw_rawz(w, "{\"type\":\"message_update\",\"usage\":");
-    llm_w_usage(w, &m.usage);
-    jw_rawz(w, ",\"assistantMessageEvent\":");
     type_open(w, name);
     put_key(w, "contentIndex");
     jw_long(w, a->index);
-    if (a->type == LE_BLOCK_START && a->kind == LB_TOOLCALL) {
+    if (a->type == LE_BLOCK_START && a->kind == LB_TOOLCALL && !with_partial) {     /* the JSON record names the call; the extension's event does not */
         put_key(w, "id");
         jw_strz(w, b ? b->id : a->id ? a->id : "");
         put_key(w, "toolName");
@@ -97,8 +280,65 @@ static int update_event(const pi_event *e, jw *w)
             jw_str(w, b->a.p ? b->a.p : "", b->a.n);
         }
     }
-    jw_rawz(w, "}}");
+    if (with_partial) {
+        put_key(w, "partial");
+        pi_partial_message(s, acc, w);
+    }
+    jw_rawz(w, "}");
     return 1;
+}
+
+/* message_update, JSON mode: pi's record has no cumulative message and no `partial` (usage in their place) */
+static int update_event(const pi_session *s, const pi_event *e, jw *w)
+{
+    llm_meta m;
+    jw ae;
+    int ok;
+    if (!e->ae || !e->acc)
+        return 0;
+    jw_init(&ae);
+    ok = pi_assistant_event(s, e, 0, &ae);
+    if (ok && !ae.oom) {
+        llm_acc_meta(e->acc, &m);      /* the usage so far with its cost, as pi-ai's calculateCost keeps it on every update */
+        jw_rawz(w, "{\"type\":\"message_update\",\"usage\":");
+        llm_w_usage(w, &m.usage);
+        jw_rawz(w, ",\"assistantMessageEvent\":");
+        jw_raw(w, ae.p, ae.n);
+        jw_rawz(w, "}");
+    } else
+        ok = 0;
+    jw_free(&ae);
+    return ok;
+}
+
+/* pi's Model object (types.ts Model): what get_state, set_model and the model events carry */
+void pi_model_json(const llm_model *m, jw *w)
+{
+    jw_rawz(w, "{\"id\":");
+    jw_strz(w, m->id);
+    jw_rawz(w, ",\"name\":");
+    jw_strz(w, m->name ? m->name : m->id);
+    jw_rawz(w, ",\"api\":");
+    jw_strz(w, m->api);
+    jw_rawz(w, ",\"provider\":");
+    jw_strz(w, m->provider);
+    jw_rawz(w, ",\"baseUrl\":");
+    jw_strz(w, m->base_url ? m->base_url : "");
+    jw_rawz(w, m->reasoning ? ",\"reasoning\":true" : ",\"reasoning\":false");
+    jw_rawz(w, m->image ? ",\"input\":[\"text\",\"image\"]" : ",\"input\":[\"text\"]");
+    jw_rawz(w, ",\"cost\":{\"input\":");
+    llm_w_micro(w, m->cost[0]);
+    jw_rawz(w, ",\"output\":");
+    llm_w_micro(w, m->cost[1]);
+    jw_rawz(w, ",\"cacheRead\":");
+    llm_w_micro(w, m->cost[2]);
+    jw_rawz(w, ",\"cacheWrite\":");
+    llm_w_micro(w, m->cost[3]);
+    jw_rawz(w, "},\"contextWindow\":");
+    jw_long(w, m->context_window);
+    jw_rawz(w, ",\"maxTokens\":");
+    jw_long(w, m->max_tokens);
+    jw_rawz(w, "}");
 }
 
 static const char *reason_name(int r)
@@ -133,7 +373,7 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
         jw_rawz(w, "}");
         return 1;
     case PE_MESSAGE_UPDATE:
-        return update_event(e, w);
+        return update_event(s, e, w);
     case PE_TURN_END:
         type_open(w, "turn_end");
         put_key(w, "message");
@@ -190,6 +430,12 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
             jw_rawz(w, ",\"details\":");
             jw_raw(w, e->details, e->details_n);
         }
+        if (e->usage_early) {                   /* the tool's own: where its result literal put them */
+            jw_rawz(w, ",\"usage\":");
+            jw_raw(w, e->usage, e->usage_n);
+        }
+        if (e->usage_early && e->terminate)
+            jw_rawz(w, ",\"terminate\":true");
         if (e->structured) {
             jw_rawz(w, ",\"structuredContent\":");
             jw_raw(w, e->structured, e->structured_n);
@@ -198,6 +444,12 @@ int pi_json_event(const pi_session *s, const pi_event *e, jw *w)
             jw_rawz(w, ",\"isError\":true");
         if (e->thrown && !e->structured && !e->details)     /* a thrown error has details {}; bash's non-zero exit is a result */
             jw_rawz(w, ",\"details\":{}");
+        if (e->usage && !e->usage_early) {      /* a handler's {usage} and a block's terminate come last (agent-loop.ts) */
+            jw_rawz(w, ",\"usage\":");
+            jw_raw(w, e->usage, e->usage_n);
+        }
+        if (e->terminate && !e->usage_early)
+            jw_rawz(w, ",\"terminate\":true");
         jw_rawz(w, "}");
         put_key(w, "isError");
         jw_rawz(w, e->is_error ? "true" : "false");

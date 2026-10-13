@@ -32,6 +32,9 @@ void pi_tmpl_args_free(char **a, int n);
  * one pass (an argument or a default holding "$1" is not substituted again), appended to out */
 void pi_tmpl_subst(jw *out, const char *content, char *const *args, int nargs);
 
+/* resources_discover's prompt paths: each with the extension that named it (sourceInfo source "extension:<name>", baseDir the
+ * extension's directory, scope temporary), which the templates under it carry */
+#define PI_TMPL_EXT 16
 enum { TD_WARNING, TD_ERROR, TD_COLLISION };    /* pi's ResourceDiagnostic.type */
 
 typedef struct pi_tmpl_diag {
@@ -52,6 +55,7 @@ typedef struct pi_tmpl {
     int kind;                   /* sourceInfo.source: PMK_AUTO ("auto"), PMK_LOCAL ("local"), PMK_PACKAGE (the package's source string) */
     char base[300];             /* sourceInfo.baseDir ("" none) */
     char psrc[300];             /* PMK_PACKAGE: the package's source string */
+    int ext;                    /* from a path an extension named (resources_discover): psrc is "extension:<name>", origin top-level */
 } pi_tmpl;
 
 typedef struct pi_tmpls {
@@ -75,6 +79,8 @@ typedef struct pi_tmpl_opts {
     int host;                   /* host paths rather than AmigaDOS paths */
     char (*paths)[300];         /* --prompt-template: files or directories, relative to cwd */
     int npaths;
+    const char *const *ext_paths, *const *ext_src, *const *ext_base;   /* the same from extensions (PI_TMPL_EXT at most), with their source labels and directories */
+    int next;
 } pi_tmpl_opts;
 
 /* pi's loadPromptTemplates over what DefaultPackageManager.resolve() finds (pkgres.h: settings.json "prompts" entries and

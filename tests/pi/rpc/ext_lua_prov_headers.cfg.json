@@ -1,0 +1,25 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"before_provider_headers\", function(event, ctx)\n  event.headers[\"x-test\"] = \"1\"\n  event.headers[\"x-gone\"] = nil\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "xtest": true,
+ "provider_headers": {
+  "x-gone": "g"
+ },
+ "golden": "ext_prov_headers"
+}

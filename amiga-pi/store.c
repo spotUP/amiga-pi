@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "store.h"
+#include "ext_events.h"
 #include "ansi.h"
 #include "compact.h"
 #include "models.h"
@@ -50,6 +51,9 @@ void pi_store_free(pi_store *st)
         st->s->declare = 0;
         st->s->declare_u = 0;
         st->s->append_entry = 0;
+        st->s->custom_save = 0;
+        st->s->boundary = 0;
+        st->s->draft = 0;
         st->s->append_u = 0;
     }
     jw_free(&st->system);
@@ -420,6 +424,8 @@ static int load_messages(pi_store *st)
         }
         if (ctx_msg_to_llm(c.msg[i], c.msg_n[i], &one) && pi_session_push(st->s, one.p, one.n))
             rc = -1;
+        else if (one.n && (one.n != c.msg_n[i] || memcmp(one.p, c.msg[i], (size_t)one.n)))
+            pi_session_alt(st->s, st->s->nmsg - 1, c.msg[i], c.msg_n[i]);    /* a custom message, a bash run, a summary */
         jw_free(&one);
     }
     st->loading = 0;
@@ -483,6 +489,7 @@ int pi_store_complete(void *u, const char *prompt, long max_tokens, cp_reply *r)
     msgs[0] = um.p;
     mn[0] = um.n;
     memset(&c, 0, sizeof(c));
+    c.cache_retention = "none";         /* compaction.ts:629-631: no cache writes for a one-off summary (bedrock reads it) */
     {
         /* pi's completeSimple normalizes the context: the prompt becomes the leading system message, which
          * buildBaseOptions' estimate counts */
@@ -588,6 +595,57 @@ int pi_store_reload(pi_store *st)
 /* reason: 0 manual, 1 threshold, 2 overflow; will_retry: the run asks again after it (compaction_end's willRetry).
  * Automatic compaction with nothing to cut is silent, as pi's _runAutoCompaction (prepareCompaction undefined: false before
  * compaction_start); /compact tells why it could not. 0 compacted, -1 not */
+/* prepareCompaction's result as the session_before_compact event carries it (compaction.ts CompactionPreparation; the file
+ * operation sets serialize as {} in JSON) */
+static void prep_json(pi_store *st, const pi_prep *p, jw *w)
+{
+    int i;
+    jw_rawz(w, "{\"firstKeptEntryId\":");
+    jw_strz(w, s3_id(&st->s3, p->first_kept >= 0 ? p->first_kept : st->s3.leaf));
+    jw_rawz(w, ",\"messagesToSummarize\":[");
+    for (i = 0; i < p->hist.n; i++) {
+        if (i)
+            jw_rawz(w, ",");
+        jw_raw(w, p->hist.msg[i], p->hist.msg_n[i]);
+    }
+    jw_rawz(w, "],\"turnPrefixMessages\":[");
+    for (i = 0; i < p->prefix.n; i++) {
+        if (i)
+            jw_rawz(w, ",");
+        jw_raw(w, p->prefix.msg[i], p->prefix.msg_n[i]);
+    }
+    jw_rawz(w, p->split ? "],\"isSplitTurn\":true,\"tokensBefore\":" : "],\"isSplitTurn\":false,\"tokensBefore\":");
+    jw_long(w, p->tokens_before);
+    if (p->prev_summary) {
+        jw_rawz(w, ",\"previousSummary\":");
+        jw_strz(w, p->prev_summary);
+    }
+    jw_rawz(w, ",\"fileOps\":{\"read\":{},\"written\":{},\"edited\":{}},\"settings\":{\"enabled\":");
+    jw_rawz(w, st->cp_enabled ? "true" : "false");
+    jw_rawz(w, ",\"reserveTokens\":");
+    jw_long(w, st->reserve);
+    jw_rawz(w, ",\"keepRecentTokens\":");
+    jw_long(w, st->keep);
+    jw_rawz(w, "}}");
+}
+
+/* sessionManager.getBranch(): the entries from the root to the leaf */
+static void branch_json(pi_store *st, jw *w)
+{
+    int *path = 0, n, i;
+    n = s3_path(&st->s3, st->s3.leaf, &path);
+    jw_rawz(w, "[");
+    for (i = 0; i < n; i++) {
+        long ln;
+        const char *line = s3_text(&st->s3, path[i], &ln);
+        if (i)
+            jw_rawz(w, ",");
+        jw_raw(w, line ? line : "null", line ? ln : 4);
+    }
+    jw_rawz(w, "]");
+    free(path);
+}
+
 static int run_compaction(pi_store *st, const char *instr, int reason, int will_retry)
 {
     pi_session *s = st->s;
@@ -595,7 +653,7 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
     cp_result res;
     pi_ctx c;
     jw usage, sysm, info;
-    int rc, ok = -1, i;
+    int rc, ok = -1, i, ext_comp = 0;
     long after = 0;
     jw_reset(&st->cp_result);
     st->err[0] = 0;
@@ -616,7 +674,47 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
                sizeof(st->err));
     } else {
         char err[200];
-        if (cp_compact(&p, st->reserve, s->model.max_tokens, instr, pi_store_complete, st, &res, err, sizeof(err))) {
+        int veto = 0;
+        memset(&res, 0, sizeof(res));
+        jw_init(&res.summary);
+        jw_init(&res.details);
+        if (pi_exts_has(&s->ext, "session_before_compact")) {
+            jw pj, bj, cj;
+            jw_init(&pj);
+            jw_init(&bj);
+            jw_init(&cj);
+            prep_json(st, &p, &pj);
+            branch_json(st, &bj);
+            veto = pi_ev_before_compact(s, pj.p, bj.p, instr, reason, will_retry, &cj);
+            if (veto == 2) {
+                /* the extension's own compaction (CompactionResult: summary, firstKeptEntryId, tokensBefore, details, usage) */
+                jv o, v;
+                if (!json_parse(cj.p, cj.n, &o) && json_type(o) == J_OBJ && json_get(o, "summary", &v) && json_type(v) == J_STR) {
+                    long n;
+                    char *z = json_strdup(v, &n);
+                    if (z) {
+                        jw_raw(&res.summary, z, n);
+                        free(z);
+                    }
+                    res.tokens_before = json_get(o, "tokensBefore", &v) ? json_long(v, p.tokens_before) : p.tokens_before;
+                    if (json_get(o, "firstKeptEntryId", &v) && json_type(v) == J_STR) {
+                        char fid[64];
+                        json_str(v, fid, sizeof(fid));
+                        p.first_kept = s3_find(&st->s3, fid);
+                    }
+                    if (json_get(o, "details", &v) && json_type(v) != J_NULL)
+                        jw_raw(&res.details, v.p, v.n);
+                    ext_comp = 1;
+                } else
+                    veto = 0;
+            }
+            jw_free(&pj);
+            jw_free(&bj);
+            jw_free(&cj);
+        }
+        if (veto == 1) {
+            cl_copy(st->err, "Compaction cancelled", sizeof(st->err));
+        } else if (!ext_comp && cp_compact(&p, st->reserve, s->model.max_tokens, instr, pi_store_complete, st, &res, err, sizeof(err))) {
             if (s->h.poll && s->h.poll(s->h.u))
                 cl_copy(st->err, "Compaction cancelled", sizeof(st->err));
             else {
@@ -630,8 +728,8 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
             ctx_init(&c);
             if (!ctx_build(&st->s3, st->s3.leaf, &c)) {
                 ctx_system(&c, &sysm);
-                if (s3_compaction(&st->s3, res.summary.p, p.first_kept, res.tokens_before, res.details.p, usage.p, 0,
-                                  sysm.n ? sysm.p : 0) >= 0)
+                if (s3_compaction(&st->s3, res.summary.p ? res.summary.p : "", p.first_kept, res.tokens_before,
+                                  res.details.n ? res.details.p : 0, ext_comp ? 0 : usage.p, ext_comp, sysm.n ? sysm.p : 0) >= 0)
                     ok = 0;
                 ctx_free(&c);
             }
@@ -661,10 +759,14 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
                     jw_long(&st->cp_result, res.tokens_before);
                     jw_rawz(&st->cp_result, ",\"estimatedTokensAfter\":");
                     jw_long(&st->cp_result, after);
-                    jw_rawz(&st->cp_result, ",\"usage\":");
-                    llm_w_usage(&st->cp_result, &res.usage);
-                    jw_rawz(&st->cp_result, ",\"details\":");
-                    jw_raw(&st->cp_result, res.details.p ? res.details.p : "{}", res.details.p ? res.details.n : 2);
+                    if (!ext_comp) {            /* an extension's compaction has the usage and details it gave, none here */
+                        jw_rawz(&st->cp_result, ",\"usage\":");
+                        llm_w_usage(&st->cp_result, &res.usage);
+                    }
+                    if (!ext_comp || res.details.n) {
+                        jw_rawz(&st->cp_result, ",\"details\":");
+                        jw_raw(&st->cp_result, res.details.p ? res.details.p : "{}", res.details.p ? res.details.n : 2);
+                    }
                     jw_rawz(&st->cp_result, "}");
                     jw_init(&info);
                     jw_rawz(&info, "Compacted: about ");
@@ -672,6 +774,12 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
                     jw_rawz(&info, " tokens before, ");
                     jw_long(&info, after);
                     jw_rawz(&info, " after");
+                    {
+                        long en;
+                        const char *eline = s3_text(&st->s3, st->s3.leaf, &en);   /* the compaction entry just appended */
+                        if (eline)
+                            pi_ev_compact(s, eline, en, ext_comp, reason, will_retry);
+                    }
                     cp_event(st, PE_COMPACTION_END, reason, 0, info.p, will_retry);
                     jw_free(&info);
                 }
@@ -681,7 +789,9 @@ static int run_compaction(pi_store *st, const char *instr, int reason, int will_
         cp_prep_free(&p);
     }
     if (st->err[0] && ok) {
+        int aborted = !strcmp(st->err, "Compaction cancelled");
         cp_event(st, PE_COMPACTION_END, reason, 1, st->err, 0);
+        pi_ev_compact_failed(s, reason, st->err, aborted, 0, ext_comp);
         return -1;
     }
     return ok ? -1 : 0;
@@ -799,6 +909,193 @@ static int append_custom(void *u, pi_session *s, const char *custom_type, const 
     if (idx < 0)
         return -1;
     announce_entry(st, s, idx);
+    return 0;
+}
+
+/* a custom message made through the agent (pi_session_custom): its entry, without the entry_appended event (the message events
+ * announce it) */
+static int custom_save(void *u, pi_session *s, const char *custom_type, const char *content, int display, const char *details)
+{
+    pi_store *st = (pi_store *)u;
+    (void)s;
+    return s3_custom_message(&st->s3, custom_type, content, display, details) < 0 ? -1 : 0;
+}
+
+/* a boundary draft (types.ts SessionBoundaryDraft): "custom" and "custom_message" entries appended and announced as
+ * entry_appended; a custom message also joins the conversation as the user message convertToLlm makes of it
+ * (_refreshFinalizedContext). The other drafts (context_edit, compaction) are not read: -1 */
+static int draft_entry(void *u, pi_session *s, const char *text, long n)
+{
+    pi_store *st = (pi_store *)u;
+    jv d, v;
+    char type[32], ct[200];
+    int idx;
+    if (json_parse(text, n, &d) || !json_get(d, "type", &v) || json_type(v) != J_STR)
+        return -1;
+    json_str(v, type, sizeof(type));
+    ct[0] = 0;
+    if (json_get(d, "customType", &v) && json_type(v) == J_STR)
+        json_str(v, ct, sizeof(ct));
+    if (!strcmp(type, "custom")) {
+        jw data;
+        int rc;
+        jw_init(&data);
+        if (json_get(d, "data", &v))
+            jw_raw(&data, v.p, v.n);
+        rc = append_custom(u, s, ct, data.n ? data.p : 0);
+        jw_free(&data);
+        return rc;
+    }
+    if (!strcmp(type, "custom_message")) {
+        jw content, details, m, one;
+        long cn;
+        const char *line;
+        int display = json_get(d, "display", &v) && json_type(v) == J_TRUE;
+        jw_init(&content);
+        jw_init(&details);
+        jw_init(&m);
+        jw_init(&one);
+        if (json_get(d, "content", &v))
+            jw_raw(&content, v.p, v.n);
+        else
+            jw_rawz(&content, "[]");
+        if (json_get(d, "details", &v) && json_type(v) != J_NULL)
+            jw_raw(&details, v.p, v.n);
+        idx = s3_custom_message(&st->s3, ct, content.p, display, details.n ? details.p : 0);
+        if (idx >= 0) {
+            /* the message as the session's entry reads back (customType, content, display, details, timestamp) */
+            line = s3_text(&st->s3, idx, &cn);
+            if (line) {
+                jv e, ts;
+                jw_rawz(&m, "{\"role\":\"custom\",\"customType\":");
+                jw_strz(&m, ct);
+                jw_rawz(&m, ",\"content\":");
+                jw_raw(&m, content.p, content.n);
+                jw_rawz(&m, display ? ",\"display\":true" : ",\"display\":false");
+                if (details.n) {
+                    jw_rawz(&m, ",\"details\":");
+                    jw_raw(&m, details.p, details.n);
+                }
+                if (!json_parse(line, cn, &e) && json_get(e, "timestamp", &ts) && json_type(ts) == J_STR) {
+                    llm_ts t;
+                    char z[40];
+                    json_str(ts, z, sizeof(z));
+                    if (s3_iso_read(z, &t) == 0) {
+                        jw_rawz(&m, ",\"timestamp\":");
+                        llm_w_ts(&m, t);
+                    }
+                }
+                jw_rawz(&m, "}");
+                if (ctx_msg_to_llm(m.p, m.n, &one) && !one.oom)
+                    pi_session_push(s, one.p, one.n);
+            }
+            announce_entry(st, s, idx);
+        }
+        jw_free(&content);
+        jw_free(&details);
+        jw_free(&m);
+        jw_free(&one);
+        return idx < 0 ? -1 : 0;
+    }
+    return -1;
+}
+
+/* the BoundaryContextPreview of the branch as it stands (agent-session.ts _buildBoundaryContext: the session projection, the
+ * messages convertToLlm makes of it, the queued messages, whether a request could be made) and, for turn_end, the ids of the
+ * turn's persisted entries (_findPersistedMessageEntryId) */
+static int boundary(void *u, pi_session *s, int settle, jw *ids, jw *out)
+{
+    pi_store *st = (pi_store *)u;
+    pi_ctx c;
+    jw llm;
+    int i, k, final_assistant = 0, has_non_system = 0, can, q;
+    ctx_init(&c);
+    if (ctx_build(&st->s3, st->s3.leaf, &c)) {
+        ctx_free(&c);
+        return -1;
+    }
+    if (ids) {
+        int a = -1, res[64], nr = 0, j;
+        for (j = st->s3.leaf; j >= 0 && a < 0; j = st->s3.e[j].parent) {
+            if (st->s3.e[j].type == S3_MESSAGE && st->s3.e[j].role == S3R_ASSISTANT)
+                a = j;
+            else if (st->s3.e[j].type == S3_MESSAGE && st->s3.e[j].role == S3R_TOOLRESULT && nr < 64)
+                res[nr++] = j;
+        }
+        jw_rawz(ids, "\"messageEntryId\":");
+        jw_strz(ids, a >= 0 ? s3_id(&st->s3, a) : "");
+        jw_rawz(ids, ",\"toolResultEntryIds\":[");
+        for (j = nr - 1; j >= 0; j--) {
+            jw_strz(ids, s3_id(&st->s3, res[j]));
+            if (j)
+                jw_rawz(ids, ",");
+        }
+        jw_rawz(ids, "]");
+    }
+    jw_rawz(out, "{\"contextEntries\":[");
+    for (i = 0; i < c.ne; i++) {
+        long ln;
+        const char *line = s3_text(&st->s3, c.esrc[i], &ln);
+        if (i)
+            jw_rawz(out, ",");
+        jw_rawz(out, "{\"sourceEntry\":");
+        jw_raw(out, line ? line : "null", line ? ln : 4);
+        jw_rawz(out, ",\"messages\":[");
+        for (k = 0; k < c.ecnt[i]; k++) {
+            if (k)
+                jw_rawz(out, ",");
+            jw_raw(out, c.msg[c.efirst[i] + k], c.msg_n[c.efirst[i] + k]);
+        }
+        jw_rawz(out, "]}");
+    }
+    jw_rawz(out, "],\"contextMessages\":[");
+    for (i = 0; i < c.n; i++) {
+        if (i)
+            jw_rawz(out, ",");
+        jw_raw(out, c.msg[i], c.msg_n[i]);
+    }
+    jw_rawz(out, "],\"llmMessages\":");
+    jw_init(&llm);
+    ctx_to_llm(&c, &llm);
+    jw_raw(out, llm.p, llm.n);
+    if (llm.p && !llm.oom) {
+        jit it;
+        jv arr, el, r;
+        char role[16];
+        if (!json_parse(llm.p, llm.n, &arr)) {
+            json_iter(arr, &it);
+            while (json_next(&it, 0, &el)) {
+                role[0] = 0;
+                if (json_get(el, "role", &r) && json_type(r) == J_STR)
+                    json_str(r, role, sizeof(role));
+                final_assistant = !strcmp(role, "assistant");
+                if (strcmp(role, "system"))
+                    has_non_system = 1;
+            }
+        }
+    }
+    jw_rawz(out, ",\"pendingMessages\":[");
+    q = s->nsteer + s->nfollow;
+    for (i = 0; i < q; i++) {
+        const char *text = i < s->nsteer ? s->steer[i] : s->follow[i - s->nsteer];
+        llm_ts t;
+        t.sec = 0;
+        t.ms = 0;
+        if (s->now)
+            t = s->now(s->h.u);
+        if (i)
+            jw_rawz(out, ",");
+        jw_rawz(out, "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":");
+        jw_strz(out, text);
+        jw_rawz(out, "}],\"timestamp\":");
+        llm_w_ts(out, t);
+        jw_rawz(out, "}");
+    }
+    /* contextCanContinue || a queued message (turn_end) / a queued message after an assistant answer (agent_before_settle) */
+    can = (has_non_system && !final_assistant) || (settle ? (final_assistant && q > 0) : q > 0);
+    jw_rawz(out, can ? "],\"canContinue\":true}" : "],\"canContinue\":false}");
+    jw_free(&llm);
+    ctx_free(&c);
     return 0;
 }
 
@@ -964,6 +1261,8 @@ int pi_store_bash(pi_store *st, const char *command, const char *output, int exi
         jw_init(&one);
         if (ctx_msg_to_llm(w.p, w.n, &one) && pi_session_push(st->s, one.p, one.n))
             rc = -1;
+        else if (one.n)
+            pi_session_alt(st->s, st->s->nmsg - 1, w.p, w.n);       /* messages show the bashExecution */
         jw_free(&one);
     }
     jw_free(&w);
@@ -975,6 +1274,8 @@ int pi_store_new_session(pi_store *st, const char *parent)
 {
     pi_s3 *s = &st->s3;
     char dir[256], cwd[256], prev[320];
+    if (pi_ev_before_switch(st->s, "new", 0))          /* agent-session-runtime.ts newSession: a handler may cancel */
+        return 1;
     cl_copy(dir, s->dir, sizeof(dir));
     cl_copy(cwd, s->cwd, sizeof(cwd));
     cl_copy(prev, s->file, sizeof(prev));
@@ -985,6 +1286,7 @@ int pi_store_new_session(pi_store *st, const char *parent)
     st->resumed = 0;
     if (st->s) {
         pi_session *ag = st->s;
+        pi_ev_shutdown(ag, "new", s->persist ? s->file : 0);    /* teardownCurrent: the old session's extensions are told first */
         if (s3_model(s, ag->model.provider, ag->model.id) < 0 || s3_thinking(s, llm_think_name(ag->thinking)) < 0 ||
             pi_store_reload(st)) {
             cl_copy(st->err, "the new session could not be started", sizeof(st->err));
@@ -997,11 +1299,35 @@ int pi_store_new_session(pi_store *st, const char *parent)
     return 0;
 }
 
-int pi_store_switch(pi_store *st, const char *path)
+int pi_store_restore(pi_store *st, int existing)
+{
+    pi_session *ag = st->s;
+    char prov[64], id[128], lv[32];
+    if (!ag)
+        return 0;
+    if (!existing)              /* sdk.ts:454-458: a new session records its model and thinking level */
+        return s3_model(&st->s3, ag->model.provider, ag->model.id) < 0 ||
+               s3_thinking(&st->s3, llm_think_name(ag->thinking)) < 0 ? -1 : 0;
+    /* what pi restores from the session it opens: its model and its thinking level */
+    if (pi_store_model(st, prov, sizeof(prov), id, sizeof(id)) && st->models) {
+        const llm_model *f = llm_reg_find(&st->models->reg, prov, id);
+        if (f)
+            ag->model = *f;
+    }
+    if (pi_store_level(st, lv, sizeof(lv)))
+        ag->thinking = llm_think_clamp(&ag->model, llm_think_of(lv));
+    else if (s3_thinking(&st->s3, llm_think_name(ag->thinking)) < 0)    /* sdk.ts:450: older sessions get the level they run at */
+        return -1;
+    return 0;
+}
+
+int pi_store_switch(pi_store *st, const char *path, const char *given)
 {
     pi_s3 n;
     pi_session *ag = st->s;
-    char prov[64], id[128], lv[32], prev[320];
+    char prev[320];
+    if (pi_ev_before_switch(ag, "resume", given ? given : path))      /* switchSession: before it opens anything */
+        return 1;
     cl_copy(prev, st->s3.file, sizeof(prev));
     s3_init(&n, st->sys, st->s3.now, st->s3.u, st->s3.utc, st->s3.seed);
     cl_copy(n.cwd, st->cwd, sizeof(n.cwd));
@@ -1011,19 +1337,12 @@ int pi_store_switch(pi_store *st, const char *path)
         return -1;
     }
     st->resumed = st->sys->kind(st->sys->u, path) == 1;
+    pi_ev_shutdown(ag, "resume", path);                 /* teardownCurrent("resume", the opened session's file) */
     s3_free(&st->s3);
     st->s3 = n;
     if (!ag)
         return 0;
-    /* what pi restores from the session it opens: its model and its thinking level */
-    if (pi_store_model(st, prov, sizeof(prov), id, sizeof(id)) && st->models) {
-        const llm_model *f = llm_reg_find(&st->models->reg, prov, id);
-        if (f)
-            ag->model = *f;
-    }
-    if (pi_store_level(st, lv, sizeof(lv)))
-        ag->thinking = llm_think_clamp(&ag->model, llm_think_of(lv));
-    else if (st->resumed && s3_thinking(&st->s3, llm_think_name(ag->thinking)) < 0) {
+    if (pi_store_restore(st, st->resumed)) {
         cl_copy(st->err, "the session could not be recorded", sizeof(st->err));
         return -1;
     }
@@ -1047,6 +1366,7 @@ int pi_store_name(pi_store *st, const char *name)
         e.msg = name && name[0] ? name : 0;
         e.msg_n = name ? (long)strlen(name) : 0;
         pi_emit(&st->s->em, &e);
+        pi_ev_session_info(st->s, e.msg);               /* agent-session.ts:3944: after the session event */
     }
     return 0;
 }
@@ -1088,9 +1408,19 @@ int pi_bash_exec(pi_session *s, const char *cmd, jw *text, int *code, int *stopp
     return 0;
 }
 
-int pi_store_bash_run(pi_store *st, const char *cmd, int exclude, jw *text, int *code, int *stopped)
+int pi_bash_user(pi_session *s, const char *cmd, int exclude, jw *text, int *code, int *stopped, int *by_ext)
 {
-    if (pi_bash_exec(st->s, cmd, text, code, stopped))
+    *code = 0;
+    *stopped = 0;
+    *by_ext = pi_ev_user_bash(s, cmd, exclude, text, code, stopped);
+    if (*by_ext)
+        return 0;               /* an extension ran it (user_bash {result}) */
+    return pi_bash_exec(s, cmd, text, code, stopped);
+}
+
+int pi_store_bash_run(pi_store *st, const char *cmd, int exclude, jw *text, int *code, int *stopped, int *by_ext)
+{
+    if (pi_bash_user(st->s, cmd, exclude, text, code, stopped, by_ext))
         return -1;
     pi_store_bash(st, cmd, text->p ? text->p : "", *code, *stopped, exclude);
     return 0;
@@ -1153,5 +1483,10 @@ int pi_store_attach(pi_store *st, pi_session *s)
     s->omit_u = st;
     s->append_entry = append_custom;
     s->append_u = st;
+    s->custom_save = custom_save;
+    s->custom_u = st;
+    s->boundary = boundary;
+    s->draft = draft_entry;
+    s->boundary_u = st;
     return pi_subscribe(&s->em, on_event, st);
 }

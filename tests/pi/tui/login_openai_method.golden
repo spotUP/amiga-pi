@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+
+[39m [1m[38;5;5mSelect authentication method for OpenAI:[0m
+
+ [38;5;5m→ Sign in with ChatGPT[39m
+   Sign in with an API key
+
+ [2m↑↓ navigate[0m  [2menter select[0m  [2mescape/ctrl+c cancel[0m
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[2m[39m~/project[0m
+[2m0.0%/200k (auto)                                                      fake-model

@@ -1,0 +1,26 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-think",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"input\", function(event, ctx)\n  print(json.encode(event))\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "slow",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl"
+ ],
+ "requests": true,
+ "golden": "ext_input_images",
+ "lua_dump": "dump.jsonl",
+ "canonical": true
+}

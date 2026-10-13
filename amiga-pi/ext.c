@@ -132,6 +132,7 @@ int pi_exts_tool_call(pi_exts *x, const char *id, const char *name, jw *args, ch
 {
     int i;
     x->calls++;
+    x->terminate = 0;
     for (i = 0; i < x->n; i++) {
         reason[0] = 0;
         if (x->e[i]->tool_call && x->e[i]->tool_call(x->e[i]->u, id, name, args, reason, cap)) {
@@ -164,8 +165,41 @@ int pi_exts_input(pi_exts *x, jw *text)
 void pi_exts_session_start(pi_exts *x, const char *reason, const char *prev)
 {
     int i, times = strcmp(reason, "startup") && x->replace_binds > 1 ? x->replace_binds : 1;
-    for (; times > 0; times--)
+    for (; times > 0; times--) {
         for (i = 0; i < x->n; i++)
             if (x->e[i]->session_start)
                 x->e[i]->session_start(x->e[i]->u, reason, prev);
+        if (x->bound)
+            x->bound(x->bound_u, reason);
+    }
+}
+
+int pi_exts_has(const pi_exts *x, const char *type)
+{
+    int i;
+    for (i = 0; i < x->n; i++)
+        if (x->e[i]->has && x->e[i]->has(x->e[i]->u, type))
+            return 1;
+    return 0;
+}
+
+int pi_exts_emit(pi_exts *x, const char *type, jw *payload, int flags, pi_ext_apply fn, void *fu)
+{
+    int i, stopped = 0;
+    for (i = 0; i < x->n && !stopped; i++)
+        if (x->e[i]->emit && x->e[i]->has && x->e[i]->has(x->e[i]->u, type)) {
+            x->current = x->e[i];
+            stopped = x->e[i]->emit(x->e[i]->u, type, payload, flags, fn, fu);
+        }
+    x->current = 0;
+    return stopped;
+}
+
+int pi_exts_render(const pi_exts *x, const char *type, const char *msg, long n, const pi_ext_render *r, jw *lines)
+{
+    int i;
+    for (i = 0; i < x->n; i++)
+        if (x->e[i]->render && x->e[i]->render(x->e[i]->u, type, msg, n, r, lines))
+            return 1;
+    return 0;
 }

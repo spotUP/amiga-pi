@@ -7,6 +7,7 @@
 #include <string.h>
 #include "pi_test.h"
 #include "claude/util.h"
+#include "claude/sys_posix.h"
 #include "pi_stub.h"
 #include "claude_screen.h"
 #include "llm/transform.h"
@@ -446,7 +447,7 @@ static void ext_result(void *u, const char *id, const char *name, const char *ar
     }
 }
 
-static const pi_ext test_ext = { "test", 0, ext_ev, ext_call, ext_result, 0, 0, 0, 0, 0, 0, 0 };
+static const pi_ext test_ext = { "test", 0, ext_ev, ext_call, ext_result, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 static void test_ext_dispatch(void)
 {
@@ -574,6 +575,73 @@ static long no_env(const char *name, char *o, long cap)
     return -1;
 }
 
+/* PI_DEBUG_LOG: the debug log's file, appended through the machine's sys */
+static const char *dlog_env;
+static jw dlog_out;
+static char dlog_file[64];
+
+static long dlog_getenv(const char *name, char *o, long cap)
+{
+    if (!dlog_env || strcmp(name, "PI_DEBUG_LOG") || (long)strlen(dlog_env) >= cap)
+        return -1;
+    strcpy(o, dlog_env);
+    return (long)strlen(o);
+}
+
+static int dlog_append(void *u, const char *path, const char *s, long n)
+{
+    (void)u;
+    cl_copy(dlog_file, path, sizeof(dlog_file));
+    jw_raw(&dlog_out, s, n);
+    return 0;
+}
+
+/* an https request on an Amiga whose LIBS: lacked AmiSSL said only pi's "Connection error." (2026-10-13): with
+ * PI_DEBUG_LOG set the transport's reason is in that file; unset, nothing is written */
+static void test_debug_log(void)
+{
+    cl_io io;
+    pi_platform pl;
+    cl_sys sys;
+    sys_posix sp;
+    char *argv[] = { "amiga-pi", "--model", "fixture/qwen2.5-coder:7b", "--base-url",
+                     "http://192.168.1.10:11434/v1", "-p", "hello", 0 };
+    int on;
+    for (on = 0; on < 2; on++) {
+        ps_reset();
+        ps_pool_up(LLM_POOL);
+        ps.refuse = 100;
+        line_io(&io);
+        sys_posix_init(&sp, &sys);
+        sys.append = dlog_append;       /* the log's lines, not a file */
+        memset(&pl, 0, sizeof(pl));
+        pl.io = &io;
+        pl.pool = &ps_pool;
+        pl.h.poll = ps_poll;
+        pl.h.sleep = ps_sleep;
+        pl.h.ms = ps_ms;
+        pl.h.resolve = ps_resolve;
+        pl.now = fixed_now;
+        pl.getenv = dlog_getenv;
+        pl.sys = &sys;
+        pl.cwd = "RAM:";
+        dlog_env = on ? "T:amiga-pi.log" : 0;
+        jw_free(&dlog_out);
+        jw_init(&dlog_out);
+        dlog_file[0] = 0;
+        CHECK_INT(pi_app(7, argv, &pl), 1);
+        CHECK(out.p && strstr(out.p, "Connection error.") != 0);
+        CHECK(out.p && strstr(out.p, "connection refused") == 0);      /* pi's text on the screen, as pi */
+        if (on) {
+            CHECK_STR(dlog_file, "T:amiga-pi.log");
+            CHECK(dlog_out.p &&
+                  strstr(dlog_out.p, "llm: Connection error.: cannot connect to 127.0.0.1: connection refused\n") != 0);
+        } else
+            CHECK(!dlog_out.p || !dlog_out.n);
+    }
+    jw_free(&dlog_out);
+}
+
 static void test_app(void)
 {
     cl_io io;
@@ -618,6 +686,7 @@ void suite_pi_agent(void)
     test_prompt();
     test_ui();
     test_app();
+    test_debug_log();
     ps_reset();
     jw_free(&evlog);
     jw_free(&out);

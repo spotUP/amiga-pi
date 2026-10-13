@@ -1,0 +1,5 @@
+{"id":"1","type":"response","command":"new_session","success":true,"data":{"cancelled":true}}
+{"id":"2","type":"response","command":"fork","success":true,"data":{"cancelled":true}}
+{"id":"3","type":"response","command":"clone","success":true,"data":{"cancelled":true}}
+{"id":"4","type":"response","command":"switch_session","success":true,"data":{"cancelled":true}}
+{"id":"5","type":"response","command":"get_state","success":true,"data":{"model":{"id":"fake-model","name":"fake-model","api":"anthropic-messages","provider":"fake","baseUrl":"http://127.0.0.1:51943","reasoning":false,"input":["text"],"cost":{"input":3,"output":15,"cacheRead":0.3,"cacheWrite":3.75},"contextWindow":200000,"maxTokens":8192},"thinkingLevel":"off","isStreaming":false,"isCompacting":false,"steeringMode":"one-at-a-time","followUpMode":"one-at-a-time","sessionFile":"/private/tmp/pirpc/project/session.jsonl","sessionId":"0193a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b","autoCompactionEnabled":true,"messageCount":5,"pendingMessageCount":0}}

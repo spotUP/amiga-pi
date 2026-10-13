@@ -15,6 +15,7 @@
 #include "../amiga-pi/ui_pi.h"
 #include "../amiga-pi/show_pi.h"
 #include "../amiga-pi/fuzzy.h"
+#include "../amiga-pi/login.h"
 #include "../amiga-pi/okcolor.h"
 #include "../amiga-pi/themes_builtin.h"
 #include "../amiga-pi/app.h"
@@ -57,6 +58,7 @@ typedef struct scen {
 #define SC_PAD0(sc) (strstr((sc)->name, "pad0") != 0)          /* settings.json outputPad 0 (pi 1.1.0) */
 #define SC_THEME(sc) (!strncmp((sc)->name, "dark_", 5) ? 1 : !strncmp((sc)->name, "light_", 6) ? 2 : 0)
 static int cmp_shift;           /* the capture's row r is on our screen at row r + cmp_shift (a selector drawn at the bottom) */
+static int cmp_split = 1000;    /* ... for the rows above this one (0-based) only, the rows from it on are where they are */
 
 static char *slurp(const char *name, long *n)
 {
@@ -241,9 +243,10 @@ static void compare(void)
             vt_color af, ab, bf, bb;
             vt_attr mask = (vt_attr)(VT_ATTR_BOLD | VT_ATTR_FAINT | VT_ATTR_ITALIC | VT_ATTR_UNDERLINE | VT_ATTR_INVERSE | VT_ATTR_STRIKE);
             int same;
-            if (r + cmp_shift < 0 || r + cmp_shift >= cs.rows)
+            int sh = r < cmp_split ? cmp_shift : 0;
+            if (r + sh < 0 || r + sh >= cs.rows)
                 continue;
-            b = h_cell(cs.vt, c, r + cmp_shift);
+            b = h_cell(cs.vt, c, r + sh);
             if (masked(cur, r + 1, c))
                 continue;
             vt_resolve_colors(want, a, &af, &ab);
@@ -519,14 +522,14 @@ static void run(const scen *sc)
     pi_ui_set_cwd("~/project");
     pi_ui_set_quiet(!sc->header);
     pi_ui_set_commands(pi_cmds, (int)(sizeof(pi_cmds) / sizeof(pi_cmds[0])));
-    if (!strcmp(sc->name, "slash_prompts")) {
+    if (!strcmp(sc->name, "slash_prompts") || !strcmp(sc->name, "slash_utf")) {
         /* J2: the agent directory's prompts/ (the same files tools/pi_oracle/tui_gen.py gave pi) after the built-in rows */
         static sys_posix sp;
         static cl_sys tsys;
         int nt;
         const cl_cmd *rows;
         sys_posix_init(&sp, &tsys);
-        CHECK_INT(test_tmpl_load(&slash_tm, &tsys, PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
+        CHECK_INT(test_tmpl_load(&slash_tm, &tsys, !strcmp(sc->name, "slash_utf") ? PI_TESTS "/pi/tui/agent_dir_u" : PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
         rows = pi_tmpl_menu(&slash_tm, &nt);
         pi_ui_set_extra_commands(0, rows, nt);
     }
@@ -838,6 +841,7 @@ static cl_sys asys;
 static long aclock;
 static int rest_any;            /* take the look at any screen at rest, not only one with the footer */
 static const char *rest_find = "navigate";     /* with rest_any: the text that shows the screen is the one to take (a dialog's keys) */
+static int rest_now;            /* with rest_any: take it the moment the text shows, whatever keys are left (a screen no key waits at) */
 static void (*at_rest)(void);   /* called once with the screen at rest (the next chunk is the last one) */
 static int rested;
 static const char *rest_key = "\004";          /* the chunk that is next when the screen is at rest (a selector that takes ctrl+d: another) */
@@ -890,7 +894,13 @@ static void app_write(const char *name, const char *text)
 static void rest_hook(void)
 {
     if (getenv("PI_TUI_HOOK"))
-        printf("  hook: next=%d chunk=%s ms=%ld bottom=[%s]\n", cs.next, cs.script[cs.next] ? cs.script[cs.next] : "(end)", cs.read_ms, cs_row(cs.rows - 1));
+        printf("  hook: next=%d chunk=%s ms=%ld find=%d bottom=[%s]\n", cs.next, cs.script[cs.next] ? cs.script[cs.next] : "(end)", cs.read_ms, rest_any ? cs_find(rest_find) : -2, cs_row(cs.rows - 1));
+    if (rest_now && rest_any && !rested && cs_find(rest_find) >= 0) {
+        rested = 1;
+        if (at_rest)
+            at_rest();
+        return;
+    }
     if (rested || (rest_any && cs_find(rest_find) < 0) ||
         (!rest_any && !strstr(cs_row(cs.rows - 1), "-model") && !strstr(cs_row(cs.rows - 1), "claude-")) ||
         cs.read_ms <= 0 || !cs.script[cs.next] || strcmp(cs.script[cs.next], rest_key))
@@ -910,6 +920,17 @@ static int app_resume_cli;          /* -r for the next app_run */
 static char *app_out;               /* every byte the last app_run wrote to the screen */
 
 static void (*app_ready)(pi_session *s);               /* called once the resources are loaded, before the first key */
+
+/* /login's random bytes (the PKCE verifier, the state, the device id): any, the screens leave them out */
+static int app_random(void *u, unsigned char *b, long n)
+{
+    long i;
+    static unsigned k;
+    (void)u;
+    for (i = 0; i < n; i++)
+        b[i] = (unsigned char)((k++ * 37 + 11) & 255);
+    return 0;
+}
 
 static int app_run(int cols, int rows, const char **keys, const char *const *sse, int nsse, void (*rest)(void))
 {
@@ -968,6 +989,7 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pl.data_dir = adata;
     pl.agent_dir = app_agent ? app_agent : aagent;
     pl.ready = app_ready;
+    pl.random = app_random;
     rc = pi_app(argc, a, &pl);
     free(app_out);
     app_out = (char *)malloc((size_t)cs.sent.n + 1);
@@ -1490,6 +1512,151 @@ static void skills_case(const char *name, const char *settings, const char **key
     }
     CHECK_INT(diffs, 0);
     vt_free(want);
+}
+
+/* U1: /login in pi's look. The selectors and the framed sign-in dialog against pi 1.1.0's own screens (tools/pi_oracle/tui_gen.py
+ * login_*): the authentication method (its ExtensionSelectorComponent), the provider selector (OAuthSelectorComponent) with pi's
+ * whole provider list (tests/pi/tui/login_rows.txt, tools/pi_oracle/gen_login_rows.mjs: this build has six of the nine account
+ * providers), the search box, and the dialog up to the sign-in URL or the prompt. The rows below 80 columns of the footer carry the
+ * capture's fake model; the URL's own query (a random state, challenge and nonce) is left out. */
+static pi_login_row lrow[64];
+static char lname[64][64], ltype[64][16], lsearch[64][260];
+static int lrow_n, lrow_oauth;
+
+static int load_login_rows(int want_type)         /* 1 oauth, 0 API key, -1 both */
+{
+    long n = 0;
+    char *f = slurp("login_rows.txt", &n), *line;
+    int k = 0, kinds = 0;
+    lrow_oauth = 0;
+    if (!f)
+        return 0;
+    for (line = f; *line && k < 64; ) {
+        char *eol = strchr(line, '\n'), *fld[5];
+        int i;
+        if (!eol)
+            break;
+        *eol = 0;
+        fld[0] = line;
+        for (i = 1; i < 5; i++) {
+            fld[i] = strchr(fld[i - 1], '\t');
+            if (!fld[i])
+                break;
+            *fld[i]++ = 0;
+        }
+        if (i == 5) {
+            int oauth = !strcmp(fld[0], "oauth");
+            if (want_type < 0 || want_type == oauth) {
+                strcpy(lname[k], fld[2]);
+                strcpy(ltype[k], !oauth ? "API key" : fld[4][0] == '1' ? "subscription" : "account");
+                snprintf(lsearch[k], sizeof(lsearch[k]), "%s %s %s %s", fld[2], fld[1], fld[0], fld[3]);
+                lrow[k].name = lname[k];
+                lrow[k].type = ltype[k];
+                lrow[k].search = lsearch[k];
+                lrow[k].status = PL_ST_NONE;
+                lrow[k].status_text = "";
+                kinds |= oauth ? 1 : 2;
+                k++;
+            }
+        }
+        line = eol + 1;
+    }
+    free(f);
+    lrow_n = k;
+    lrow_oauth = kinds == 3;
+    return k;
+}
+
+static void test_login_screens(void)
+{
+    static const char *k_method[] = { "/login\r", "\004", 0 };
+    static const char *k_accounts[] = { "/login\r", "\r", "\004", 0 };
+    static const char *k_search[] = { "/login\r", "\r", "cop", "\004", 0 };
+    static const char *k_keys[] = { "/login\r", "\033[B", "\r", "\004", 0 };
+    static const char *k_copilot[] = { "/login github-copilot\r", "\r", "\004", 0 };
+    static const char *k_openai[] = { "/login openai\r", "\r", "\004", 0 };
+    static const char *k_back[] = { "/login\r", "\r", "\033", "\004", 0 };
+    static const char *k_copilot_esc[] = { "/login github-copilot\r", "\r", "\033", "\004", 0 };
+    static const char *k_openai_esc[] = { "/login openai\r", "\r", "\033", "\004", 0 };
+    static const char *k_openai_method[] = { "/login openai\r", "\004", 0 };
+    static const char *k_logout[] = { "/logout\r", "\004", 0 };
+    static const char *k_device[] = { "/login github-copilot\r", "\r", "\r", 0 };
+    static const char *const sse_device[] = { "login_device.1.http" };
+    static const int m_device[] = { 17, 17, 24, 25, 0 };
+    static const int m_foot[] = { 24, 25, 0 }, m_method[] = { 19, 19, 24, 25, 0 }, m_cancel[] = { 1, 2, 21, 21, 23, 25, 0 };
+    static const int m_openai[] = { 8, 9, 11, 14, 15, 15, 24, 25, 0 };
+    const char *settings = "{\"quietStartup\":true}\n";
+    fresh_agent();
+    /* pi offers Radius as a third method (not a login this build has): its row is left out and the rows above it shift */
+    cmp_split = 19;
+    skills_case("login_method", settings, k_method, 0, 0, 0, 1, m_method, 0);
+    cmp_split = 1000;
+    CHECK(load_login_rows(1) == 9);
+    pi_ui_set_login_rows(lrow, lrow_n, lrow_oauth);
+    skills_case("login_providers", settings, k_accounts, 0, 0, 0, 0, m_foot, 0);
+    skills_case("login_search", settings, k_search, 0, 0, 0, 0, m_foot, 0);
+    CHECK(load_login_rows(0) == 43);
+    pi_ui_set_login_rows(lrow, lrow_n, lrow_oauth);
+    skills_case("login_apikey", settings, k_keys, 0, 0, 0, 0, m_foot, 0);
+    pi_ui_set_login_rows(0, 0, 0);
+    skills_case("login_copilot", settings, k_copilot, 0, 0, 0, 0, m_foot, 0);
+    skills_case("login_openai", settings, k_openai, 0, 0, 0, 0, m_openai, 0);
+    /* the method of one provider that has two; Esc in a dialog ends it with pi 1.1.0's error; Esc in the provider list goes back to the method */
+    skills_case("login_openai_method", settings, k_openai_method, 0, 0, 0, 0, m_foot, 0);
+    /* (the first item of an empty transcript lacks pi's spacer row above it, so rows 1 and 2 are left out; the message is looked for) */
+    skills_case("login_copilot_back", settings, k_copilot_esc, 0, 0, 0, 0, m_cancel, 0);
+    CHECK(app_out && strstr(app_out, "Error: Failed to login to GitHub Copilot: This operation was aborted") != 0);
+    skills_case("login_openai_cancel", settings, k_openai_esc, 0, 0, 0, 0, m_cancel, 0);
+    CHECK(app_out && strstr(app_out, "Error: Failed to login to OpenAI: This operation was aborted") != 0);
+    cmp_split = 19;
+    skills_case("login_method", settings, k_back, 0, 0, 0, 1, m_method, 0);
+    cmp_split = 1000;
+    /* the device code screen, up to the first poll of the provider (the answer to the device code request is played, the golden's
+     * sign-in URL row has pi's "Cmd+click to open" where this build says how to copy it) */
+    rest_any = 1;                   /* (the provider is polled while the request runs: the screen is taken once it shows the code) */
+    rest_now = 1;
+    rest_find = "Waiting for authentication";
+    skills_case("login_device", settings, k_device, sse_device, 1, 0, 0, m_device, 0);
+    rest_any = 0;
+    rest_now = 0;
+    rest_find = "navigate";
+    /* /logout: the stored credentials, the kinds said because there are two */
+    app_write("auth.json", "{\"openai\":{\"type\":\"api_key\",\"key\":\"sk-test\"},\"github-copilot\":{\"type\":\"oauth\","
+              "\"access\":\"a\",\"refresh\":\"r\",\"expires\":99999999999999}}\n");
+    skills_case("login_logout", settings, k_logout, 0, 0, 0, 0, m_foot, 0);
+    app_write("auth.json", "{}\n");
+}
+
+/* U1, the reachability of the input paths: a key typed into the dialog reaches the credential file (the path through
+ * login_key, the screen's ask hook and tui_dialog_read), and a search typed in the provider selector picks the provider
+ * that Enter then logs in to */
+static void test_login_typed(void)
+{
+    static const char *k_key[] = { "/login openai\r", "\033[B", "\r", "sk-live-123\r", "\004", 0 };
+    static const char *k_find[] = { "/login\r", "\r", "kimi", "\r", "\004", 0 };
+    char path[520], buf[2000];
+    FILE *f;
+    size_t n = 0;
+    fresh_agent();
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    app_write("auth.json", "{}\n");
+    CHECK_INT(app_run(80, 25, k_key, 0, 0, take_shot), 0);
+    CHECK(app_out && strstr(app_out, "Login to OpenAI") != 0);
+    CHECK(app_out && strstr(app_out, "sk-live-123") != 0);
+    CHECK(app_out && strstr(app_out, "Saved API key for OpenAI") != 0);
+    strcpy(path, aagent);
+    strcat(path, "/auth.json");
+    f = fopen(path, "rb");
+    if (f) {
+        n = fread(buf, 1, sizeof(buf) - 1, f);
+        fclose(f);
+    }
+    buf[n] = 0;
+    if (getenv("PI_TUI_DUMP")) printf("%s\n", buf);
+    CHECK(strstr(buf, "\"openai\"") != 0 && strstr(buf, "sk-live-123") != 0);
+    app_write("auth.json", "{}\n");
+    CHECK_INT(app_run(80, 25, k_find, 0, 0, take_shot), 0);
+    CHECK(app_out && strstr(app_out, "Login to Kimi For Coding") != 0);
 }
 
 static void test_skills_screen(void)
@@ -2252,6 +2419,8 @@ static const char *const EXT_UI_LUA[] = {   /* pieces: a string literal is limit
     "end })\n",
     0 };
 
+static const char *const *ext_case_lua = EXT_UI_LUA;       /* the extension the next ext_ui_case writes */
+
 static void ext_ui_rest(void)
 {
     compare();
@@ -2273,8 +2442,8 @@ static void ext_ui_case(const char *name, const char **keys, const char *show, c
     {
         char lua[2000];
         lua[0] = 0;
-        for (i = 0; EXT_UI_LUA[i]; i++)
-            strcat(lua, EXT_UI_LUA[i]);
+        for (i = 0; ext_case_lua[i]; i++)
+            strcat(lua, ext_case_lua[i]);
         app_write("extensions/t.lua", lua);
     }
     app_write("settings.json", "{\"quietStartup\":true}\n");
@@ -2323,6 +2492,82 @@ static void ext_ui_case(const char *name, const char **keys, const char *show, c
         unlink(f);
         rmdir(dir);
     }
+}
+
+/* ---- L11: pi.sendMessage with display true, the default box and an extension's message renderer (the captures are
+ * tests/pi/tui/ext_msg_*.golden; tui_gen.py's EXT_MSG is the TypeScript twin of this extension) ---- */
+
+static const char *const EXT_MSG_LUA[] = {
+    "pi.registerMessageRenderer('note', function(message, options, theme)\n",
+    "  local body = type(message.content) == 'string' and message.content or ''\n",
+    "  return ' ' .. theme.fg('accent', 'Note: ' .. body) .. (options.expanded and ' (expanded)' or '')\n",
+    "end)\n",
+    "pi.registerCommand('note', { handler = function() pi.sendMessage({ customType = 'note', content = 'hello there', display = true }) end })\n",
+    "pi.registerCommand('plain', { handler = function() pi.sendMessage({ customType = 'plain', content = 'some **bold** text', display = true }) end })\n",
+    "pi.registerCommand('quiet', { handler = function() pi.sendMessage({ customType = 'quiet', content = 'hidden', display = false }) end })\n",
+    "pi.registerCommand('multi', { handler = function()\n",
+    "  pi.sendMessage({ customType = 'multi', content = 'one', display = true })\n",
+    "  pi.sendMessage({ customType = 'note', content = 'two', display = true })\n",
+    "end })\n",
+    0 };
+
+static void test_ext_msg_screen(void)
+{
+    static const char *k_note[] = { "/note\r", "\004", 0 };
+    static const char *k_plain[] = { "/plain\r", "\004", 0 };
+    static const char *k_hidden[] = { "/quiet\r", "/note\r", "\004", 0 };
+    static const char *k_expanded[] = { "/note\r", "\017", "\004", 0 };
+    static const char *k_multi[] = { "/multi\r", "\004", 0 };
+    static const int note[] = { 25, 30, 0 };      /* the editor and the footer: other rows, the capture's fake model and directory */
+    ext_case_lua = EXT_MSG_LUA;
+    ext_ui_case("ext_msg_render", k_note, "Note:", note, 0);
+    ext_ui_case("ext_msg_plain", k_plain, "bold", note, 0);
+    ext_ui_case("ext_msg_hidden", k_hidden, "Note:", note, 0);
+    ext_ui_case("ext_msg_expanded", k_expanded, "expanded", note, 0);
+    ext_ui_case("ext_msg_multi", k_multi, "two", note, 0);
+    ext_case_lua = EXT_UI_LUA;
+}
+
+/* ---- L16: ctx.ui.setStatus (the footer's extra row) and setWidget (lines above and below the editor), as pi draws them (the
+ * captures are tests/pi/tui/ext_ui_status.golden, ext_ui_widget_*.golden; tui_gen.py's EXT_UIX is the TypeScript twin) ---- */
+
+static const char *const EXT_UIX_LUA[] = {
+    "pi.registerCommand('stat', { handler = function(args, ctx) ctx.ui.setStatus('b', 'second'); ctx.ui.setStatus('a', 'first') end })\n",
+    "pi.registerCommand('above', { handler = function(args, ctx) ctx.ui.setWidget('w', { 'widget line one', 'widget line two' }) end })\n",
+    "pi.registerCommand('below', { handler = function(args, ctx)\n",
+    "  ctx.ui.setWidget('wb', { 'under the editor' }, { placement = 'belowEditor' })\n",
+    "end })\n",
+    "pi.registerCommand('many', { handler = function(args, ctx)\n",
+    "  local t = {}\n",
+    "  for i = 1, 12 do t[i] = 'row ' .. i end\n",
+    "  ctx.ui.setWidget('m', t)\n",
+    "end })\n",
+    "pi.registerCommand('clear', { handler = function(args, ctx)\n",
+    "  ctx.ui.setStatus('a', nil); ctx.ui.setStatus('b', nil); ctx.ui.setWidget('w', nil); ctx.ui.setWidget('wb', nil)\n",
+    "end })\n",
+    0 };
+
+static void test_ext_uix_screen(void)
+{
+    static const char *k_stat[] = { "/stat\r", "\004", 0 };
+    static const char *k_above[] = { "/above\r", "\004", 0 };
+    static const char *k_below[] = { "/below\r", "\004", 0 };
+    static const char *k_many[] = { "/many\r", "\004", 0 };
+    static const char *k_clear[] = { "/above\r", "/stat\r", "/clear\r", "\004", 0 };
+    /* the editor's rules carry the capture's border colour for the thinking level, the footer its fake model and directory; the rows
+     * between are the widgets and the status, compared */
+    static const int m_stat[] = { 25, 27, 28, 29, 0 };
+    static const int m_above[] = { 26, 28, 29, 30, 0 };
+    static const int m_below[] = { 25, 27, 29, 30, 0 };
+    static const int m_many[] = { 26, 28, 29, 30, 0 };
+    static const int m_clear[] = { 26, 28, 29, 30, 0 };
+    ext_case_lua = EXT_UIX_LUA;
+    ext_ui_case("ext_ui_status", k_stat, "first", m_stat, 0);
+    ext_ui_case("ext_ui_widget_above", k_above, "widget line", m_above, 0);
+    ext_ui_case("ext_ui_widget_below", k_below, "under the", m_below, 0);
+    ext_ui_case("ext_ui_widget_many", k_many, "truncated", m_many, 0);
+    ext_ui_case("ext_ui_widget_clear", k_clear, "(auto)", m_clear, 0);
+    ext_case_lua = EXT_UI_LUA;
 }
 
 static void test_ext_ui_screen(void)
@@ -2702,15 +2947,53 @@ static void test_bash_rows_uncapped(void)
     cs_close();
 }
 
+/* \n and \t spelled as two characters in the cases file, and the backslash doubled */
+static void fuzzy_unescape(char *s)
+{
+    char *w = s;
+    for (; *s; s++) {
+        if (*s == '\\' && s[1] == 'n')
+            *w++ = '\n', s++;
+        else if (*s == '\\' && s[1] == 't')
+            *w++ = '\t', s++;
+        else if (*s == '\\' && s[1] == '\\')
+            *w++ = '\\', s++;
+        else
+            *w++ = *s;
+    }
+    *w = 0;
+}
+
+/* whether the menu `got` (indexes into cmd) is the names in `w` (space separated, in order) */
+static int fuzzy_same(const cl_cmd *cmd, const int *idx, int got, char *w, int *want)
+{
+    int k = 0, ok = 1;
+    while (*w) {
+        char *e = strchr(w, ' ');
+        if (e)
+            *e = 0;
+        if (k >= got || strcmp(cmd[idx[k]].name + 1, w))
+            ok = 0;
+        k++;
+        if (!e)
+            break;
+        w = e + 1;
+    }
+    *want = k;
+    return ok && k == got;
+}
+
 /* J6: the slash menu is pi-tui's fuzzy filter in order of score (pi 1.1.0's own CombinedAutocompleteProvider, tools/pi_oracle/gen_fuzzy.mjs):
- * the order of every one- and two-letter query and some more, from the file */
+ * the order of every one- and two-letter query and some more, from the file; U1: the same for non-ASCII names and queries
+ * (lowercased as JavaScript, positions in UTF-16 units) and for a cursor inside the text (only the first line's text before
+ * the cursor counts: the lines starting with '@') */
 static void test_slash_fuzzy(void)
 {
     long n = 0;
     char *f = slurp("fuzzy_cases.txt", &n), *line;
     static cl_cmd cmd[64];
-    static char name[64][40];
-    int ncmd = 0, cases = 0, bad = 0;
+    static char name[64][48];
+    int ncmd = 0, cases = 0, curs = 0, bad = 0;
     CHECK(f != 0);
     if (!f)
         return;
@@ -2735,34 +3018,40 @@ static void test_slash_fuzzy(void)
                     break;
                 w = e + 1;
             }
+        } else if (line[0] == '@' && (tab = strchr(line, '\t')) != 0) {
+            int idx[64], got, k;
+            char *after = tab + 1, *menu = strchr(after, '\t');
+            char box[256];
+            long from = -1, cur;
+            *tab = 0;
+            *menu++ = 0;
+            fuzzy_unescape(line + 1);
+            fuzzy_unescape(after);
+            cur = (long)strlen(line + 1);
+            strcpy(box, line + 1);
+            strcat(box, after);
+            got = pi_slash_filter(0, cmd, ncmd, box, (long)strlen(box), cur, &from, idx);
+            curs++;
+            if (!fuzzy_same(cmd, idx, got, menu, &k) && bad++ < 5)
+                printf("    cursor case %d (%s|%s): pi lists %d, amiga-pi %d\n", curs, line + 1, after, k, got);
+            else if (got && (from < 0 || from > cur || box[from] != '/'))
+                bad++, printf("    cursor case %d: from %ld\n", curs, from);
         } else if ((tab = strchr(line, '\t')) != 0) {
-            int idx[64], got, k = 0, ok = 1;
-            char text[80];
-            char *w = tab + 1;
+            int idx[64], got, k;
+            char text[256];
+            long from = 0;
             *tab = 0;
             strcpy(text, "/");
             strcat(text, line);
-            got = pi_slash_filter(0, cmd, ncmd, text, (long)strlen(text), idx);
-            while (*w) {
-                char *e = strchr(w, ' ');
-                if (e)
-                    *e = 0;
-                if (k >= got || strcmp(cmd[idx[k]].name + 1, w))
-                    ok = 0;
-                k++;
-                if (!e)
-                    break;
-                w = e + 1;
-            }
-            if (k != got)
-                ok = 0;
+            got = pi_slash_filter(0, cmd, ncmd, text, (long)strlen(text), (long)strlen(text), &from, idx);
             cases++;
-            if (!ok && bad++ < 5)
+            if (!fuzzy_same(cmd, idx, got, tab + 1, &k) && bad++ < 5)
                 printf("    /%s: pi lists %d, amiga-pi %d\n", line, k, got);
         }
         line = eol + 1;
     }
     CHECK(cases > 700);
+    CHECK(curs > 30);
     CHECK_INT(bad, 0);
     free(f);
 }
@@ -2820,6 +3109,11 @@ static const scen scenarios[] = {
     { "slash_re", { "/re", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "slash_ct", { "/ct", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "slash_prompts", { "/rev", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    /* U1: the menu is for the text before the cursor ('/tr' with the cursor before the e), once closed it stays so when only the cursor
+     * moves, and the names match as pi-tui lowercases them ('/É' lists café) */
+    { "slash_mid", { "/tre\033[D", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "slash_closed", { "/resx\033[D", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
+    { "slash_utf", { "/\303\211", 0 }, { 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "markdown", { "show markdown\r", 0 }, { "markdown.1.sse", 0 }, 0, 0, 0, { { 15, 15, 3, 16, "code highlighting" } } },
     { "table", { "show a table\r", 0 }, { "table.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
     { "markdown2", { "more markdown\r", 0 }, { "markdown2.1.sse", 0 }, 0, 0, 0, { { 0, 0, 0, 0, 0 } } },
@@ -2907,6 +3201,8 @@ void suite_pi_tui(void)
     test_resume_summaries();
     test_expand_summaries();
     test_skills_screen();
+    test_login_screens();
+    test_login_typed();
     test_compact_live();
     test_export();
     test_bang();
@@ -2924,6 +3220,8 @@ void suite_pi_tui(void)
     test_approval();
     test_resume_selector();
     test_ext_ui_screen();
+    test_ext_msg_screen();
+    test_ext_uix_screen();
     test_footer_cost();
     test_bash_rows_uncapped();
     test_slash_fuzzy();

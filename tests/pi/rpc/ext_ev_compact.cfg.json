@@ -1,0 +1,146 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "compaction": {
+   "keepRecentTokens": 10
+  },
+  "hooks": {
+   "session_start": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "session_before_switch": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "session_before_fork": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "session_shutdown": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "model_select": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "thinking_level_select": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "session_info_changed": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "user_bash": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "session_before_compact": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "session_compact": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "session_compact_failed": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "resources_discover": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "session": "new",
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse",
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl"
+ ]
+}

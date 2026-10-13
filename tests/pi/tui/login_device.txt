@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ Login to GitHub Copilot
+
+ https://github.com/login/device
+ Cmd+click to open
+
+ Enter code: WXYZ-9876
+
+ Waiting for authentication...
+ (escape/ctrl+c to cancel)
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

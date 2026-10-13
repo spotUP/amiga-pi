@@ -1,0 +1,5 @@
+HTTP/1.1 200 X
+content-type: application/json
+content-length: 138
+
+{"device_code": "dc-1", "user_code": "WXYZ-9876", "verification_uri": "https://github.com/login/device", "interval": 1, "expires_in": 900}

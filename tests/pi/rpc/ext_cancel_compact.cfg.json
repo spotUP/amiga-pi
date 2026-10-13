@@ -1,0 +1,33 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "compaction": {
+   "keepRecentTokens": 10
+  },
+  "hooks": {
+   "session_before_compact": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "printf '{\"cancel\":true}'"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "session": "new",
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": []
+}

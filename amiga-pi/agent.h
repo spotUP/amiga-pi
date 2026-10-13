@@ -55,7 +55,7 @@ typedef struct pi_session {
     const char *key;            /* 0 none: used when cfg is 0 */
     llm_cfg *cfg;               /* credentials and config values (models.json, auth.json, --api-key); 0: key */
     int thinking;               /* the thinking level, LT_*, as the model supports it */
-    unsigned think_budget_set;  /* settings.json thinkingBudgets: bit LT_x set when that level has a custom budget (google) */
+    unsigned think_budget_set;  /* settings.json thinkingBudgets: bit LT_x set when that level has a custom budget (google, anthropic-messages, bedrock) */
     long think_budget[8];       /* its tokens, by LT_* */
     long ctx_tokens;            /* tokens the last answer reported (its input, output and cache): the context in use */
     long cost_micro;            /* what the answers of this run cost, micro-dollars, from the model's price */
@@ -80,6 +80,11 @@ typedef struct pi_session {
     /* the conversation: pi-ai messages, each its own allocation */
     char **msg;
     long *msg_n;
+    /* the AgentMessage a conversation message stands for when it is not the pi-ai message itself (a bashExecution, a custom
+     * message, a branch or compaction summary, which the request carries as a user message): events and message lists show
+     * this one; 0 where the message is its own */
+    char **alt;
+    long *alt_n;
     int nmsg, cap;
     /* the transcript's system messages (the session's), each before message sys_at[i]: a model that takes them
      * mid-conversation (pi-ai supportsMidConvoSystemMessages) gets them in place; any other model the replayed
@@ -162,6 +167,27 @@ typedef struct pi_session {
      * -- appended to the session and announced as entry_appended; 0, -1 */
     int (*append_entry)(void *u, struct pi_session *s, const char *custom_type, const char *data);
     void *append_u;
+    /* a custom message saved in the session (pi_session_custom): customType, content (a JSON string or block array), display,
+     * details (JSON or 0); 0, -1 */
+    int (*custom_save)(void *u, struct pi_session *s, const char *custom_type, const char *content, int display,
+                       const char *details);
+    void *custom_u;
+    /* turn_end (settle 0) / agent_before_settle (settle 1) (types.ts BoundaryState): ids receives the turn's `"messageEntryId":..,"toolResultEntryIds":[..]`
+     * members (0: not wanted), ctx the BoundaryContextPreview object of the branch as it stands; 0, -1 */
+    int (*boundary)(void *u, struct pi_session *s, int settle, jw *ids, jw *ctx);
+    /* a boundary draft entry (types.ts SessionBoundaryDraft, a JSON object) appended to the session and announced as entry_appended:
+     * "custom" and "custom_message"; 0, -1 */
+    int (*draft)(void *u, struct pi_session *s, const char *draft, long n);
+    void *boundary_u;
+    /* before_agent_start's messages (and pi.sendMessage's next-turn ones): custom messages that join the user message when the
+     * run starts; JSON objects {"customType","content","display","details"} */
+    char *next_custom[8];
+    int nnext_custom;
+    /* pi.sendMessage while a run is going on (pi's _pendingCustomMessages): appended after the turn that is running; and the message
+     * an idle session is to run a turn on (triggerTurn), started by the mode once the handler that sent it has returned */
+    char *pend_custom[8];
+    int npend_custom;
+    char *deferred_custom;
     int result_error;           /* the tool running now returned a result with isError set, which is no thrown error (an extension's
                                  * tool; its details stay as it gave them): reset by the loop before each call */
     int active;                 /* a prompt is running (pi's isStreaming) */
@@ -172,6 +198,8 @@ typedef struct pi_session {
     int run_msg0, run_sys0;     /* the conversation's size when the run began: agent_end's messages are what came after */
     int sys_seen;               /* the transcript's system messages announced as message events so far */
     jw structured;              /* the tool call running now: pi's structuredContent of its result (JSON), empty none */
+    jw usage;                   /* the same call's result.usage (a JSON object; a tool's own or a tool_result handler's), empty none */
+    int call_terminate;         /* the tool's result said terminate (AgentToolResult.terminate) */
     jw details;                 /* the same call's result.details (a JSON object: an MCP tool's server, tool, fullOutputPath), empty none */
     char err[LLM_ERR_MAX];       /* its errorMessage, or why the prompt stopped */
 } pi_session;
@@ -183,8 +211,21 @@ void pi_session_free(pi_session *s);
 int pi_tool_add(pi_session *s, pi_tool *t);
 /* a message (pi-ai JSON) added to the conversation, copied: 0, -1 out of memory */
 int pi_session_push(pi_session *s, const char *json, long n);
+/* the message at index i stands for the AgentMessage json (copied; 0 clears): pi_messages_json and the turn's lists show it */
+int pi_session_alt(pi_session *s, int i, const char *json, long n);
 /* a system message of the transcript added at the end of the conversation (copied): 0, -1 out of memory */
 int pi_session_push_system(pi_session *s, const char *json, long n);
+/* a custom message (pi's AgentMessage role "custom": customType, content a JSON string or block array, display, details a JSON
+ * value or 0) saved in the session, put in the conversation as the user message convertToLlm makes of it, and announced as
+ * message_start / message_end with the custom message itself. 0, -1 */
+int pi_session_custom(pi_session *s, const char *custom_type, const char *content, int display, const char *details);
+/* pi.sendMessage (agent-session.ts sendCustomMessage): message a JSON object {customType, content, display, details}; trigger -1
+ * unset, 0 false, 1 true; deliver "steer", "followUp", "nextTurn" or 0. "nextTurn" waits for the next prompt; a run going on takes it
+ * after the turn (a steer or follow-up of it is the same here: the queues hold text); an idle session appends it, or with trigger
+ * runs a turn on it once the caller is back in the mode's loop (pi_session_drain). 0, -1 */
+int pi_session_send_custom(pi_session *s, const char *message, int trigger, const char *deliver);
+/* the turn a pi.sendMessage with triggerTurn asked for, when the session is idle: its last answer's stop reason, LS_NONE when none */
+int pi_session_drain(pi_session *s);
 /* the conversation emptied (a session loaded, a branch left) */
 void pi_session_clear(pi_session *s);
 /* the tools as pi-ai's request carries them: a JSON array of {name, description, parameters} */
@@ -200,6 +241,11 @@ int pi_req_reauth(void *u, llm_req *q, char *err, long cap);
  * LS_ERROR, LS_ABORTED; LS_TOOLUSE when the round cap stopped it). A retryable failure (agent-session.js
  * isRetryableAssistantError) is retried as pi does when s->retry_on; agent_settled is the last event. */
 int pi_prompt(pi_session *s, const char *text);
+/* the same with images: a JSON array of ImageContent ({type, data (base64), mimeType}), 0 none. They go through the input event
+ * (a handler may replace them), pi's processImage (resized or left out with a hint after the text), and join the message */
+int pi_prompt_images(pi_session *s, const char *text, const char *images);
+/* checkAuth: the model has a credential, or needs none (a LAN endpoint on plain http); cfg 0 passes */
+int pi_auth_ok(llm_cfg *cfg, const llm_model *mo);
 /* the conversation from message m0 and system message sys0 on, as a JSON array of pi-ai messages (the transcript's system
  * messages in their places) */
 void pi_messages_json(const pi_session *s, int m0, int sys0, jw *w);
@@ -215,6 +261,8 @@ int pi_context_overflow(const char *error_message);
  * at pi's points (see pi_session.steer) */
 int pi_steer(pi_session *s, const char *text);
 int pi_follow_up(pi_session *s, const char *text);
+int pi_steer_images(pi_session *s, const char *text, const char *images);
+int pi_follow_up_images(pi_session *s, const char *text, const char *images);
 /* every queued message (steering first) taken out of the queues: the texts malloc'ed into out (at most max),
  * their count; the caller frees them */
 int pi_queue_take(pi_session *s, char **out, int max);

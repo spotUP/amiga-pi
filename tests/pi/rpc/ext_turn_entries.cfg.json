@@ -1,0 +1,33 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "hooks": {
+   "turn_end": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "printf '{\"entries\":[{\"type\":\"custom\",\"customType\":\"tally\",\"data\":{\"n\":1}}]}'"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "session": "new",
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ]
+}

@@ -49,12 +49,39 @@ typedef struct pi_ext_ui {
     int (*input)(void *u, const char *title, const char *placeholder, long timeout_ms, char *value, long cap);
     /* type: "info", "warning", "error", or 0 */
     void (*notify)(void *u, const char *message, const char *type);
+    /* the rest of ExtensionUIContext a mode can show (types.ts:149-315); 0 where it cannot, and the call is then pi's no-op. The
+     * component factories (setFooter, setHeader, setEditorComponent, custom, ...) are TypeScript objects and have no meaning here. */
+    void (*set_status)(void *u, const char *key, const char *text);          /* text 0: cleared */
+    /* lines of plain text above ("aboveEditor", the default) or below ("belowEditor") the editor; n -1: the widget is removed */
+    void (*set_widget)(void *u, const char *key, const char *const *lines, int n, const char *placement);
+    void (*set_title)(void *u, const char *title);                           /* the terminal's window title */
+    void (*set_editor_text)(void *u, const char *text);
+    void (*set_working_message)(void *u, const char *message);               /* the loader's label while the agent works; 0: the default */
+    /* a multi-line text dialog (ctx.ui.editor): the text in value; 1, 0 cancelled */
+    int (*editor)(void *u, const char *title, const char *prefill, char *value, long cap);
 } pi_ext_ui;
+
+/* the answer of one handler to an event of the generic kind (pi_exts_emit): answer is the object the handler returned (p 0
+ * when it returned nothing or something else), after the event as the handler left it (only when pi_exts_emit was asked for
+ * PI_EMIT_INPLACE and the handler changed it; p 0 otherwise). The function applies it, may rewrite the payload the next
+ * handler is given, and answers 1 to end the dispatch (pi: a cancelling result, a handled input). */
+typedef int (*pi_ext_apply)(void *u, jv answer, jv after, jw *payload);
+#define PI_EMIT_INPLACE 1               /* handlers may change the event in place (pi's context, before_agent_start): read it back */
 
 /* pi_ext.rank: where pi_ext_add puts the extension (0: no rank, the end) */
 #define PI_EXT_HOOKS 1
 #define PI_EXT_LUA 2
 #define PI_EXT_GATE 3
+
+/* what a message renderer is given besides the message (pi: MessageRenderer(message, { expanded, outputPad }, theme)): the options and the
+ * theme's colours as SGR sequences by role name (theme.fg); width is the screen's */
+typedef struct pi_ext_render {
+    long width;
+    int expanded, pad;
+    /* the SGR sequence that sets the foreground (or background, bg 1) of a theme colour, written into buf: 1, 0 unknown name */
+    int (*sgr)(void *u, const char *name, int bg, char *buf, long cap);
+    void *u;
+} pi_ext_render;
 
 typedef struct pi_ext {
     const char *name;
@@ -78,6 +105,16 @@ typedef struct pi_ext {
     /* pi's SourceInfo of the extension for get_commands: its file, scope ("user", "project", "temporary") and baseDir;
      * 0 for a built-in */
     const char *path, *scope, *base_dir;
+    /* every event of pi's ExtensionEvent union the dedicated members above do not carry (message_update, turn_end, context,
+     * the session_* and model events ...): does the extension have a handler for pi's event type? */
+    int (*has)(void *u, const char *type);
+    /* the event delivered to every handler of the extension for type, one after the other, each given payload (pi's event
+     * object as JSON) as it stands after the one before; fn (0: answers are ignored) sees each handler's answer. 1 when fn
+     * ended the dispatch */
+    int (*emit)(void *u, const char *type, jw *payload, int flags, pi_ext_apply fn, void *fu);
+    /* the renderer this extension registered for a custom message type (pi.registerMessageRenderer): the message (JSON) drawn as lines
+     * appended to lines, each ended by a line feed, SGR sequences allowed; 1, 0 no renderer or it returned nothing (the default box) */
+    int (*render)(void *u, const char *type, const char *msg, long n, const pi_ext_render *r, jw *lines);
 } pi_ext;
 
 /* a command an extension registered; name and description belong to the owner */
@@ -93,21 +130,41 @@ typedef struct pi_ext_rcmd {
     char invocation[120];
 } pi_ext_rcmd;
 
+struct pi_ext;
 typedef struct pi_exts {
     const pi_ext *e[PI_EXTS];
     int n;
     long calls, blocks;         /* tool_call dispatches, blocks (the tests count them) */
     int replace_binds;          /* how many times the mode binds a replaced session (session_start per new / resume): 0 or 1 once; RPC 2 */
     const char *streaming;      /* the input event's streamingBehavior ("steer", "followUp") while a queued message is dispatched, else 0 */
+    jw *images;                 /* the input event's images (a JSON array of ImageContent) while a prompt or queued message is dispatched, 0 none;
+                                 * a handler's transform may replace them */
     const char *source;         /* the input event's source for the prompt now running (0: "interactive") */
     /* the running tool's structured content and details, for a tool_result extension that replaces the content
      * (pi: structuredContent is dropped unless the handler returns it too); set by the loop, 0 outside it */
     jw *structured, *details;
+    jw *usage;                  /* the same call's result.usage (a JSON object): a tool_result handler's {usage} replaces it, 0 outside the loop */
+    int terminate;              /* the tool_call handler that blocked the call said terminate (ToolCallEventResult.terminate) */
     const pi_ext_ui *ui;        /* the mode's dialogs, 0 none (print, json): ctx.hasUI is ui != 0 */
     int turn;                   /* turn_start's turnIndex: 0 at agent_start, +1 after each turn_end (kept by pi_exts_event) */
     int thrown;                 /* the tool itself failed: its result's details are {} when it has none */
     pi_ext_cmd cmd[PI_EXT_CMDS];
     int ncmd;
+    int prompt_depth;           /* dialogs open at once: ui_prompt_start / _end are told for the outermost only (runner.ts withUIPrompt) */
+    const char *cwd;            /* the working directory (resources_discover, user_bash carry it), "" until the mode sets it */
+    /* pi's bindExtensions goes on after session_start with resources_discover: called once per binding, after the
+     * extensions' session_start (RPC binds a replaced session twice, so twice) with the same reason */
+    void (*bound)(void *u, const char *reason);
+    void *bound_u;
+    /* resources_discover's answers: a skill or prompt template path an extension named (kind "skill" or "prompt"), then kind 0 once
+     * when all of them are in, for the mode to read its resources again; 0: nobody reads them */
+    void (*discovered)(void *u, const char *kind, const char *path, const struct pi_ext *from);
+    /* an extension's error (runner.ts emitError: path, event, message), told the way the mode tells it -- print and json mode on
+     * stderr, RPC as an extension_error record; 0: the session's notice carries pi's interactive text */
+    void (*report)(void *u, const char *path, const char *event, const char *message);
+    void *report_u;
+    const struct pi_ext *current;       /* the extension pi_exts_emit is asking now (0 outside it) */
+    void *discovered_u;
 } pi_exts;
 
 void pi_exts_init(pi_exts *x);
@@ -131,5 +188,12 @@ void pi_exts_tool_result(pi_exts *x, const char *id, const char *name, const cha
 /* pi's emitInput: text rewritten by the extensions in order; 1 when one handled it (no run) */
 int pi_exts_input(pi_exts *x, jw *text);
 void pi_exts_session_start(pi_exts *x, const char *reason, const char *prev);
+/* the first extension's renderer for the custom message type (runner.ts getMessageRenderer); 1 lines made, 0 the default drawing */
+int pi_exts_render(const pi_exts *x, const char *type, const char *msg, long n, const pi_ext_render *r, jw *lines);
+/* does any extension handle pi's event type (so the payload is worth building)? */
+int pi_exts_has(const pi_exts *x, const char *type);
+/* pi's runner emit for the events without a dedicated member: the payload to each extension in list order (see pi_ext.emit and
+ * pi_ext_apply). 1 when an apply function ended the dispatch */
+int pi_exts_emit(pi_exts *x, const char *type, jw *payload, int flags, pi_ext_apply fn, void *fu);
 
 #endif

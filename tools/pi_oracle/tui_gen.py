@@ -121,6 +121,39 @@ SCENARIOS = {
     'slash_ct': dict(steps=[('type', '/ct')], answers=[]),
     # J: prompt templates in the menu (the agent directory's prompts/: description with its [u] tag, argument hint first)
     'slash_prompts': dict(steps=[('type', '/rev')], answers=[], agent_tree='agent_dir'),
+    # U1: the menu follows the text before the cursor ('/res' with the cursor before the x), and matches non-ASCII names lowercased
+    # (agent_dir_u/prompts: café, ärger, 日本語): '/É' lists café
+    'slash_mid': dict(steps=[('type', '/tre'), ('key', 'Left')], answers=[]),
+    # ... but typing that left no match closed the menu, and moving the cursor does not open it again (editor.ts updateAutocomplete
+    # runs only while the menu is open)
+    'slash_closed': dict(steps=[('type', '/resx'), ('key', 'Left')], answers=[]),
+    'slash_utf': dict(steps=[('type', '/\u00c9')], answers=[], agent_tree='agent_dir_u'),
+    # U1: /login (interactive-mode.ts handleLoginCommand, showLoginAuthTypeSelector, showLoginProviderSelector, showLoginDialog)
+    'login_method': dict(steps=[('type', '/login'), ('enter',), ('sleep', 0.5)], answers=[]),
+    'login_providers': dict(steps=[('type', '/login'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 0.5)], answers=[]),
+    'login_search': dict(steps=[('type', '/login'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 0.5), ('type', 'cop')], answers=[]),
+    'login_apikey': dict(steps=[('type', '/login'), ('enter',), ('sleep', 0.5), ('key', 'Down'), ('enter',), ('sleep', 0.5)], answers=[]),
+    'login_copilot': dict(steps=[('type', '/login github-copilot'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 1.0)], answers=[]),
+    'login_openai': dict(steps=[('type', '/login openai'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 1.0), ('enter',), ('sleep', 1.5)], answers=[]),
+    # the method of one provider, and Esc in its dialog back to it (showLoginDialog onBack)
+    'login_openai_method': dict(steps=[('type', '/login openai'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 1.0)], answers=[]),
+    # Esc in the Copilot dialog (its domain prompt): back to the method selector it came from. The ChatGPT dialog is different in pi:
+    # its Esc ends in "Failed to login to OpenAI: This operation was aborted" (login_openai_cancel), no way back
+    'login_copilot_back': dict(steps=[('type', '/login github-copilot'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 0.5), ('enter',),
+                                      ('sleep', 1.0), ('key', 'Escape'), ('sleep', 1.0)], answers=[]),
+    'login_openai_cancel': dict(steps=[('type', '/login openai'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 1.0),
+                                       ('key', 'Escape'), ('sleep', 1.0)], answers=[]),
+    # /logout with two stored credentials (a subscription and an API key: the rows say which)
+    'login_logout': dict(steps=[('type', '/logout'), ('enter',), ('sleep', 0.5)], answers=[],
+                         agent_files={'auth.json': json.dumps({'openai': {'type': 'api_key', 'key': 'sk-test'},
+                                                              'github-copilot': {'type': 'oauth', 'access': 'a', 'refresh': 'r', 'expires': 99999999999999}})}),
+    # the device code screen (showDeviceCode + showWaiting): github-copilot against the fixture's OAuth server (pending forever)
+    'login_device': dict(steps=[('type', '/login github-copilot'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 1.0),
+                                ('enter',), ('sleep', 3.0)], answers=[],
+                         oauth=[{'url': 'https://github.com/login/device/code', 'status': 200,
+                                 'json': {'device_code': 'dc-1', 'user_code': 'WXYZ-9876', 'verification_uri': 'https://github.com/login/device',
+                                          'interval': 1, 'expires_in': 900}},
+                                {'url': 'https://github.com/login/oauth/access_token', 'status': 200, 'json': {'error': 'authorization_pending'}}]),
     # a markdown answer
     'markdown': dict(steps=[('type', 'show markdown'), ('enter',), ('wait', 'return 0')],
                      answers=[('sse', text_answer('msg_md', MARKDOWN, 180))]),
@@ -483,6 +516,52 @@ SCENARIOS.update({
     'ext_ui_notify': dict(steps=[('type', '/tell'), ('enter',), ('wait', 'an error')], answers=[], agent_files=UI_FILES, rows=30),
 })
 
+# L11: pi.sendMessage with display true, drawn by an extension's registerMessageRenderer or by the default box (custom-message.ts); a
+# message with display false is in the session only. Ctrl+O sets expanded for the renderer.
+EXT_MSG = r'''import { Text } from "@earendil-works/pi-tui";
+export default function (pi) {
+  pi.registerMessageRenderer("note", (message, options, theme) => {
+    const body = typeof message.content === "string" ? message.content : "";
+    return new Text(theme.fg("accent", "Note: " + body) + (options.expanded ? " (expanded)" : ""), 1, 0);
+  });
+  pi.registerCommand("note", { handler: async () => { pi.sendMessage({ customType: "note", content: "hello there", display: true }); } });
+  pi.registerCommand("plain", { handler: async () => { pi.sendMessage({ customType: "plain", content: "some **bold** text", display: true }); } });
+  pi.registerCommand("quiet", { handler: async () => { pi.sendMessage({ customType: "quiet", content: "hidden", display: false }); } });
+  pi.registerCommand("multi", { handler: async () => { pi.sendMessage({ customType: "multi", content: "one", display: true }); pi.sendMessage({ customType: "note", content: "two", display: true }); } });
+}
+'''
+MSG_FILES = {'extensions/t.ts': EXT_MSG}
+SCENARIOS.update({
+    'ext_msg_render': dict(steps=[('type', '/note'), ('enter',), ('wait', 'Note:')], answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_plain': dict(steps=[('type', '/plain'), ('enter',), ('wait', 'bold')], answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_hidden': dict(steps=[('type', '/quiet'), ('enter',), ('sleep', 1.0), ('type', '/note'), ('enter',), ('wait', 'Note:')],
+                           answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_expanded': dict(steps=[('type', '/note'), ('enter',), ('wait', 'Note:'), ('key', 'C-o'), ('sleep', 1.0)],
+                             answers=[], agent_files=MSG_FILES, rows=30),
+    'ext_msg_multi': dict(steps=[('type', '/multi'), ('enter',), ('wait', 'two')], answers=[], agent_files=MSG_FILES, rows=30),
+})
+
+# L16: ctx.ui.setStatus (the footer's extra row), setWidget (lines above or below the editor) and setWorkingMessage from an extension's command
+EXT_UIX = r'''export default function (pi) {
+  pi.registerCommand("stat", { handler: async (args, ctx) => { ctx.ui.setStatus("b", "second"); ctx.ui.setStatus("a", "first"); } });
+  pi.registerCommand("above", { handler: async (args, ctx) => { ctx.ui.setWidget("w", ["widget line one", "widget line two"]); } });
+  pi.registerCommand("below", { handler: async (args, ctx) => { ctx.ui.setWidget("wb", ["under the editor"], { placement: "belowEditor" }); } });
+  pi.registerCommand("many", { handler: async (args, ctx) => { ctx.ui.setWidget("m", Array.from({ length: 12 }, (_, i) => "row " + (i + 1))); } });
+  pi.registerCommand("clear", { handler: async (args, ctx) => { ctx.ui.setStatus("a", undefined); ctx.ui.setStatus("b", undefined); ctx.ui.setWidget("w", undefined); ctx.ui.setWidget("wb", undefined); } });
+}
+'''
+UIX_FILES = {'extensions/t.ts': EXT_UIX}
+SCENARIOS.update({
+    'ext_ui_status': dict(steps=[('type', '/stat'), ('enter',), ('wait', 'first')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_above': dict(steps=[('type', '/above'), ('enter',), ('wait', 'widget line')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_below': dict(steps=[('type', '/below'), ('enter',), ('wait', 'under the')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_many': dict(steps=[('type', '/many'), ('enter',), ('wait', 'truncated')], answers=[], agent_files=UIX_FILES, rows=30),
+    'ext_ui_widget_clear': dict(steps=[('type', '/above'), ('enter',), ('wait', 'widget line'), ('type', '/stat'), ('enter',), ('wait', 'first'),
+                                       ('type', '/clear'), ('enter',), ('sleep', 1.0)], answers=[], agent_files=UIX_FILES, rows=30),
+})
+
+
+
 
 class Fake(http.server.BaseHTTPRequestHandler):
     answers = []
@@ -514,6 +593,15 @@ class Fake(http.server.BaseHTTPRequestHandler):
         self.wfile.write(a[1].encode())
         self.wfile.flush()
         self.close_connection = True
+
+
+def free_port():
+    import socket
+    sk = socket.socket()
+    sk.bind(('127.0.0.1', 0))
+    port = sk.getsockname()[1]
+    sk.close()
+    return port
 
 
 def tmux(*a):
@@ -572,7 +660,8 @@ def run(name, sc, cols, rows, keep):
     agent = os.path.join(work, 'agent')
     proj = os.path.join(work, 'project')
     os.makedirs(os.path.join(agent, 'bin'))
-    for tool in ('fd', 'rg'):      # pi looks for them in its own bin first; stubs keep it from warning
+    for tool in ('fd', 'rg', 'open', 'xdg-open'):      # pi looks for fd and rg in its own bin first; stubs keep it from warning, and a login's
+        #                                          sign-in URL from opening a browser (pi's openBrowser runs `open`)
         t = os.path.join(agent, 'bin', tool)
         open(t, 'w').write('#!/bin/sh\nexit 0\n')
         os.chmod(t, 0o755)
@@ -629,15 +718,30 @@ def run(name, sc, cols, rows, keep):
                 'tuiMode': sc.get('tui', 'fullscreen'), 'theme': sc.get('theme', 'system')}
     settings.update(sc.get('settings', {}))
     json.dump(settings, open(os.path.join(agent, 'settings.json'), 'w'))
+    fixture = None
+    if sc.get('oauth'):         # an OAuth server for the login scenarios: claude_fixture.py --oauth, pi's fetch sent there (fetch_shim.mjs)
+        odir = os.path.join(work, 'oauth')
+        os.makedirs(odir)
+        json.dump({'responses': sc['oauth']}, open(os.path.join(odir, 'script.json'), 'w'))
+        fport = free_port()
+        vt = os.environ.get('VTCON_DIR') or next(p for p in (os.path.join(HERE, r, '..', 'vtcon') for r in ('../..', '../../../..'))
+                                                  if os.path.exists(os.path.join(p, 'tools', 'claude_fixture.py')))
+        fixture = subprocess.Popen([sys.executable, '-I', os.path.join(vt, 'tools', 'claude_fixture.py'), '--port', str(fport), '--oauth', odir],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(1.0)
     sess = TAG + '-' + name
     tmux('kill-session', '-t', sess)
     env = ('env -i HOME=%s PATH=%s TERM=xterm-256color LANG=en_US.UTF-8 PI_CODING_AGENT_DIR=%s PI_OFFLINE=1 '
-           'PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0 ' % (work, os.environ['PATH'], agent))
+           'PI_SKIP_VERSION_CHECK=1 PI_TELEMETRY=0 ' % (work, os.path.join(agent, 'bin') + ':' + os.environ['PATH'], agent))
     rawlog = os.path.join(work, 'raw.log')
     if sc.get('raw'):
         env = env.replace('env -i ', 'env -i PI_TUI_WRITE_LOG=%s ' % rawlog)
     if sc.get('env'):
         env = env.replace('env -i ', 'env -i %s ' % sc['env'])
+    if fixture:
+        # (HTTPS_PROXY to a closed port: a request the shim misses fails here instead of reaching the real server)
+        env = env.replace('env -i ', "env -i PI_FIXTURE=http://127.0.0.1:%d NODE_OPTIONS='--import %s' HTTPS_PROXY=http://127.0.0.1:1 NO_PROXY=127.0.0.1 "
+                          % (fport, os.path.join(HERE, 'fetch_shim.mjs')))
     pipelog = os.path.join(work, 'pty.bytes')
     tmux('new-session', '-d', '-s', sess, '-x', str(cols), '-y', str(rows), '-c', proj,
          env + (PI + (" --session-dir '%s'" % os.path.join(work, sc['sdir']) if sc.get('sdir') else '') + (' --session session.jsonl' if sc.get('session') else ' -r' if sc.get('resume') else '' if sc.get('persist') else ' --no-session')))
@@ -713,6 +817,8 @@ def run(name, sc, cols, rows, keep):
         if not keep:
             tmux('kill-session', '-t', sess)
             shutil.rmtree(work, ignore_errors=True)
+        if fixture:
+            fixture.terminate()
         srv.shutdown()
 
 

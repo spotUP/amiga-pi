@@ -1,0 +1,67 @@
+{
+ "mode": "json",
+ "args": [
+  "run it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {
+  "hooks": {
+   "before_provider_request": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "before_provider_headers": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "after_provider_response": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ],
+   "provider_stream_event": [
+    {
+     "hooks": [
+      {
+       "type": "command",
+       "command": "cat >> $CLAUDE_PROJECT_DIR/dump.jsonl"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "session": null,
+ "files": {},
+ "text_files": {},
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl"
+ ],
+ "provider_headers": {
+  "x-gone": "g"
+ }
+}

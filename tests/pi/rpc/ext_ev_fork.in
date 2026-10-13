@@ -1,0 +1,4 @@
+{"id":"1","type":"fork","entryId":"d0000006"}
+{"id":"2","type":"clone"}
+{"id":"3","type":"new_session"}
+{"id":"4","type":"switch_session","sessionPath":"other.jsonl"}

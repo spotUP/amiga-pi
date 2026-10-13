@@ -1,0 +1,24 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"before_agent_start\", function(event, ctx)\n  return json.decode(\"{\\\"message\\\":{\\\"customType\\\":\\\"note\\\",\\\"content\\\":\\\"extra context\\\",\\\"display\\\":true}}\")\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "requests": true,
+ "golden": "ext_bas_message"
+}

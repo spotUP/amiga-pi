@@ -1,60 +1,60 @@
-settings model tree thinking scoped-models export import share copy name session changelog hotkeys fork clone trust login logout new compact resume reload quit review rewrite refactor re skill:greet skill:terse skill:review skill:data-2 skill:x1y
-	settings model tree thinking scoped-models export import share copy name session changelog hotkeys fork clone trust login logout new compact resume reload quit review rewrite refactor re skill:greet skill:terse skill:review skill:data-2 skill:x1y
-a	name skill:data-2 share changelog refactor compact reload
-b	
-c	copy changelog clone compact scoped-models refactor
+settings model tree thinking scoped-models export import share copy name session changelog hotkeys fork clone trust login logout new compact resume reload quit review rewrite refactor re skill:greet skill:terse skill:review skill:data-2 skill:x1y café naïve Ärger 日本語 σίγμα οδυσσευς i̇stanbul 😀smile 𐐨bc Straße ǆungla
+	settings model tree thinking scoped-models export import share copy name session changelog hotkeys fork clone trust login logout new compact resume reload quit review rewrite refactor re skill:greet skill:terse skill:review skill:data-2 skill:x1y café naïve Ärger 日本語 σίγμα οδυσσευς i̇stanbul 😀smile 𐐨bc Straße ǆungla
+a	name skill:data-2 café naïve share changelog refactor Straße compact reload i̇stanbul ǆungla
+b	𐐨bc i̇stanbul
+c	copy changelog clone compact café scoped-models 𐐨bc refactor
 d	skill:data-2 model scoped-models reload
-e	export settings session new resume reload review rewrite refactor re skill:terse skill:review tree skill:greet model name scoped-models share hotkeys clone changelog
-f	fork refactor
-g	skill:greet login logout changelog settings thinking
+e	export settings session new resume reload review rewrite refactor re skill:terse skill:review tree skill:greet model name Ärger scoped-models share hotkeys clone naïve changelog Straße 😀smile
+f	fork refactor café
+g	skill:greet login logout Ärger ǆungla changelog settings thinking
 h	hotkeys thinking share changelog
-i	import thinking quit login review skill:review settings session rewrite skill:greet skill:terse skill:data-2 skill:x1y
+i	import i̇stanbul thinking quit login review skill:review settings session rewrite 😀smile skill:greet skill:terse skill:data-2 skill:x1y
 j	
 k	hotkeys fork thinking skill:greet skill:terse skill:review skill:data-2 skill:x1y
-l	login logout clone reload model changelog scoped-models skill:greet skill:terse skill:review skill:data-2 skill:x1y
-m	model scoped-models import name compact resume
-n	name new thinking changelog clone login settings session
+l	login logout clone reload model ǆungla 😀smile changelog i̇stanbul scoped-models skill:greet skill:terse skill:review skill:data-2 skill:x1y
+m	model scoped-models import name compact 😀smile resume
+n	name new naïve ǆungla thinking changelog clone login settings i̇stanbul session
 o	model copy hotkeys fork login logout compact scoped-models clone export import reload session refactor changelog
 p	export import copy scoped-models compact
 q	quit
-r	resume reload review rewrite refactor re skill:review tree trust skill:greet fork skill:terse share export import
-s	settings scoped-models share session resume trust skill:terse hotkeys skill:greet skill:review skill:data-2 skill:x1y
-t	tree thinking trust skill:terse settings hotkeys skill:data-2 quit skill:greet export import logout rewrite refactor compact
-u	quit trust resume logout
-v	review skill:review
+r	resume reload review rewrite refactor re skill:review tree trust skill:greet Ärger fork skill:terse Straße share export import
+s	settings scoped-models share session Straße resume i̇stanbul 😀smile trust skill:terse hotkeys skill:greet skill:review skill:data-2 skill:x1y
+t	tree thinking trust skill:terse Straße settings hotkeys skill:data-2 quit i̇stanbul skill:greet export import logout rewrite refactor compact
+u	quit ǆungla trust resume logout i̇stanbul
+v	review skill:review naïve
 w	new rewrite review skill:review
 x	skill:x1y export
 y	skill:x1y copy hotkeys
 z	
 aa	skill:data-2
-ab	
+ab	i̇stanbul
 ac	refactor compact
 ad	reload
-ae	name share changelog
-af	
+ae	name share Straße naïve changelog
+af	café
 ag	changelog
 ah	
 ai	
 aj	
 ak	
-al	changelog
+al	changelog i̇stanbul
 am	name
-an	changelog
+an	changelog i̇stanbul
 ao	refactor changelog
 ap	
 aq	
 ar	share refactor
 as	
 at	skill:data-2 refactor compact
-au	
-av	
+au	i̇stanbul
+av	naïve
 aw	
 ax	
 ay	
 az	
 ba	
 bb	
-bc	
+bc	𐐨bc
 bd	
 be	
 bf	
@@ -63,7 +63,7 @@ bh
 bi	
 bj	
 bk	
-bl	
+bl	i̇stanbul
 bm	
 bn	
 bo	
@@ -72,18 +72,18 @@ bq
 br	
 bs	
 bt	
-bu	
+bu	i̇stanbul
 bv	
 bw	
 bx	
 by	
 bz	
-ca	changelog compact
+ca	café changelog compact
 cb	
 cc	compact
 cd	scoped-models
 ce	clone changelog scoped-models
-cf	
+cf	café
 cg	changelog
 ch	changelog
 ci	
@@ -147,7 +147,7 @@ en	settings session
 eo	export reload changelog session scoped-models refactor
 ep	export
 eq	
-er	export skill:terse rewrite refactor
+er	export skill:terse Ärger rewrite refactor
 es	session resume skill:terse hotkeys settings scoped-models
 et	export settings skill:greet rewrite refactor
 eu	resume
@@ -182,24 +182,24 @@ fw
 fx	
 fy	
 fz	
-ga	
+ga	ǆungla
 gb	
 gc	
 gd	
-ge	skill:greet changelog
+ge	skill:greet Ärger changelog
 gf	
 gg	changelog
 gh	
 gi	login
 gj	
 gk	
-gl	changelog
+gl	ǆungla changelog
 gm	
 gn	login
 go	logout changelog
 gp	
 gq	
-gr	skill:greet
+gr	skill:greet Ärger
 gs	settings
 gt	skill:greet logout
 gu	logout
@@ -234,27 +234,27 @@ hw
 hx	
 hy	hotkeys
 hz	
-ia	skill:data-2
-ib	
+ia	i̇stanbul skill:data-2
+ib	i̇stanbul
 ic	
 id	skill:data-2
-ie	review skill:review rewrite skill:terse skill:greet
+ie	review skill:review rewrite 😀smile skill:terse skill:greet
 if	
 ig	settings thinking skill:greet
 ih	
 ii	thinking skill:review
 ij	
 ik	thinking
-il	skill:greet skill:terse skill:review skill:data-2 skill:x1y
+il	😀smile i̇stanbul skill:greet skill:terse skill:review skill:data-2 skill:x1y
 im	import
-in	thinking login settings session
+in	i̇stanbul thinking login settings session
 io	import session
 ip	import
 iq	
 ir	import skill:review skill:greet skill:terse
-is	settings skill:terse
-it	import quit rewrite skill:terse skill:data-2 skill:greet
-iu	
+is	i̇stanbul settings skill:terse
+it	i̇stanbul import quit rewrite skill:terse skill:data-2 skill:greet
+iu	i̇stanbul
 iv	skill:review
 iw	review skill:review
 ix	skill:x1y
@@ -312,11 +312,11 @@ kw	skill:review
 kx	skill:x1y
 ky	hotkeys skill:x1y
 kz	
-la	reload skill:data-2
+la	ǆungla reload skill:data-2
 lb	
 lc	
 ld	reload skill:data-2
-le	clone skill:terse skill:review skill:greet
+le	😀smile clone skill:terse skill:review skill:greet
 lf	
 lg	login logout changelog skill:greet
 lh	
@@ -342,14 +342,14 @@ ma	compact
 mb	
 mc	compact
 md	model scoped-models
-me	model name scoped-models resume
+me	model name scoped-models resume 😀smile
 mf	
 mg	
 mh	
-mi	
+mi	😀smile
 mj	
 mk	
-ml	model scoped-models
+ml	model scoped-models 😀smile
 mm	
 mn	
 mo	model scoped-models import
@@ -364,18 +364,18 @@ mw
 mx	
 my	
 mz	
-na	name
-nb	
+na	name naïve ǆungla
+nb	i̇stanbul
 nc	
 nd	
-ne	new name clone changelog
+ne	new name naïve clone changelog
 nf	
-ng	changelog settings thinking
+ng	ǆungla changelog settings thinking
 nh	
 ni	thinking
 nj	
 nk	thinking
-nl	changelog
+nl	ǆungla changelog i̇stanbul
 nm	name
 nn	thinking
 no	changelog
@@ -384,8 +384,8 @@ nq
 nr	
 ns	settings
 nt	
-nu	
-nv	
+nu	i̇stanbul
+nv	naïve
 nw	new
 nx	
 ny	
@@ -468,13 +468,13 @@ qw
 qx	
 qy	
 qz	
-ra	refactor reload
+ra	refactor reload Straße
 rb	
 rc	refactor
 rd	reload
-re	re resume reload review rewrite refactor skill:review tree skill:greet share skill:terse
+re	re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
 rf	refactor
-rg	
+rg	Ärger
 rh	
 ri	review skill:review rewrite
 rj	
@@ -485,7 +485,7 @@ rn
 ro	reload refactor
 rp	
 rq	
-rr	rewrite refactor
+rr	rewrite refactor Ärger
 rs	resume skill:terse trust
 rt	rewrite refactor export import trust skill:greet
 ru	resume trust
@@ -494,72 +494,72 @@ rw	rewrite review skill:review
 rx	
 ry	
 rz	
-sa	share skill:data-2
-sb	
+sa	share Straße i̇stanbul skill:data-2
+sb	i̇stanbul
 sc	scoped-models
 sd	scoped-models skill:data-2
-se	settings session scoped-models share skill:terse resume skill:review skill:greet
+se	settings session scoped-models share Straße skill:terse resume 😀smile skill:review skill:greet
 sf	
 sg	settings skill:greet
 sh	share
-si	settings session skill:greet skill:terse skill:review skill:data-2 skill:x1y
+si	settings session 😀smile skill:greet skill:terse skill:review skill:data-2 skill:x1y
 sj	
 sk	skill:greet skill:terse skill:review skill:data-2 skill:x1y
-sl	scoped-models skill:greet skill:terse skill:review skill:data-2 skill:x1y
-sm	scoped-models resume
-sn	settings session
+sl	😀smile scoped-models i̇stanbul skill:greet skill:terse skill:review skill:data-2 skill:x1y
+sm	scoped-models 😀smile resume
+sn	settings session i̇stanbul
 so	scoped-models session
 sp	scoped-models
 sq	
-sr	share skill:review skill:greet skill:terse
+sr	Straße share skill:review skill:greet skill:terse
 ss	session settings scoped-models skill:terse
-st	settings trust skill:terse skill:data-2 skill:greet
-su	resume
+st	Straße settings i̇stanbul trust skill:terse skill:data-2 skill:greet
+su	resume i̇stanbul
 sv	skill:review
 sw	skill:review
 sx	skill:x1y
 sy	skill:x1y
 sz	
-ta	skill:data-2
-tb	
+ta	skill:data-2 i̇stanbul Straße
+tb	i̇stanbul
 tc	
 td	
-te	skill:terse tree rewrite hotkeys
+te	skill:terse tree rewrite hotkeys Straße
 tf	
 tg	thinking settings
 th	thinking
 ti	thinking settings
 tj	
 tk	thinking hotkeys
-tl	
+tl	i̇stanbul
 tm	
-tn	thinking settings
+tn	thinking i̇stanbul settings
 to	refactor
 tp	
 tq	
-tr	tree trust skill:terse refactor
+tr	tree trust skill:terse Straße refactor
 ts	trust skill:terse hotkeys settings
 tt	trust settings
-tu	trust
+tu	trust i̇stanbul
 tv	
 tw	
 tx	
 ty	hotkeys
 tz	
-ua	
+ua	ǆungla
 ub	
 uc	
 ud	
 ue	resume
 uf	
-ug	
+ug	ǆungla
 uh	
 ui	quit
 uj	
 uk	
-ul	
+ul	i̇stanbul ǆungla
 um	resume
-un	
+un	ǆungla
 uo	
 up	
 uq	
@@ -576,7 +576,7 @@ va
 vb	
 vc	
 vd	
-ve	review skill:review
+ve	naïve review skill:review
 vf	
 vg	
 vh	
@@ -705,9 +705,9 @@ zz
 skill	skill:greet skill:terse skill:review skill:data-2 skill:x1y
 skill:	skill:greet skill:terse skill:review skill:data-2 skill:x1y
 skill:r	skill:review skill:greet skill:terse
-gr	skill:greet
+gr	skill:greet Ärger
 greet	skill:greet
-re	re resume reload review rewrite refactor skill:review tree skill:greet share skill:terse
+re	re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
 rev	review skill:review
 res	resume
 mod	model scoped-models
@@ -729,9 +729,87 @@ set	settings skill:greet
 reloa	reload
 reload	reload
 rv	review skill:review
-Re	re resume reload review rewrite refactor skill:review tree skill:greet share skill:terse
+Re	re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
 MODEL	model scoped-models
 a-b	
 -	skill:data-2 scoped-models
 scoped	scoped-models
 s-m	scoped-models
+É	café
+é	café
+caf	café
+cafe	
+CAFÉ	café
+ï	naïve
+naï	naïve
+ärger	Ärger
+ÄR	Ärger
+ä	Ärger
+日	日本語
+本語	日本語
+日語	日本語
+語本	
+σ	σίγμα οδυσσευς
+Σ	σίγμα οδυσσευς
+ΣΊΓΜΑ	σίγμα
+σίγμα	σίγμα
+ΟΔΥΣΣΕΥΣ	οδυσσευς
+οδυσσευσ	
+ΟΔΥΣΣΕΥς	οδυσσευς
+İ	i̇stanbul
+İs	i̇stanbul
+i̇s	i̇stanbul
+is	i̇stanbul settings skill:terse
+😀	😀smile
+😀s	😀smile
+s😀	
+𐐀	𐐨bc
+𐐀bc	𐐨bc
+ß	Straße
+STRASSE	
+straße	Straße
+ǅ	ǆungla
+ǆ	ǆungla
+K	hotkeys fork thinking skill:greet skill:terse skill:review skill:data-2 skill:x1y
+Ke	hotkeys skill:terse skill:review skill:greet
+re v	review skill:review
+　re	re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
+re 	re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
+ 	settings model tree thinking scoped-models export import share copy name session changelog hotkeys fork clone trust login logout new compact resume reload quit review rewrite refactor re skill:greet skill:terse skill:review skill:data-2 skill:x1y café naïve Ärger 日本語 σίγμα οδυσσευς i̇stanbul 😀smile 𐐨bc Straße ǆungla
+m　t	import compact
+ÉÉ	
+é́	
+@/re		re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
+@/re	view	re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
+@/	model	settings model tree thinking scoped-models export import share copy name session changelog hotkeys fork clone trust login logout new compact resume reload quit review rewrite refactor re skill:greet skill:terse skill:review skill:data-2 skill:x1y café naïve Ärger 日本語 σίγμα οδυσσευς i̇stanbul 😀smile 𐐨bc Straße ǆungla
+@/mo	del more	model scoped-models import
+@/model 	x	
+@/mod	el arg	model scoped-models
+@  /re		re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
+@\t/re		re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
+@ /re		re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
+@　/rev		review skill:review
+@x/re		
+@/re	\nfoo	re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
+@/re\nfo	o	
+@hello\n/re		
+@/	re	settings model tree thinking scoped-models export import share copy name session changelog hotkeys fork clone trust login logout new compact resume reload quit review rewrite refactor re skill:greet skill:terse skill:review skill:data-2 skill:x1y café naïve Ärger 日本語 σίγμα οδυσσευς i̇stanbul 😀smile 𐐨bc Straße ǆungla
+@/r	e	resume reload review rewrite refactor re skill:review tree trust skill:greet Ärger fork skill:terse Straße share export import
+@/s e	x	
+@/re/		re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
+@/m/t		import compact
+@/reé		
+@/caf	é	café
+@/café		café
+@/日	本	日本語
+@/οδυσσευΣ		οδυσσευς
+@/😀	s	😀smile
+@/		settings model tree thinking scoped-models export import share copy name session changelog hotkeys fork clone trust login logout new compact resume reload quit review rewrite refactor re skill:greet skill:terse skill:review skill:data-2 skill:x1y café naïve Ärger 日本語 σίγμα οδυσσευς i̇stanbul 😀smile 𐐨bc Straße ǆungla
+@	/re	
+@ 	/re	
+@/ 	re	
+@/mo	é	model scoped-models import
+@/sk	ill:greet	skill:greet skill:terse skill:review skill:data-2 skill:x1y
+@/skill:	x	skill:greet skill:terse skill:review skill:data-2 skill:x1y
+@/re\t	x	re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße
+@/re	 x	re resume reload review rewrite refactor skill:review tree skill:greet share Ärger skill:terse Straße

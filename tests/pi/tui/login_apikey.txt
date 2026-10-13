@@ -1,0 +1,25 @@
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+ Select provider to configure:
+
+>
+
+ → Amazon Bedrock • not configured
+   Ant Ling • not configured
+   Anthropic • not configured
+   Azure • not configured
+   Baseten • not configured
+   Cerebras • not configured
+   Cloudflare AI Gateway • not configured
+   Cloudflare Workers AI • not configured
+   (1/43)
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

@@ -27,6 +27,7 @@
 #include "../amiga-pi/app.h"
 #include "../amiga-pi/ext_lua.h"
 #include "../amiga-pi/ui_pi.h"
+#include "../amiga-pi/ext_events.h"
 
 static char root[400];
 static sys_posix sp;
@@ -598,7 +599,7 @@ static void fui_notify(void *u, const char *message, const char *type)
     cl_copy(fui.type, type ? type : "<none>", sizeof(fui.type));
 }
 
-static pi_ext_ui fake_ui = { 0, fui_select, fui_confirm, fui_input, fui_notify };
+static pi_ext_ui fake_ui = { 0, fui_select, fui_confirm, fui_input, fui_notify, 0, 0, 0, 0, 0, 0 };
 
 static void test_ui(void)
 {
@@ -719,6 +720,123 @@ static void test_events_and_api(void)
     down();
 }
 
+/* ---- L7: the events beyond the goldens' reach (tree navigation is the terminal's, a cycle needs two usable models) ---- */
+
+static char drafts[4][200];
+static int ndrafts, can_continue;
+
+static int fake_boundary(void *u, pi_session *s, int settle, jw *ids, jw *ctx)
+{
+    (void)u;
+    (void)s;
+    (void)settle;
+    if (ids)
+        jw_rawz(ids, "\"messageEntryId\":\"m1\",\"toolResultEntryIds\":[]");
+    jw_rawz(ctx, can_continue ? "{\"contextEntries\":[],\"canContinue\":true}" : "{\"contextEntries\":[],\"canContinue\":false}");
+    return 0;
+}
+
+static int fake_draft(void *u, pi_session *s, const char *text, long n)
+{
+    (void)u;
+    (void)s;
+    if (ndrafts < 4) {
+        memcpy(drafts[ndrafts], text, (size_t)(n < 199 ? n : 199));
+        drafts[ndrafts][n < 199 ? n : 199] = 0;
+    }
+    ndrafts++;
+    return 0;
+}
+
+static char got_kind[4][16], got_path[4][80], got_from[4][40];
+static int got_n;
+
+static void fake_discovered(void *u, const char *kind, const char *path, const pi_ext *from)
+{
+    (void)u;
+    if (kind && got_n < 4) {
+        cl_copy(got_kind[got_n], kind, sizeof(got_kind[0]));
+        cl_copy(got_path[got_n], path, sizeof(got_path[0]));
+        cl_copy(got_from[got_n], from && from->name ? from->name : "", sizeof(got_from[0]));
+        got_n++;
+    }
+}
+
+static void test_l7_events(void)
+{
+    pi_tree_dec dec;
+    llm_model other;
+    up(0);
+    CHECK_INT(load("t.lua",
+                   "for _, n in ipairs({'session_before_tree','session_tree','model_select','thinking_level_select',\n"
+                   "  'ui_prompt_start'}) do\n"
+                   "  pi.on(n, function(e)\n"
+                   "    print(json.encode(e))\n"
+                   "    if e.type == 'session_before_tree' then return { customInstructions = 'be short', label = 'L', summary = { summary = 'by hand' } } end\n"
+                   "  end)\n"
+                   "end\n"), 0);
+    CHECK_INT(load("v.lua", "pi.on('turn_end', function(e) print(json.encode(e)) return { entries = { { type = 'custom', customType = 'k', "
+                            "data = { n = 1 } } }, continue = true } end)\n"), 0);
+    CHECK_INT(load("u.lua", "pi.on('resources_discover', function(e) return { skillPaths = { '/s/one' }, promptPaths = { '/p/two' }, "
+                            "themePaths = { '/t' } } end)\n"), 0);
+    /* session_before_tree: the preparation as types.ts has it, the answers kept */
+    pi_tree_dec_init(&dec);
+    CHECK_INT(pi_ev_before_tree(&ses, "t1", "o1", 0, "[{\"id\":\"x\"}]", 1, 0, 0, 0, 0, &dec), 0);
+    CHECK(strstr(told[0], "\"preparation\"") != 0 && strstr(told[0], "\"targetId\":\"t1\"") != 0);
+    CHECK(strstr(told[0], "\"userWantsSummary\":true") != 0);
+    CHECK(dec.has_instr && !strcmp(dec.instr.p, "be short"));
+    CHECK(dec.has_label && !strcmp(dec.label.p, "L"));
+    CHECK(dec.has_summary && !strcmp(dec.summary.p, "by hand"));
+    pi_tree_dec_free(&dec);
+    /* session_tree: the leaf ids, the summary entry and fromExtension only with one */
+    pi_ev_tree(&ses, "n1", "o1", "{\"id\":\"b\"}", 10, 1);
+    CHECK(strstr(told[1], "\"newLeafId\":\"n1\"") != 0 && strstr(told[1], "\"fromExtension\":true") != 0);
+    pi_ev_tree(&ses, 0, "o1", 0, 0, 0);
+    CHECK(strstr(told[2], "\"fromExtension\"") == 0 && strstr(told[2], "\"summaryEntry\"") == 0);
+    /* model_select: not for the same model; a cycle says so */
+    memset(&other, 0, sizeof(other));
+    model.provider = "p";
+    model.id = "m1";
+    model.api = "a";
+    other = model;
+    other.id = "m2";
+    told_n = 3;
+    pi_ev_model_select(&ses, &model, &model, "cycle");
+    CHECK_INT(told_n, 3);
+    pi_ev_model_select(&ses, &other, &model, "cycle");
+    CHECK_INT(told_n, 4);
+    CHECK(strstr(told[3], "\"source\":\"cycle\"") != 0);
+    pi_ev_thinking(&ses, "high", "off");
+    CHECK(strstr(told[4], "\"previousLevel\":\"off\"") != 0);
+    /* turn_end: the drafts reach the session, the continuation is honoured only with a request to make */
+    ses.boundary = fake_boundary;
+    ses.draft = fake_draft;
+    can_continue = 1;
+    ndrafts = 0;
+    CHECK_INT(pi_ev_turn_end(&ses, "{\"role\":\"assistant\"}", 20, "[]", 2), 1);
+    CHECK_INT(ndrafts, 1);
+    CHECK(strstr(drafts[0], "\"customType\":\"k\"") != 0);
+    can_continue = 0;
+    told_n = 6;
+    CHECK_INT(pi_ev_turn_end(&ses, "{\"role\":\"assistant\"}", 20, "[]", 2), 0);
+    CHECK(strstr(told[6], "turn_end") != 0);
+    CHECK(strstr(told[7], "requested continuation without runnable model context") != 0);
+    /* resources_discover: every path named, with the extension; the theme paths are left out */
+    ses.ext.discovered = fake_discovered;
+    got_n = 0;
+    pi_exts_session_start(&ses.ext, "reload", 0);
+    CHECK_INT(got_n, 2);
+    CHECK(!strcmp(got_kind[0], "skill") && !strcmp(got_path[0], "/s/one"));
+    CHECK(!strcmp(got_kind[1], "prompt") && !strcmp(got_path[1], "/p/two"));
+    CHECK(got_from[0][0] != 0);
+    /* ui_prompt: told for the outermost dialog only */
+    told_n = 0;
+    pi_ev_ui_prompt(&ses, 1, "select", "T");
+    CHECK_INT(told_n, 1);
+    CHECK(strstr(told[0], "\"kind\":\"select\"") != 0 && strstr(told[0], "\"title\":\"T\"") != 0);
+    down();
+}
+
 /* ---- one list with the C extensions ---- */
 
 static char seen[16];
@@ -735,8 +853,8 @@ static int c_call(void *u, const char *id, const char *name, jw *args, char *rea
 
 static void test_order(void)
 {
-    static const pi_ext first = { "c-first", (void *)"1", 0, c_call, 0, 0, 0, 0, 0, 0, 0, 0 };
-    static const pi_ext last = { "c-last", (void *)"3", 0, c_call, 0, 0, 0, 0, 0, 0, 0, 0 };
+    static const pi_ext first = { "c-first", (void *)"1", 0, c_call, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    static const pi_ext last = { "c-last", (void *)"3", 0, c_call, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     jw args;
     char reason[100];
     jw_init(&args);
@@ -1031,11 +1149,11 @@ static void test_ext_menu(void)
  * rank goes to the end in the order it was added */
 static void test_rank(void)
 {
-    static const pi_ext gate = { "gate", (void *)"g", 0, c_call, 0, 0, 0, PI_EXT_GATE, 0, 0, 0, 0 };
-    static const pi_ext lua2 = { "lua2", (void *)"L", 0, c_call, 0, 0, 0, PI_EXT_LUA, 0, 0, 0, 0 };
-    static const pi_ext lua1 = { "lua1", (void *)"l", 0, c_call, 0, 0, 0, PI_EXT_LUA, 0, 0, 0, 0 };
-    static const pi_ext plain = { "plain", (void *)"p", 0, c_call, 0, 0, 0, 0, 0, 0, 0, 0 };
-    static const pi_ext hooks = { "hooks", (void *)"h", 0, c_call, 0, 0, 0, PI_EXT_HOOKS, 0, 0, 0, 0 };
+    static const pi_ext gate = { "gate", (void *)"g", 0, c_call, 0, 0, 0, PI_EXT_GATE, 0, 0, 0, 0, 0, 0, 0 };
+    static const pi_ext lua2 = { "lua2", (void *)"L", 0, c_call, 0, 0, 0, PI_EXT_LUA, 0, 0, 0, 0, 0, 0, 0 };
+    static const pi_ext lua1 = { "lua1", (void *)"l", 0, c_call, 0, 0, 0, PI_EXT_LUA, 0, 0, 0, 0, 0, 0, 0 };
+    static const pi_ext plain = { "plain", (void *)"p", 0, c_call, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    static const pi_ext hooks = { "hooks", (void *)"h", 0, c_call, 0, 0, 0, PI_EXT_HOOKS, 0, 0, 0, 0, 0, 0, 0 };
     pi_exts x;
     jw args;
     char reason[100];
@@ -1183,7 +1301,122 @@ static void test_app(void)
     CHECK_INT(app_run(0), 0);
     CHECK(sent("hello [user]"));
     CHECK(strstr(out.p, "Failed to load extension \"") != 0 && strstr(out.p, "a_bad.lua") != 0);
-    CHECK(strstr(out.p, "b_throw.lua\" error: oops") != 0);
+    /* print mode tells a handler's error as print-mode.ts:101 does (stderr, which the test's platform folds into its console) */
+    CHECK(strstr(out.p, "Extension error (") != 0 && strstr(out.p, "b_throw.lua): oops") != 0);
+    ps_reset();
+}
+
+
+/* L16: line mode (a console without pi's screen) reads an extension dialog's answer with the time the extension gave it
+ * (ExtensionUIDialogOptions.timeout): the console's timed read is polled until the time is up and the dialog answers as pi's
+ * does when it times out. The first line typed is the prompt; the extension's input handler asks. With the time given the
+ * clock below passes it, so the handler sees "false" (confirm) or nil (select, input); a console without a timed read gets
+ * its line read as before. */
+static int lm_lines, lm_timed_reads;
+static unsigned long lm_clock;
+
+static long lm_read_line(void *u, char *buf, long cap)
+{
+    (void)u;
+    if (lm_lines++ == 0) {
+        cl_copy(buf, "hello", cap);
+        return 5;
+    }
+    if (lm_lines == 2) {
+        cl_copy(buf, "y", cap);               /* the answer a blocking read would take */
+        return 1;
+    }
+    return -1;
+}
+
+static long lm_read(void *u, char *buf, long cap, long timeout_ms)
+{
+    (void)u;
+    (void)buf;
+    (void)cap;
+    (void)timeout_ms;
+    lm_timed_reads++;
+    return 0;                                  /* nothing typed */
+}
+
+static unsigned long lm_ms(void *u)
+{
+    (void)u;
+    lm_clock += 100;
+    return lm_clock;
+}
+
+static int lm_sleep(void *u, long ms)
+{
+    (void)u;
+    (void)ms;
+    return 0;
+}
+
+static int app_line(int timed)
+{
+    cl_io io;
+    pi_platform pl;
+    char cwd[400], agent[400], tmp[420], *argv[16];
+    int a = 0;
+    at(cwd, "app/w");
+    at(agent, "app/agent");
+    mkdirs(cwd);
+    cl_copy(tmp, root, sizeof(tmp));
+    cl_cat(tmp, "/", sizeof(tmp));
+    memset(&io, 0, sizeof(io));
+    io.read_line = lm_read_line;
+    io.write = l_write;
+    io.brk = l_brk;
+    io.ms = lm_ms;
+    io.sleep = lm_sleep;
+    if (timed)
+        io.read = lm_read;
+    lm_lines = lm_timed_reads = 0;
+    jw_free(&out);
+    jw_init(&out);
+    ps_reset();
+    ps_pool_up(LLM_POOL);
+    ps_sse("../pi/openai_text.sse", 0);
+    memset(&pl, 0, sizeof(pl));
+    pl.io = &io;
+    pl.pool = &ps_pool;
+    pl.h.poll = ps_poll;
+    pl.h.sleep = ps_sleep;
+    pl.h.ms = ps_ms;
+    pl.h.resolve = ps_resolve;
+    pl.now = adv_now;
+    pl.getenv = no_env;
+    pl.cwd = cwd;
+    pl.sys = &sys;
+    pl.tmp = tmp;
+    pl.utc = 1;
+    pl.agent_dir = agent;
+    argv[a++] = "amiga-pi";
+    argv[a++] = "--no-session";
+    argv[a++] = "--no-mcp";
+    argv[a++] = "-na";                          /* no trust question: the first line is the prompt */
+    argv[a++] = "--model";
+    argv[a++] = "fixture/qwen2.5-coder:7b";
+    argv[a++] = "--base-url";
+    argv[a++] = "http://192.168.1.10:11434/v1";
+    argv[a] = 0;
+    return pi_app(a, argv, &pl);
+}
+
+static void test_line_timeout(void)
+{
+    put("app/agent/extensions/ask.lua",
+        "pi.on('input', function(event, ctx)\n"
+        "  local ok = ctx.ui.confirm('Sure?', 'It runs.', { timeout = 300 })\n"
+        "  return { action = 'transform', text = event.text .. (ok and ' [answered]' or ' [timed out]') }\n"
+        "end)\n");
+    CHECK_INT(app_line(1), 0);
+    CHECK(sent("hello [timed out]"));
+    CHECK(lm_timed_reads >= 2);                 /* polled in slices until the 300 ms were up */
+    CHECK_INT(app_line(0), 0);                  /* no timed read: the line is read as before */
+    CHECK(sent("hello [answered]"));
+    rm_file("app/agent/extensions/ask.lua");
     ps_reset();
 }
 
@@ -1241,6 +1474,7 @@ void suite_pi_lua(void)
     test_env();
     test_ui();
     test_events_and_api();
+    test_l7_events();
     test_order();
     test_rank();
     test_register_tools();
@@ -1250,6 +1484,7 @@ void suite_pi_lua(void)
     jw_init(&out);
     test_app();
     test_app_register();
+    test_line_timeout();
     jw_free(&out);
     {
         char cmd[600];

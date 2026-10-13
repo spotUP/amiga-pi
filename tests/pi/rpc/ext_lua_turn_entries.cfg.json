@@ -1,0 +1,23 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"turn_end\", function(event, ctx)\n  return json.decode(\"{\\\"entries\\\":[{\\\"type\\\":\\\"custom\\\",\\\"customType\\\":\\\"tally\\\",\\\"data\\\":{\\\"n\\\":1}}]}\")\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "golden": "ext_turn_entries"
+}

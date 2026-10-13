@@ -1,0 +1,26 @@
+{
+ "mode": "json",
+ "args": [
+  "run it"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"resources_discover\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"before_agent_start\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"context\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"context_with_system\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"message_update\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"turn_end\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"agent_before_settle\", function(event, ctx)\n  print(json.encode(event))\nend)\npi.on(\"session_shutdown\", function(event, ctx)\n  print(json.encode(event))\nend)\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl"
+ ],
+ "golden": "ext_ev_run",
+ "lua_dump": "dump.jsonl",
+ "canonical": true
+}

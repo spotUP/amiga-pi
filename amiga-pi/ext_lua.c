@@ -6,6 +6,7 @@
 #include "lualib.h"
 #include "ext_lua.h"
 #include "ext_payload.h"
+#include "ext_events.h"
 #include "mcp.h"
 #include "claude/util.h"
 #include "claude/path.h"
@@ -17,6 +18,7 @@ long pi_lua_tool_calls;
 #define K_HANDLERS "pi.handlers"        /* registry: event name -> array of handler functions */
 #define K_CTX "pi.ctx"                  /* registry: the ctx table every handler gets */
 #define K_ARRAY "pi.array"              /* registry: the metatable that marks a table as a JSON array */
+#define K_RENDERERS "pi.renderers"      /* registry: customType -> the message renderer function */
 #define K_TOOLS "pi.tools"              /* registry: tool slot + 1 -> its execute function */
 #define K_CMDS "pi.commands"            /* registry: command slot + 1 -> its handler function */
 
@@ -536,6 +538,15 @@ static void ui_waited(pi_lua_ext *x, unsigned long t0)
     x->t0 += ui_clock(x) - t0;
 }
 
+/* a dialog opens or closes: ui_prompt_start / ui_prompt_end for the outermost one (runner.ts withUIPrompt) */
+static void prompt_event(pi_lua_ext *x, int start, const char *kind, const char *title)
+{
+    pi_exts *e = &x->host->s->ext;
+    if (start ? e->prompt_depth++ > 0 : --e->prompt_depth > 0)
+        return;
+    pi_ev_ui_prompt(x->host->s, start, kind, title);
+}
+
 /* ctx.ui.select(title, options, { timeout }) -> the chosen string, or nil (cancelled, timed out, no UI) */
 static int ui_select(lua_State *L)
 {
@@ -566,9 +577,11 @@ static int ui_select(lua_State *L)
     if (!value)
         return luaL_error(L, "not enough memory");
     value[0] = 0;
+    prompt_event(x, 1, "select", title);
     t0 = ui_clock(x);
     ok = ui->select(ui->u, title, opt, (int)n, ms, value, UI_VALUE);
     ui_waited(x, t0);
+    prompt_event(x, 0, "select", title);
     if (ok)
         lua_pushstring(L, value);
     else
@@ -587,9 +600,11 @@ static int ui_confirm(lua_State *L)
     unsigned long t0;
     int yes = 0;
     if (ui && ui->confirm) {
+        prompt_event(x, 1, "confirm", title);
         t0 = ui_clock(x);
         yes = ui->confirm(ui->u, title, message, ms);
         ui_waited(x, t0);
+        prompt_event(x, 0, "confirm", title);
     }
     lua_pushboolean(L, yes);
     return 1;
@@ -614,9 +629,11 @@ static int ui_input(lua_State *L)
     if (!value)
         return luaL_error(L, "not enough memory");
     value[0] = 0;
+    prompt_event(x, 1, "input", title);
     t0 = ui_clock(x);
     ok = ui->input(ui->u, title, ph, ms, value, UI_VALUE);
     ui_waited(x, t0);
+    prompt_event(x, 0, "input", title);
     if (ok)
         lua_pushstring(L, value);
     else
@@ -634,6 +651,146 @@ static int ui_notify(lua_State *L)
     if (ui && ui->notify)
         ui->notify(ui->u, message, type);
     return 0;
+}
+
+/* ctx.ui.setStatus(key, text), setWidget(key, lines, { placement }), setTitle, setEditorText, setWorkingMessage: fire and forget
+ * (pi's noOpUIContext does nothing without a user; a mode that cannot show one leaves the member out) */
+static int ui_set_status(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *key = luaL_checkstring(L, 1);
+    const char *text = lua_isnoneornil(L, 2) ? 0 : luaL_checkstring(L, 2);
+    if (ui && ui->set_status)
+        ui->set_status(ui->u, key, text);
+    return 0;
+}
+
+static int ui_set_widget(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *key = luaL_checkstring(L, 1), *placement = 0;
+    const char **lines = 0;
+    long n = -1, i;
+    if (lua_istable(L, 3)) {
+        lua_getfield(L, 3, "placement");
+        if (lua_type(L, -1) == LUA_TSTRING)
+            placement = lua_tostring(L, -1);
+        lua_pop(L, 1);
+    }
+    if (lua_isfunction(L, 2))
+        return 0;                               /* a component factory: TypeScript's, ignored as rpc-mode.ts ignores it */
+    if (lua_istable(L, 2)) {
+        n = (long)lua_rawlen(L, 2);
+        if (n > 1000)
+            n = 1000;
+        lines = (const char **)lua_newuserdatauv(L, (size_t)(n ? n : 1) * sizeof(char *), 0);
+        for (i = 0; i < n; i++) {
+            lua_rawgeti(L, 2, (lua_Integer)(i + 1));
+            lines[i] = luaL_tolstring(L, -1, 0);        /* kept on the stack until the call ends */
+            lua_remove(L, -2);
+        }
+    } else if (!lua_isnoneornil(L, 2))
+        return luaL_error(L, "bad argument #2 to 'setWidget' (table of lines or nil expected)");
+    if (ui && ui->set_widget)
+        ui->set_widget(ui->u, key, lines, (int)n, placement);
+    return 0;
+}
+
+static int ui_set_title(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *t = luaL_checkstring(L, 1);
+    if (ui && ui->set_title)
+        ui->set_title(ui->u, t);
+    return 0;
+}
+
+static int ui_set_editor_text(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *t = luaL_checkstring(L, 1);
+    if (ui && ui->set_editor_text)
+        ui->set_editor_text(ui->u, t);
+    return 0;
+}
+
+static int ui_set_working(lua_State *L)
+{
+    const pi_ext_ui *ui = self(L)->host->s->ext.ui;
+    const char *t = lua_isnoneornil(L, 1) ? 0 : luaL_checkstring(L, 1);
+    if (ui && ui->set_working_message)
+        ui->set_working_message(ui->u, t);
+    return 0;
+}
+
+/* ctx.ui.editor(title, prefill) -> the text, or nil */
+static int ui_editor(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    const pi_ext_ui *ui = x->host->s->ext.ui;
+    const char *title = luaL_checkstring(L, 1), *prefill = lua_isnoneornil(L, 2) ? 0 : luaL_checkstring(L, 2);
+    char *value;
+    unsigned long t0;
+    int ok;
+    if (!ui || !ui->editor) {
+        lua_pushnil(L);
+        return 1;
+    }
+    value = (char *)malloc(UI_VALUE);
+    if (!value)
+        return luaL_error(L, "not enough memory");
+    value[0] = 0;
+    prompt_event(x, 1, "editor", title);
+    t0 = ui_clock(x);
+    ok = ui->editor(ui->u, title, prefill, value, UI_VALUE);
+    ui_waited(x, t0);
+    prompt_event(x, 0, "editor", title);
+    if (ok)
+        lua_pushstring(L, value);
+    else
+        lua_pushnil(L);
+    free(value);
+    return 1;
+}
+
+static int ui_nothing(lua_State *L)
+{
+    (void)L;
+    return 0;
+}
+
+static int ui_empty_string(lua_State *L)
+{
+    lua_pushstring(L, "");
+    return 1;
+}
+
+static int ui_false(lua_State *L)
+{
+    lua_pushboolean(L, 0);
+    return 1;
+}
+
+static int ui_empty_table(lua_State *L)
+{
+    lua_newtable(L);
+    return 1;
+}
+
+static int ui_no_theme(lua_State *L)
+{
+    lua_newtable(L);
+    lua_pushboolean(L, 0);
+    lua_setfield(L, -2, "success");
+    lua_pushstring(L, "Theme switching not supported");
+    lua_setfield(L, -2, "error");
+    return 1;
+}
+
+static int ui_unsubscribe(lua_State *L)
+{
+    lua_pushcfunction(L, ui_nothing);              /* onTerminalInput: no raw input here; the function that removes the listener */
+    return 1;
 }
 
 static void ext_error_at(pi_lua_ext *x, const char *shown, const char *msg);
@@ -1118,6 +1275,25 @@ static int lt_run(void *u, pi_session *s, const char *args, long an, jw *content
             return tool_fail(content, "the tool's content must be an array of blocks");
         }
     }
+    if (s) {
+        jw w;
+        char e2[200];
+        jw_init(&w);
+        lua_getfield(L, -1, "usage");
+        if (lua_istable(L, -1) && enc_to(L, -1, &w, e2, sizeof(e2)) == 0) {
+            jv uo;
+            jw_reset(&s->usage);
+            if (!json_parse(w.p, w.n, &uo) && json_type(uo) == J_OBJ)
+                pi_ext_usage_order(uo, &s->usage);
+            else
+                jw_raw(&s->usage, w.p, w.n);
+        }
+        lua_pop(L, 1);
+        jw_free(&w);
+        lua_getfield(L, -1, "terminate");
+        s->call_terminate = lua_toboolean(L, -1);           /* AgentToolResult.terminate: the batch may end the run */
+        lua_pop(L, 1);
+    }
     lua_getfield(L, -1, "isError");
     *is_error = lua_toboolean(L, -1);
     lua_pop(L, 1);
@@ -1148,10 +1324,173 @@ static int lx_command(void *u, int handle, const char *args)
         cl_copy(err, lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "the error value is not a string", sizeof(err));
         cl_copy(shown, "command:", sizeof(shown));
         cl_cat(shown, x->cmd[handle], sizeof(shown));
+        x->event = "command";
         ext_error_at(x, shown, err);
     }
     settle(x, top);
     return rc == LUA_OK ? 0 : -1;
+}
+
+/* pi.sendMessage(message, { triggerTurn, deliverAs }) (agent-session.ts sendCustomMessage): message {customType, content (a string or
+ * blocks), display, details} */
+static int pi_send_message(lua_State *L)
+{
+    pi_lua_ext *x = self(L);
+    pi_session *s = x->host->s;
+    jw w;
+    char err[200];
+    int trigger = -1, rc;
+    const char *deliver = 0;
+    if (x->loading)
+        return luaL_error(L, "Extension runtime not initialized. Action methods cannot be called during extension loading.");
+    luaL_checktype(L, 1, LUA_TTABLE);
+    if (lua_istable(L, 2)) {
+        lua_getfield(L, 2, "triggerTurn");
+        if (!lua_isnil(L, -1))
+            trigger = lua_toboolean(L, -1);
+        lua_pop(L, 1);
+        lua_getfield(L, 2, "deliverAs");
+        if (lua_type(L, -1) == LUA_TSTRING)
+            deliver = lua_tostring(L, -1);
+        lua_pop(L, 1);
+    }
+    jw_init(&w);
+    if (enc_protected(L, 1, &w, err, sizeof(err))) {
+        jw_free(&w);
+        return luaL_error(L, "pi.sendMessage: %s", err);
+    }
+    rc = pi_session_send_custom(s, w.p, trigger, deliver);
+    jw_free(&w);
+    if (rc)
+        return luaL_error(L, "pi.sendMessage: the message could not be sent");
+    return 0;
+}
+
+/* pi.registerMessageRenderer(customType, function(message, options, theme)) -> a string or an array of lines (pi's returns a Component) */
+static int pi_register_renderer(lua_State *L)
+{
+    luaL_checkstring(L, 1);
+    luaL_checktype(L, 2, LUA_TFUNCTION);
+    lua_getfield(L, LUA_REGISTRYINDEX, K_RENDERERS);
+    lua_pushvalue(L, 1);
+    lua_pushvalue(L, 2);
+    lua_rawset(L, -3);
+    return 0;
+}
+
+/* theme.fg(name, text), theme.bg(name, text) and the text styles: pi's Theme wraps the text in the colour's escape sequence */
+static int theme_color(lua_State *L, int bg)
+{
+    const pi_ext_render *r = (const pi_ext_render *)lua_touserdata(L, lua_upvalueindex(1));
+    const char *name = luaL_checkstring(L, 1), *text = luaL_checkstring(L, 2);
+    char sgr[64];
+    luaL_Buffer b;
+    if (!r->sgr || !r->sgr(r->u, name, bg, sgr, sizeof(sgr)))
+        return luaL_error(L, "Unknown theme color: %s", name);
+    luaL_buffinit(L, &b);
+    luaL_addstring(&b, sgr);
+    luaL_addstring(&b, text);
+    luaL_addstring(&b, bg ? "\033[49m" : "\033[39m");
+    luaL_pushresult(&b);
+    return 1;
+}
+
+static int theme_fg(lua_State *L)
+{
+    return theme_color(L, 0);
+}
+
+static int theme_bg(lua_State *L)
+{
+    return theme_color(L, 1);
+}
+
+static int theme_style(lua_State *L)
+{
+    const char *on = lua_tostring(L, lua_upvalueindex(1)), *off = lua_tostring(L, lua_upvalueindex(2));
+    const char *text = luaL_checkstring(L, 1);
+    lua_pushfstring(L, "%s%s%s", on, text, off);
+    return 1;
+}
+
+static void theme_new(lua_State *L, const pi_ext_render *r)
+{
+    static const char *const style[][3] = { { "bold", "\033[1m", "\033[22m" }, { "italic", "\033[3m", "\033[23m" },
+                                            { "underline", "\033[4m", "\033[24m" }, { "inverse", "\033[7m", "\033[27m" },
+                                            { "strikethrough", "\033[9m", "\033[29m" } };
+    int i;
+    lua_newtable(L);
+    lua_pushlightuserdata(L, (void *)r);
+    lua_pushcclosure(L, theme_fg, 1);
+    lua_setfield(L, -2, "fg");
+    lua_pushlightuserdata(L, (void *)r);
+    lua_pushcclosure(L, theme_bg, 1);
+    lua_setfield(L, -2, "bg");
+    for (i = 0; i < 5; i++) {
+        lua_pushstring(L, style[i][1]);
+        lua_pushstring(L, style[i][2]);
+        lua_pushcclosure(L, theme_style, 2);
+        lua_setfield(L, -2, style[i][0]);
+    }
+}
+
+/* the renderer of customType (pi.registerMessageRenderer): called with the message, { expanded, outputPad } and the theme; the lines it
+ * returns (a string split at line feeds, or an array of strings) are drawn instead of the default box. An error or nothing back is the
+ * default drawing (custom-message.ts: the catch falls through) */
+static int lx_render(void *u, const char *type, const char *msg, long n, const pi_ext_render *r, jw *lines)
+{
+    pi_lua_ext *x = (pi_lua_ext *)u;
+    lua_State *L = x->L;
+    int top, got = 0;
+    if (!L)
+        return 0;
+    top = lua_gettop(L);
+    lua_getfield(L, LUA_REGISTRYINDEX, K_RENDERERS);
+    lua_getfield(L, -1, type);
+    lua_remove(L, -2);
+    if (!lua_isfunction(L, -1)) {
+        lua_settop(L, top);
+        return 0;
+    }
+    x->event = "render";
+    if (push_json(L, msg, n)) {
+        lua_settop(L, top);
+        return 0;
+    }
+    lua_createtable(L, 0, 2);
+    lua_pushboolean(L, r->expanded);
+    lua_setfield(L, -2, "expanded");
+    lua_pushinteger(L, r->pad);
+    lua_setfield(L, -2, "outputPad");
+    theme_new(L, r);
+    arm(x);
+    pi_lua_calls++;
+    if (lua_pcall(L, 3, 1, 0) == LUA_OK) {
+        if (lua_type(L, -1) == LUA_TSTRING) {
+            const char *z = lua_tostring(L, -1);
+            jw_rawz(lines, z);
+            jw_rawz(lines, "\n");
+            got = 1;
+        } else if (lua_istable(L, -1)) {
+            long i, cnt = (long)lua_rawlen(L, -1);
+            for (i = 1; i <= cnt; i++) {
+                lua_rawgeti(L, -1, (lua_Integer)i);
+                if (lua_type(L, -1) == LUA_TSTRING) {
+                    jw_rawz(lines, lua_tostring(L, -1));
+                    jw_rawz(lines, "\n");
+                    got = 1;
+                }
+                lua_pop(L, 1);
+            }
+        }
+    } else {
+        char err[300];
+        cl_copy(err, lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "the error value is not a string", sizeof(err));
+        x->host->errors++;
+        (void)err;                            /* pi swallows a renderer's error and draws the default */
+    }
+    settle(x, top);
+    return got;
 }
 
 /* the state's contents, in a protected call (memory errors raise) */
@@ -1184,6 +1523,8 @@ static int c_setup(lua_State *L)
     lua_setfield(L, LUA_REGISTRYINDEX, K_TOOLS);
     lua_newtable(L);
     lua_setfield(L, LUA_REGISTRYINDEX, K_CMDS);
+    lua_newtable(L);
+    lua_setfield(L, LUA_REGISTRYINDEX, K_RENDERERS);
     /* json */
     lua_newtable(L);
     lua_pushcfunction(L, l_json_encode);
@@ -1208,6 +1549,24 @@ static int c_setup(lua_State *L)
     lua_setfield(L, -2, "input");
     lua_pushcfunction(L, ui_notify);
     lua_setfield(L, -2, "notify");
+    {
+        static const struct { const char *name; lua_CFunction f; } more[] = {
+            { "setStatus", ui_set_status }, { "setWidget", ui_set_widget }, { "setTitle", ui_set_title },
+            { "setEditorText", ui_set_editor_text }, { "pasteToEditor", ui_set_editor_text }, { "getEditorText", ui_empty_string },
+            { "setWorkingMessage", ui_set_working }, { "editor", ui_editor },
+            /* the rest of ExtensionUIContext, as pi's noOpUIContext answers it (runner.ts:324): TypeScript components, terminal input
+             * and the theme have no counterpart */
+            { "onTerminalInput", ui_unsubscribe }, { "setWorkingVisible", ui_nothing }, { "setWorkingIndicator", ui_nothing },
+            { "setHiddenThinkingLabel", ui_nothing }, { "setFooter", ui_nothing }, { "setHeader", ui_nothing },
+            { "custom", ui_nothing }, { "addAutocompleteProvider", ui_nothing }, { "setEditorComponent", ui_nothing },
+            { "getEditorComponent", ui_nothing }, { "getAllThemes", ui_empty_table }, { "getTheme", ui_nothing },
+            { "setTheme", ui_no_theme }, { "getToolsExpanded", ui_false }, { "setToolsExpanded", ui_nothing }, { 0, 0 } };
+        int mi;
+        for (mi = 0; more[mi].name; mi++) {
+            lua_pushcfunction(L, more[mi].f);
+            lua_setfield(L, -2, more[mi].name);
+        }
+    }
     lua_setfield(L, -2, "ui");
     lua_newtable(L);                    /* hasUI answers for the mode as it is now */
     lua_pushcfunction(L, ctx_index);
@@ -1224,6 +1583,10 @@ static int c_setup(lua_State *L)
     lua_setfield(L, -2, "registerCommand");
     lua_pushcfunction(L, pi_append_entry);
     lua_setfield(L, -2, "appendEntry");
+    lua_pushcfunction(L, pi_send_message);
+    lua_setfield(L, -2, "sendMessage");
+    lua_pushcfunction(L, pi_register_renderer);
+    lua_setfield(L, -2, "registerMessageRenderer");
     lua_setglobal(L, "pi");
     return 0;
 }
@@ -1243,11 +1606,9 @@ static void tell(pi_lua *h, const char *m)
 static void ext_error_at(pi_lua_ext *x, const char *shown, const char *msg)
 {
     char m[900];
-    cl_copy(m, "Extension \"", sizeof(m));
-    cl_cat(m, shown, sizeof(m));
-    cl_cat(m, "\" error: ", sizeof(m));
-    cl_cat(m, msg, sizeof(m) - 40);
-    tell(x->host, m);
+    cl_copy(m, msg, sizeof(m) - 40);
+    x->host->errors++;
+    pi_ev_error(x->host->s, shown, x->event ? x->event : "", m);       /* each mode tells it its own way */
 }
 
 static void ext_error(pi_lua_ext *x, const char *msg)
@@ -1356,6 +1717,7 @@ static void lx_event(void *u, const pi_event *e)
         return;
     top = lua_gettop(L);
     n = handlers_of(L, name);
+    x->event = name;
     if (!n)
         return;
     lidx = lua_gettop(L);
@@ -1388,6 +1750,7 @@ static int lx_tool_call(void *u, const char *id, const char *name, jw *args, cha
         return 0;
     top = lua_gettop(L);
     n = handlers_of(L, "tool_call");
+    x->event = "tool_call";
     if (!n)
         return 0;
     lidx = lua_gettop(L);
@@ -1423,7 +1786,7 @@ static int lx_tool_call(void *u, const char *id, const char *name, jw *args, cha
                 if (rc < 0) {
                     cl_copy(reason, "Extension failed, blocking execution: the result cannot be used", cap);
                     blocked = 1;
-                } else if (rc > 0 && pi_ext_decide_call(o, args, reason, cap))
+                } else if (rc > 0 && pi_ext_decide_call(o, args, reason, cap, &x->host->s->ext.terminate))
                     blocked = 1;
                 lua_pop(L, 1);
             }
@@ -1449,6 +1812,7 @@ static void lx_tool_result(void *u, const char *id, const char *name, const char
         return;
     top = lua_gettop(L);
     n = handlers_of(L, "tool_result");
+    x->event = "tool_result";
     if (!n)
         return;
     lidx = lua_gettop(L);
@@ -1485,6 +1849,7 @@ static int lx_input(void *u, const char *source, const char *streaming, jw *text
         return 0;
     top = lua_gettop(L);
     n = handlers_of(L, "input");
+    x->event = "input";
     if (!n)
         return 0;
     lidx = lua_gettop(L);
@@ -1493,11 +1858,11 @@ static int lx_input(void *u, const char *source, const char *streaming, jw *text
     for (i = 1; i <= (long)lua_rawlen(L, lidx) && !handled; i++) {
         jv o;
         jw_reset(&b);
-        pi_ext_payload_input(&b, text, source, streaming);
+        pi_ext_payload_input(&b, text, x->host->s->ext.images, source, streaming);
         if (push_event(x, &b))
             break;
         if (call_one(x, lidx, i, lua_gettop(L), 1, err, sizeof(err)) == 0) {
-            if (result_json(x, &r, &o) > 0 && pi_ext_decide_input(o, text))
+            if (result_json(x, &r, &o) > 0 && pi_ext_decide_input(o, text, x->host->s->ext.images))
                 handled = 1;
             lua_pop(L, 1);
         }
@@ -1521,6 +1886,7 @@ static void lx_session_start(void *u, const char *reason, const char *prev)
         return;
     top = lua_gettop(L);
     n = handlers_of(L, "session_start");
+    x->event = "session_start";
     if (!n)
         return;
     lidx = lua_gettop(L);
@@ -1534,6 +1900,74 @@ static void lx_session_start(void *u, const char *reason, const char *prev)
     }
     jw_free(&b);
     settle(x, top);
+}
+
+/* ---- the other events (pi_ext.has / pi_ext.emit) ---- */
+
+static int lx_has(void *u, const char *type)
+{
+    pi_lua_ext *x = (pi_lua_ext *)u;
+    lua_State *L = x->L;
+    int has;
+    if (!L)
+        return 0;
+    lua_getfield(L, LUA_REGISTRYINDEX, K_HANDLERS);
+    lua_getfield(L, -1, type);
+    has = lua_type(L, -1) == LUA_TTABLE && lua_rawlen(L, -1) > 0;
+    lua_pop(L, 2);
+    return has;
+}
+
+static int lx_emit(void *u, const char *type, jw *payload, int flags, pi_ext_apply fn, void *fu)
+{
+    pi_lua_ext *x = (pi_lua_ext *)u;
+    lua_State *L = x->L;
+    long n, i;
+    int top, lidx, stop = 0;
+    jw before, after, r;
+    char err[300];
+    if (!L)
+        return 0;
+    top = lua_gettop(L);
+    n = handlers_of(L, type);
+    x->event = type;
+    if (!n)
+        return 0;
+    lidx = lua_gettop(L);
+    jw_init(&before);
+    jw_init(&after);
+    jw_init(&r);
+    for (i = 1; i <= (long)lua_rawlen(L, lidx) && !stop; i++) {
+        jv ans, aft;
+        int eidx, inplace = (flags & PI_EMIT_INPLACE) != 0;
+        ans.p = aft.p = 0;
+        ans.n = aft.n = 0;
+        if (push_event(x, payload))
+            break;
+        eidx = lua_gettop(L);
+        jw_reset(&before);
+        if (inplace && enc_protected(L, eidx, &before, err, sizeof(err)))
+            inplace = 0;
+        if (call_one(x, lidx, i, eidx, 1, err, sizeof(err)) == 0) {
+            if (result_json(x, &r, &ans) <= 0)
+                ans.p = 0;
+            lua_pop(L, 1);
+        }
+        if (inplace) {
+            jw_reset(&after);
+            if (enc_protected(L, eidx, &after, err, sizeof(err)) == 0 &&
+                (after.n != before.n || memcmp(after.p, before.p, (size_t)after.n)) && json_parse(after.p, after.n, &aft))
+                aft.p = 0;
+        }
+        if (fn && (ans.p || aft.p) && fn(fu, ans, aft, payload))
+            stop = 1;
+        lua_settop(L, lidx);
+    }
+    jw_free(&before);
+    jw_free(&after);
+    jw_free(&r);
+    settle(x, top);
+    return stop;
 }
 
 /* ---- loading ---- */
@@ -1601,6 +2035,9 @@ static int load_file(pi_lua *h, const char *path, const char *scope, const char 
     x->ext.tool_result = lx_tool_result;
     x->ext.input = lx_input;
     x->ext.session_start = lx_session_start;
+    x->ext.has = lx_has;
+    x->ext.render = lx_render;
+    x->ext.emit = lx_emit;
     L = lua_newstate(l_alloc, x);
     if (!L) {
         CL_FREE(src);

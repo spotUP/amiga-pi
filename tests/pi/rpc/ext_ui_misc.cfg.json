@@ -1,0 +1,19 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "export default function (pi) {\n  pi.on(\"tool_call\", async (event, ctx) => {\n    ctx.ui.setStatus(\"b-key\", \"second\");\n    ctx.ui.setStatus(\"a-key\", \"first\");\n    ctx.ui.setStatus(\"a-key\", undefined);\n    ctx.ui.setWidget(\"w1\", [\"line one\", \"line two\"]);\n    ctx.ui.setWidget(\"w2\", [\"below\"], { placement: \"belowEditor\" });\n    ctx.ui.setWidget(\"w1\", undefined);\n    ctx.ui.setTitle(\"My title\");\n    ctx.ui.setEditorText(\"draft\");\n    ctx.ui.setWorkingMessage(\"Busy\");\n    const v = await ctx.ui.editor(\"Edit it\", \"prefill\");\n    return { block: true, reason: \"done \" + v + \" [\" + ctx.ui.getEditorText() + \"]\" };\n  });\n}\n"
+ },
+ "answers": [
+  "sse",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": []
+}

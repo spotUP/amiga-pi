@@ -1,0 +1,22 @@
+{
+ "mode": "json",
+ "args": [
+  "say hi"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"context_with_system\", function(event, ctx)\n  for _, m in ipairs(event.messages) do\n    if m.role == \"user\" then m.content[1].text = m.content[1].text .. \" [seen]\" end\n  end\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "requests": true,
+ "golden": "ext_ctx_inplace"
+}

@@ -1,0 +1,22 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"user_bash\", function(event, ctx)\n  return json.decode(\"{\\\"result\\\":{\\\"output\\\":\\\"from the extension\\\",\\\"exitCode\\\":3,\\\"cancelled\\\":false,\\\"truncated\\\":false}}\")\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "requests": true,
+ "golden": "ext_bash_result"
+}
