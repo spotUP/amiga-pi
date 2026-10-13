@@ -909,7 +909,7 @@ static void test_401(void)
     run_app(ARGC(a), a);
     CHECK_INT(ps.nreq, 3);
     CHECK_INT(pi_auth_refreshes - r0, 1);
-    CHECK(out.p && strstr(out.p, "HTTP 401: Incorrect token") != 0);
+    CHECK(out.p && strstr(out.p, "OpenAI API error (401): {\"message\":\"Incorrect token\"}") != 0);
     no_leaks();
     /* the renewal itself refused: the error is the refresh's, and the request is not sent again */
     openai_file(FAR_FUTURE);
@@ -942,7 +942,7 @@ static void test_401(void)
     CHECK_INT(ps.nreq, 1);
     CHECK_INT(pi_auth_refreshes - r0, 0);
     CHECK(has_line(ps.head[0], "Authorization: Bearer sk-stored-key"));
-    CHECK(out.p && strstr(out.p, "HTTP 401") != 0);
+    CHECK(out.p && strstr(out.p, "OpenAI API error (401)") != 0);
     /* Meta: the identity token cannot be renewed; the key is minted again from it, and when it is refused pi's message */
     {
         char *m[] = { "amiga-pi", "--model", "meta/muse-spark-1.3", 0 };
