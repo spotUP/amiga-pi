@@ -1,0 +1,30 @@
+[Prompt conflicts]
+  "review" collision:
+    ✓ user ~/agent/extra/review.md
+    ✗ ~/agent/prompts/review.md (skipped)
+  ~/agent/prompts/broken.md
+    Nested mappings are not allowed in compact mappings at line 1, column 14:
+
+description: Use when: this
+             ^
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

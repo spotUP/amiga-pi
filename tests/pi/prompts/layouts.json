@@ -1,0 +1,315 @@
+{
+ "basic": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noTemplates": false,
+  "promptPaths": [],
+  "expand": [
+   "/review a b",
+   "/fix x",
+   "/sum 1 2",
+   "/deep",
+   "/nothing"
+  ],
+  "files": {
+   "agent/prompts/review.md": "---\ndescription: Review code\nargument-hint: \"<path> [focus]\"\n---\nUser review of $1\n",
+   "agent/prompts/sum.md": "---\r\ndescription: 'Sum it'\r\n---\r\n\r\n  body $@  \r\n\r\n",
+   "agent/prompts/long.md": "\n   \nThis first line is much longer than sixty characters, so it is cut and dots follow\nsecond\n",
+   "agent/prompts/.hidden.md": "hidden\n",
+   "agent/prompts/notes.txt": "not a template\n",
+   "agent/prompts/sub/deep.md": "not scanned: the directory is not recursive\n",
+   "agent/prompts/node_modules/x.md": "in node_modules\n",
+   "w/proj/.pi/prompts/review.md": "---\ndescription: Project review\n---\nProject review of $ARGUMENTS\n",
+   "w/proj/.pi/prompts/fix.md": "Fix $1\n"
+  }
+ },
+ "untrusted": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noTemplates": false,
+  "promptPaths": [],
+  "expand": [
+   "/review a b",
+   "/fix x"
+  ],
+  "files": {
+   "agent/prompts/review.md": "---\ndescription: Review code\nargument-hint: \"<path> [focus]\"\n---\nUser review of $1\n",
+   "agent/prompts/sum.md": "---\r\ndescription: 'Sum it'\r\n---\r\n\r\n  body $@  \r\n\r\n",
+   "agent/prompts/long.md": "\n   \nThis first line is much longer than sixty characters, so it is cut and dots follow\nsecond\n",
+   "agent/prompts/.hidden.md": "hidden\n",
+   "agent/prompts/notes.txt": "not a template\n",
+   "agent/prompts/sub/deep.md": "not scanned: the directory is not recursive\n",
+   "agent/prompts/node_modules/x.md": "in node_modules\n",
+   "w/proj/.pi/prompts/review.md": "---\ndescription: Project review\n---\nProject review of $ARGUMENTS\n",
+   "w/proj/.pi/prompts/fix.md": "Fix $1\n"
+  }
+ },
+ "order": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noTemplates": false,
+  "promptPaths": [],
+  "expand": [],
+  "files": {
+   "agent/prompts/z.md": "z\n",
+   "agent/prompts/b.md": "b\n",
+   "agent/prompts/a.md": "a\n",
+   "agent/prompts/B.md": "B\n",
+   "agent/prompts/A.md": "A\n",
+   "agent/prompts/_u.md": "under\n",
+   "agent/prompts/10.md": "ten\n",
+   "agent/prompts/9.md": "nine\n",
+   "agent/prompts/é.md": "eacute\n"
+  }
+ },
+ "ignore": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noTemplates": false,
+  "promptPaths": [],
+  "expand": [],
+  "files": {
+   "agent/prompts/.gitignore": "ignored.md\n*.tmp.md\n!keep.tmp.md\n# comment\n\nSUB/\nBIG.md\n",
+   "agent/prompts/.ignore": "from-ignore.md\n",
+   "agent/prompts/.fdignore": "from-fdignore.md\n/anchored.md\n",
+   "agent/prompts/ok.md": "ok\n",
+   "agent/prompts/ignored.md": "hidden by .gitignore\n",
+   "agent/prompts/skip.tmp.md": "hidden by *.tmp.md\n",
+   "agent/prompts/keep.tmp.md": "brought back by !keep.tmp.md\n",
+   "agent/prompts/from-ignore.md": "hidden by .ignore\n",
+   "agent/prompts/from-fdignore.md": "hidden by .fdignore\n",
+   "agent/prompts/anchored.md": "hidden by /anchored.md\n",
+   "agent/prompts/big.md": "hidden by BIG.md (case does not count)\n",
+   "agent/prompts/sub.md": "a file called sub.md: SUB/ is for directories\n",
+   "w/proj/.pi/prompts/.gitignore": "private-*\n",
+   "w/proj/.pi/prompts/private-x.md": "hidden in the project\n",
+   "w/proj/.pi/prompts/public-x.md": "project\n"
+  }
+ },
+ "settings": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noTemplates": false,
+  "promptPaths": [],
+  "expand": [
+   "/e1",
+   "/e2",
+   "/lp1"
+  ],
+  "files": {
+   "agent/settings.json": "{\"prompts\":[\"extra\",\"single.md\",\"!skip-*\",\"-agent/prompts/off.md\",\"../shared/s.md\"]}",
+   "agent/extra/e1.md": "e1\n",
+   "agent/extra/deep/e2.md": "e2 below extra: the search is recursive\n",
+   "agent/extra/skip-me.md": "switched off by !skip-*\n",
+   "agent/extra/.hidden.md": "hidden\n",
+   "agent/extra/node_modules/n.md": "node_modules\n",
+   "agent/extra/.gitignore": "gone.md\n",
+   "agent/extra/gone.md": "ignored\n",
+   "agent/single.md": "single\n",
+   "agent/shared-not.md": "never named\n",
+   "shared/s.md": "named with ..\n",
+   "agent/prompts/off.md": "switched off by an exact entry -agent/prompts/off.md that does not match: -x matches paths relative to the base\n",
+   "agent/prompts/stay.md": "stays\n",
+   "w/proj/.pi/settings.json": "{\"prompts\":[\"../../local-prompts\",\"!nope-*\",\"+never-there.md\"]}",
+   "w/local-prompts/lp1.md": "lp1\n",
+   "w/local-prompts/nope-1.md": "nope\n"
+  }
+ },
+ "settings_untrusted": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noTemplates": false,
+  "promptPaths": [],
+  "expand": [],
+  "files": {
+   "agent/settings.json": "{\"prompts\":[\"extra\",\"single.md\",\"!skip-*\",\"-agent/prompts/off.md\",\"../shared/s.md\"]}",
+   "agent/extra/e1.md": "e1\n",
+   "agent/extra/deep/e2.md": "e2 below extra: the search is recursive\n",
+   "agent/extra/skip-me.md": "switched off by !skip-*\n",
+   "agent/extra/.hidden.md": "hidden\n",
+   "agent/extra/node_modules/n.md": "node_modules\n",
+   "agent/extra/.gitignore": "gone.md\n",
+   "agent/extra/gone.md": "ignored\n",
+   "agent/single.md": "single\n",
+   "agent/shared-not.md": "never named\n",
+   "shared/s.md": "named with ..\n",
+   "agent/prompts/off.md": "switched off by an exact entry -agent/prompts/off.md that does not match: -x matches paths relative to the base\n",
+   "agent/prompts/stay.md": "stays\n",
+   "w/proj/.pi/settings.json": "{\"prompts\":[\"../../local-prompts\",\"!nope-*\",\"+never-there.md\"]}",
+   "w/local-prompts/lp1.md": "lp1\n",
+   "w/local-prompts/nope-1.md": "nope\n"
+  }
+ },
+ "tilde": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noTemplates": false,
+  "promptPaths": [
+   "~/cli-prompts",
+   "  ~/cli-one.md  ",
+   "~/none.md"
+  ],
+  "expand": [],
+  "files": {
+   "agent/settings.json": "{\"prompts\":[\"~/shared-prompts\",\"  ~/shared-one.md \",\"~/shared-prompts/sub/../other\"]}",
+   "home/shared-prompts/p1.md": "p1\n",
+   "home/shared-prompts/other/p2.md": "p2\n",
+   "home/shared-one.md": "one\n",
+   "home/cli-prompts/c1.md": "c1\n",
+   "home/cli-one.md": "cli one\n"
+  }
+ },
+ "globcase": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noTemplates": false,
+  "promptPaths": [],
+  "expand": [],
+  "files": {
+   "agent/settings.json": "{\"prompts\":[\"!Skip-*\",\"!skip-lower-*\"]}",
+   "agent/prompts/Skip-Upper.md": "matched by !Skip-*\n",
+   "agent/prompts/skip-upper2.md": "not matched by !Skip-*: case counts\n",
+   "agent/prompts/skip-lower-1.md": "matched by !skip-lower-*\n",
+   "agent/prompts/Skip-lower-2.md": "not matched by !skip-lower-*\n"
+  }
+ },
+ "yaml": {
+  "cwd": "w/proj",
+  "trusted": false,
+  "noTemplates": false,
+  "promptPaths": [],
+  "expand": [
+   "/colon x",
+   "/folded"
+  ],
+  "files": {
+   "agent/prompts/dupkey.md": "---\ndescription: One\ndescription: Two\n---\nbody\n",
+   "agent/prompts/unclosed.md": "---\ndescription: \"never closed\n---\nbody\n",
+   "agent/prompts/colon.md": "---\ndescription: Use when: this\n---\nbody\n",
+   "agent/prompts/tabs.md": "---\ndescription: x\n\tindented: tab\n---\nbody\n",
+   "agent/prompts/flow.md": "---\ndescription: [a, b\n---\nbody\n",
+   "agent/prompts/folded.md": "---\ndescription: >-\n  folded\n  text\nargument-hint: |\n  <a>\n  <b>\n---\nbody\n",
+   "agent/prompts/number.md": "---\ndescription: 123\nargument-hint: true\n---\nThe first line of the body\n",
+   "agent/prompts/quoted.md": "---\ndescription: \"Tab\\there \\u00e9\"\nargument-hint: '<it''s>'\n---\nbody\n",
+   "agent/prompts/emptyfm.md": "---\n---\nthe body only\n",
+   "agent/prompts/null.md": "---\ndescription:\nargument-hint: ~\n---\nnull values\n",
+   "agent/prompts/explicit.md": "---\n? description\n: An explicit key\n---\nbody\n",
+   "agent/prompts/bom.md": "﻿---\ndescription: After a BOM\n---\nbody\n",
+   "agent/prompts/blockerr.md": "---\ndescription: |0\n  x\n---\nbody\n"
+  }
+ },
+ "collision": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noTemplates": false,
+  "promptPaths": [
+   "cli/dup.md",
+   "cli/only-cli.md"
+  ],
+  "expand": [
+   "/dup",
+   "/dup2",
+   "/dup3",
+   "/only-cli"
+  ],
+  "files": {
+   "agent/settings.json": "{\"prompts\":[\"entry\"]}",
+   "agent/entry/dup.md": "from a user settings entry (rank 2)\n",
+   "agent/prompts/dup.md": "from the user's directory (rank 3)\n",
+   "w/proj/.pi/prompts/dup.md": "from the project's directory (rank 1)\n",
+   "w/proj/.pi/settings.json": "{\"prompts\":[\"../../more\"]}",
+   "w/more/dup2.md": "from a project settings entry (rank 0)\n",
+   "w/proj/.pi/prompts/dup2.md": "from the project's directory (rank 1)\n",
+   "agent/prompts/dup3.md": "user directory\n",
+   "agent/entry/dup3.md": "user entry (wins over the directory)\n",
+   "w/proj/cli/dup.md": "from --prompt-template (last)\n",
+   "w/proj/cli/only-cli.md": "only from --prompt-template\n"
+  }
+ },
+ "packages": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noTemplates": false,
+  "promptPaths": [],
+  "expand": [
+   "/v1",
+   "/own"
+  ],
+  "files": {
+   "agent/settings.json": "{\"packages\":[\"../pk/manifest\",\"../pk/conv\",{\"source\":\"../pk/filter\",\"prompts\":[\"keep-*\",\"!keep-no*\"]},{\"source\":\"../pk/off\",\"prompts\":[]},\"npm:some-package\",\"git:github.com/x/y\"]}",
+   "pk/manifest/package.json": "{\"name\":\"m\",\"pi\":{\"prompts\":[\"./pr\",\"more/*.md\",\"!more/skip.md\"]}}",
+   "pk/manifest/pr/m1.md": "m1\n",
+   "pk/manifest/more/m2.md": "m2\n",
+   "pk/manifest/more/skip.md": "switched off by the manifest\n",
+   "pk/manifest/prompts/unlisted.md": "not in the manifest: not found\n",
+   "pk/conv/prompts/v1.md": "v1\n",
+   "pk/conv/prompts/deep/v2.md": "v2: a package's prompts are searched recursively\n",
+   "pk/conv/prompts/.hidden.md": "hidden\n",
+   "pk/filter/prompts/keep-a.md": "kept\n",
+   "pk/filter/prompts/keep-no-1.md": "dropped\n",
+   "pk/filter/prompts/other.md": "not matched\n",
+   "pk/off/prompts/off1.md": "switched off by an empty list\n",
+   "agent/prompts/own.md": "beats the package\n",
+   "pk/conv/prompts/own.md": "same name, from a package\n",
+   "w/proj/.pi/settings.json": "{\"packages\":[\"../../../pk/projpkg\"]}",
+   "pk/projpkg/prompts/pp.md": "from a project package\n"
+  }
+ },
+ "cli": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noTemplates": false,
+  "promptPaths": [
+   "extra/one.md",
+   "extra/dir",
+   "extra/none.md",
+   "extra/x.txt",
+   "../abs/two.md",
+   "extra/one.md",
+   "@ROOT@/cli/w/abs-one.md"
+  ],
+  "expand": [
+   "/one",
+   "/d1",
+   "/abs-one"
+  ],
+  "files": {
+   "agent/prompts/base.md": "base\n",
+   "w/proj/extra/one.md": "one\n",
+   "w/proj/extra/dir/d1.md": "d1\n",
+   "w/proj/extra/dir/.d2.md": "hidden but read\n",
+   "w/proj/extra/dir/sub/d3.md": "not read: not recursive\n",
+   "w/proj/extra/dir/ignored.md": "ignore files are not read for a directory given by hand\n",
+   "w/proj/extra/dir/.gitignore": "ignored.md\n",
+   "w/proj/extra/x.txt": "not markdown\n",
+   "w/abs/two.md": "outside the project\n",
+   "w/abs-one.md": "an absolute host path\n"
+  }
+ },
+ "nodefaults": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noTemplates": true,
+  "promptPaths": [
+   "extra/one.md",
+   "extra/dir"
+  ],
+  "expand": [
+   "/one",
+   "/d1",
+   "/abs-one"
+  ],
+  "files": {
+   "agent/prompts/base.md": "base\n",
+   "w/proj/extra/one.md": "one\n",
+   "w/proj/extra/dir/d1.md": "d1\n",
+   "w/proj/extra/dir/.d2.md": "hidden but read\n",
+   "w/proj/extra/dir/sub/d3.md": "not read: not recursive\n",
+   "w/proj/extra/dir/ignored.md": "ignore files are not read for a directory given by hand\n",
+   "w/proj/extra/dir/.gitignore": "ignored.md\n",
+   "w/proj/extra/x.txt": "not markdown\n",
+   "w/abs/two.md": "outside the project\n",
+   "w/abs-one.md": "an absolute host path\n"
+  }
+ }
+}

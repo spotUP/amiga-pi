@@ -35,6 +35,8 @@ typedef struct mask {
     const char *why;
 } mask;
 
+int test_tmpl_load(pi_tmpls *ts, cl_sys *sys, const char *agent, const char *cwd, int trusted, int no_defaults, char (*paths)[300], int npaths);
+
 static pi_tmpls slash_tm;      /* the templates of slash_prompts */
 
 typedef struct scen {
@@ -524,7 +526,7 @@ static void run(const scen *sc)
         int nt;
         const cl_cmd *rows;
         sys_posix_init(&sp, &tsys);
-        CHECK_INT(pi_tmpl_load(&slash_tm, &tsys, PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
+        CHECK_INT(test_tmpl_load(&slash_tm, &tsys, PI_TESTS "/pi/tui/agent_dir", "/nonexistent", 0, 0, 0, 0), 0);
         rows = pi_tmpl_menu(&slash_tm, &nt);
         pi_ui_set_extra_commands(0, rows, nt);
     }
@@ -905,6 +907,8 @@ static const char *app_name_cli;    /* --name <x> for the next app_run, 0 none *
 static const char *app_sdir_cli;    /* --session-dir <x> for the next app_run, 0 none */
 static char *app_out;               /* every byte the last app_run wrote to the screen */
 
+static void (*app_ready)(pi_session *s);               /* called once the resources are loaded, before the first key */
+
 static int app_run(int cols, int rows, const char **keys, const char *const *sse, int nsse, void (*rest)(void))
 {
     cl_io io;
@@ -959,6 +963,7 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pl.utc = 1;
     pl.data_dir = adata;
     pl.agent_dir = app_agent ? app_agent : aagent;
+    pl.ready = app_ready;
     rc = pi_app(argc, a, &pl);
     free(app_out);
     app_out = (char *)malloc((size_t)cs.sent.n + 1);
@@ -1278,6 +1283,21 @@ static void test_resume_summaries(void)
  * (the captures are tests/pi/tui/skills_*.golden, resume_skill*.golden, skill_cmd.golden: pi 1.1.0, tools/pi_oracle/tui_gen.py) ---- */
 
 static char skdir[420];             /* the agent directory with the skills: short, so a path stays on one row as pi's "~/agent/..." does */
+static const char *tree_json = "skills_files.json";     /* the files written into it (tui_gen.py SKILL_FILES, PROMPT_FILES, CONFLICT_FILES) */
+
+/* a new agent directory for the next case: the old one removed (its files would be found again) */
+static void fresh_agent(void)
+{
+    char cmd[460];
+    if (skdir[0] && strlen(skdir) > 10) {
+        strcpy(cmd, "rm -rf '");
+        strncat(cmd, skdir, strlen(skdir) - 6);         /* /tmp/pis_XXXXXX/agent without "/agent" */
+        strcat(cmd, "'");
+        if (system(cmd))
+            CHECK(0);
+    }
+    skdir[0] = 0;
+}
 
 /* the skills of tui_gen.py's SKILL_FILES (tests/pi/tui/skills_files.json) written under skdir/skills */
 static void skills_tree(const char *settings)
@@ -1300,7 +1320,7 @@ static void skills_tree(const char *settings)
         strcat(p, "/skills");
         mkdir(p, 0777);
     }
-    b = slurp("skills_files.json", &n);
+    b = slurp(tree_json, &n);
     CHECK(b != 0);
     if (!b || json_parse(b, n, &all)) {
         free(b);
@@ -1369,6 +1389,44 @@ static int skills_masks(scen *sc, const char *name, int from)
     }
     free(g);
     return k;
+}
+
+/* tui_gen.py RELOAD_WRITES (tests/pi/tui/reload_writes.json) written under skdir: what changes while the program runs */
+static void reload_writes(pi_session *s)
+{
+    char *b, p[600], d[600];
+    long n;
+    jv all, k, v;
+    jit it;
+    (void)s;
+    b = slurp("reload_writes.json", &n);
+    CHECK(b != 0);
+    if (!b || json_parse(b, n, &all)) {
+        free(b);
+        return;
+    }
+    json_iter(all, &it);
+    while (json_next(&it, &k, &v)) {
+        char *rel = json_strdup(k, 0), *text = json_strdup(v, 0), *e;
+        FILE *f;
+        strcpy(p, skdir);
+        strcat(p, "/");
+        strcat(p, rel ? rel : "");
+        strcpy(d, p);
+        e = strrchr(d, '/');
+        if (e) {
+            *e = 0;
+            mkdir(d, 0777);
+        }
+        f = fopen(p, "wb");
+        if (f) {
+            fputs(text ? text : "", f);
+            fclose(f);
+        }
+        free(rel);
+        free(text);
+    }
+    free(b);
 }
 
 static void skills_rest(void)
@@ -1448,6 +1506,40 @@ static void test_skills_screen(void)
     skills_case("resume_skill", "{\"quietStartup\":true}\n", keys_end, 0, 0, 1, 0, m_quiet, 0);
     skills_case("resume_skill_expanded", "{\"quietStartup\":true}\n", keys_exp, 0, 0, 1, 0, m_exp, 0);
     skills_case("skill_cmd", "{\"quietStartup\":true}\n", keys_cmd, sse_cmd, 1, 0, 0, m_quiet, 1);
+    /* I8: Ctrl+O at the start draws the [Skills] list grouped by scope (pi's header is long when expanded: not drawn here, its rows
+     * left out; the block is compared from its title) */
+    {
+        static const int m_sexp[] = { 1, 25, 43, 50, 0 };
+        skills_case("skills_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, -20, m_sexp, 1);
+    }
+    /* J5: the [Prompts] list, compact and grouped, and the [Prompt conflicts] block (a name two files have, YAML that is refused) */
+    {
+        static const int m_pstart[] = { 1, 9, 22, 40, 0 }, m_pexp[] = { 1, 25, 34, 40, 0 }, m_pconf[] = { 26, 30, 0 };
+        fresh_agent();
+        tree_json = "prompts_files.json";
+        skills_case("prompts_start", "{}\n", keys_end, 0, 0, 0, -4, m_pstart, 1);
+        skills_case("prompts_start_expanded", "{\"quietStartup\":false}\n", keys_exp, 0, 0, 0, -20, m_pexp, 1);
+        {
+            static const char *keys_msg[] = { "hello\r", "\004", 0 };
+            static const char *const sse_msg[] = { "prompts_start_msg.1.sse" };
+            skills_case("prompts_start_msg", "{\"quietStartup\":false}\n", keys_msg, sse_msg, 1, 0, -4, m_pstart, 1);
+        }
+        fresh_agent();
+        tree_json = "conflict_files.json";
+        skills_case("prompts_conflicts", "{\"quietStartup\":true,\"prompts\":[\"extra\"]}\n", keys_end, 0, 0, 0, 0, m_pconf, 1);
+        tree_json = "skills_files.json";
+    }
+    /* /reload: files made after the start show in the lists (the same screen pi gives; the status line says what this port reads again) */
+    {
+        static const char *keys_reload[] = { "/reload\r", "\004", 0 };
+        static const int m_reload[] = { 1, 9, 17, 17, 20, 40, 0 };
+        fresh_agent();
+        tree_json = "reload_files.json";
+        app_ready = reload_writes;
+        skills_case("reload_resources", "{\"quietStartup\":false}\n", keys_reload, 0, 0, 0, -4, m_reload, 1);
+        app_ready = 0;
+        tree_json = "skills_files.json";
+    }
     if (skdir[0] && strlen(skdir) > 10) {
         strcpy(cmd, "rm -rf '");
         strncat(cmd, skdir, strlen(skdir) - 6);         /* /tmp/pis_XXXXXX/agent without "/agent" */

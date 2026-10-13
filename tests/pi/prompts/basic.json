@@ -1,0 +1,99 @@
+{
+ "prompts": [
+  {
+   "name": "fix",
+   "description": "Fix $1",
+   "argumentHint": null,
+   "content": "Fix $1\n",
+   "filePath": "@ROOT@/basic/w/proj/.pi/prompts/fix.md",
+   "sourceInfo": {
+    "path": "@ROOT@/basic/w/proj/.pi/prompts/fix.md",
+    "source": "auto",
+    "scope": "project",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/basic/w/proj/.pi"
+   },
+   "command": "[p] Fix $1"
+  },
+  {
+   "name": "review",
+   "description": "Project review",
+   "argumentHint": null,
+   "content": "Project review of $ARGUMENTS",
+   "filePath": "@ROOT@/basic/w/proj/.pi/prompts/review.md",
+   "sourceInfo": {
+    "path": "@ROOT@/basic/w/proj/.pi/prompts/review.md",
+    "source": "auto",
+    "scope": "project",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/basic/w/proj/.pi"
+   },
+   "command": "[p] Project review"
+  },
+  {
+   "name": "long",
+   "description": "This first line is much longer than sixty characters, so it ...",
+   "argumentHint": null,
+   "content": "\n   \nThis first line is much longer than sixty characters, so it is cut and dots follow\nsecond\n",
+   "filePath": "@ROOT@/basic/agent/prompts/long.md",
+   "sourceInfo": {
+    "path": "@ROOT@/basic/agent/prompts/long.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/basic/agent"
+   },
+   "command": "[u] This first line is much longer than sixty characters, so it ..."
+  },
+  {
+   "name": "sum",
+   "description": "Sum it",
+   "argumentHint": null,
+   "content": "body $@",
+   "filePath": "@ROOT@/basic/agent/prompts/sum.md",
+   "sourceInfo": {
+    "path": "@ROOT@/basic/agent/prompts/sum.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/basic/agent"
+   },
+   "command": "[u] Sum it"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "collision",
+   "message": "name \"/review\" collision",
+   "path": "@ROOT@/basic/agent/prompts/review.md",
+   "collision": {
+    "name": "review",
+    "winnerPath": "@ROOT@/basic/w/proj/.pi/prompts/review.md",
+    "loserPath": "@ROOT@/basic/agent/prompts/review.md"
+   }
+  }
+ ],
+ "rpcCommands": "[{\"name\":\"fix\",\"description\":\"Fix $1\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/w/proj/.pi/prompts/fix.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/w/proj/.pi\"}},{\"name\":\"review\",\"description\":\"Project review\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/w/proj/.pi/prompts/review.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/w/proj/.pi\"}},{\"name\":\"long\",\"description\":\"This first line is much longer than sixty characters, so it ...\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/agent/prompts/long.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/agent\"}},{\"name\":\"sum\",\"description\":\"Sum it\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/basic/agent/prompts/sum.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/basic/agent\"}}]",
+ "expand": [
+  {
+   "input": "/review a b",
+   "output": "Project review of a b"
+  },
+  {
+   "input": "/fix x",
+   "output": "Fix x\n"
+  },
+  {
+   "input": "/sum 1 2",
+   "output": "body 1 2"
+  },
+  {
+   "input": "/deep",
+   "output": "/deep"
+  },
+  {
+   "input": "/nothing",
+   "output": "/nothing"
+  }
+ ]
+}

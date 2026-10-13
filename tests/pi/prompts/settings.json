@@ -1,0 +1,120 @@
+{
+ "prompts": [
+  {
+   "name": "lp1",
+   "description": "lp1",
+   "argumentHint": null,
+   "content": "lp1\n",
+   "filePath": "@ROOT@/settings/w/local-prompts/lp1.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings/w/local-prompts/lp1.md",
+    "source": "local",
+    "scope": "project",
+    "origin": "top-level"
+   },
+   "command": "[p] lp1"
+  },
+  {
+   "name": "e2",
+   "description": "e2 below extra: the search is recursive",
+   "argumentHint": null,
+   "content": "e2 below extra: the search is recursive\n",
+   "filePath": "@ROOT@/settings/agent/extra/deep/e2.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings/agent/extra/deep/e2.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] e2 below extra: the search is recursive"
+  },
+  {
+   "name": "e1",
+   "description": "e1",
+   "argumentHint": null,
+   "content": "e1\n",
+   "filePath": "@ROOT@/settings/agent/extra/e1.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings/agent/extra/e1.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] e1"
+  },
+  {
+   "name": "single",
+   "description": "single",
+   "argumentHint": null,
+   "content": "single\n",
+   "filePath": "@ROOT@/settings/agent/single.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings/agent/single.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] single"
+  },
+  {
+   "name": "s",
+   "description": "named with ..",
+   "argumentHint": null,
+   "content": "named with ..\n",
+   "filePath": "@ROOT@/settings/shared/s.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings/shared/s.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] named with .."
+  },
+  {
+   "name": "off",
+   "description": "switched off by an exact entry -agent/prompts/off.md that do...",
+   "argumentHint": null,
+   "content": "switched off by an exact entry -agent/prompts/off.md that does not match: -x matches paths relative to the base\n",
+   "filePath": "@ROOT@/settings/agent/prompts/off.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings/agent/prompts/off.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/settings/agent"
+   },
+   "command": "[u] switched off by an exact entry -agent/prompts/off.md that do..."
+  },
+  {
+   "name": "stay",
+   "description": "stays",
+   "argumentHint": null,
+   "content": "stays\n",
+   "filePath": "@ROOT@/settings/agent/prompts/stay.md",
+   "sourceInfo": {
+    "path": "@ROOT@/settings/agent/prompts/stay.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/settings/agent"
+   },
+   "command": "[u] stays"
+  }
+ ],
+ "diagnostics": [],
+ "rpcCommands": "[{\"name\":\"lp1\",\"description\":\"lp1\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings/w/local-prompts/lp1.md\",\"source\":\"local\",\"scope\":\"project\",\"origin\":\"top-level\"}},{\"name\":\"e2\",\"description\":\"e2 below extra: the search is recursive\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings/agent/extra/deep/e2.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"e1\",\"description\":\"e1\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings/agent/extra/e1.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"single\",\"description\":\"single\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings/agent/single.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"s\",\"description\":\"named with ..\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings/shared/s.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"off\",\"description\":\"switched off by an exact entry -agent/prompts/off.md that do...\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings/agent/prompts/off.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/settings/agent\"}},{\"name\":\"stay\",\"description\":\"stays\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/settings/agent/prompts/stay.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/settings/agent\"}}]",
+ "expand": [
+  {
+   "input": "/e1",
+   "output": "e1\n"
+  },
+  {
+   "input": "/e2",
+   "output": "e2 below extra: the search is recursive\n"
+  },
+  {
+   "input": "/lp1",
+   "output": "lp1\n"
+  }
+ ]
+}

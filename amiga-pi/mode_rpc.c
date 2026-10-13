@@ -851,30 +851,8 @@ static void cmd_get_commands(const cmd *c)
         if (nx && ((ts && ts->n) || (c->r->s->res && c->r->s->res->skills.n)))
             jw_raw(&d, ",", 1);
     }
-    for (i = 0; ts && i < ts->n; i++) {
-        const pi_tmpl *t = &ts->t[i];
-        const char *base = t->scope == PI_TMPL_PROJECT ? ts->base_project : t->scope == PI_TMPL_USER ? ts->base_user : t->base;
-        if (i)
-            jw_raw(&d, ",", 1);
-        jw_rawz(&d, "{\"name\":");
-        jw_strz(&d, t->name);
-        jw_rawz(&d, ",\"description\":");
-        jw_strz(&d, t->description);
-        jw_rawz(&d, ",\"source\":\"prompt\",\"sourceInfo\":{\"path\":");
-        jw_strz(&d, t->path);
-        /* the sourceInfo: the default directories' templates are "auto" of their scope, a --prompt-template path "local"
-         * and temporary, its baseDir the directory (or the file's directory) */
-        if (t->scope == PI_TMPL_PATH)
-            jw_rawz(&d, ",\"source\":\"local\",\"scope\":\"temporary\"");
-        else
-            jw_rawz(&d, t->scope == PI_TMPL_PROJECT ? ",\"source\":\"auto\",\"scope\":\"project\"" : ",\"source\":\"auto\",\"scope\":\"user\"");
-        jw_rawz(&d, ",\"origin\":\"top-level\"");
-        if (base[0]) {
-            jw_rawz(&d, ",\"baseDir\":");
-            jw_strz(&d, base);
-        }
-        jw_rawz(&d, "}}");
-    }
+    if (ts)
+        pi_tmpls_commands(ts, &d);
     if (c->r->s->res && c->r->s->res->skills.n) {
         if (ts && ts->n)
             jw_raw(&d, ",", 1);

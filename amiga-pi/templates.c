@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "templates.h"
-#include "claude/commands.h"
+#include "frontmatter.h"
+#include "pkgres.h"
+#include "resreport.h"
 #include "claude/path.h"
 #include "claude/util.h"
 
@@ -18,35 +20,8 @@ static char *dupn(const char *s, long n)
     return d;
 }
 
-/* JavaScript's \s at p (the bytes of its UTF-8): the length, 0 when p is not a space */
-static int sp_len(const unsigned char *p)
-{
-    if (p[0] == ' ' || (p[0] >= 9 && p[0] <= 13))
-        return 1;
-    if (p[0] == 0xC2 && p[1] == 0xA0)
-        return 2;
-    if (p[0] == 0xE1 && p[1] == 0x9A && p[2] == 0x80)
-        return 3;
-    if (p[0] == 0xE2 && p[1] == 0x80 && ((p[2] >= 0x80 && p[2] <= 0x8A) || p[2] == 0xA8 || p[2] == 0xA9 || p[2] == 0xAF))
-        return 3;
-    if (p[0] == 0xE2 && p[1] == 0x81 && p[2] == 0x9F)
-        return 3;
-    if (p[0] == 0xE3 && p[1] == 0x80 && p[2] == 0x80)
-        return 3;
-    if (p[0] == 0xEF && p[1] == 0xBB && p[2] == 0xBF)
-        return 3;
-    return 0;
-}
-
-/* the length of the space that ends at e (not before s), 0 when none */
-static int sp_back(const unsigned char *s, const unsigned char *e)
-{
-    int k;
-    for (k = 1; k <= 3 && e - k >= s; k++)
-        if (sp_len(e - k) == k)
-            return k;
-    return 0;
-}
+#define sp_len pi_js_space_len   /* the same table as JavaScript's trim() (frontmatter.h) */
+#define sp_back pi_js_space_back
 
 int pi_tmpl_args(const char *str, char ***out, int *n)
 {
@@ -276,13 +251,35 @@ static char *first_line(const char *body)
     return dupn("", 0);
 }
 
-/* t appended unless the name is taken (dedupePrompts: the first keeps it): 0 added, 1 taken, -1 out of memory */
+/* diagnostics, as pi's ResourceDiagnostic: a warning for a file that cannot be read or whose YAML is refused, an error for a
+ * --prompt-template path that is not there, a collision for a name two files have */
+static int add_diag(pi_tmpls *ts, int type, const char *msg, const char *path, const char *winner, const char *name)
+{
+    pi_tmpl_diag *d;
+    if (ts->nd == ts->capd) {
+        int nc = ts->capd ? ts->capd * 2 : 8;
+        pi_tmpl_diag *q = (pi_tmpl_diag *)realloc(ts->d, sizeof(pi_tmpl_diag) * (size_t)nc);
+        if (!q)
+            return -1;
+        ts->d = q;
+        ts->capd = nc;
+    }
+    d = &ts->d[ts->nd];
+    memset(d, 0, sizeof(*d));
+    d->type = type;
+    d->msg = dupn(msg, (long)strlen(msg));
+    d->name = name ? dupn(name, (long)strlen(name)) : 0;
+    cl_copy(d->path, path ? path : "", sizeof(d->path));
+    cl_copy(d->winner, winner ? winner : "", sizeof(d->winner));
+    if (!d->msg || (name && !d->name))
+        return -1;
+    ts->nd++;
+    return 0;
+}
+
+/* t appended (every template found; dedupePrompts runs once all are in): 0, -1 out of memory */
 static int add(pi_tmpls *ts, const pi_tmpl *t)
 {
-    int i;
-    for (i = 0; i < ts->n; i++)
-        if (!strcmp(ts->t[i].name, t->name))
-            return 1;
     if (ts->n == ts->cap) {
         pi_tmpl *g = (pi_tmpl *)realloc(ts->t, sizeof(pi_tmpl) * (size_t)(ts->cap ? ts->cap * 2 : 8));
         if (!g)
@@ -294,108 +291,157 @@ static int add(pi_tmpls *ts, const pi_tmpl *t)
     return 0;
 }
 
-/* one file as pi's loadTemplateFromFile: 0 added or dropped, -1 out of memory */
-static int load_file(pi_tmpls *ts, cl_sys *sys, const char *dir, const char *file, int scope)
+/* mergePaths' result: the paths in order, each once by its canonical name; explicit_[i] says it came from --prompt-template */
+typedef struct sl_paths {
+    char **v;
+    char **canon;
+    int *explicit_;
+    int n, cap;
+} sl_paths;
+
+static int mp_add(sl_paths *l, cl_sys *sys, const char *path, int explicit_flag)
 {
-    pi_tmpl t;
-    char path[300], *raw = 0, *norm, *body;
-    long n = 0, i, o = 0, nl;
-    size_t fl = strlen(file);
-    cl_def d;
-    int rc = 0, fm = 0;
-    memset(&t, 0, sizeof(t));
-    if (path_join(dir, file, path, sizeof(path)) || sys->kind(sys->u, path) != 1 || sys->read(sys->u, path, 1024L * 1024, &raw, &n))
-        return 0;
-    pi_tmpl_reads++;
-    /* stripBom, then \r\n and \r to \n (utils/frontmatter.ts) */
-    i = n >= 3 && (unsigned char)raw[0] == 0xEF && (unsigned char)raw[1] == 0xBB && (unsigned char)raw[2] == 0xBF ? 3 : 0;
-    norm = (char *)malloc((size_t)n + 1);
-    if (!norm) {
-        CL_FREE(raw);
+    char canon[300];
+    int i;
+    pm_canon(sys, path, canon, sizeof(canon));
+    for (i = 0; i < l->n; i++)
+        if (!strcmp(l->canon[i], canon))
+            return 0;
+    if (l->n == l->cap) {
+        int nc = l->cap ? l->cap * 2 : 16;
+        char **q = (char **)realloc(l->v, sizeof(char *) * (size_t)nc);
+        char **c2;
+        int *e;
+        if (!q)
+            return -1;
+        l->v = q;
+        c2 = (char **)realloc(l->canon, sizeof(char *) * (size_t)nc);
+        if (!c2)
+            return -1;
+        l->canon = c2;
+        e = (int *)realloc(l->explicit_, sizeof(int) * (size_t)nc);
+        if (!e)
+            return -1;
+        l->explicit_ = e;
+        l->cap = nc;
+    }
+    l->v[l->n] = dupn(path, (long)strlen(path));
+    l->canon[l->n] = dupn(canon, (long)strlen(canon));
+    if (!l->v[l->n] || !l->canon[l->n])
         return -1;
-    }
-    for (; i < n; i++) {
-        if (raw[i] == '\r') {
-            norm[o++] = '\n';
-            if (i + 1 < n && raw[i + 1] == '\n')
-                i++;
-        } else
-            norm[o++] = raw[i];
-    }
-    norm[o] = 0;
-    CL_FREE(raw);
-    nl = o;
-    body = norm;
-    memset(&d, 0, sizeof(d));
-    if (nl >= 3 && !strncmp(norm, "---", 3)) {
-        /* extractFrontmatter: the first "\n---" from index 3 closes it; an empty block is no frontmatter */
-        char *end = 0, *q;
-        for (q = norm + 3; (q = strchr(q, '\n')) != 0; q++)
-            if (!strncmp(q, "\n---", 4)) {
-                end = q;
-                break;
-            }
-        if (end) {
-            const unsigned char *b = (const unsigned char *)end + 4, *e = (const unsigned char *)norm + nl;
-            while (b < e && sp_len(b))
-                b += sp_len(b);
-            while (e > b && sp_back(b, e))
-                e -= sp_back(b, e);
-            body = dupn((const char *)b, (long)(e - b));
-            fm = end - norm > 4;
-            if (fm && defs_parse(norm, nl, &d)) {
-                free(body);
-                free(norm);
-                def_free(&d);
-                return -1;
-            }
-            if (!body) {
-                free(norm);
-                def_free(&d);
-                return -1;
-            }
+    l->explicit_[l->n] = explicit_flag;
+    l->n++;
+    return 0;
+}
+
+/* where a template's file sits for sourceInfo when it is not one of the resolved resources (loadPromptTemplates getSourceInfo) */
+typedef struct tload {
+    pi_tmpls *ts;
+    cl_sys *sys;
+    const pm_list *res;         /* the resolved resources: their metadata is a template's sourceInfo (findSourceInfoForPath) */
+    char user_prompts[300], project_prompts[300];
+    const char *agent_dir;
+    char cwd_pi[300];
+} tload;
+
+static int under(const char *path, const char *root)
+{
+    size_t n = strlen(root);
+    return n && !strncmp(path, root, n) && (!path[n] || path[n] == '/' || root[n - 1] == '/' || root[n - 1] == ':');
+}
+
+static void template_source(const tload *L, pi_tmpl *t)
+{
+    int i;
+    for (i = 0; L->res && i < L->res->n; i++)
+        if (!strcmp(L->res->e[i].path, t->path)) {
+            const pm_res *r = &L->res->e[i];
+            t->scope = r->scope;
+            t->kind = r->kind;
+            cl_copy(t->base, r->base, sizeof(t->base));
+            cl_copy(t->psrc, r->src, sizeof(t->psrc));
+            return;
         }
+    t->kind = PMK_LOCAL;
+    t->psrc[0] = 0;
+    if (L->user_prompts[0] && under(t->path, L->user_prompts)) {
+        t->scope = PMS_USER;
+        cl_copy(t->base, L->user_prompts, sizeof(t->base));
+    } else if (L->project_prompts[0] && under(t->path, L->project_prompts)) {
+        t->scope = PMS_PROJECT;
+        cl_copy(t->base, L->project_prompts, sizeof(t->base));
+    } else
+        t->scope = PMS_TEMP;      /* base set by the caller: the directory, or the file's directory */
+}
+
+/* one file as pi's loadTemplateFromFile: 0 added or dropped (with its diagnostic), -1 out of memory. dir is the directory the
+ * template was found by when a --prompt-template directory named it, else 0 */
+static int load_file(tload *L, const char *path, const char *dir)
+{
+    static const char *const keys[2] = { "description", "argument-hint" };
+    pi_tmpls *ts = L->ts;
+    pi_tmpl t;
+    char *raw = 0, *body = 0, err[600];
+    const char *file;
+    long n = 0, bodylen = 0;
+    pi_yv v[2];
+    size_t fl;
+    int frc;
+    memset(&t, 0, sizeof(t));
+    if (L->sys->read(L->sys->u, path, 1024L * 1024, &raw, &n)) {
+        const char *why = L->sys->err ? L->sys->err(L->sys->u) : 0;
+        return add_diag(ts, TD_WARNING, why && why[0] ? why : "failed to read prompt template file", path, 0, 0);
     }
-    if (body == norm)
-        body = dupn(norm, nl);
-    free(norm);
-    if (!body) {
-        def_free(&d);
+    pi_tmpl_reads++;
+    frc = pi_fm_parse(raw, n, keys, 2, v, &body, &bodylen, err, sizeof(err));
+    CL_FREE(raw);
+    if (frc == -1)
         return -1;
-    }
+    if (frc == -2)
+        return add_diag(ts, TD_WARNING, err, path, 0, 0);   /* the YAML is refused: pi warns and skips the file */
     cl_copy(t.path, path, sizeof(t.path));
+    file = strrchr(path, '/');
+    if (!file || (strrchr(path, ':') && strrchr(path, ':') > file))
+        file = strrchr(path, ':');
+    file = file ? file + 1 : path;
+    fl = strlen(file);
     cl_copy(t.name, file, sizeof(t.name));
     if (fl > 3 && !strcmp(file + fl - 3, ".md"))
         t.name[fl - 3] = 0;
-    t.scope = scope;
-    cl_copy(t.base, dir, sizeof(t.base));
+    template_source(L, &t);
+    if (t.scope == PMS_TEMP && t.kind == PMK_LOCAL && !t.base[0]) {
+        if (dir)
+            cl_copy(t.base, dir, sizeof(t.base));
+        else
+            path_parent(path, t.base, sizeof(t.base));
+    }
     t.content = body;
-    t.description = d.description && d.description[0] ? dupn(d.description, (long)strlen(d.description)) : first_line(body);
-    t.hint = dupn(d.hint ? d.hint : "", d.hint ? (long)strlen(d.hint) : 0);
-    def_free(&d);
+    t.description = v[0].kind == YV_STR && v[0].s && v[0].s[0] ? dupn(v[0].s, (long)strlen(v[0].s)) : first_line(body);
+    t.hint = dupn(v[1].kind == YV_STR && v[1].s ? v[1].s : "", v[1].kind == YV_STR && v[1].s ? (long)strlen(v[1].s) : 0);
+    pi_yv_free(v, 2);
     if (!t.description || !t.hint) {
         tmpl_free(&t);
         return -1;
     }
-    rc = add(ts, &t);
-    if (rc)
+    if (add(ts, &t)) {
         tmpl_free(&t);
-    return rc < 0 ? -1 : 0;
+        return -1;
+    }
+    return 0;
 }
 
 typedef struct names {
     char (*n)[108];
     int count, cap;
     int oom;
-    int auto_dir;               /* a default directory: hidden files and node_modules left out (an explicit one is read whole) */
 } names;
 
-/* collectAutoPromptEntries: the .md files that are not hidden, not node_modules */
+/* loadTemplatesFromDir: the .md files of the directory, hidden ones too */
 static int collect(void *c, const cl_dirent *e)
 {
     names *ns = (names *)c;
     size_t l = strlen(e->name);
-    if (e->dir || (ns->auto_dir && (e->name[0] == '.' || !strcmp(e->name, "node_modules"))) || l < 3 || strcmp(e->name + l - 3, ".md"))
+    if (e->dir || l < 3 || strcmp(e->name + l - 3, ".md"))
         return 0;
     if (ns->count == ns->cap) {
         char (*g)[108] = (char (*)[108])realloc(ns->n, 108 * (size_t)(ns->cap ? ns->cap * 2 : 16));
@@ -415,18 +461,19 @@ static int cmp_name(const void *a, const void *b)
     return strcmp((const char *)a, (const char *)b);
 }
 
-static int load_dir(pi_tmpls *ts, cl_sys *sys, const char *dir, int scope)
+static int load_dir(tload *L, const char *dir)
 {
     names ns;
     int i, rc = 0;
     memset(&ns, 0, sizeof(ns));
-    ns.auto_dir = scope != PI_TMPL_PATH;
-    if (sys->kind(sys->u, dir) == 2) {
-        sys->list(sys->u, dir, collect, &ns);
-        if (ns.count > 1)
-            qsort(ns.n, (size_t)ns.count, 108, cmp_name);     /* the directory's order is the system's: by name */
-        for (i = 0; i < ns.count && !rc; i++)
-            rc = load_file(ts, sys, dir, ns.n[i], scope);
+    L->sys->list(L->sys->u, dir, collect, &ns);
+    if (ns.count > 1)
+        qsort(ns.n, (size_t)ns.count, 108, cmp_name);     /* readdirSync: libuv sorts by bytes */
+    for (i = 0; i < ns.count && !rc; i++) {
+        char path[300];
+        if (path_join(dir, ns.n[i], path, sizeof(path)) || L->sys->kind(L->sys->u, path) != 1)
+            continue;
+        rc = load_file(L, path, dir);
     }
     if (ns.oom)
         rc = -1;
@@ -434,44 +481,96 @@ static int load_dir(pi_tmpls *ts, cl_sys *sys, const char *dir, int scope)
     return rc;
 }
 
-int pi_tmpl_load(pi_tmpls *ts, cl_sys *sys, const char *agent_dir, const char *cwd, int trusted, int no_defaults,
-                 char (*paths)[300], int npaths)
+int pi_tmpl_load(pi_tmpls *ts, cl_sys *sys, const pi_tmpl_opts *o)
 {
-    char dir[300];
-    int rc = 0, i;
+    pm_opts po;
+    pm_list res;
+    tload L;
+    sl_paths merged;
+    int rc = 0, i, j;
     memset(ts, 0, sizeof(*ts));
-    if (cwd && cwd[0] && path_join(cwd, ".pi", ts->base_project, sizeof(ts->base_project)))
-        ts->base_project[0] = 0;
-    if (agent_dir)
-        cl_copy(ts->base_user, agent_dir, sizeof(ts->base_user));
-    /* loadPromptTemplates' explicit paths: a directory's .md files, or one .md file */
-    for (i = 0; i < npaths && !rc; i++) {
-        int k;
-        if (path_join(cwd ? cwd : "", paths[i], dir, sizeof(dir)))
+    memset(&res, 0, sizeof(res));
+    memset(&L, 0, sizeof(L));
+    memset(&merged, 0, sizeof(merged));
+    memset(&po, 0, sizeof(po));
+    po.agent_dir = o->agent_dir;
+    po.cwd = o->cwd;
+    po.trusted = o->trusted;
+    po.home = o->home;
+    po.host = o->host;
+    L.ts = ts;
+    L.sys = sys;
+    L.res = &res;
+    L.agent_dir = o->agent_dir;
+    if (o->agent_dir && o->agent_dir[0] && path_join(o->agent_dir, "prompts", L.user_prompts, sizeof(L.user_prompts)))
+        L.user_prompts[0] = 0;
+    if (o->cwd && o->cwd[0] && path_join(o->cwd, ".pi", L.cwd_pi, sizeof(L.cwd_pi)) == 0 &&
+        path_join(L.cwd_pi, "prompts", L.project_prompts, sizeof(L.project_prompts)))
+        L.project_prompts[0] = 0;
+    /* pi's DefaultPackageManager.resolve(): settings.json entries and packages, the default directories, in precedence order;
+     * -np leaves all of it out */
+    if (!o->no_defaults)
+        rc = pm_resolve(sys, &po, PM_PROMPTS, &res, 0);
+    /* mergePaths: the resolved files, then the --prompt-template paths, a file once by its canonical name */
+    for (i = 0; i < res.n && rc == 0; i++)
+        if (res.e[i].enabled)
+            rc = mp_add(&merged, sys, res.e[i].path, 0);
+    for (i = 0; i < o->npaths && rc == 0; i++) {
+        char p[300];
+        /* main.ts resolveCliPaths (no trim), then resolveResourcePath (trim) */
+        if (!o->cwd || pm_path(&po, o->paths[i], o->cwd, 0, p, sizeof(p)) || pm_path(&po, p, o->cwd, 1, p, sizeof(p)))
             continue;
-        k = sys->kind(sys->u, dir);
-        if (k == 2)
-            rc = load_dir(ts, sys, dir, PI_TMPL_PATH);
-        else if (k == 1 && strlen(dir) > 3 && !strcmp(dir + strlen(dir) - 3, ".md")) {
-            char *sl = strrchr(dir, '/'), *co = strrchr(dir, ':'), *base = sl && (!co || sl > co) ? sl : co;
-            if (base) {
-                char file[108];
-                cl_copy(file, base + 1, sizeof(file));
-                if (base == sl)
-                    *base = 0;
-                else
-                    base[1] = 0;
-                rc = load_file(ts, sys, dir, file, PI_TMPL_PATH);
-            }
-        }
+        rc = mp_add(&merged, sys, p, 1);
     }
-    if (no_defaults)
-        return rc;
-    /* the project's first: a name in both is the project's (package-manager.ts adds the project's resources, then the user's) */
-    if (!rc && trusted && ts->base_project[0] && !path_join(ts->base_project, "prompts", dir, sizeof(dir)))
-        rc = load_dir(ts, sys, dir, PI_TMPL_PROJECT);
-    if (!rc && agent_dir && agent_dir[0] && !path_join(agent_dir, "prompts", dir, sizeof(dir)))
-        rc = load_dir(ts, sys, dir, PI_TMPL_USER);
+    /* loadPromptTemplates: a directory's .md files, a .md file; a path that is not there is passed over */
+    for (i = 0; i < merged.n && rc == 0; i++) {
+        int kind = sys->kind(sys->u, merged.v[i]);
+        if (kind == 2)
+            rc = load_dir(&L, merged.v[i]);
+        else if (kind == 1 && strlen(merged.v[i]) > 3 && !strcmp(merged.v[i] + strlen(merged.v[i]) - 3, ".md"))
+            rc = load_file(&L, merged.v[i], 0);
+    }
+    /* dedupePrompts: the first of two templates with one name keeps it; the other is a collision */
+    for (i = 0; i < ts->n && rc == 0;) {
+        int dup = -1;
+        for (j = 0; j < i; j++)
+            if (!strcmp(ts->t[j].name, ts->t[i].name)) {
+                dup = j;
+                break;
+            }
+        if (dup < 0) {
+            i++;
+            continue;
+        }
+        {
+            char m[200];
+            cl_copy(m, "name \"/", sizeof(m));
+            cl_cat(m, ts->t[i].name, sizeof(m));
+            cl_cat(m, "\" collision", sizeof(m));
+            rc = add_diag(ts, TD_COLLISION, m, ts->t[i].path, ts->t[dup].path, ts->t[i].name);
+        }
+        tmpl_free(&ts->t[i]);
+        memmove(&ts->t[i], &ts->t[i + 1], sizeof(pi_tmpl) * (size_t)(ts->n - i - 1));
+        ts->n--;
+    }
+    /* reload(): a --prompt-template path that is not there is an error (unless a warning already names it) */
+    for (i = 0; i < merged.n && rc == 0; i++)
+        if (merged.explicit_[i] && sys->kind(sys->u, merged.v[i]) <= 0) {
+            int have = 0;
+            for (j = 0; j < ts->nd; j++)
+                if (!strcmp(ts->d[j].path, merged.v[i]))
+                    have = 1;
+            if (!have)
+                rc = add_diag(ts, TD_ERROR, "Prompt template path does not exist", merged.v[i], 0, 0);
+        }
+    for (i = 0; i < merged.n; i++) {
+        free(merged.v[i]);
+        free(merged.canon[i]);
+    }
+    free(merged.v);
+    free(merged.canon);
+    free(merged.explicit_);
+    pm_free(&res);
     return rc;
 }
 
@@ -481,6 +580,11 @@ void pi_tmpl_free(pi_tmpls *ts)
     for (i = 0; i < ts->n; i++)
         tmpl_free(&ts->t[i]);
     free(ts->t);
+    for (i = 0; i < ts->nd; i++) {
+        free(ts->d[i].msg);
+        free(ts->d[i].name);
+    }
+    free(ts->d);
     for (i = 0; ts->menu_text && i < ts->n * 2; i++)
         free(ts->menu_text[i]);
     free(ts->menu_text);
@@ -544,7 +648,7 @@ const cl_cmd *pi_tmpl_menu(pi_tmpls *ts, int *n)
             jw_rawz(&hp, t->hint);
             jw_rawz(&hp, " \342\200\224 ");
         }
-        jw_rawz(&hp, t->scope == PI_TMPL_PROJECT ? "[p]" : t->scope == PI_TMPL_USER ? "[u]" : "[t]");
+        jw_rawz(&hp, t->scope == PMS_PROJECT ? "[p]" : t->scope == PMS_USER ? "[u]" : "[t]");
         if (t->description[0]) {
             jw_raw(&hp, " ", 1);
             jw_rawz(&hp, t->description);
@@ -557,4 +661,102 @@ const cl_cmd *pi_tmpl_menu(pi_tmpls *ts, int *n)
         jw_free(&hp);
     }
     return ts->menu;
+}
+
+int pi_tmpls_commands(const pi_tmpls *ts, jw *out)
+{
+    int i;
+    for (i = 0; i < ts->n; i++) {
+        const pi_tmpl *t = &ts->t[i];
+        jw_rawz(out, i ? "," : "");
+        jw_rawz(out, "{\"name\":");
+        jw_strz(out, t->name);
+        jw_rawz(out, ",\"description\":");
+        jw_strz(out, t->description);
+        jw_rawz(out, ",\"source\":\"prompt\",\"sourceInfo\":{\"path\":");
+        jw_strz(out, t->path);
+        /* the sourceInfo (source-info.ts createSourceInfo from the resource's PathMetadata): the default directories' templates are
+         * "auto" of their scope, a --prompt-template path "local" and temporary, a package's the package's source string */
+        jw_rawz(out, ",\"source\":");
+        if (t->kind == PMK_PACKAGE)
+            jw_strz(out, t->psrc);
+        else
+            jw_rawz(out, t->kind == PMK_AUTO ? "\"auto\"" : "\"local\"");
+        jw_rawz(out, t->scope == PMS_PROJECT ? ",\"scope\":\"project\"" : t->scope == PMS_USER ? ",\"scope\":\"user\"" : ",\"scope\":\"temporary\"");
+        jw_rawz(out, t->kind == PMK_PACKAGE ? ",\"origin\":\"package\"" : ",\"origin\":\"top-level\"");
+        if (t->base[0]) {
+            jw_rawz(out, ",\"baseDir\":");
+            jw_strz(out, t->base);
+        }
+        jw_rawz(out, "}}");
+    }
+    return out->oom ? -1 : i;
+}
+
+/* the templates as the report's items ("/name"); free the strings and the array with free_items */
+static rr_item *report_items(const pi_tmpls *ts, char ***names)
+{
+    rr_item *it = (rr_item *)calloc((size_t)(ts->n ? ts->n : 1), sizeof(rr_item));
+    char **nm = (char **)calloc((size_t)(ts->n ? ts->n : 1), sizeof(char *));
+    int i;
+    if (!it || !nm) {
+        free(it);
+        free(nm);
+        return 0;
+    }
+    for (i = 0; i < ts->n; i++) {
+        char buf[120];
+        cl_copy(buf, "/", sizeof(buf));
+        cl_cat(buf, ts->t[i].name, sizeof(buf));
+        nm[i] = dupn(buf, (long)strlen(buf));
+        it[i].name = nm[i];
+        it[i].shown = nm[i];
+        it[i].path = ts->t[i].path;
+        it[i].scope = ts->t[i].scope;
+        it[i].kind = ts->t[i].kind;
+        it[i].psrc = ts->t[i].psrc;
+    }
+    *names = nm;
+    return it;
+}
+
+static void free_items(rr_item *it, char **nm, int n)
+{
+    int i;
+    for (i = 0; nm && i < n; i++)
+        free(nm[i]);
+    free(nm);
+    free(it);
+}
+
+void pi_tmpls_listing(const pi_tmpls *ts, rr_fn fn, void *u)
+{
+    char **nm = 0;
+    rr_item *it = report_items(ts, &nm);
+    if (it)
+        rr_listing(it, ts->n, fn, u);
+    free_items(it, nm, ts->n);
+}
+
+int pi_tmpls_report(const pi_tmpls *ts, rr_fn fn, void *u)
+{
+    char **nm = 0;
+    rr_item *it = report_items(ts, &nm);
+    rr_diag *d = (rr_diag *)calloc((size_t)(ts->nd ? ts->nd : 1), sizeof(rr_diag));
+    int i, lines = 0;
+    if (it && d) {
+        for (i = 0; i < ts->nd; i++) {
+            char *nmz;
+            d[i].type = ts->d[i].type == TD_COLLISION ? RRD_COLLISION : ts->d[i].type == TD_ERROR ? RRD_ERROR : RRD_WARNING;
+            d[i].msg = ts->d[i].msg;
+            d[i].path = ts->d[i].path;
+            d[i].winner = ts->d[i].winner;
+            nmz = ts->d[i].name;
+            d[i].name = nmz;
+        }
+        lines = rr_diagnostics(d, ts->nd, it, ts->n, fn, u);
+    }
+    free_items(it, nm, ts->n);
+    free(d);
+    return lines;
 }

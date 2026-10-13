@@ -1,0 +1,35 @@
+{
+ "skills": [
+  {
+   "name": "exact-lo",
+   "description": "Not removed by -Exact",
+   "filePath": "@ROOT@/globcase/agent/skills/Exact/SKILL.md",
+   "baseDir": "@ROOT@/globcase/agent/skills/Exact",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Not removed by -Exact"
+  },
+  {
+   "name": "exact-lower-up",
+   "description": "Not removed by -exact-lower",
+   "filePath": "@ROOT@/globcase/agent/skills/exact-lower/SKILL.md",
+   "baseDir": "@ROOT@/globcase/agent/skills/exact-lower",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Not removed by -exact-lower"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "warning",
+   "message": "Nested mappings are not allowed in compact mappings at line 2, column 14:\n\ndescription: Not matched by !Skip-*: case counts\n             ^\n",
+   "path": "@ROOT@/globcase/agent/skills/skip-upper2/SKILL.md"
+  }
+ ],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:exact-lo\",\"description\":\"Not removed by -Exact\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/globcase/agent/skills/Exact/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/globcase/agent\"}},{\"name\":\"skill:exact-lower-up\",\"description\":\"Not removed by -exact-lower\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/globcase/agent/skills/exact-lower/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/globcase/agent\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>exact-lo</name>\n    <description>Not removed by -Exact</description>\n    <location>@ROOT@/globcase/agent/skills/Exact/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>exact-lower-up</name>\n    <description>Not removed by -exact-lower</description>\n    <location>@ROOT@/globcase/agent/skills/exact-lower/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": []
+}

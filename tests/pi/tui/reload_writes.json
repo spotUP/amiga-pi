@@ -1,0 +1,5 @@
+{
+ "skills/fresh/SKILL.md": "---\nname: fresh\ndescription: Made while pi runs\n---\nSay hello warmly.\n",
+ "prompts/summarize.md": "Summarize $ARGUMENTS.\n",
+ "prompts/review.md": "---\ndescription: Review changed\n---\nReview $1 again.\n"
+}

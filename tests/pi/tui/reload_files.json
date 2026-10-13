@@ -1,0 +1,4 @@
+{
+ "skills/greet/SKILL.md": "---\nname: greet\ndescription: Greets the user by name\n---\nSay hello warmly.\n",
+ "prompts/review.md": "---\ndescription: Review a file\n---\nReview $1.\n"
+}

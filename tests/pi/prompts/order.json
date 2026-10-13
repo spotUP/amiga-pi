@@ -1,0 +1,112 @@
+{
+ "prompts": [
+  {
+   "name": "10",
+   "description": "ten",
+   "argumentHint": null,
+   "content": "ten\n",
+   "filePath": "@ROOT@/order/agent/prompts/10.md",
+   "sourceInfo": {
+    "path": "@ROOT@/order/agent/prompts/10.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/order/agent"
+   },
+   "command": "[u] ten"
+  },
+  {
+   "name": "9",
+   "description": "nine",
+   "argumentHint": null,
+   "content": "nine\n",
+   "filePath": "@ROOT@/order/agent/prompts/9.md",
+   "sourceInfo": {
+    "path": "@ROOT@/order/agent/prompts/9.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/order/agent"
+   },
+   "command": "[u] nine"
+  },
+  {
+   "name": "_u",
+   "description": "under",
+   "argumentHint": null,
+   "content": "under\n",
+   "filePath": "@ROOT@/order/agent/prompts/_u.md",
+   "sourceInfo": {
+    "path": "@ROOT@/order/agent/prompts/_u.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/order/agent"
+   },
+   "command": "[u] under"
+  },
+  {
+   "name": "a",
+   "description": "A",
+   "argumentHint": null,
+   "content": "A\n",
+   "filePath": "@ROOT@/order/agent/prompts/a.md",
+   "sourceInfo": {
+    "path": "@ROOT@/order/agent/prompts/a.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/order/agent"
+   },
+   "command": "[u] A"
+  },
+  {
+   "name": "b",
+   "description": "B",
+   "argumentHint": null,
+   "content": "B\n",
+   "filePath": "@ROOT@/order/agent/prompts/b.md",
+   "sourceInfo": {
+    "path": "@ROOT@/order/agent/prompts/b.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/order/agent"
+   },
+   "command": "[u] B"
+  },
+  {
+   "name": "z",
+   "description": "z",
+   "argumentHint": null,
+   "content": "z\n",
+   "filePath": "@ROOT@/order/agent/prompts/z.md",
+   "sourceInfo": {
+    "path": "@ROOT@/order/agent/prompts/z.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/order/agent"
+   },
+   "command": "[u] z"
+  },
+  {
+   "name": "é",
+   "description": "eacute",
+   "argumentHint": null,
+   "content": "eacute\n",
+   "filePath": "@ROOT@/order/agent/prompts/é.md",
+   "sourceInfo": {
+    "path": "@ROOT@/order/agent/prompts/é.md",
+    "source": "auto",
+    "scope": "user",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/order/agent"
+   },
+   "command": "[u] eacute"
+  }
+ ],
+ "diagnostics": [],
+ "rpcCommands": "[{\"name\":\"10\",\"description\":\"ten\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/prompts/10.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"9\",\"description\":\"nine\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/prompts/9.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"_u\",\"description\":\"under\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/prompts/_u.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"a\",\"description\":\"A\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/prompts/a.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"b\",\"description\":\"B\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/prompts/b.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"z\",\"description\":\"z\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/prompts/z.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"é\",\"description\":\"eacute\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/prompts/é.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}}]",
+ "expand": []
+}

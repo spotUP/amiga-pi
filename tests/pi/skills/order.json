@@ -1,0 +1,89 @@
+{
+ "skills": [
+  {
+   "name": "ten",
+   "description": "Ten",
+   "filePath": "@ROOT@/order/agent/skills/10/SKILL.md",
+   "baseDir": "@ROOT@/order/agent/skills/10",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Ten"
+  },
+  {
+   "name": "nine",
+   "description": "Nine",
+   "filePath": "@ROOT@/order/agent/skills/9/SKILL.md",
+   "baseDir": "@ROOT@/order/agent/skills/9",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Nine"
+  },
+  {
+   "name": "ZZ-up",
+   "description": "Upper Z directory",
+   "filePath": "@ROOT@/order/agent/skills/Z/SKILL.md",
+   "baseDir": "@ROOT@/order/agent/skills/Z",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Upper Z directory"
+  },
+  {
+   "name": "under",
+   "description": "Underscore",
+   "filePath": "@ROOT@/order/agent/skills/_u/SKILL.md",
+   "baseDir": "@ROOT@/order/agent/skills/_u",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Underscore"
+  },
+  {
+   "name": "aa-up",
+   "description": "Upper A",
+   "filePath": "@ROOT@/order/agent/skills/a.md",
+   "baseDir": "@ROOT@/order/agent/skills",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Upper A"
+  },
+  {
+   "name": "bb-up",
+   "description": "Upper B",
+   "filePath": "@ROOT@/order/agent/skills/b.md",
+   "baseDir": "@ROOT@/order/agent/skills",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Upper B"
+  },
+  {
+   "name": "zz",
+   "description": "Lower z",
+   "filePath": "@ROOT@/order/agent/skills/z.md",
+   "baseDir": "@ROOT@/order/agent/skills",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Lower z"
+  },
+  {
+   "name": "eacute",
+   "description": "Latin small e with acute",
+   "filePath": "@ROOT@/order/agent/skills/é/SKILL.md",
+   "baseDir": "@ROOT@/order/agent/skills/é",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Latin small e with acute"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "warning",
+   "message": "name contains invalid characters (must be lowercase a-z, 0-9, hyphens only)",
+   "path": "@ROOT@/order/agent/skills/Z/SKILL.md"
+  }
+ ],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:ten\",\"description\":\"Ten\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/skills/10/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"skill:nine\",\"description\":\"Nine\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/skills/9/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"skill:ZZ-up\",\"description\":\"Upper Z directory\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/skills/Z/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"skill:under\",\"description\":\"Underscore\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/skills/_u/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"skill:aa-up\",\"description\":\"Upper A\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/skills/a.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"skill:bb-up\",\"description\":\"Upper B\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/skills/b.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"skill:zz\",\"description\":\"Lower z\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/skills/z.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}},{\"name\":\"skill:eacute\",\"description\":\"Latin small e with acute\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/order/agent/skills/é/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/order/agent\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>ten</name>\n    <description>Ten</description>\n    <location>@ROOT@/order/agent/skills/10/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>nine</name>\n    <description>Nine</description>\n    <location>@ROOT@/order/agent/skills/9/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>ZZ-up</name>\n    <description>Upper Z directory</description>\n    <location>@ROOT@/order/agent/skills/Z/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>under</name>\n    <description>Underscore</description>\n    <location>@ROOT@/order/agent/skills/_u/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>aa-up</name>\n    <description>Upper A</description>\n    <location>@ROOT@/order/agent/skills/a.md</location>\n  </skill>\n  <skill>\n    <name>bb-up</name>\n    <description>Upper B</description>\n    <location>@ROOT@/order/agent/skills/b.md</location>\n  </skill>\n  <skill>\n    <name>zz</name>\n    <description>Lower z</description>\n    <location>@ROOT@/order/agent/skills/z.md</location>\n  </skill>\n  <skill>\n    <name>eacute</name>\n    <description>Latin small e with acute</description>\n    <location>@ROOT@/order/agent/skills/é/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": []
+}

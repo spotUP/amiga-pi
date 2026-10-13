@@ -9,6 +9,8 @@
 #include "claude/util.h"
 #include "show_pi.h"
 #include "resources.h"
+#include "templates.h"
+#include "resreport.h"
 #include "pstatus.h"
 #include "claude/tools.h"
 #include "compact.h"
@@ -1242,11 +1244,47 @@ static int bang(pi_ui *p, const char *line)
     return 1;
 }
 
+static void build_skill_rows(pi_ui *p);
+static void resources_report(pi_ui *p, int listing, int header);
+
+/* /reload (interactive-mode.ts handleReloadCommand): the resources are read again, the menu rows and the start-up block follow, and
+ * a status line says so; a failure is "Reload failed: <message>" */
+static void reload_command(pi_ui *p)
+{
+    char err[200];
+    int nt;
+    const cl_cmd *tm;
+    if (!p->s->reload || p->s->reload(p->s->reload_u, p->s, err, sizeof(err))) {
+        char m[260];
+        cl_copy(m, "Reload failed: ", sizeof(m));
+        cl_cat(m, p->s->reload ? err : "nothing to read", sizeof(m));
+        if (p->look)
+            pshow_error(&p->ps, m);
+        else
+            ui_line(&p->ui, m);
+        return;
+    }
+    build_skill_rows(p);
+    tm = p->s->templates ? pi_tmpl_menu((pi_tmpls *)p->s->templates, &nt) : 0;
+    pi_ui_set_extra_commands(0, tm, tm ? nt : 0);
+    if (p->look)
+        pshow_resources_begin(&p->ps);
+    resources_report(p, !ui_quiet, p->look && !ui_quiet);
+    if (p->look)
+        pshow_resources_end(&p->ps);
+    note(p, "Reloaded skills, prompts, and context files");
+}
+
 static int run_command(pi_ui *p, cl_tui *t, const char *line)
 {
     jw reply, editor;
     int rc;
     char *a, *nl;
+    if (!strcmp(line, "/reload")) {
+        reload_command(p);
+        status(p);
+        return 1;
+    }
     if (p->look && t && !strcmp(line, "/tree") && p->s->command) {
         tree_command(p, t);
         return 1;
@@ -1293,55 +1331,77 @@ static void user_echo(pi_ui *p, const char *line)
         ui_user(&p->ui, line);
 }
 
-/* the lines of the skills report: pi's show in its look, plain lines otherwise */
-static void skl_line(void *u, int kind, const char *text)
+/* the lines of the resources report: pi's show in its look, plain lines (the compact form) otherwise */
+static void rr_line(void *u, int kind, int mode, const char *text)
 {
     pi_ui *p = (pi_ui *)u;
     if (p->look)
-        pshow_resource_line(&p->ps, kind, text);
-    else
+        pshow_resource_line(&p->ps, kind, mode, text);
+    else if (mode != RRM_EXPANDED)
         ui_line(&p->ui, text);
 }
 
-static void skl_count(void *u, int kind, const char *text)
+static void rr_count(void *u, int kind, int mode, const char *text)
 {
     (void)kind;
+    (void)mode;
     (void)text;
     (*(int *)u)++;
 }
 
-/* pi's showLoadedResources for skills (interactive-mode.ts:1772-1930, 2044): the "[Skills]" list unless quietStartup, and the
- * "[Skill conflicts]" diagnostics always. header: the start header was drawn (its Spacer separates the block from it) */
-static void skills_report(pi_ui *p, int listing, int header)
+/* one "[title]" section of the report */
+static void rr_section(pi_ui *p, int role, const char *title, int is_skills, int diagnostics)
 {
     const pi_skills *k = p->s->res ? &p->s->res->skills : 0;
-    int nd = 0;
-    if (!k || (!k->n && !k->nd))
-        return;
-    pi_skills_report(k, skl_count, &nd);
-    listing = listing && k->n;
-    if (!listing && !nd)
+    const pi_tmpls *tm = p->s->templates;
+    char plain[40];
+    if (p->look)
+        pshow_resource_title(&p->ps, role, title);
+    else {
+        cl_copy(plain, "[", sizeof(plain));
+        cl_cat(plain, title, sizeof(plain));
+        cl_cat(plain, "]", sizeof(plain));
+        ui_line(&p->ui, plain);
+    }
+    if (is_skills) {
+        if (diagnostics)
+            pi_skills_report(k, rr_line, p);
+        else
+            pi_skills_listing(k, rr_line, p);
+    } else if (diagnostics)
+        pi_tmpls_report(tm, rr_line, p);
+    else
+        pi_tmpls_listing(tm, rr_line, p);
+    if (p->look)
+        pshow_resource_end(&p->ps);
+}
+
+/* pi's showLoadedResources for skills and prompt templates (interactive-mode.ts:1772-1930, 2044): the "[Skills]" and "[Prompts]"
+ * lists unless quietStartup (compact; Ctrl+O draws them grouped by scope), and the "[Skill conflicts]" and "[Prompt conflicts]"
+ * diagnostics always. header: the start header was drawn (its Spacer separates the block from it) */
+static void resources_report(pi_ui *p, int listing, int header)
+{
+    const pi_skills *k = p->s->res ? &p->s->res->skills : 0;
+    const pi_tmpls *tm = p->s->templates;
+    int nsd = 0, ntd = 0, ls, lt;
+    if (k)
+        pi_skills_report(k, rr_count, &nsd);
+    if (tm)
+        pi_tmpls_report(tm, rr_count, &ntd);
+    ls = listing && k && k->n;
+    lt = listing && tm && tm->n;
+    if (!ls && !lt && !nsd && !ntd)
         return;
     if (header && p->look)
         pshow_blank(&p->ps);
-    if (listing) {
-        if (p->look)
-            pshow_resource_title(&p->ps, PR_MD_HEADING, "Skills");
-        else
-            ui_line(&p->ui, "[Skills]");
-        pi_skills_listing(k, skl_line, p);
-        if (p->look)
-            pshow_resource_end(&p->ps);
-    }
-    if (nd) {
-        if (p->look)
-            pshow_resource_title(&p->ps, PR_WARNING, "Skill conflicts");
-        else
-            ui_line(&p->ui, "[Skill conflicts]");
-        pi_skills_report(k, skl_line, p);
-        if (p->look)
-            pshow_resource_end(&p->ps);
-    }
+    if (ls)
+        rr_section(p, PR_MD_HEADING, "Skills", 1, 0);
+    if (lt)
+        rr_section(p, PR_MD_HEADING, "Prompts", 0, 0);
+    if (nsd)
+        rr_section(p, PR_WARNING, "Skill conflicts", 1, 1);
+    if (ntd)
+        rr_section(p, PR_WARNING, "Prompt conflicts", 0, 1);
 }
 
 int pi_ui_run(pi_session *s, cl_io *io, const char *first)
@@ -1382,7 +1442,7 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         cl_cat(hello, ". Type /exit to leave.", sizeof(hello));
         ui_line(&p.ui, hello);
     }
-    skills_report(&p, !ui_quiet, p.look && !ui_quiet);
+    resources_report(&p, !ui_quiet, p.look && !ui_quiet);
     if (p.look && s->nmsg)
         redraw_session(&p);            /* a resumed session shows its conversation, as pi's renderInitialMessages */
     if (first && *first) {

@@ -1,0 +1,133 @@
+{
+ "prompts": [
+  {
+   "name": "dup2",
+   "description": "from a project settings entry (rank 0)",
+   "argumentHint": null,
+   "content": "from a project settings entry (rank 0)\n",
+   "filePath": "@ROOT@/collision/w/more/dup2.md",
+   "sourceInfo": {
+    "path": "@ROOT@/collision/w/more/dup2.md",
+    "source": "local",
+    "scope": "project",
+    "origin": "top-level"
+   },
+   "command": "[p] from a project settings entry (rank 0)"
+  },
+  {
+   "name": "dup",
+   "description": "from the project's directory (rank 1)",
+   "argumentHint": null,
+   "content": "from the project's directory (rank 1)\n",
+   "filePath": "@ROOT@/collision/w/proj/.pi/prompts/dup.md",
+   "sourceInfo": {
+    "path": "@ROOT@/collision/w/proj/.pi/prompts/dup.md",
+    "source": "auto",
+    "scope": "project",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/collision/w/proj/.pi"
+   },
+   "command": "[p] from the project's directory (rank 1)"
+  },
+  {
+   "name": "dup3",
+   "description": "user entry (wins over the directory)",
+   "argumentHint": null,
+   "content": "user entry (wins over the directory)\n",
+   "filePath": "@ROOT@/collision/agent/entry/dup3.md",
+   "sourceInfo": {
+    "path": "@ROOT@/collision/agent/entry/dup3.md",
+    "source": "local",
+    "scope": "user",
+    "origin": "top-level"
+   },
+   "command": "[u] user entry (wins over the directory)"
+  },
+  {
+   "name": "only-cli",
+   "description": "only from --prompt-template",
+   "argumentHint": null,
+   "content": "only from --prompt-template\n",
+   "filePath": "@ROOT@/collision/w/proj/cli/only-cli.md",
+   "sourceInfo": {
+    "path": "@ROOT@/collision/w/proj/cli/only-cli.md",
+    "source": "local",
+    "scope": "temporary",
+    "origin": "top-level",
+    "baseDir": "@ROOT@/collision/w/proj/cli"
+   },
+   "command": "[t] only from --prompt-template"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "collision",
+   "message": "name \"/dup2\" collision",
+   "path": "@ROOT@/collision/w/proj/.pi/prompts/dup2.md",
+   "collision": {
+    "name": "dup2",
+    "winnerPath": "@ROOT@/collision/w/more/dup2.md",
+    "loserPath": "@ROOT@/collision/w/proj/.pi/prompts/dup2.md"
+   }
+  },
+  {
+   "type": "collision",
+   "message": "name \"/dup\" collision",
+   "path": "@ROOT@/collision/agent/entry/dup.md",
+   "collision": {
+    "name": "dup",
+    "winnerPath": "@ROOT@/collision/w/proj/.pi/prompts/dup.md",
+    "loserPath": "@ROOT@/collision/agent/entry/dup.md"
+   }
+  },
+  {
+   "type": "collision",
+   "message": "name \"/dup\" collision",
+   "path": "@ROOT@/collision/agent/prompts/dup.md",
+   "collision": {
+    "name": "dup",
+    "winnerPath": "@ROOT@/collision/w/proj/.pi/prompts/dup.md",
+    "loserPath": "@ROOT@/collision/agent/prompts/dup.md"
+   }
+  },
+  {
+   "type": "collision",
+   "message": "name \"/dup3\" collision",
+   "path": "@ROOT@/collision/agent/prompts/dup3.md",
+   "collision": {
+    "name": "dup3",
+    "winnerPath": "@ROOT@/collision/agent/entry/dup3.md",
+    "loserPath": "@ROOT@/collision/agent/prompts/dup3.md"
+   }
+  },
+  {
+   "type": "collision",
+   "message": "name \"/dup\" collision",
+   "path": "@ROOT@/collision/w/proj/cli/dup.md",
+   "collision": {
+    "name": "dup",
+    "winnerPath": "@ROOT@/collision/w/proj/.pi/prompts/dup.md",
+    "loserPath": "@ROOT@/collision/w/proj/cli/dup.md"
+   }
+  }
+ ],
+ "rpcCommands": "[{\"name\":\"dup2\",\"description\":\"from a project settings entry (rank 0)\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/collision/w/more/dup2.md\",\"source\":\"local\",\"scope\":\"project\",\"origin\":\"top-level\"}},{\"name\":\"dup\",\"description\":\"from the project's directory (rank 1)\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/collision/w/proj/.pi/prompts/dup.md\",\"source\":\"auto\",\"scope\":\"project\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/collision/w/proj/.pi\"}},{\"name\":\"dup3\",\"description\":\"user entry (wins over the directory)\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/collision/agent/entry/dup3.md\",\"source\":\"local\",\"scope\":\"user\",\"origin\":\"top-level\"}},{\"name\":\"only-cli\",\"description\":\"only from --prompt-template\",\"source\":\"prompt\",\"sourceInfo\":{\"path\":\"@ROOT@/collision/w/proj/cli/only-cli.md\",\"source\":\"local\",\"scope\":\"temporary\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/collision/w/proj/cli\"}}]",
+ "expand": [
+  {
+   "input": "/dup",
+   "output": "from the project's directory (rank 1)\n"
+  },
+  {
+   "input": "/dup2",
+   "output": "from a project settings entry (rank 0)\n"
+  },
+  {
+   "input": "/dup3",
+   "output": "user entry (wins over the directory)\n"
+  },
+  {
+   "input": "/only-cli",
+   "output": "only from --prompt-template\n"
+  }
+ ]
+}

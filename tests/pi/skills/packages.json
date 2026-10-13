@@ -1,0 +1,76 @@
+{
+ "skills": [
+  {
+   "name": "own",
+   "description": "Beats the packages",
+   "filePath": "@ROOT@/packages/agent/skills/own/SKILL.md",
+   "baseDir": "@ROOT@/packages/agent/skills/own",
+   "disableModelInvocation": false,
+   "label": "auto (user)",
+   "command": "[u] Beats the packages"
+  },
+  {
+   "name": "c1",
+   "description": "A manifest entry",
+   "filePath": "@ROOT@/packages/pk/manifest/custom/c1/SKILL.md",
+   "baseDir": "@ROOT@/packages/pk/manifest/custom/c1",
+   "disableModelInvocation": false,
+   "label": "../pk/manifest (user)",
+   "command": "[u] A manifest entry"
+  },
+  {
+   "name": "e1",
+   "description": "Matched by a manifest glob",
+   "filePath": "@ROOT@/packages/pk/manifest/extra/e1.md",
+   "baseDir": "@ROOT@/packages/pk/manifest/extra",
+   "disableModelInvocation": false,
+   "label": "../pk/manifest (user)",
+   "command": "[u] Matched by a manifest glob"
+  },
+  {
+   "name": "v1",
+   "description": "From a conventional directory",
+   "filePath": "@ROOT@/packages/pk/conv/skills/v1/SKILL.md",
+   "baseDir": "@ROOT@/packages/pk/conv/skills/v1",
+   "disableModelInvocation": false,
+   "label": "../pk/conv (user)",
+   "command": "[u] From a conventional directory"
+  },
+  {
+   "name": "v2",
+   "description": "Another",
+   "filePath": "@ROOT@/packages/pk/conv/skills/v2/SKILL.md",
+   "baseDir": "@ROOT@/packages/pk/conv/skills/v2",
+   "disableModelInvocation": false,
+   "label": "../pk/conv (user)",
+   "command": "[u] Another"
+  },
+  {
+   "name": "keep-a",
+   "description": "Kept by the filter",
+   "filePath": "@ROOT@/packages/pk/filter/skills/keep-a/SKILL.md",
+   "baseDir": "@ROOT@/packages/pk/filter/skills/keep-a",
+   "disableModelInvocation": false,
+   "label": "../pk/filter (user)",
+   "command": "[u] Kept by the filter"
+  }
+ ],
+ "diagnostics": [
+  {
+   "type": "collision",
+   "message": "name \"own\" collision",
+   "path": "@ROOT@/packages/pk/conv/skills/own/SKILL.md",
+   "collision": {
+    "name": "own",
+    "winnerPath": "@ROOT@/packages/agent/skills/own/SKILL.md",
+    "loserPath": "@ROOT@/packages/pk/conv/skills/own/SKILL.md"
+   }
+  }
+ ],
+ "enableSkillCommands": true,
+ "rpcCommands": "[{\"name\":\"skill:own\",\"description\":\"Beats the packages\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/agent/skills/own/SKILL.md\",\"source\":\"auto\",\"scope\":\"user\",\"origin\":\"top-level\",\"baseDir\":\"@ROOT@/packages/agent\"}},{\"name\":\"skill:c1\",\"description\":\"A manifest entry\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/manifest/custom/c1/SKILL.md\",\"source\":\"../pk/manifest\",\"scope\":\"user\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/manifest\"}},{\"name\":\"skill:e1\",\"description\":\"Matched by a manifest glob\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/manifest/extra/e1.md\",\"source\":\"../pk/manifest\",\"scope\":\"user\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/manifest\"}},{\"name\":\"skill:v1\",\"description\":\"From a conventional directory\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/conv/skills/v1/SKILL.md\",\"source\":\"../pk/conv\",\"scope\":\"user\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/conv\"}},{\"name\":\"skill:v2\",\"description\":\"Another\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/conv/skills/v2/SKILL.md\",\"source\":\"../pk/conv\",\"scope\":\"user\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/conv\"}},{\"name\":\"skill:keep-a\",\"description\":\"Kept by the filter\",\"source\":\"skill\",\"sourceInfo\":{\"path\":\"@ROOT@/packages/pk/filter/skills/keep-a/SKILL.md\",\"source\":\"../pk/filter\",\"scope\":\"user\",\"origin\":\"package\",\"baseDir\":\"@ROOT@/packages/pk/filter\"}}]",
+ "sections": {
+  "read": "<skills>\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\nWhen a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n<available_skills>\n  <skill>\n    <name>own</name>\n    <description>Beats the packages</description>\n    <location>@ROOT@/packages/agent/skills/own/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>c1</name>\n    <description>A manifest entry</description>\n    <location>@ROOT@/packages/pk/manifest/custom/c1/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>e1</name>\n    <description>Matched by a manifest glob</description>\n    <location>@ROOT@/packages/pk/manifest/extra/e1.md</location>\n  </skill>\n  <skill>\n    <name>v1</name>\n    <description>From a conventional directory</description>\n    <location>@ROOT@/packages/pk/conv/skills/v1/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>v2</name>\n    <description>Another</description>\n    <location>@ROOT@/packages/pk/conv/skills/v2/SKILL.md</location>\n  </skill>\n  <skill>\n    <name>keep-a</name>\n    <description>Kept by the filter</description>\n    <location>@ROOT@/packages/pk/filter/skills/keep-a/SKILL.md</location>\n  </skill>\n</available_skills>\n</skills>"
+ },
+ "expand": []
+}
