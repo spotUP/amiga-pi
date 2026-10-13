@@ -136,6 +136,9 @@ typedef struct pi_session {
     int retry_on, retry_max;
     long retry_base, retry_max_delay;
     int attempt, retry_stop;
+    /* the last run's agent_end decided to retry (pi's willRetry): the only place that decides, since giving up
+     * (the last retry failed too) resets attempt, and a second look would start the retries over, without end */
+    int retry_next;
     int recover;                /* the run ended on a context overflow the store compacted: ask again (pi_prompt) */
     /* pi's _overflowRecoveryAttempted: set by the store when it omits a failed answer and compacts to ask again; cleared
      * as pi's _handleAgentEvent does, at every user message (the prompt, steering, a follow-up) and at every answer that
