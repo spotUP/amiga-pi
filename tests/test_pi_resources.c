@@ -1107,6 +1107,41 @@ static void test_reach_skills(void)
     free(g);
 }
 
+/* The skills amiga-pi ships (skills/<name>/SKILL.md, installed into UP-Term:var/amiga-pi/skills by the add-on): the real loader
+ * takes all four, and pi_app puts them in the request's skills section. Each stays a few KB, and the autodoc skill names the
+ * NDK: convention (the Autodocs are not shipped) */
+static void test_shipped_skills(void)
+{
+    static const char *const names[4] = { "amigados", "arexx", "amiga-c-build", "amiga-autodocs" };
+    long reads = pi_skills_reads, n;
+    char cmd[900], p[420], src[420];
+    int i;
+    cl_copy(src, PI_TESTS, sizeof(src));
+    cl_cat(src, "/../skills", sizeof(src));
+    at(p, sizeof(p), "shipped/agent");
+    sprintf(cmd, "mkdir -p '%s' && cp -R '%s' '%s/skills'", p, src, p);
+    CHECK_INT(system(cmd), 0);
+    CHECK_INT(app_run("shipped/w", "shipped/agent", 0, 1, 0), 0);
+    CHECK_INT(pi_skills_reads - reads, 4);              /* the sentinel: skills.c read the four shipped SKILL.md files */
+    for (i = 0; i < 4; i++) {
+        char needle[100], f[460];
+        FILE *fp;
+        sprintf(needle, "<name>%s</name>", names[i]);
+        CHECK(sent(needle));
+        sprintf(f, "%s/skills/%s/SKILL.md", p, names[i]);
+        fp = fopen(f, "rb");
+        CHECK(fp != 0);
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            n = ftell(fp);
+            fclose(fp);
+            CHECK(n > 500 && n < 5000);                 /* short: a few KB */
+        }
+    }
+    sprintf(cmd, "grep -q 'Assign NDK: EXISTS' '%s/skills/amiga-autodocs/SKILL.md' && grep -q 'NOT shipped' '%s/skills/amiga-autodocs/SKILL.md'", p, p);
+    CHECK_INT(system(cmd), 0);
+}
+
 void suite_pi_resources(void)
 {
     const char *base = getenv("TMPDIR");
@@ -1133,6 +1168,7 @@ void suite_pi_resources(void)
     test_skills_data_dir();
     test_skills_many();
     test_reach_skills();
+    test_shipped_skills();
     jw_free(&out);
     ps_reset();
     {
