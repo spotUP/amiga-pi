@@ -631,6 +631,22 @@ static int setup_files(jv cfg, char *session_arg, long cap)
             jw_free(&nm);
         } else
             put_file(path, models, n);
+    } else if (json_get(cfg, "compat", &v) && json_type(v) == J_OBJ) {
+        /* the scenario's model compat (models.json): the fake model's entry gets it, as rpc_gen.py setup writes it */
+        char *at = strstr(models, "\"id\": \"fake-model\",");
+        if (at) {
+            jw nm;
+            at += strlen("\"id\": \"fake-model\",");
+            jw_init(&nm);
+            jw_raw(&nm, models, (long)(at - models));
+            jw_rawz(&nm, "\"compat\":");
+            jw_raw(&nm, v.p, v.n);
+            jw_rawz(&nm, ",");
+            jw_raw(&nm, at, n - (long)(at - models));
+            put_file(path, nm.p, nm.n);
+            jw_free(&nm);
+        } else
+            put_file(path, models, n);
     } else
         put_file(path, models, n);
     free(models);
@@ -2100,7 +2116,7 @@ static void test_lua_register(void)
 {
     static const char *const names[] = { "ext_lua_tool", "ext_lua_tool_results", "ext_lua_tool_allow", "ext_lua_tool_named",
                                          "ext_lua_tool_only", "ext_lua_tool_none", "ext_lua_tool_minus", "ext_lua_tool_plus_none",
-                                         "ext_lua_tool_pattern", "ext_lua_tool_default", "ext_lua_cmd", "ext_lua_cmd_dup",
+                                         "ext_lua_tool_pattern", "ext_lua_tool_default", "ext_lua_tool_strict", "ext_lua_cmd", "ext_lua_cmd_dup",
                                          "ext_lua_cmd_scope", "ext_lua_entry", 0 };
     group(names);
 }

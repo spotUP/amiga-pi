@@ -1,0 +1,26 @@
+{
+ "mode": "json",
+ "args": [
+  "go"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.registerTool({\n  name = \"strictly\", label = \"strictly\", description = \"strictly tool.\",\n  parameters = { type = \"object\", properties = { name = { type = \"string\", description = \"Who\" } }, required = { \"name\" } },\n  constrainedSampling = { type = \"json_schema\", strict = \"prefer\" },\n  execute = function(toolCallId, params, signal, onUpdate, ctx)\n    return { content = { { type = \"text\", text = \"ok\" } }, details = {} }\n  end,\n})\n"
+ },
+ "answers": [
+  "http",
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "requests": true,
+ "compat": {
+  "supportsStrictTools": true
+ },
+ "golden": "ext_tool_strict"
+}

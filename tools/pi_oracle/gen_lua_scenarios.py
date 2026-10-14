@@ -94,6 +94,15 @@ SOFT = '''pi.registerTool({
 })
 '''
 LUA_TOOLS = GREET + FLAKY + BOOM + SOFT
+STRICTLY = '''pi.registerTool({
+  name = "strictly", label = "strictly", description = "strictly tool.",
+  parameters = { type = "object", properties = { name = { type = "string", description = "Who" } }, required = { "name" } },
+  constrainedSampling = { type = "json_schema", strict = "prefer" },
+  execute = function(toolCallId, params, signal, onUpdate, ctx)
+    return { content = { { type = "text", text = "ok" } }, details = {} }
+  end,
+})
+'''
 LUA_CMDS = '''pi.registerCommand("hello", { description = "Say hello", handler = function(args, ctx)
   print(json.encode({ command = "hello", args = args }))
 end })
@@ -127,6 +136,7 @@ L4 = {
     'ext_tool_plus_none': {'agent/extensions/t.lua': LUA_TOOLS},
     'ext_tool_pattern': {'agent/extensions/t.lua': LUA_TOOLS},
     'ext_tool_default': {'agent/extensions/t.lua': LUA_TOOLS},
+    'ext_tool_strict': {'agent/extensions/t.lua': STRICTLY},
     'ext_cmd': {'agent/extensions/t.lua': LUA_CMDS},
     'ext_cmd_dup': {'agent/extensions/a.lua': LUA_DUP % ('a', 'a'), 'agent/extensions/b.lua': LUA_DUP % ('b', 'b')},
     'ext_cmd_scope': {'project/.pi/extensions/p.lua': LUA_DUP % ('project', 'project'),

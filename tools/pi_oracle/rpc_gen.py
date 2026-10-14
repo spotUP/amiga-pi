@@ -416,6 +416,23 @@ for nm, args in (('allow', ['--tools', 'read']), ('named', ['--tools', 'read,gre
                  ('pattern', ['--tools', 'read,gre*'])):
     sc('ext_tool_' + nm, mode='json', args=args + ['greet Ada'], answers=[TOOL('greet', {'name': 'Ada'}), A('Greeted.')],
        text_files=EXT_FILES, requests=True)
+# P12-A3 (anthropic-messages.ts:636-690): the API refuses the strict tools' limits; the request goes again with the "prefer" tool plain and
+# the answer carries the diagnostic (the fake model declares compat.supportsStrictTools for the scenario)
+EXT_STRICT = '''export default function (pi) {
+  pi.registerTool({
+    name: "strictly", label: "strictly", description: "strictly tool.",
+    parameters: { type: "object", properties: { name: { type: "string", description: "Who" } }, required: ["name"] },
+    constrainedSampling: { type: "json_schema", strict: "prefer" },
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      return { content: [{ type: "text", text: "ok" }], details: {} };
+    },
+  });
+}
+'''
+GRAMMAR = ('http', 400, json.dumps({'type': 'error', 'error': {'type': 'invalid_request_error',
+                                                             'message': 'The compiled grammar is too large, which would cause performance issues.'}}))
+sc('ext_tool_strict', mode='json', args=['go'], answers=[GRAMMAR, A('Went.')], text_files={'agent/extensions/t.ts': EXT_STRICT},
+   requests=True, compat={'supportsStrictTools': True})
 sc('ext_tool_default', mode='json', args=['greet Ada'], answers=[TOOL('greet', {'name': 'Ada'}), A('Greeted.')],
    text_files=EXT_FILES, requests=True, settings={'defaultTools': ['read']})
 
@@ -684,8 +701,9 @@ def setup(name, s, port):
         os.chmod(t, 0o755)
     os.makedirs(proj)
     open(os.path.join(proj, 'notes.txt'), 'w').write('one\ntwo\nthree\n')
+    mods = [dict(m, compat=s['compat']) if s.get('compat') and m['id'] == 'fake-model' else m for m in MODELS]
     models = {'providers': {'fake': {'baseUrl': 'http://127.0.0.1:%d' % port, 'api': 'anthropic-messages', 'apiKey': 'k',
-                                     'models': MODELS}}}
+                                     'models': mods}}}
     if s.get('provider_headers'):
         models['providers']['fake']['headers'] = s['provider_headers']
     json.dump(models, open(os.path.join(agent, 'models.json'), 'w'), indent=1)
@@ -872,6 +890,8 @@ def run(name, s, keep):
             cfg['xtest'] = True
         if s.get('provider_headers'):
             cfg['provider_headers'] = s['provider_headers']
+        if s.get('compat'):
+            cfg['compat'] = s['compat']
         with open(os.path.join(OUT, name + '.cfg.json'), 'w') as f:
             json.dump(cfg, f, indent=1)
             f.write('\n')
