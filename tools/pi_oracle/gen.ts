@@ -1,28 +1,51 @@
 // gen.ts -- the expected outputs of tests/test_pi_session.c, produced by pi's own
-// SessionManager (pi f10993bc, packages/coding-agent/src/core/session-manager.ts).
+// SessionManager, compaction and branch-summarization code: the pinned pi 1.2.0 install
+// (vendor/pi-1.2.0, npm install --prefix vendor/pi-1.2.0 @earendil-works/pi-coding-agent@1.2.0; tag v1.2.0
+// 06a46693). No copied or patched source: the package's own dist is imported.
 //
-//   PI_ORACLE=<dir> node tools/pi_oracle/gen.ts        (tools/pi_oracle/gen.sh)
+//   node tools/pi_oracle/gen.ts                    (make oracle-session)
 //
-// PI_ORACLE is the oracle tree: pi's session-manager.ts and compaction/ files with
-// config, paths and pi-ai stubbed (see tools/pi_oracle/README in gen.sh). Writes,
-// next to each fixture tests/pi/sessions/<name>.jsonl, <name>.expected (a text dump
-// of what opening it gives), and writer.scn + writer.expected (a scenario of appends
-// and the file pi writes for it, ids and times normalised).
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+// PI_ORACLE_DIR names another node_modules parent (the tests point it at vendor/pi-1.1.0 to prove the pin
+// check refuses it). Writes, next to each fixture tests/pi/sessions/<name>.jsonl, <name>.expected (a text
+// dump of what opening it gives), and writer.scn + writer.expected (a scenario of appends and the file pi
+// writes for it, ids and times normalised). PI_SESSIONS_OUT redirects the writes (the test's reproducibility
+// check regenerates into a temp copy and compares).
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const sessions = resolve(here, "..", "..", "tests", "pi", "sessions");
-const oracle = process.env.PI_ORACLE ?? join(here, "../../build/pi-oracle/oracle");
-const { SessionManager } = await import(pathToFileURL(join(oracle, "core/session-manager.ts")).href);
-const { convertToLlm } = await import(pathToFileURL(join(oracle, "core/messages.ts")).href);
-const { getCurrentSystemMessage } = await import(pathToFileURL(join(oracle, "ai/transcript.ts")).href);
-const { prepareCompaction, compact, estimateTokens, shouldCompact } = await import(pathToFileURL(join(oracle, "core/compaction/compaction.ts")).href);
-const { collectEntriesForBranchSummary, prepareBranchEntries, generateBranchSummary } = await import(pathToFileURL(join(oracle, "core/compaction/branch-summarization.ts")).href);
-const { serializeConversation } = await import(pathToFileURL(join(oracle, "core/compaction/utils.ts")).href);
-const { getSystemMessageText } = await import(pathToFileURL(join(oracle, "ai/text.ts")).href);
+const outDir = process.env.PI_SESSIONS_OUT ?? sessions;
+const PINNED = "1.2.0";
+// this checkout's vendor/, else the main checkout's when this is build/wt-<name>
+function findOracle(): string {
+	// exit 2: the install found is not 1.2.0; exit 3: there is none
+	if (process.env.PI_ORACLE_DIR) return resolve(process.env.PI_ORACLE_DIR);
+	for (const root of ["../..", "../../../.."]) {
+		const c = resolve(here, root, "vendor", "pi-1.2.0");
+		if (existsSync(join(c, "node_modules", "@earendil-works", "pi-coding-agent", "package.json"))) return c;
+	}
+	console.error("gen: no pinned pi: npm install --prefix vendor/pi-1.2.0 @earendil-works/pi-coding-agent@1.2.0");
+	process.exit(3);
+}
+const npmRoot = join(findOracle(), "node_modules");
+const caDir = join(npmRoot, "@earendil-works", "pi-coding-agent");
+const caVersion = JSON.parse(readFileSync(join(caDir, "package.json"), "utf8")).version;
+if (caVersion !== PINNED) {
+	console.error(`gen: the oracle is pi-coding-agent ${caVersion}, not the pinned ${PINNED}; refusing to write goldens`);
+	process.exit(2);
+}
+const dist = (f: string) => import(pathToFileURL(join(caDir, "dist", f)).href);
+const { SessionManager } = await dist("core/session-manager.js");
+const { convertToLlm } = await dist("core/messages.js");
+const { prepareCompaction, compact, estimateTokens, shouldCompact } = await dist("core/compaction/compaction.js");
+const { collectEntriesForBranchSummary, prepareBranchEntries, generateBranchSummary } = await dist("core/compaction/branch-summarization.js");
+const { serializeConversation } = await dist("core/compaction/utils.js");
+const { getCurrentSystemMessage, getSystemMessageText } = await import(
+	pathToFileURL(join(npmRoot, "@earendil-works", "pi-ai", "dist", "index.js")).href);
+if (process.env.PI_ORACLE_VERSION_ONLY) process.exit(0);
 
 // ---- the text normaliser (mirrored in tests/test_pi_session.c) ----
 // the values of "id", "parentId", "targetId", "firstKeptEntryId", "fromId" become
@@ -194,7 +217,7 @@ if (di > 0) {
 
 for (const f of readdirSync(sessions).filter((n) => n.endsWith(".jsonl")).sort()) {
 	const name = f.replace(/\.jsonl$/, "");
-	writeFileSync(join(sessions, name + ".expected"), await dump(join(sessions, f), name === "mig_v1"));
+	writeFileSync(join(outDir, name + ".expected"), await dump(join(sessions, f), name === "mig_v1"));
 }
 
 // ---- the writer scenario ----
@@ -278,21 +301,20 @@ const branched: any[] = [
 	{ op: "branched", leaf: 10 },
 ];
 for (const [name, list] of [["writer", scn], ["branched", branched]] as [string, any[]][]) {
-	writeFileSync(join(sessions, name + ".scn"), list.map((s) => JSON.stringify(s)).join("\n") + "\n");
-	writeFileSync(join(sessions, name + ".expected"), runScenario(list));
+	writeFileSync(join(outDir, name + ".scn"), list.map((s) => JSON.stringify(s)).join("\n") + "\n");
+	writeFileSync(join(outDir, name + ".expected"), runScenario(list));
 }
 // ---- automatic compaction through pi's own AgentSession (agent-session.ts, agent-loop.ts) ----
 // Where pi checks the context against the window: prompt() before the user message (the last answer's usage),
 // prepareNextTurn between turns, _handlePostAgentRun after agent_end. These live in AgentSession, which needs
-// pi's whole package: PI_NPM names a node_modules holding @earendil-works/pi-coding-agent 1.0.4 (the version
-// f10993bc's package.json carries; its _checkCompaction and trigger points read the same as the source).
+// pi's whole package: the pinned install above.
 // The model is a provider answering every request with tests/pi/openai_text.sse's text and usage, as the C
 // side's stub does. Two runs over one file, as tests/test_pi_store.c's: "hello" with a large window, then -c
 // with a 400-character prompt and a window whose threshold (window - reserveTokens) is 100 tokens. Written:
 // agent_compaction.expected -- the requests of each run (answer / summary) and the file's user, assistant and
 // compaction entries in order, a compaction's parentId and firstKeptEntryId as ordinals of that list.
-if (process.env.PI_NPM) {
-	const npm = process.env.PI_NPM;
+{
+	const npm = npmRoot;
 	const ai = await import(pathToFileURL(join(npm, "@earendil-works/pi-ai/dist/index.js")).href);
 	const ca = await import(pathToFileURL(join(npm, "@earendil-works/pi-coding-agent/dist/index.js")).href);
 	const RealDate = Date;
@@ -361,7 +383,7 @@ if (process.env.PI_NPM) {
 		lines.push(e.type === "compaction"
 			? `compaction parent=${ord(e.parentId)} firstKept=${ord(e.firstKeptEntryId)} tokensBefore=${e.tokensBefore}`
 			: e.message.role);
-	writeFileSync(join(sessions, "agent_compaction.expected"), lines.join("\n") + "\n");
-} else console.log("gen: PI_NPM not set, agent_compaction.expected left as it is");
+	writeFileSync(join(outDir, "agent_compaction.expected"), lines.join("\n") + "\n");
+}
 
-console.log("gen: " + readdirSync(sessions).filter((n) => n.endsWith(".expected")).length + " expected files");
+console.log("gen: " + readdirSync(outDir).filter((n) => n.endsWith(".expected")).length + " expected files");

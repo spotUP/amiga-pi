@@ -12,6 +12,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <utime.h>
 #include <time.h>
 #include "pi_test.h"
@@ -1434,6 +1435,37 @@ static void test_fixtures(void)
         test_fixture(names[i], !strcmp(names[i], "mig_v1"));
 }
 
+/* The expected files come from the pinned pi 1.2.0 install (vendor/pi-1.2.0) by `node tools/pi_oracle/gen.ts`, with
+ * no copied or patched source. Regenerating into a temp dir must give the committed files byte for byte, and an
+ * oracle that is not 1.2.0 (vendor/pi-1.1.0) must be refused with exit 2 and write nothing. Skipped, said out
+ * loud, where node or the pinned install is missing. */
+static void test_oracle_pin(void)
+{
+    char cmd[2400], out[800];
+    int rc;
+    path_of(out, root, "oracle_out");
+    sprintf(cmd, "mkdir -p '%s'", out);
+    CHECK_INT(system(cmd), 0);
+    sprintf(cmd, "PI_SESSIONS_OUT='%s' node '%s/../tools/pi_oracle/gen.ts' >/dev/null 2>&1", out, PI_TESTS);
+    rc = system(cmd);
+    if (rc != 0 && (WEXITSTATUS(rc) == 3 || WEXITSTATUS(rc) == 127)) {
+        printf("[SKIP] oracle pin: node or vendor/pi-1.2.0 missing\n");
+        return;
+    }
+    CHECK_INT(rc, 0);
+    sprintf(cmd, "cd '%s' && for f in *.expected *.scn; do cmp -s \"$f\" '%s/pi/sessions/'\"$f\" || { echo \"differs: $f\"; exit 1; }; done",
+            out, PI_TESTS);
+    CHECK_INT(system(cmd), 0);
+    sprintf(cmd, "d=''; for r in .. ../..; do [ -d '%s/../'$r/vendor/pi-1.1.0 ] && d='%s/../'$r/vendor/pi-1.1.0 && break; done; "
+            "[ -n \"$d\" ] || exit 77; PI_ORACLE_VERSION_ONLY=1 PI_ORACLE_DIR=\"$d\" node '%s/../tools/pi_oracle/gen.ts' >/dev/null 2>&1; "
+            "[ $? -eq 2 ]", PI_TESTS, PI_TESTS, PI_TESTS);
+    rc = system(cmd);
+    if (WEXITSTATUS(rc) == 77)
+        printf("[SKIP] oracle pin refusal: no vendor/pi-1.1.0 to try\n");
+    else
+        CHECK_INT(rc, 0);
+}
+
 void suite_pi_session(void)
 {
     const char *base = getenv("TMPDIR");
@@ -1447,6 +1479,7 @@ void suite_pi_session(void)
     }
     sys_posix_init(&sp, &sys);
     test_fixtures();
+    test_oracle_pin();
     test_writer();
     test_refusals();
     test_big();

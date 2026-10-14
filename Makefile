@@ -38,7 +38,7 @@ PI_TESTS := tests/main.c tests/test_pi_agent.c tests/test_pi_tools.c tests/test_
 # a recipe that fails must not leave its target behind (M2; vtcon tests/test_make_delete_on_error.py proves the make behaviour)
 .DELETE_ON_ERROR:
 
-.PHONY: test layers lua-probe lua-probe-host amiga
+.PHONY: test layers lua-probe lua-probe-host amiga oracle-session
 # ONLY=pi_agent the agent suite alone, ONLY=pi_tools the tools and the gate, ONLY=pi_session the session file, ONLY=pi_store the store through pi_app, ONLY=pi_model the registry, models.json, handoff and the model switch, ONLY=pi_mcp MCP (python3 for tools/fake_mcp.py), ONLY=pi_resources context files, SYSTEM.md, trust, ONLY=pi_tui the screen against pi's captures (PI_TUI_ONLY=<scenario>, PI_TUI_DUMP=1 shows both screens), ONLY=pi_templates prompt templates (substitution table from pi 1.1.0, discovery, /name through pi_app), ONLY=pi_login the subscription logins (the flows against tools/claude_fixture.py --oauth and pi's own run of them, tests/pi/oauth; /login and the credential of a request through pi_app; PI_LOGIN_ONLY=<scenario> runs one), ONLY=pi_hooks hook commands on pi's extension events (decisions and payloads against pi's goldens, tests/pi/rpc/ext_*), ONLY=pi_radius pi-messages and the Radius catalog (pi's own run of the API, tests/pi/radius; the gateway's answers on the stub transport), ONLY=pi_modes the JSON and RPC modes against pi's records (tests/pi/rpc, PI_MODES_ONLY=<scenario>); ONLY=layers the layering check alone
 test: build/pi_test
 	@if [ "$(ONLY)" != layers ]; then cd $(VTCON_DIR) && $(CURDIR)/build/pi_test $(ONLY); fi
@@ -64,6 +64,10 @@ build/stb_impl.o: $(STB)
 build/amiga-pi-host: $(PI_CORE) $(PI_HDR) amiga-pi/main_posix.c amiga-pi/host_posix.c $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) build/stb_impl.o $(LUA_HOST_OBJ)
 	@mkdir -p build
 	$(HOSTCC) $(HOSTCFLAGS) -o $@ amiga-pi/main_posix.c amiga-pi/host_posix.c $(PI_CORE) $(CLAUDE_CORE) $(CLAUDE_PI) $(VT_HOST) build/stb_impl.o $(LUA_HOST_OBJ) -lm
+
+# the tests/pi/sessions expected files, from the pinned pi 1.2.0 install (vendor/pi-1.2.0); gen.ts refuses any other version
+oracle-session:
+	node tools/pi_oracle/gen.ts
 
 # the layering rule lives in vtcon (llm/ is there, D9) and checks this tree too
 layers:
