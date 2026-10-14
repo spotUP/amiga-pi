@@ -1622,51 +1622,6 @@ static void lgp_filter(lgpick *k)
         k->pk.sel = k->pk.n ? k->pk.n - 1 : 0;
 }
 
-/* the search box of a selector (pi's Input): a character, backspace or a paste edits pk->query at its cursor (pk->qcur1: the byte offset
- * + 1, 0 at the end). 1 when the key was one of those */
-static int qkey(tui_pick *pk, const cl_key *key)
-{
-    long ql = (long)strlen(pk->query), cur = pk->qcur1 ? pk->qcur1 - 1 : ql, n = 0;
-    char ins[8];
-    if (cur > ql)
-        cur = ql;
-    switch (key->k) {
-    case K_BS:
-        if (cur) {
-            long from = cur;
-            do
-                from--;
-            while (from > 0 && ((unsigned char)pk->query[from] & 0xc0) == 0x80);
-            memmove(pk->query + from, pk->query + cur, (size_t)(ql - cur + 1));
-            cur = from;
-        }
-        break;
-    case K_CHAR:
-        if (key->ch >= 0x20 && ql + 5 < (long)sizeof(pk->query)) {
-            n = vw_put_utf8(ins, key->ch);
-            memmove(pk->query + cur + n, pk->query + cur, (size_t)(ql - cur + 1));
-            memcpy(pk->query + cur, ins, (size_t)n);
-            cur += n;
-        }
-        break;
-    case K_PASTE: {
-        long i;
-        for (i = 0; i < key->n && ql + n + 1 < (long)sizeof(pk->query); i++)
-            if ((unsigned char)key->text[i] >= 0x20) {
-                memmove(pk->query + cur + 1, pk->query + cur, (size_t)(ql + n - cur + 1));
-                pk->query[cur++] = key->text[i];
-                n++;
-            }
-        break;
-    }
-    default:
-        return 0;
-    }
-    ql = (long)strlen(pk->query);
-    pk->qcur1 = cur >= ql ? 0 : (int)cur + 1;
-    return 1;
-}
-
 /* a row: the arrow and the name in the accent colour when selected, the type in muted, the status (formatAuthSelectorProviderStatus) */
 static void lgp_row(void *u, int i, int selected, char *out, long cap)
 {
@@ -1724,14 +1679,12 @@ static int lgp_key(void *u, const cl_key *key, int act)
     case K_ENTER:
     case K_ESC:
         return 0;
-    case K_BS:
-    case K_CHAR:
-    case K_PASTE:
-        qkey(&k->pk, key);
-        lgp_filter(k);
-        return 1;
     default:
-        return key->k == K_CTRL && key->ch == 'c' ? 0 : 1;
+        if (key->k == K_CTRL && key->ch == 'c')
+            return 0;
+        if (tui_pick_qkey(&k->pk, key))
+            lgp_filter(k);
+        return 1;
     }
 }
 
@@ -1776,6 +1729,7 @@ static int lg_pick(void *u, const char *title, const pi_login_row *rows, int n, 
     k.pk.layout = TUI_PICK_AUTH;
     k.pk.empty = empty;
     cl_copy(k.pk.query, initial ? initial : "", sizeof(k.pk.query));
+    k.pk.qcur1 = k.pk.query[0] ? 1 : 0;      /* Input.setValue leaves the cursor at the start (oauth-selector.ts:107, input.ts:66) */
     lgp_filter(&k);
     res = tui_pick_run(l->t, &k.pk);
     res = res < 0 ? -1 : k.vis[res];
@@ -2400,7 +2354,7 @@ static int ms_key(void *u, const cl_key *key, int act)
     }
     if (pick_keeps(key, act))
         return 0;
-    if (qkey(&m->pk, key))
+    if (tui_pick_qkey(&m->pk, key))
         ms_filter(m, 0);
     return 1;
 }
@@ -2904,7 +2858,7 @@ static int sm_key(void *u, const cl_key *key, int act)
         s->pk.done = 1;
         return 1;
     }
-    if (qkey(&s->pk, key))
+    if (tui_pick_qkey(&s->pk, key))
         sm_refresh(s);
     return 1;
 }
@@ -3050,7 +3004,7 @@ static int ts_key(void *u, const cl_key *key, int act)
     }
     if (pick_keeps(key, act))
         return 0;
-    if (qkey(&t->pk, key))
+    if (tui_pick_qkey(&t->pk, key))
         ts_filter(t, 1);
     return 1;
 }
@@ -4095,7 +4049,7 @@ static int ss_key(void *u, const cl_key *key, int act)
         }
         return 1;
     }
-    if (s->searchable && qkey(&s->pk, key))
+    if (s->searchable && tui_pick_qkey(&s->pk, key))
         ss_filter(s, 0);
     return 1;
 }

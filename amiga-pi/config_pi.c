@@ -709,34 +709,8 @@ static int cf_key(void *u, const cl_key *key, int act)
     }
     if (key->k == K_TAB)
         return 1;                                       /* the project mode is not built */
-    if (key->k == K_CHAR || key->k == K_BS || key->k == K_PASTE) {
-        long ql = (long)strlen(c->pk.query);
-        switch (key->k) {
-        case K_BS:
-            if (ql) {
-                do
-                    ql--;
-                while (ql > 0 && ((unsigned char)c->pk.query[ql] & 0xc0) == 0x80);
-                c->pk.query[ql] = 0;
-            }
-            break;
-        case K_CHAR:
-            if (key->ch >= 0x20 && ql + 5 < (long)sizeof(c->pk.query)) {
-                ql += vw_put_utf8(c->pk.query + ql, key->ch);
-                c->pk.query[ql] = 0;
-            }
-            break;
-        default: {
-            long i;
-            for (i = 0; i < key->n && ql + 1 < (long)sizeof(c->pk.query); i++)
-                if ((unsigned char)key->text[i] >= 0x20)
-                    c->pk.query[ql++] = key->text[i];
-            c->pk.query[ql] = 0;
-            break;
-        }
-        }
+    if (tui_pick_qkey(&c->pk, key))
         filter(c);
-    }
     return 1;
 }
 
