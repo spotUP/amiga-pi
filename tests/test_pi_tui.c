@@ -2424,6 +2424,11 @@ static void test_login_screens(void)
         pi_ui_set_login_rows(lrow, lrow_n, lrow_oauth);
         skills_case("login_arg_search", settings, k_arg, 0, 0, 0, 0, m_foot, 0);
         skills_case("login_arg_keys", settings, k_argkeys, 0, 0, 0, 0, m_foot, 0);
+        /* Q3-20: End, Ctrl+W, Ctrl+A, Alt+D, Ctrl+E, Ctrl+Y, Ctrl+Minus, Alt+B, x: word moves, kills, yank and undo as pi's Input */
+        {
+            static const char *k_argedit[] = { "/login aa bb cc", "\033", "\r", "\033[F", "\027", "\001", "\033d", "\005", "\031", "\037", "\033b", "x", "\004", 0 };
+            skills_case("login_arg_edit", settings, k_argedit, 0, 0, 0, 0, m_foot, 0);
+        }
     }
     CHECK(load_login_rows(0) == 43);
     pi_ui_set_login_rows(lrow, lrow_n, lrow_oauth);
