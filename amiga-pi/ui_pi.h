@@ -38,6 +38,17 @@ void pi_ui_set_resume(const char *(*fn)(void *u), void *u);
 /* the colours (claude/theme.h) and the keybindings.json text (pi's shape, 0: pi's defaults) the screen starts with;
  * the theme is copied, the text only read while the screen starts */
 void pi_ui_set_theme(const cl_pitheme *th);
+
+/* the themes /settings can switch to: their names in pi's order (system first, then by name) into names[i], at most max, how many; and a
+ * theme setting ("dark", "light/dark": a terminal that reports no appearance is dark) loaded into th, 0 or -1. The program owns both */
+typedef struct pi_ui_themes {
+    int (*list)(void *u, char (*names)[64], int max);
+    int (*load)(void *u, const char *setting, cl_pitheme *th);
+    void *u;
+} pi_ui_themes;
+void pi_ui_set_themes(const pi_ui_themes *src);
+/* the terminal draws images (PI_IMAGE_PROTOCOL kitty or iterm2, as pi-tui reads it): /settings lists Show images and Image width */
+void pi_ui_set_images(int on);
 void pi_ui_set_keybindings(const char *json, long n);
 /* What's New and /changelog (D1; pi interactive-mode.ts getChangelogForDisplay, handleChangelogCommand): file, the CHANGELOG.md text (0: none:
  * /changelog says "No changelog entries found."), news, the Markdown of the entries newer than the last start's (0: none; pi shows them

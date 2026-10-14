@@ -26,6 +26,12 @@ int pi_jobj_set(const char *text, long n, const char *key, const char *value, jw
  * 0, -1 when it could not be read as an object or written */
 int pi_store_set_member(cl_sys *sys, const char *dir, const char *key1, const char *val1, const char *key2, const char *val2);
 
+/* settings.json's member at the dotted path ("compaction.enabled", "terminal.showImages") set to the JSON text `value` (0: removed), the
+ * objects on the way made when missing, every other member kept (SettingsManager's setX: only the modified key changes). 0, -1 failed */
+int pi_store_set_path(cl_sys *sys, const char *dir, const char *path, const char *value);
+/* the same for member `sub` of the object `key` where sub may hold dots (modelThinkingLevels["provider/model.id"]); an object left empty by a removal goes too */
+int pi_store_set_sub(cl_sys *sys, const char *dir, const char *key, const char *sub, const char *value);
+
 /* the member's value as a malloc'ed string, 0 when absent or not a string */
 char *pi_jobj_str(const char *text, long n, const char *key);
 

@@ -198,6 +198,65 @@ char *pi_jobj_str(const char *text, long n, const char *key)
     return json_strdup(v, 0);
 }
 
+/* the object text with the member at the dotted path set to the JSON text value (0: removed), the objects on the way made when missing */
+static int set_path(const char *text, long n, const char *path, char sep, const char *value, jw *out, char *err, long cap)
+{
+    const char *dot = strchr(path, sep);
+    char key[80];
+    jv root, sub;
+    jw inner;
+    int rc;
+    long l;
+    if (!dot)
+        return pi_jobj_set(text, n, path, value, out, err, cap);
+    l = (long)(dot - path);
+    if (l >= (long)sizeof(key))
+        l = (long)sizeof(key) - 1;
+    memcpy(key, path, (size_t)l);
+    key[l] = 0;
+    jw_init(&inner);
+    if (text && n > 0 && !json_parse(text, n, &root) && json_type(root) == J_OBJ && json_get(root, key, &sub) && json_type(sub) == J_OBJ)
+        rc = set_path(sub.p, sub.n, dot + 1, sep, value, &inner, err, cap);
+    else
+        rc = set_path("", 0, dot + 1, sep, value, &inner, err, cap);
+    if (!rc)   /* an object left empty by a removal goes with it (removeModelThinkingLevel) */
+        rc = pi_jobj_set(text, n, key, !value && inner.n == 2 ? 0 : inner.p, out, err, cap);
+    jw_free(&inner);
+    return rc;
+}
+
+static int store_set(cl_sys *sys, const char *dir, const char *path, char sep, const char *value)
+{
+    long n = 0;
+    char *t, err[200];
+    jw o;
+    int rc = -1;
+    if (!dir || !dir[0])
+        return -1;
+    t = pi_store_read(sys, dir, "settings.json", &n);
+    jw_init(&o);
+    if (!set_path(t ? t : "", t ? n : 0, path, sep, value, &o, err, sizeof(err)) &&
+        !pi_store_write(sys, dir, "settings.json", o.p, o.n, err, sizeof(err)))
+        rc = 0;
+    jw_free(&o);
+    free(t);
+    return rc;
+}
+
+int pi_store_set_path(cl_sys *sys, const char *dir, const char *path, const char *value)
+{
+    return store_set(sys, dir, path, '.', value);
+}
+
+int pi_store_set_sub(cl_sys *sys, const char *dir, const char *key, const char *sub, const char *value)
+{
+    char path[400];
+    cl_copy(path, key, sizeof(path));
+    cl_cat(path, "\001", sizeof(path));
+    cl_cat(path, sub, sizeof(path));
+    return store_set(sys, dir, path, '\001', value);
+}
+
 /* settings.json members set one at a time, the rest kept (pi's setDefaultModelAndProvider, setDefaultThinkingLevel): 0, -1 failed */
 int pi_store_set_member(cl_sys *sys, const char *dir, const char *key1, const char *val1, const char *key2, const char *val2)
 {

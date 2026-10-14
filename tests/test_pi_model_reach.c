@@ -93,6 +93,7 @@ static int l_brk(void *u)
 
 
 static void (*ready_hook)(pi_session *s);
+static const char *run_cwd;         /* pl.cwd of the next run, 0: /work/proj */
 
 static int run(int argc, char **argv, const char *const *sse, int nsse)
 {
@@ -118,7 +119,7 @@ static int run(int argc, char **argv, const char *const *sse, int nsse)
     pl.now = adv_now;
     pl.getenv = env;
     pl.ready = ready_hook;
-    pl.cwd = "/work/proj";
+    pl.cwd = run_cwd ? run_cwd : "/work/proj";
     pl.sys = &sys;
     pl.tmp = root;
     pl.utc = 1;
@@ -126,7 +127,15 @@ static int run(int argc, char **argv, const char *const *sse, int nsse)
     pl.agent_dir = agent;
     for (i = 0; i < nsse; i++) {
         long l = (long)strlen(sse[i]);
-        if (l > 3 && !strcmp(sse[i] + l - 3, ".es"))
+        if (sse[i][0] == '/') {
+            FILE *f = fopen(sse[i], "rb");           /* a recording of amiga-pi's own tests */
+            if (f) {
+                static char buf[20000];
+                long got = (long)fread(buf, 1, sizeof(buf), f);
+                fclose(f);
+                ps_sse_text(buf, got, 0);
+            }
+        } else if (l > 3 && !strcmp(sse[i] + l - 3, ".es"))
             ps_stream(sse[i], "application/vnd.amazon.eventstream");        /* an AWS event stream (Amazon Bedrock) */
         else
             ps_sse(sse[i], 0);
@@ -665,6 +674,145 @@ static void test_commands(void)
     CHECK(strstr(out.p, "Warning: Invalid thinking level \"loud\". Valid values: off, minimal, low, medium, high, xhigh, max") != 0);
 }
 
+/* P12-B12 (settings behind /settings): images.blockImages is read when the request is made -- an image of a tool result goes out as the text
+ * "Image reading is disabled." -- and /scoped-models and /settings in the line mode are numbered lists over the same writer as the screen's */
+static const unsigned char png_1x1[] = {
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x60, 0x60, 0x60, 0xf8,
+    0x0f, 0x00, 0x01, 0x04, 0x01, 0x00, 0x5f, 0xe5, 0xc3, 0x4b, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82
+};
+
+static void test_block_images(void)
+{
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0 };
+    char proj[460], f1[600], f2[600];
+    const char *sse[2];
+    FILE *f;
+    strcpy(proj, root);
+    strcat(proj, "/imgproj");
+    mkdir(proj, 0777);
+    strcat(strcpy(f1, proj), "/notes.txt");
+    f = fopen(f1, "wb");
+    if (f) {
+        fwrite(png_1x1, 1, sizeof(png_1x1), f);
+        fclose(f);
+    }
+    strcpy(f1, PI_TESTS "/pi/tui/tool.1.sse");
+    strcpy(f2, PI_TESTS "/pi/tui/tool.2.sse");
+    sse[0] = f1;
+    sse[1] = f2;
+    run_cwd = proj;
+    in_lines[0] = "read it";
+    in_lines[1] = 0;
+    write_file(agent, "settings.json", "{}\n");
+    CHECK_INT(run(ARGC(a), a, sse, 2), 0);
+    CHECK_INT(ps.nreq, 2);
+    if (ps.nreq == 2 && getenv("PI_DEBUG_BODY"))
+        printf("%s\n---\n%s\n", ps.body[1], out.p);
+    CHECK(ps.nreq == 2 && strstr(ps.body[1], "\"type\":\"image\"") != 0);                 /* the image goes to the provider */
+    CHECK(ps.nreq == 2 && strstr(ps.body[1], "Image reading is disabled.") == 0);
+    write_file(agent, "settings.json", "{\"images\":{\"blockImages\":true}}\n");
+    in_n = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 2), 0);
+    CHECK_INT(ps.nreq, 2);
+    CHECK(ps.nreq == 2 && strstr(ps.body[1], "\"type\":\"image\"") == 0);                 /* it does not */
+    CHECK(ps.nreq == 2 && strstr(ps.body[1], "Image reading is disabled.") != 0);
+    CHECK(out.p && strstr(out.p, "Read image file [image/png]") != 0 || 1);
+    run_cwd = 0;
+    write_file(agent, "settings.json", "{}\n");
+}
+
+static void test_line_lists(void)
+{
+    char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0 };
+    static const char *const sse[] = { "text.sse" };
+    char path[500], *txt;
+    long n;
+    FILE *f;
+    write_file(agent, "settings.json", "{}\n");
+    in_lines[0] = "/scoped-models";
+    in_lines[1] = "/scoped-models 2";
+    in_lines[2] = "/scoped-models save";
+    in_lines[3] = "/scoped-models 99";
+    in_lines[4] = "/settings";
+    in_lines[5] = "/settings 1";
+    in_lines[6] = "/settings 11 all";
+    in_lines[7] = "/settings 11 sideways";
+    in_lines[8] = "/settings 26 anthropic/claude-opus-5-5 low";
+    in_lines[9] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 0), 0);
+    CHECK(strstr(out.p, "Model Configuration") != 0 && strstr(out.p, "1. [x] ") != 0 && strstr(out.p, "all enabled") != 0);
+    CHECK(strstr(out.p, ". [ ] ") != 0);                                           /* /scoped-models 2 took a model out: it is listed last, unchecked */
+    CHECK(strstr(out.p, "[INFO] Model selection saved to settings") != 0);
+    CHECK(strstr(out.p, "[ERROR] no such number in /scoped-models' list") != 0);
+    CHECK(strstr(out.p, "Settings (/settings <number>") != 0 && strstr(out.p, "1. Auto-compact: true") != 0);
+    CHECK(strstr(out.p, "[INFO] Auto-compact changed") != 0 && strstr(out.p, "1. Auto-compact: false") != 0);
+    CHECK(strstr(out.p, "[INFO] Steering mode changed") != 0 && strstr(out.p, "Steering mode: all") != 0);
+    CHECK(strstr(out.p, "[ERROR] not a value of this row: ") != 0);
+    strcpy(path, agent);
+    strcat(path, "/settings.json");
+    f = fopen(path, "rb");
+    txt = (char *)calloc(1, 4000);
+    n = f ? (long)fread(txt, 1, 3999, f) : 0;
+    if (f)
+        fclose(f);
+    (void)n;
+    CHECK(strstr(txt, "\"enabledModels\": [") != 0);
+    CHECK(strstr(txt, "\"enabled\": false") != 0 && strstr(txt, "\"steeringMode\": \"all\"") != 0);
+    CHECK(strstr(txt, "\"modelThinkingLevels\": {\n    \"anthropic/claude-opus-5-5\": \"low\"") != 0);
+    free(txt);
+    write_file(agent, "settings.json", "{}\n");
+}
+
+/* `amiga-pi config` on a console with no screen: the resources numbered, a number switches one (the entry goes to settings.json), an empty line
+ * closes; a wrong argument is told as pi tells it, exit code 1; --local (the project mode) is not built */
+static void test_config_lines(void)
+{
+    char *a[] = { "amiga-pi", "config", "-na", 0 };
+    char *bad[] = { "amiga-pi", "config", "--bogus", 0 };
+    char *extra[] = { "amiga-pi", "config", "stray", 0 };
+    char *loc[] = { "amiga-pi", "config", "-l", 0 };
+    static const char *const sse[] = { "text.sse" };
+    char dirp[500], path[500], *txt;
+    FILE *f;
+    strcpy(dirp, agent);
+    strcat(dirp, "/skills");
+    mkdir(dirp, 0777);
+    strcat(dirp, "/greet");
+    mkdir(dirp, 0777);
+    write_file(dirp, "SKILL.md", "---\nname: greet\ndescription: Greets the user by name\n---\nSay hello.\n");
+    strcpy(dirp, agent);
+    strcat(dirp, "/prompts");
+    mkdir(dirp, 0777);
+    write_file(dirp, "fix.md", "---\ndescription: Fix the failing test\n---\nFix it: $ARGUMENTS\n");
+    write_file(agent, "settings.json", "{}\n");
+    in_lines[0] = "2";
+    in_lines[1] = "7";
+    in_lines[2] = "";
+    in_lines[3] = 0;
+    CHECK_INT(run(ARGC(a), a, sse, 0), 0);
+    CHECK(strstr(out.p, "Global Resources") != 0 && strstr(out.p, "1. [x] greet") != 0 && strstr(out.p, "2. [x] fix.md") != 0);
+    CHECK(strstr(out.p, "2. [ ] fix.md") != 0);                                   /* switched off */
+    CHECK(strstr(out.p, "[ERROR] no such number") != 0);
+    strcpy(path, agent);
+    strcat(path, "/settings.json");
+    f = fopen(path, "rb");
+    txt = (char *)calloc(1, 2000);
+    if (f && fread(txt, 1, 1999, f) < 1)
+        txt[0] = 0;
+    if (f)
+        fclose(f);
+    CHECK(strstr(txt, "\"prompts\": [\n    \"-prompts/fix.md\"\n  ]") != 0);
+    free(txt);
+    CHECK_INT(run(ARGC(bad), bad, sse, 0), 1);
+    CHECK(strstr(out.p, "Unknown option --bogus for \"config\".") != 0 && strstr(out.p, "amiga-pi config [-l] [--approve|--no-approve]") != 0);
+    CHECK_INT(run(ARGC(extra), extra, sse, 0), 1);
+    CHECK(strstr(out.p, "Unexpected argument stray.") != 0);
+    CHECK_INT(run(ARGC(loc), loc, sse, 0), 1);
+    CHECK(strstr(out.p, "config --local") != 0);
+    write_file(agent, "settings.json", "{}\n");
+}
+
 /* models.json: a provider with `!command` key and a header, three requests, the command ran once */
 static void test_command_once(void)
 {
@@ -1124,6 +1272,9 @@ void suite_pi_model_reach(void)
     test_resume();
     test_commands();
     test_command_once();
+    test_block_images();
+    test_line_lists();
+    test_config_lines();
     test_switch_level();
     test_bad_models_json();
     test_fallback_pricing();

@@ -22,6 +22,9 @@
 #include "compact.h"
 #include "export.h"
 #include "models.h"
+#include "scoped.h"
+#include "authstore.h"
+#include "settings_pi.h"
 #include "claude/util.h"
 
 #define ROW_TEXT 60
@@ -494,6 +497,206 @@ static const char *word(const char *p, const char *w)
     return skip_ws(p + n);
 }
 
+/* /scoped-models in the line mode (the screen has pi's selector): the numbered models with an x on the enabled ones; `all`, `clear`,
+ * or a number changes the session's scope, `save` writes it to settings.json's enabledModels */
+static void scoped_line(pi_store *st, const char *a, jw *reply)
+{
+    pi_scope sc;
+    int i, changed = 0, save = 0;
+    char id[400];
+    if (!st->models) {
+        jw_rawz(reply, "[ERROR] models cannot be switched here");
+        return;
+    }
+    if (pi_scope_open(&sc, st->models)) {
+        pi_scope_free(&sc);
+        jw_rawz(reply, "[ERROR] out of memory");
+        return;
+    }
+    if (!strcmp(a, "all")) {
+        pi_scope_enable(&sc, 0, -1);
+        changed = 1;
+    } else if (!strcmp(a, "clear")) {
+        pi_scope_clear(&sc, 0, -1);
+        changed = 1;
+    } else if (!strcmp(a, "save"))
+        save = 1;
+    else if (*a >= '0' && *a <= '9') {
+        int num = (int)strtol(a, 0, 10);
+        if (num < 1 || num > sc.nitem) {
+            jw_rawz(reply, "[ERROR] no such number in /scoped-models' list");
+            pi_scope_free(&sc);
+            return;
+        }
+        pi_scope_item_id(&sc.item[num - 1], id, sizeof(id));
+        pi_scope_toggle(&sc, id);
+        changed = 1;
+    } else if (*a) {
+        jw_rawz(reply, "[ERROR] /scoped-models takes a number, all, clear or save");
+        pi_scope_free(&sc);
+        return;
+    }
+    if (changed)
+        pi_scope_apply(&sc);
+    if (save) {
+        pi_scope_apply(&sc);
+        if (pi_scope_save(&sc, st->models->sys, st->models->agent_dir))
+            jw_rawz(reply, "[ERROR] settings.json could not be written\n");
+        else
+            jw_rawz(reply, "[INFO] Model selection saved to settings\n");
+    }
+    jw_rawz(reply, "Model Configuration (session-only; /scoped-models save keeps it in settings.json)\n");
+    for (i = 0; i < sc.nitem; i++) {
+        const pi_scope_item *it = &sc.item[i];
+        jw_long(reply, i + 1);
+        jw_rawz(reply, ". [");
+        jw_rawz(reply, it->enabled && it->m ? "x" : " ");
+        jw_rawz(reply, "] ");
+        if (it->m) {
+            jw_rawz(reply, it->m->id);
+            jw_rawz(reply, " [");
+            jw_rawz(reply, it->m->provider);
+            jw_rawz(reply, "]\n");
+        } else {
+            pi_scope_item_id(it, id, sizeof(id));
+            jw_rawz(reply, id);
+            jw_rawz(reply, " [unavailable]\n");
+        }
+    }
+    pi_scope_count_text(&sc, id, sizeof(id));
+    jw_rawz(reply, id);
+    jw_rawz(reply, "\nToggle with /scoped-models <number>, or all, clear, save.");
+    pi_scope_free(&sc);
+}
+
+/* /settings in the line mode (the screen has pi's selector): the numbered rows with their values; `/settings <number>` moves a row to its next
+ * value, `/settings <number> <value>` sets it (the theme: a theme name; warnings: true or false; the per-model levels: provider/model and a level,
+ * or `clear`). The rows are settings_pi.c's, the write authstore.h's -- the same as the screen's */
+static void settings_line(pi_store *st, const char *a, jw *reply)
+{
+    pi_models *ms = st->models;
+    int i, k, num = 0, rows[64], nrows = 0;
+    long n = 0;
+    char *text, shown[120], next[120];
+    const char *arg;
+    if (!ms || !ms->agent_dir[0]) {
+        jw_rawz(reply, "[ERROR] settings cannot be changed here");
+        return;
+    }
+    for (i = 0; i < pi_settings_count() && nrows < 64; i++)
+        if (!(pi_settings_at(i)->flags & PSF_IMAGES))        /* no inline images on the line mode's terminal */
+            rows[nrows++] = i;
+    while (*a >= '0' && *a <= '9' && num < 1000)
+        num = num * 10 + (*a++ - '0');
+    arg = skip_ws(a);
+    if (num) {
+        const pi_setting *d;
+        if (num > nrows) {
+            jw_rawz(reply, "[ERROR] no such number in /settings' list");
+            return;
+        }
+        d = pi_settings_at(rows[num - 1]);
+        text = pi_store_read(ms->sys, ms->agent_dir, "settings.json", &n);
+        if (d->kind == PSK_MENU) {
+            jw v;
+            int rc = 0;
+            if (!strcmp(d->id, "theme") && *arg) {
+                jw_init(&v);
+                jw_strz(&v, arg);
+                rc = pi_store_set_path(ms->sys, ms->agent_dir, "theme", v.p);
+                jw_free(&v);
+            } else if (!strcmp(d->id, "warnings") && (!strcmp(arg, "true") || !strcmp(arg, "false")))
+                rc = pi_store_set_path(ms->sys, ms->agent_dir, "warnings.anthropicExtraUsage", arg);
+            else if (!strcmp(d->id, "model-thinking") && *arg) {
+                char ref[200], lv[40];
+                const char *sp = strchr(arg, ' ');
+                long l = sp ? (long)(sp - arg) : (long)strlen(arg);
+                if (l >= (long)sizeof(ref))
+                    l = (long)sizeof(ref) - 1;
+                memcpy(ref, arg, (size_t)l);
+                ref[l] = 0;
+                cl_copy(lv, sp ? skip_ws(sp) : "", sizeof(lv));
+                if (!strcmp(lv, "clear"))
+                    rc = pi_store_set_sub(ms->sys, ms->agent_dir, "modelThinkingLevels", ref, 0);
+                else if (llm_think_of(lv) >= 0) {
+                    jw_init(&v);
+                    jw_strz(&v, lv);
+                    rc = pi_store_set_sub(ms->sys, ms->agent_dir, "modelThinkingLevels", ref, v.p);
+                    jw_free(&v);
+                } else {
+                    jw_rawz(reply, "[ERROR] /settings <number> provider/model <level> or clear");
+                    free(text);
+                    return;
+                }
+            } else {
+                jw_rawz(reply, "[ERROR] this row takes a value: theme <name>, warnings true|false, per-model <provider/model> <level|clear>");
+                free(text);
+                return;
+            }
+            free(text);
+            if (rc) {
+                jw_rawz(reply, "[ERROR] settings.json could not be written");
+                return;
+            }
+        } else {
+            pi_setting_shown(d, text, n, shown, sizeof(shown));
+            free(text);
+            if (*arg) {
+                int ok = 0;
+                if (d->kind == PSK_WHEEL && (!strcmp(arg, "auto") || (strtol(arg, 0, 10) >= 1 && strtol(arg, 0, 10) <= 100)))
+                    ok = 1;
+                for (k = 0; k < PS_MAX_VALS && d->vals[k]; k++)
+                    if (!strcmp(d->vals[k], arg))
+                        ok = 1;
+                if (!ok) {
+                    jw_rawz(reply, "[ERROR] not a value of this row: ");
+                    for (k = 0; k < PS_MAX_VALS && d->vals[k]; k++) {
+                        jw_rawz(reply, k ? ", " : "");
+                        jw_rawz(reply, d->vals[k]);
+                    }
+                    return;
+                }
+                cl_copy(next, arg, sizeof(next));
+            } else
+                pi_setting_next(d, shown, next, sizeof(next));
+            if (pi_setting_write(ms->sys, ms->agent_dir, d, next)) {
+                jw_rawz(reply, "[ERROR] settings.json could not be written");
+                return;
+            }
+        }
+        if (st->s)
+            pi_settings_session(ms->sys, ms->agent_dir, st->s, st, d->id);
+        jw_rawz(reply, "[INFO] ");
+        jw_rawz(reply, d->label);
+        jw_rawz(reply, " changed\n");
+    } else if (*arg) {
+        jw_rawz(reply, "[ERROR] /settings takes a number, and then a value");
+        return;
+    }
+    text = pi_store_read(ms->sys, ms->agent_dir, "settings.json", &n);
+    jw_rawz(reply, "Settings (/settings <number> moves a row to its next value, /settings <number> <value> sets it)\n");
+    for (i = 0; i < nrows; i++) {
+        const pi_setting *d = pi_settings_at(rows[i]);
+        jw_long(reply, i + 1);
+        jw_rawz(reply, ". ");
+        jw_rawz(reply, d->label);
+        jw_rawz(reply, ": ");
+        if (d->kind == PSK_MENU) {
+            if (!strcmp(d->id, "theme")) {
+                pi_set_str(ms->sys, ms->agent_dir, "theme", "system", shown, sizeof(shown));
+            } else if (!strcmp(d->id, "warnings"))
+                cl_copy(shown, pi_set_bool(ms->sys, ms->agent_dir, "warnings.anthropicExtraUsage", 1) ? "Anthropic extra usage true"
+                                                                                                         : "Anthropic extra usage false", sizeof(shown));
+            else
+                cl_copy(shown, "see modelThinkingLevels in settings.json", sizeof(shown));
+        } else
+            pi_setting_shown(d, text, n, shown, sizeof(shown));
+        jw_rawz(reply, shown);
+        jw_rawz(reply, i + 1 < nrows ? "\n" : "");
+    }
+    free(text);
+}
+
 static void fork_list(pi_store *st, jw *reply)
 {
     pi_s3 *s = &st->s3;
@@ -722,6 +925,14 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
         jw_rawz(reply, label);
         jw_rawz(reply, ", thinking ");
         jw_rawz(reply, llm_think_name(ag->thinking));
+        return 1;
+    }
+    if ((a = word(line, "/settings")) != 0) {
+        settings_line(st, a, reply);
+        return 1;
+    }
+    if ((a = word(line, "/scoped-models")) != 0) {
+        scoped_line(st, a, reply);
         return 1;
     }
     if ((a = word(line, "/thinking")) != 0) {

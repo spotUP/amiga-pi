@@ -552,6 +552,88 @@ int pi_req_reauth(void *u, llm_req *q, char *err, long cap)
     return 0;
 }
 
+/* sdk.js convertToLlmWithBlockImages: a user or tool-result message with each image block of its content made the text "Image reading is
+ * disabled." (a run of them one block). 1 with the new message in out, 0 when it holds no image */
+static int block_images_msg(const char *m, long n, jw *out)
+{
+    jv root, content, k, v, el, ty;
+    jit it, ie;
+    long i;
+    int first = 1, prev_dis, had = 0;
+    if (json_parse(m, n, &root) || json_type(root) != J_OBJ)
+        return 0;
+    if (!json_get(root, "role", &v) || !(json_streq(v, "user") || json_streq(v, "toolResult")))
+        return 0;
+    if (!json_get(root, "content", &content) || json_type(content) != J_ARR)
+        return 0;
+    json_iter(content, &ie);
+    while (json_next(&ie, 0, &el))
+        if (json_get(el, "type", &ty) && json_streq(ty, "image"))
+            had = 1;
+    if (!had)
+        return 0;
+    jw_rawz(out, "{");
+    json_iter(root, &it);
+    while (json_next(&it, &k, &v)) {
+        if (!first)
+            jw_rawz(out, ",");
+        first = 0;
+        jw_raw(out, k.p, k.n);
+        jw_rawz(out, ":");
+        if (json_streq(k, "content")) {
+            jw_rawz(out, "[");
+            i = 0;
+            prev_dis = 0;
+            json_iter(v, &ie);
+            while (json_next(&ie, 0, &el)) {
+                if (json_get(el, "type", &ty) && json_streq(ty, "image")) {
+                    if (prev_dis)
+                        continue;
+                    if (i++)
+                        jw_rawz(out, ",");
+                    jw_rawz(out, "{\"type\":\"text\",\"text\":\"Image reading is disabled.\"}");
+                    prev_dis = 1;
+                } else {
+                    if (i++)
+                        jw_rawz(out, ",");
+                    jw_raw(out, el.p, el.n);
+                    prev_dis = 0;
+                }
+            }
+            jw_rawz(out, "]");
+        } else
+            jw_raw(out, v.p, v.n);
+    }
+    jw_rawz(out, "}");
+    return !out->oom;
+}
+
+/* the request's messages with settings.json images.blockImages applied (made when the request is made, so a change in the middle of a
+ * session takes effect: sdk.js reads the setting for every call): bm/bn the list to use, blk the strings made (freed by the caller) */
+static int block_images_list(const char *const *pm, const long *pn, int pc, const char ***bm, long **bn, char ***blk, int *nblk)
+{
+    int i;
+    *bm = (const char **)malloc((size_t)(pc + 1) * sizeof(**bm));
+    *bn = (long *)malloc((size_t)(pc + 1) * sizeof(**bn));
+    *blk = (char **)calloc((size_t)(pc + 1), sizeof(**blk));
+    *nblk = 0;
+    if (!*bm || !*bn || !*blk)
+        return -1;
+    for (i = 0; i < pc; i++) {
+        jw one;
+        (*bm)[i] = pm[i];
+        (*bn)[i] = pn[i];
+        jw_init(&one);
+        if (strstr(pm[i], "\"image\"") && block_images_msg(pm[i], pn[i], &one) && one.p) {
+            (*blk)[(*nblk)++] = one.p;
+            (*bm)[i] = one.p;
+            (*bn)[i] = one.n;
+        } else
+            jw_free(&one);
+    }
+    return 0;
+}
+
 /* the request and the answer kept: the answer's index, -1 out of memory */
 static int answer(pi_session *s, stream *t)
 {
@@ -575,6 +657,10 @@ static int answer(pi_session *s, stream *t)
     long *xn = 0;
     char **own = 0;             /* messages converted from AgentMessages a handler left in */
     int nown = 0, k2;
+    const char **bm = 0;        /* images.blockImages: the messages with their images replaced */
+    long *bn = 0;
+    char **blk = 0;
+    int nblk = 0;
     jw_init(&cj);
     {
         /* pi's agent-loop declareToolChanges runs before every request, whatever the model: the tool changes become a
@@ -675,12 +761,21 @@ static int answer(pi_session *s, stream *t)
         pc = o;
     }
     t0 = tick_now(s);           /* the request's start: the message's timestamp, and durationMs counts from here */
+    if (s->block_images && block_images_list(pm, pn, pc, &bm, &bn, &blk, &nblk) == 0 && nblk) {
+        pm = (const char *const *)bm;
+        pn = bn;
+    }
     rc = llm_prepare(&s->model, pm, pn, pc, t0.ts, &v);
     free(tm);
     free(tn);
     free(xm);
     free(xn);
+    free(bm);
+    free(bn);
     if (rc) {
+        for (k2 = 0; k2 < nblk; k2++)
+            free(blk[k2]);
+        free(blk);
         llm_view_free(&v);
         jw_free(&cj);
         for (k2 = 0; k2 < nown; k2++)
@@ -715,6 +810,7 @@ static int answer(pi_session *s, stream *t)
     memset(&q, 0, sizeof(q));
     q.pool = s->pool;
     q.retries = -1;             /* pi retries a failed answer itself (agent-session.js), with its events */
+    q.idle_ms = s->idle_ms;     /* httpIdleTimeoutMs: 0 is pi's default, 300 s */
     q.model = &s->model;
     q.be = llm_backend_of(s->model.api);
     q.ctx = &c;
@@ -759,6 +855,9 @@ static int answer(pi_session *s, stream *t)
     for (k2 = 0; k2 < nown; k2++)
         free(own[k2]);
     free(own);
+    for (k2 = 0; k2 < nblk; k2++)
+        free(blk[k2]);
+    free(blk);
     jw_free(&tools);
     jw_free(&hdr);
     jw_init(&m);

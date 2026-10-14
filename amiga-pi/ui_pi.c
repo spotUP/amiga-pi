@@ -23,6 +23,8 @@
 #include "radius.h"
 #include "authstore.h"
 #include "session3.h"
+#include "scoped.h"
+#include "settings_pi.h"
 
 #define XU_KEYS 16                  /* statuses and widgets an extension session keeps at most */
 #define XU_MAX_WIDGET_LINES 10      /* interactive-mode.ts MAX_WIDGET_LINES */
@@ -38,6 +40,7 @@ typedef struct pi_ui {
     cl_pitheme theme;
     pi_pstatus pst;             /* OSC 7501 program status (pstatus.h) */
     int pst_on;                 /* the screen is up and reports go through pst */
+    int redraw_after;           /* a setting of the screen changed: the transcript is drawn again when the selector closes */
     char name[160];             /* the session's name as pst_name last read it from the store */
     cl_cmd *xmenu;              /* the extensions' commands (slot 1) and their strings */
     char *xmenu_text;
@@ -56,9 +59,11 @@ typedef struct pi_ui {
 /* the slash commands the menu offers: pi's own names and descriptions (core/slash-commands.js, in its order) of
  * the ones amiga-pi has; pi_ui_set_commands replaces the list (the tests give it pi's whole list) */
 static const cl_cmd default_cmds[] = {
+    { "/settings", "Open settings menu" },
     { "/model", "<provider/model> \342\200\224 Select model (opens selector UI)" },
     { "/tree", "Navigate session tree (switch branches)" },
     { "/thinking", "<level> \342\200\224 Set thinking level" },
+    { "/scoped-models", "Enable/disable models for Ctrl+P cycling" },
     { "/export", "Export session (HTML default, or specify path: .html/.jsonl)" },
     { "/name", "Set session display name" },
     { "/session", "Show session info and stats" },
@@ -123,6 +128,7 @@ static char ui_version[40] = "";
 static int ui_quiet;
 static cl_pitheme ui_theme;
 static int ui_have_theme;
+static int ui_images;                   /* the terminal draws images (pi_ui_set_images) */
 static const char *ui_kb;
 static long ui_kb_n;
 
@@ -133,6 +139,11 @@ void pi_ui_set_theme(const cl_pitheme *th)
         ui_have_theme = 1;
     } else
         ui_have_theme = 0;
+}
+
+void pi_ui_set_images(int on)
+{
+    ui_images = on;
 }
 
 void pi_ui_set_keybindings(const char *json, long n)
@@ -296,6 +307,7 @@ static void redraw_chat(pi_ui *p, int mode)
 }
 
 static void status(pi_ui *p);
+static void settings_live(pi_ui *p, pi_store *st, const char *id);
 static void user_text(const char *json, long n, jw *out);
 static void sync_queue(pi_ui *p);
 
@@ -1167,7 +1179,8 @@ static void footer(pi_ui *p)
         cl_cat(t->pi_ctx, "/", sizeof(t->pi_ctx));
         fmt_tokens(s->model.context_window > 0 ? s->model.context_window : 0, n);
         cl_cat(t->pi_ctx, n, sizeof(t->pi_ctx));
-        cl_cat(t->pi_ctx, " (auto)", sizeof(t->pi_ctx));
+        if (!s->command_u || ((pi_store *)s->command_u)->cp_enabled)      /* the footer's "(auto)": auto-compaction is on */
+            cl_cat(t->pi_ctx, " (auto)", sizeof(t->pi_ctx));
         if (tenths > 900)
             t->pi_ctx_role = PR_ERROR + 1;
         else if (tenths > 700)
@@ -1420,6 +1433,8 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     pshow_set_pad(&p->ps, ui_pad);
     pshow_set_root(&p->ps, ui_cwd);
     pshow_render(&p->ps, &p->render);
+    if (p->s->command_u && ((pi_store *)p->s->command_u)->models)
+        settings_live(p, (pi_store *)p->s->command_u, 0);     /* the screen's own settings, from settings.json */
     footer(p);
     tui_frame(t);
     return t;
@@ -1447,6 +1462,17 @@ static void tree_command(pi_ui *p, cl_tui *t)
     if (!st->s3.n) {
         pshow_note(&p->ps, PR_DIM, "No entries in session");
         return;
+    }
+    {
+        /* showTreeSelector: the selector starts with the filter settings.json's treeFilterMode names */
+        static const char *const modes[TF_COUNT] = { "default", "no-tools", "user-only", "labeled-only", "all" };
+        char mode[24];
+        int f;
+        pi_set_str(st->models ? st->models->sys : 0, st->models ? st->models->agent_dir : 0, "treeFilterMode", "default", mode, sizeof(mode));
+        tree_filter = TF_DEFAULT;
+        for (f = 0; f < TF_COUNT; f++)
+            if (!strcmp(mode, modes[f]))
+                tree_filter = f;
     }
     for (;;) {
         static const char *const opt[3] = { "No summary", "Summarize", "Summarize with custom prompt" };
@@ -1972,24 +1998,37 @@ static void resources_report(pi_ui *p, int listing);
 
 /* /reload (interactive-mode.ts handleReloadCommand): the resources are read again, the menu rows and the start-up block follow, and
  * a status line says so; a failure is "Reload failed: <message>" */
+/* the resources read again and the slash menu's rows made from them: 0, -1 with err */
+static int reload_resources(pi_ui *p, char *err, long cap)
+{
+    int nt;
+    const cl_cmd *tm;
+    if (!p->s->reload || p->s->reload(p->s->reload_u, p->s, err, cap)) {
+        if (!p->s->reload)
+            cl_copy(err, "nothing to read", cap);
+        return -1;
+    }
+    build_skill_rows(p);
+    tm = p->s->templates ? pi_tmpl_menu((pi_tmpls *)p->s->templates, &nt) : 0;
+    pi_ui_set_extra_commands(0, tm, tm ? nt : 0);
+    if (p->ui.tui)
+        p->ui.tui->cmds = ui_menu(p, &p->ui.tui->ncmds);        /* the screen's menu follows (the rows were made again, the old array is gone) */
+    return 0;
+}
+
 static void reload_command(pi_ui *p)
 {
     char err[200];
-    int nt;
-    const cl_cmd *tm;
-    if (!p->s->reload || p->s->reload(p->s->reload_u, p->s, err, sizeof(err))) {
+    if (reload_resources(p, err, sizeof(err))) {
         char m[260];
         cl_copy(m, "Reload failed: ", sizeof(m));
-        cl_cat(m, p->s->reload ? err : "nothing to read", sizeof(m));
+        cl_cat(m, err, sizeof(m));
         if (p->look)
             pshow_error(&p->ps, m);
         else
             ui_line(&p->ui, m);
         return;
     }
-    build_skill_rows(p);
-    tm = p->s->templates ? pi_tmpl_menu((pi_tmpls *)p->s->templates, &nt) : 0;
-    pi_ui_set_extra_commands(0, tm, tm ? nt : 0);
     if (p->look)
         pshow_resources_begin(&p->ps);
     resources_report(p, ui_quiet == 0);
@@ -2133,6 +2172,24 @@ static const llm_model **ms_active(msel *m, int *n)
     return m->scoped ? m->sc : m->all;
 }
 
+/* getModelSearchText: provider, provider/id, provider id, the name */
+static void model_search_text(const llm_model *mo, char *t, long cap)
+{
+    cl_copy(t, mo->provider, cap);
+    cl_cat(t, " ", cap);
+    cl_cat(t, mo->provider, cap);
+    cl_cat(t, "/", cap);
+    cl_cat(t, mo->id, cap);
+    cl_cat(t, " ", cap);
+    cl_cat(t, mo->provider, cap);
+    cl_cat(t, " ", cap);
+    cl_cat(t, mo->id, cap);
+    if (mo->name && mo->name[0]) {
+        cl_cat(t, " ", cap);
+        cl_cat(t, mo->name, cap);
+    }
+}
+
 /* getModelSelectorSearchText plus " default" for the default model */
 static const char *ms_text(void *u, int i)
 {
@@ -2141,19 +2198,7 @@ static const char *ms_text(void *u, int i)
     int n;
     const llm_model **a = ms_active(m, &n);
     const llm_model *mo = a[i];
-    cl_copy(t, mo->provider, sizeof(t));
-    cl_cat(t, " ", sizeof(t));
-    cl_cat(t, mo->provider, sizeof(t));
-    cl_cat(t, "/", sizeof(t));
-    cl_cat(t, mo->id, sizeof(t));
-    cl_cat(t, " ", sizeof(t));
-    cl_cat(t, mo->provider, sizeof(t));
-    cl_cat(t, " ", sizeof(t));
-    cl_cat(t, mo->id, sizeof(t));
-    if (mo->name && mo->name[0]) {
-        cl_cat(t, " ", sizeof(t));
-        cl_cat(t, mo->name, sizeof(t));
-    }
+    model_search_text(mo, t, sizeof(t));
     if (ms_is_default(m, mo))
         cl_cat(t, " default", sizeof(t));
     return t;
@@ -2430,8 +2475,10 @@ static void model_selector(pi_ui *p, cl_tui *t, const char *search)
         if (pi_model_switch(ms, p->s, to, err, sizeof(err))) {
             pshow_error(&p->ps, err);
         } else {
-            if (m.save)
+            if (m.save) {
                 pi_store_set_member(ms->sys, ms->agent_dir, "defaultProvider", to->provider, "defaultModel", to->id);
+                pi_scope_add_default(ms, to, ms->sys, ms->agent_dir);       /* _addPersistedDefaultToNonEmptyScope */
+            }
             if (m.save) {
                 cl_copy(line, "Default model: ", sizeof(line));
                 cl_cat(line, to->provider, sizeof(line));
@@ -2480,6 +2527,355 @@ static void model_command(pi_ui *p, cl_tui *t, const char *arg)
         }
     }
     model_selector(p, t, arg);
+}
+
+/* ---- shared by the settings screens ---- */
+
+/* the byte offset after `cells` cells of UTF-8 text (one cell a code point), the end of the text when it is shorter */
+static long cell_off(const char *p, int cells)
+{
+    long i = 0;
+    int w = 0;
+    while (p[i] && w < cells) {
+        i++;
+        while (((unsigned char)p[i] & 0xc0) == 0x80)
+            i++;
+        w++;
+    }
+    return i;
+}
+
+/* wrapTextWithAnsi for plain text: lines of at most `width` cells, broken at the last space that fits (a longer word is cut), the
+ * spaces at a break dropped; '\n' between the lines in out */
+static void wrap_plain(const char *text, int width, char *out, long cap)
+{
+    const char *p = text;
+    int first = 1;
+    out[0] = 0;
+    if (width < 1)
+        width = 1;
+    for (;;) {
+        long lim = cell_off(p, width), take = lim, brk = lim, i;
+        char line[400];
+        if (p[lim]) {
+            if (p[lim] != ' ') {
+                for (i = lim; i > 0 && p[i] != ' '; i--)
+                    ;
+                if (i > 0) {
+                    take = i;
+                    brk = i;
+                }
+            }
+        }
+        if (take >= (long)sizeof(line))
+            take = (long)sizeof(line) - 1;
+        memcpy(line, p, (size_t)take);
+        line[take] = 0;
+        while (take > 0 && line[take - 1] == ' ')
+            line[--take] = 0;
+        if (!first)
+            cl_cat(out, "\n", cap);
+        cl_cat(out, line, cap);
+        first = 0;
+        p += brk;
+        while (*p == ' ')
+            p++;
+        if (!*p)
+            break;
+    }
+}
+
+/* ---- /scoped-models ---- */
+
+#define SM_MAX 1400
+
+typedef struct smsel {
+    pi_ui *p;
+    pi_scope sc;
+    int vis[SM_MAX];
+    long score[SM_MAX];
+    int dirty;
+    char status[100];
+    char refresh[160];
+    int refresh_ok;
+    char top[400];
+    tui_pick pk;
+} smsel;
+
+static const char *sm_text(void *u, int i)
+{
+    static char t[900];
+    smsel *s = (smsel *)u;
+    const pi_scope_item *it = &s->sc.item[i];
+    if (it->m)
+        model_search_text(it->m, t, sizeof(t));
+    else
+        pi_scope_item_id(it, t, sizeof(t));
+    return t;
+}
+
+/* refresh(): the list again from the state, the filter applied, the selection kept in range */
+static void sm_refresh(smsel *s)
+{
+    s->pk.n = fuzzy_order(s->pk.query, s->sc.nitem, sm_text, s, s->vis, s->score);
+    if (s->pk.sel > s->pk.n - 1)
+        s->pk.sel = s->pk.n - 1;
+    if (s->pk.sel < 0)
+        s->pk.sel = 0;
+}
+
+static void sm_row(void *u, int i, int selected, char *out, long cap)
+{
+    smsel *s = (smsel *)u;
+    const pi_scope_item *it = &s->sc.item[s->vis[i]];
+    char id[400];
+    out[0] = 0;
+    if (selected)
+        cat_role(s->p, PR_ACCENT, "\342\206\222 ", out, cap);
+    else
+        cl_cat(out, "  ", cap);
+    if (it->m && it->enabled)
+        cat_role(s->p, PR_ACCENT, "\342\234\223 ", out, cap);
+    else
+        cl_cat(out, "  ", cap);
+    if (it->m)
+        cl_copy(id, it->m->id, sizeof(id));
+    else
+        pi_scope_item_id(it, id, sizeof(id));
+    if (!it->m) {                                   /* theme.strikethrough */
+        char b[420];
+        cl_copy(b, "\033[9m", sizeof(b));
+        cl_cat(b, id, sizeof(b));
+        cl_cat(b, "\033[29m", sizeof(b));
+        cl_copy(id, b, sizeof(id));
+    }
+    if (selected)
+        cat_role(s->p, PR_ACCENT, id, out, cap);
+    else
+        cl_cat(out, id, cap);
+    if (it->m) {
+        char b[200];
+        cl_copy(b, " [", sizeof(b));
+        cl_cat(b, it->m->provider, sizeof(b));
+        cl_cat(b, "]", sizeof(b));
+        cat_role(s->p, PR_MUTED, b, out, cap);
+    } else
+        cat_role(s->p, PR_MUTED, " [unavailable]", out, cap);
+}
+
+static void sm_tail(void *u, char *out, long cap)
+{
+    smsel *s = (smsel *)u;
+    char foot[700], count[120], wrapped[900], *line, *nl;
+    int cols = s->p->ui.tui->cols, k;
+    static const char *const part[] = { "Enter toggle", "Ctrl+A all", "Ctrl+X clear", "Ctrl+P provider",
+                                        "Option+Up/Option+Down reorder", "Ctrl+S save" };
+    out[0] = 0;
+    pick_scroll(s->p, &s->pk, 8, out, cap);
+    if (!s->pk.n)
+        cat_role(s->p, PR_MUTED, "  No matching models", out, cap);
+    else {
+        const pi_scope_item *it = &s->sc.item[s->vis[s->pk.sel]];
+        char b[500];
+        cl_cat(out, "\n", cap);
+        if (it->m) {
+            cl_copy(b, "  Model Name: ", sizeof(b));
+            cl_cat(b, it->m->name && it->m->name[0] ? it->m->name : it->m->id, sizeof(b));
+        } else
+            cl_copy(b, "  Model unavailable", sizeof(b));
+        cat_role(s->p, PR_MUTED, b, out, cap);
+    }
+    cl_cat(out, "\n\n", cap);
+    if (s->refresh[0]) {
+        char b[200];
+        cl_copy(b, "  ", sizeof(b));
+        cl_cat(b, s->refresh, sizeof(b));
+        cat_role(s->p, s->refresh_ok ? PR_SUCCESS : PR_WARNING, b, out, cap);
+        cl_cat(out, "\n", cap);
+    }
+    cl_copy(foot, "  ", sizeof(foot));
+    for (k = 0; k < 6; k++) {
+        cl_cat(foot, part[k], sizeof(foot));
+        cl_cat(foot, " \302\267 ", sizeof(foot));
+    }
+    pi_scope_count_text(&s->sc, count, sizeof(count));
+    cl_cat(foot, count, sizeof(foot));
+    if (s->dirty)
+        cl_cat(foot, " (unsaved)", sizeof(foot));
+    wrap_plain(foot, cols, wrapped, sizeof(wrapped));
+    for (line = wrapped;; line = nl + 1) {
+        char row[300], *un;
+        nl = strchr(line, '\n');
+        if (nl)
+            *nl = 0;
+        un = strstr(line, "(unsaved)");
+        if (un) {
+            *un = 0;
+            cl_copy(row, line, sizeof(row));
+            cat_role(s->p, PR_DIM, row, out, cap);
+            cat_role(s->p, PR_WARNING, "(unsaved)", out, cap);
+        } else
+            cat_role(s->p, PR_DIM, line, out, cap);
+        if (!nl)
+            break;
+        cl_cat(out, "\n", cap);
+    }
+}
+
+/* every filtered item's id, for the search-limited "all" and "clear" */
+static int sm_targets(smsel *s, const char **ids, char (*store)[400])
+{
+    int i;
+    for (i = 0; i < s->pk.n; i++) {
+        pi_scope_item_id(&s->sc.item[s->vis[i]], store[i], 400);
+        ids[i] = store[i];
+    }
+    return s->pk.n;
+}
+
+static int sm_changed(smsel *s)
+{
+    s->dirty = 1;
+    pi_scope_apply(&s->sc);
+    sm_refresh(s);
+    return 1;
+}
+
+static int sm_key(void *u, const cl_key *key, int act)
+{
+    smsel *s = (smsel *)u;
+    char id[400];
+    (void)act;
+    if (key->k == K_UP || key->k == K_DOWN) {
+        if (!s->pk.n)
+            return 1;
+        if ((key->mods & KM_ALT) && s->sc.nitem) {                 /* app.models.reorderUp / reorderDown */
+            int delta = key->k == K_UP ? -1 : 1;
+            const pi_scope_item *it = &s->sc.item[s->vis[s->pk.sel]];
+            if (!s->sc.en_null && it->enabled) {
+                int at;
+                pi_scope_item_id(it, id, sizeof(id));
+                for (at = 0; at < s->sc.nen && strcmp(s->sc.en[at], id); at++)
+                    ;
+                if (at + delta >= 0 && at + delta < s->sc.nen) {
+                    pi_scope_move(&s->sc, id, delta);
+                    s->pk.sel += delta;
+                    sm_changed(s);
+                }
+            }
+            return 1;
+        }
+        if (key->k == K_UP)
+            s->pk.sel = s->pk.sel == 0 ? s->pk.n - 1 : s->pk.sel - 1;
+        else
+            s->pk.sel = s->pk.sel == s->pk.n - 1 ? 0 : s->pk.sel + 1;
+        return 1;
+    }
+    if (key->k == K_ENTER) {
+        if (s->pk.n) {
+            pi_scope_item_id(&s->sc.item[s->vis[s->pk.sel]], id, sizeof(id));
+            pi_scope_toggle(&s->sc, id);
+            sm_changed(s);
+        }
+        return 1;
+    }
+    if (key->k == K_CTRL && (key->ch == 'a' || key->ch == 'x')) {
+        const char **ids = 0;
+        char (*store)[400] = 0;
+        int n = -1;
+        if (s->pk.query[0]) {
+            ids = (const char **)malloc(sizeof(char *) * (size_t)(s->pk.n + 1));
+            store = (char (*)[400])malloc(400 * (size_t)(s->pk.n + 1));
+            if (ids && store)
+                n = sm_targets(s, ids, store);
+        }
+        if (key->ch == 'a')
+            pi_scope_enable(&s->sc, ids, n);
+        else
+            pi_scope_clear(&s->sc, ids, n);
+        free(ids);
+        free(store);
+        return sm_changed(s);
+    }
+    if (key->k == K_CTRL && key->ch == 'p') {
+        if (s->pk.n && s->sc.item[s->vis[s->pk.sel]].m) {
+            pi_scope_provider(&s->sc, s->sc.item[s->vis[s->pk.sel]].m->provider);
+            sm_changed(s);
+        }
+        return 1;
+    }
+    if (key->k == K_CTRL && key->ch == 's') {
+        pi_store *st = (pi_store *)s->p->s->command_u;
+        if (!pi_scope_save(&s->sc, st->models->sys, st->models->agent_dir))
+            cl_copy(s->status, "Model selection saved to settings", sizeof(s->status));
+        s->dirty = 0;
+        return 1;
+    }
+    if (key->k == K_CTRL && key->ch == 'c') {
+        if (s->pk.query[0]) {
+            s->pk.query[0] = 0;
+            sm_refresh(s);
+        } else
+            s->pk.done = 1;
+        return 1;
+    }
+    if (key->k == K_ESC) {
+        s->pk.done = 1;
+        return 1;
+    }
+    if (qkey(&s->pk, key))
+        sm_refresh(s);
+    return 1;
+}
+
+/* showModelsSelector */
+static void scoped_selector(pi_ui *p, cl_tui *t)
+{
+    static smsel s;
+    pi_store *st = (pi_store *)p->s->command_u;
+    char rerr[300];
+    memset(&s, 0, sizeof(s));
+    s.p = p;
+    rerr[0] = 0;
+    if (p->s->auth_u)
+        pi_radius_refresh((pi_auth *)p->s->auth_u, 0, rerr, sizeof(rerr));
+    if (pi_scope_open(&s.sc, st->models)) {
+        pshow_error(&p->ps, "out of memory");
+        pi_scope_free(&s.sc);
+        return;
+    }
+    if (rerr[0]) {
+        cl_copy(s.refresh, "Could not refresh radius; showing cached models.", sizeof(s.refresh));
+        s.refresh_ok = 0;
+    } else {
+        cl_copy(s.refresh, "Model catalogs refreshed.", sizeof(s.refresh));
+        s.refresh_ok = 1;
+    }
+    s.top[0] = '\n';
+    s.top[1] = 0;
+    {
+        char b[160];
+        cl_copy(b, "\033[1m", sizeof(b));
+        cat_role(p, PR_ACCENT, "Model Configuration", b, sizeof(b));
+        cl_cat(s.top, b, sizeof(s.top));
+        cl_cat(s.top, "\033[22m\n", sizeof(s.top));
+        cat_role(p, PR_MUTED, "Session-only. Ctrl+S to save to settings.", s.top, sizeof(s.top));
+        cl_cat(s.top, "\n", sizeof(s.top));
+    }
+    s.pk.top = s.top;
+    s.pk.search = 1;
+    s.pk.maxrows = 8;
+    s.pk.row = sm_row;
+    s.pk.key = sm_key;
+    s.pk.tail = sm_tail;
+    s.pk.u = &s;
+    s.pk.layout = TUI_PICK_FRAME;
+    sm_refresh(&s);
+    tui_pick_run(t, &s.pk);
+    if (s.status[0])
+        pshow_note(&p->ps, PR_DIM, s.status);
+    pi_scope_free(&s.sc);
+    status(p);
 }
 
 /* ---- /thinking ---- */
@@ -2698,6 +3094,1014 @@ static void thinking_command(pi_ui *p, cl_tui *t, const char *arg)
         return;
     }
     thinking_set(p, lv, 0);
+}
+
+/* ---- /settings ---- */
+
+/* keyDisplayText: the first key bound to an action as pi shows it ("shift+tab" is Shift+Tab, "alt+enter" Option+Enter) */
+static void key_display(cl_tui *t, int act, const char *dflt, char *out, long cap)
+{
+    char raw[48];
+    int k, o = 0, start = 1;
+    raw[0] = 0;
+    km_key_text(&t->km, KC_CHAT, act, raw, sizeof(raw));
+    if (!raw[0])
+        cl_copy(raw, dflt, sizeof(raw));
+    for (k = 0; raw[k] && o < cap - 8; k++) {
+        if (start) {
+            if (!strncmp(raw + k, "alt", 3) && (raw[k + 3] == '+' || !raw[k + 3])) {      /* macOS names the Alt key Option */
+                memcpy(out + o, "Option", 6);
+                o += 6;
+                k += 2;
+            } else
+                out[o++] = (char)(raw[k] >= 'a' && raw[k] <= 'z' ? raw[k] - 32 : raw[k]);
+            start = 0;
+        } else {
+            out[o++] = raw[k];
+            start = raw[k] == '+';
+        }
+    }
+    out[o] = 0;
+}
+
+#define ST_MAX 700
+enum { SV_MAIN, SV_THEME, SV_AUTO, SV_CHOOSE, SV_WARN, SV_MODELS, SV_LEVELS };
+
+typedef struct sitem {
+    char label[200];            /* the text shown (plain) */
+    char desc[240];
+    char val[100];              /* a settings row's value */
+    int tag;                    /* the table row, the model, the level */
+    int mut;                    /* byte offset in label where a muted suffix starts, -1 none */
+} sitem;
+
+typedef struct sset {
+    pi_ui *p;
+    pi_store *st;
+    cl_sys *sys;
+    const char *dir;
+    int images;                 /* the terminal draws images: the Show images and Image width rows are listed */
+    sitem *it;
+    int nit, cap;               /* the rows of the view on show, and how many the buffer holds */
+    int vis[ST_MAX];
+    long score[ST_MAX];
+    int view, stack[6], sel_at[6], depth;
+    char query_at[6][96];       /* the search text of each view below the one on show (an Input keeps its text) */
+    char top[900];
+    char title[120];
+    int select_style;           /* a SelectList (rows "→ label  description") rather than a SettingsList */
+    int searchable;
+    int dirty_theme;
+    char arrow[48];             /* the accent of the SettingsList cursor, fixed when the list is made (getSettingsListTheme) */
+    /* the theme menus (ThemeSubmenu) */
+    char names[40][64];
+    int nnames;
+    char orig[160];
+    int tauto;                  /* the automatic menu is the one in use */
+    char tsingle[64], tlight[64], tdark[64];
+    int choose;                 /* SV_CHOOSE: 0 the light theme, 1 the dark one */
+    /* the per-model thinking levels */
+    int mt_model;               /* index into mods[] of the model being configured */
+    const llm_model *mods[ST_MAX];
+    int nmods;
+    tui_pick pk;
+} sset;
+
+static const pi_ui_themes *ui_themes_src;
+
+void pi_ui_set_themes(const pi_ui_themes *src)
+{
+    ui_themes_src = src;
+}
+
+static void ss_push(sset *s, int view)
+{
+    s->stack[s->depth] = s->view;
+    cl_copy(s->query_at[s->depth], s->pk.query, sizeof(s->query_at[0]));
+    s->pk.query[0] = 0;
+    s->sel_at[s->depth++] = s->pk.sel;
+    s->view = view;
+}
+
+/* ---- the rows of each view ---- */
+
+static const char *ss_text(void *u, int i)
+{
+    static char t[500];
+    sset *s = (sset *)u;
+    cl_copy(t, s->it[i].label, sizeof(t));
+    if (s->view == SV_MODELS || s->view == SV_LEVELS) {         /* fuzzyFilter(label + " " + description) */
+        cl_cat(t, " ", sizeof(t));
+        cl_cat(t, s->it[i].desc, sizeof(t));
+    }
+    return t;
+}
+
+/* the filter of the view's search box (pi's fuzzyFilter, an Input that does not move the cursor) */
+static void ss_filter(sset *s, int keep)
+{
+    int prev = s->pk.n ? s->vis[s->pk.sel] : -1, i;
+    s->pk.n = fuzzy_order(s->searchable ? s->pk.query : "", s->nit, ss_text, s, s->vis, s->score);
+    s->pk.sel = 0;
+    if (keep)
+        for (i = 0; i < s->pk.n; i++)
+            if (s->vis[i] == prev)
+                s->pk.sel = i;
+    s->pk.maxrows = s->view == SV_MAIN ? 10 : (s->pk.n < 10 ? (s->pk.n ? s->pk.n : 1) : 10);
+}
+
+/* the longest label of all the items, at most 36 (SettingsList.renderMainList) */
+static int ss_label_width(const sset *s)
+{
+    int i, w = 0;
+    for (i = 0; i < s->nit; i++) {
+        int l = vw_width(s->it[i].label, (long)strlen(s->it[i].label));
+        if (l > w)
+            w = l;
+    }
+    return w > 36 ? 36 : w;
+}
+
+static void ss_row(void *u, int i, int selected, char *out, long cap)
+{
+    sset *s = (sset *)u;
+    const sitem *it = &s->it[s->vis[i]];
+    int cols = s->p->ui.tui->cols;
+    out[0] = 0;
+    if (!s->select_style) {
+        int lw = ss_label_width(s), pad, vmax;
+        char lab[200], val[120];
+        cl_copy(lab, it->label, sizeof(lab));
+        pad = lw - vw_width(lab, (long)strlen(lab));
+        while (pad-- > 0)
+            cl_cat(lab, " ", sizeof(lab));
+        vmax = cols - (2 + lw + 2) - 2;
+        cl_copy(val, it->val, sizeof(val));
+        if (vw_width(val, (long)strlen(val)) > vmax && vmax > 0)
+            val[cell_off(val, vmax)] = 0;
+        if (selected) {
+            cl_cat(out, s->arrow, cap);
+            cl_cat(out, "\342\206\222 \033[0m", cap);
+            cat_role(s->p, PR_ACCENT, lab, out, cap);
+        } else {
+            cl_cat(out, "  ", cap);
+            cl_cat(out, lab, cap);
+        }
+        cl_cat(out, "  ", cap);
+        cat_role(s->p, selected ? PR_ACCENT : PR_MUTED, val, out, cap);
+    } else {
+        /* SelectList: the primary column as wide as the widest label + 2, within the layout's bounds */
+        int j, widest = 0, minw = s->view == SV_MODELS ? 12 : 12, maxw = s->view == SV_MODELS ? 46 : 32, w, gap;
+        char pad[48];
+        for (j = 0; j < s->pk.n; j++) {
+            int lw = vw_width(s->it[s->vis[j]].label, (long)strlen(s->it[s->vis[j]].label)) + 2;
+            if (lw > widest)
+                widest = lw;
+        }
+        widest = widest < minw ? minw : widest > maxw ? maxw : widest;
+        w = vw_width(it->label, (long)strlen(it->label));
+        gap = it->desc[0] ? widest - w : 0;
+        if (it->desc[0] && gap < 1)
+            gap = 1;
+        memset(pad, ' ', (size_t)(gap > 0 ? gap : 0));
+        pad[gap > 0 ? gap : 0] = 0;
+        if (selected) {
+            char head[300];
+            cl_copy(head, "\342\206\222 ", sizeof(head));
+            if (it->mut >= 0) {                  /* the muted suffix of the label ends the accent: the rest is the default colour */
+                char a[200], m[100];
+                cl_copy(a, it->label, sizeof(a));
+                a[it->mut] = 0;
+                cl_copy(m, it->label + it->mut, sizeof(m));
+                cl_cat(head, a, sizeof(head));
+                cat_role(s->p, PR_ACCENT, head, out, cap);
+                cat_role(s->p, PR_MUTED, m, out, cap);
+                cl_cat(out, pad, cap);
+                cl_cat(out, it->desc, cap);
+            } else {
+                cl_cat(head, it->label, sizeof(head));
+                cl_cat(head, pad, sizeof(head));
+                cl_cat(head, it->desc, sizeof(head));
+                cat_role(s->p, PR_ACCENT, head, out, cap);
+            }
+        } else {
+            char d[300];
+            cl_cat(out, "  ", cap);
+            if (it->mut >= 0) {
+                char a[200], m[100];
+                cl_copy(a, it->label, sizeof(a));
+                a[it->mut] = 0;
+                cl_copy(m, it->label + it->mut, sizeof(m));
+                cl_cat(out, a, cap);
+                cat_role(s->p, PR_MUTED, m, out, cap);
+            } else
+                cl_cat(out, it->label, cap);
+            if (it->desc[0]) {
+                cl_copy(d, pad, sizeof(d));
+                cl_cat(d, it->desc, sizeof(d));
+                cat_role(s->p, PR_MUTED, d, out, cap);
+            }
+        }
+    }
+}
+
+static void ss_tail(void *u, char *out, long cap)
+{
+    sset *s = (sset *)u;
+    int cols = s->p->ui.tui->cols;
+    out[0] = 0;
+    if (!s->select_style) {
+        const char *hint = s->searchable ? "  Type to search \302\267 Enter/Space to change \302\267 Esc to cancel"
+                                         : "  Enter/Space to change \302\267 Esc to cancel";
+        int st, en;
+        if (!s->pk.n) {
+            cat_role(s->p, PR_DIM, "  No matching settings", out, cap);
+            cl_cat(out, "\n\n", cap);
+            cat_role(s->p, PR_DIM, hint, out, cap);
+            return;
+        }
+        pick_window(&s->pk, s->pk.maxrows, &st, &en);
+        if (st > 0 || en < s->pk.n) {
+            char b[40], num[16];
+            cl_copy(b, "  (", sizeof(b));
+            cl_ltoa(s->pk.sel + 1, num);
+            cl_cat(b, num, sizeof(b));
+            cl_cat(b, "/", sizeof(b));
+            cl_ltoa(s->pk.n, num);
+            cl_cat(b, num, sizeof(b));
+            cl_cat(b, ")", sizeof(b));
+            cat_role(s->p, PR_DIM, b, out, cap);
+            cl_cat(out, "\n", cap);
+        }
+        if (s->it[s->vis[s->pk.sel]].desc[0]) {
+            char wr[900], *line, *nl, row[300];
+            cl_cat(out, "\n", cap);
+            wrap_plain(s->it[s->vis[s->pk.sel]].desc, cols - 4, wr, sizeof(wr));
+            for (line = wr;; line = nl + 1) {
+                nl = strchr(line, '\n');
+                if (nl)
+                    *nl = 0;
+                cl_copy(row, "  ", sizeof(row));
+                cl_cat(row, line, sizeof(row));
+                cat_role(s->p, PR_DIM, row, out, cap);
+                cl_cat(out, "\n", cap);
+                if (!nl)
+                    break;
+            }
+        }
+        cl_cat(out, "\n", cap);
+        cat_role(s->p, PR_DIM, hint, out, cap);
+    } else {
+        if (!s->pk.n)
+            cat_role(s->p, PR_MUTED, "  No matching commands", out, cap);
+        else
+            pick_scroll(s->p, &s->pk, s->pk.maxrows, out, cap);
+        cl_cat(out, "\n", cap);
+        cat_role(s->p, PR_DIM, s->searchable ? "  Type to filter \302\267 Enter to select \302\267 Esc to go back"
+                                              : "  Enter to select \302\267 Esc to go back", out, cap);
+    }
+}
+
+/* the top lines of a SelectSubmenu: the title in bold and the accent colour, a blank row, the muted description, a blank row */
+static void ss_head(sset *s, const char *title, const char *desc)
+{
+    char b[300];
+    cl_copy(b, "\033[1m", sizeof(b));
+    cat_role(s->p, PR_ACCENT, title, b, sizeof(b));
+    cl_cat(b, "\033[22m", sizeof(b));
+    cl_copy(s->top, b, sizeof(s->top));
+    cl_cat(s->top, "\n", sizeof(s->top));
+    if (desc && desc[0]) {
+        cl_cat(s->top, "\n", sizeof(s->top));
+        cat_role(s->p, PR_MUTED, desc, s->top, sizeof(s->top));
+        cl_cat(s->top, "\n", sizeof(s->top));
+    }
+    s->pk.top = s->top;
+}
+
+static void ss_item(sset *s, const char *label, const char *desc, const char *val, int tag, int mut)
+{
+    sitem *it;
+    if (s->nit >= s->cap)
+        return;
+    it = &s->it[s->nit++];
+    cl_copy(it->label, label, sizeof(it->label));
+    cl_copy(it->desc, desc ? desc : "", sizeof(it->desc));
+    cl_copy(it->val, val ? val : "", sizeof(it->val));
+    it->tag = tag;
+    it->mut = mut;
+}
+
+/* ---- the settings the screen applies at once (the others take effect where the table says) ---- */
+
+static void ss_themes_load(sset *s)
+{
+    s->nnames = ui_themes_src && ui_themes_src->list ? ui_themes_src->list(ui_themes_src->u, s->names, 40) : 0;
+    if (s->nnames == 0) {
+        cl_copy(s->names[0], "system", 64);
+        s->nnames = 1;
+    }
+}
+
+static int ss_theme_known(const sset *s, const char *name)
+{
+    int i;
+    for (i = 0; i < s->nnames; i++)
+        if (!strcmp(s->names[i], name))
+            return 1;
+    return 0;
+}
+
+/* preferredTheme */
+static void ss_preferred(const sset *s, const char *pref, const char *fallback, char *out, long cap)
+{
+    if (pref && pref[0] && ss_theme_known(s, pref))
+        cl_copy(out, pref, cap);
+    else if (ss_theme_known(s, fallback))
+        cl_copy(out, fallback, cap);
+    else
+        cl_copy(out, s->names[0], cap);
+}
+
+/* parseAutoThemeSetting: "light/dark", both non-empty, one slash */
+static int ss_parse_auto(const char *setting, char *light, char *dark, long cap)
+{
+    const char *sl = strchr(setting, '/');
+    char l[64], d[64];
+    long n;
+    if (!sl || strchr(sl + 1, '/'))
+        return 0;
+    n = (long)(sl - setting);
+    if (n <= 0 || n >= (long)sizeof(l) || !sl[1])
+        return 0;
+    memcpy(l, setting, (size_t)n);
+    l[n] = 0;
+    cl_copy(d, sl + 1, sizeof(d));
+    cl_copy(light, l, cap);
+    cl_copy(dark, d, cap);
+    return 1;
+}
+
+static void ss_theme_setting(const sset *s, char *out, long cap)
+{
+    if (s->tauto) {
+        cl_copy(out, s->tlight, cap);
+        cl_cat(out, "/", cap);
+        cl_cat(out, s->tdark, cap);
+    } else
+        cl_copy(out, s->tsingle, cap);
+}
+
+/* onThemePreview: the screen's colours for a theme setting, nothing kept */
+static void ss_theme_preview(sset *s, const char *setting)
+{
+    if (ui_themes_src && ui_themes_src->load && !ui_themes_src->load(ui_themes_src->u, setting, &s->p->theme)) {
+        pshow_theme(&s->p->ps, &s->p->theme);
+        s->dirty_theme = 1;
+    }
+}
+
+/* ---- building the views ---- */
+
+static void ss_build_main(sset *s, int keep_sel)
+{
+    long n = 0;
+    char *text = s->dir ? pi_store_read(s->sys, s->dir, "settings.json", &n) : 0;
+    int i, sel = s->pk.sel;
+    char fk[40], tk[40];
+    s->nit = 0;
+    s->select_style = 0;
+    s->searchable = 1;
+    s->pk.search = 1;
+    s->top[0] = 0;
+    s->pk.top = s->top;
+    key_display(s->p->ui.tui, KA_FOLLOW_UP, "alt+enter", fk, sizeof(fk));
+    key_display(s->p->ui.tui, KA_THINK_CYCLE, "shift+tab", tk, sizeof(tk));
+    for (i = 0; i < pi_settings_count(); i++) {
+        const pi_setting *d = pi_settings_at(i);
+        char desc[300], val[100];
+        const char *src = d->desc;
+        long o = 0;
+        if ((d->flags & PSF_IMAGES) && !s->images)
+            continue;
+        desc[0] = 0;
+        for (; src && *src && o < (long)sizeof(desc) - 40; src++) {
+            if (src[0] == '%' && (src[1] == 'F' || src[1] == 'T')) {
+                cl_cat(desc, src[1] == 'F' ? fk : tk, sizeof(desc));
+                o = (long)strlen(desc);
+                src++;
+            } else {
+                desc[o++] = *src;
+                desc[o] = 0;
+            }
+        }
+        if (d->kind == PSK_MENU) {
+            if (!strcmp(d->id, "theme")) {
+                pi_set_str(s->sys, s->dir, "theme", "system", val, sizeof(val));
+            } else if (!strcmp(d->id, "model-thinking")) {
+                jv root, sub, k, v;
+                jit ji;
+                long cnt = 0;
+                if (text && !json_parse(text, n, &root) && json_get(root, "modelThinkingLevels", &sub) && json_type(sub) == J_OBJ) {
+                    json_iter(sub, &ji);
+                    while (json_next(&ji, &k, &v))
+                        cnt++;
+                }
+                if (cnt) {
+                    cl_ltoa(cnt, val);
+                    cl_cat(val, " configured", sizeof(val));
+                } else
+                    cl_copy(val, "none", sizeof(val));
+            } else
+                cl_copy(val, d->dflt, sizeof(val));
+        } else
+            pi_setting_shown(d, text, n, val, sizeof(val));
+        ss_item(s, d->label, desc, val, i, -1);
+    }
+    free(text);
+    ss_filter(s, 0);
+    if (keep_sel && sel < s->pk.n)
+        s->pk.sel = sel;
+}
+
+static void ss_build_theme_single(sset *s)
+{
+    int i;
+    char lab[100];
+    s->nit = 0;
+    s->select_style = 1;
+    s->searchable = 0;
+    s->pk.search = 0;
+    ss_head(s, "Theme", "Select a theme, or choose automatic to follow terminal appearance.");
+    for (i = 0; i < s->nnames; i++)
+        if (!strcmp(s->names[i], "system")) {
+            cl_copy(lab, !strcmp(s->names[i], s->tsingle) ? "\342\234\223 " : "  ", sizeof(lab));
+            cl_cat(lab, "system", sizeof(lab));
+            ss_item(s, lab, "Theme created from your terminal's colors", "system", i, -1);
+        }
+    ss_item(s, "  automatic", "Use separate themes for light and dark terminal appearance", "/", -1, -1);
+    for (i = 0; i < s->nnames; i++)
+        if (strcmp(s->names[i], "system")) {
+            cl_copy(lab, !strcmp(s->names[i], s->tsingle) ? "\342\234\223 " : "  ", sizeof(lab));
+            cl_cat(lab, s->names[i], sizeof(lab));
+            ss_item(s, lab, "", s->names[i], i, -1);
+        }
+}
+
+static void ss_build_theme_auto(sset *s)
+{
+    char b[300];
+    s->nit = 0;
+    s->select_style = 0;
+    s->searchable = 0;
+    s->pk.search = 0;
+    cl_copy(s->top, "\033[1m", sizeof(s->top));
+    cat_role(s->p, PR_ACCENT, "Automatic Theme", s->top, sizeof(s->top));
+    cl_cat(s->top, "\033[22m\n\n", sizeof(s->top));
+    cat_role(s->p, PR_MUTED, "Choose themes for terminal light and dark appearance.", s->top, sizeof(s->top));
+    cl_cat(s->top, "\n", sizeof(s->top));
+    cat_role(s->p, PR_MUTED, "Light/dark detection requires terminal support.", s->top, sizeof(s->top));
+    cl_cat(s->top, "\n", sizeof(s->top));
+    s->pk.top = s->top;
+    (void)b;
+    ss_item(s, "Light theme", "Theme to use in automatic mode when the terminal is light", s->tlight, 0, -1);
+    ss_item(s, "Dark theme", "Theme to use in automatic mode when the terminal is dark", s->tdark, 1, -1);
+    ss_item(s, "Apply", "Save and go back", "save and go back", 2, -1);
+    ss_item(s, "Change mode", "Switch to one theme for light and dark", "switch to single theme", 3, -1);
+}
+
+static void ss_build_choose(sset *s)
+{
+    int i;
+    const char *cur = s->choose ? s->tdark : s->tlight;
+    s->nit = 0;
+    s->select_style = 1;
+    s->searchable = 0;
+    s->pk.search = 0;
+    ss_head(s, s->choose ? "Dark Theme" : "Light Theme",
+            s->choose ? "Select the theme to use for dark terminal appearance" : "Select the theme to use for light terminal appearance");
+    for (i = 0; i < s->nnames; i++) {
+        char lab[100];
+        cl_copy(lab, !strcmp(s->names[i], cur) ? "\342\234\223 " : "  ", sizeof(lab));
+        cl_cat(lab, s->names[i], sizeof(lab));
+        ss_item(s, lab, !strcmp(s->names[i], "system") ? "Theme created from your terminal's colors" : "", s->names[i], i, -1);
+    }
+}
+
+static void ss_build_warn(sset *s)
+{
+    s->nit = 0;
+    s->select_style = 0;
+    s->searchable = 0;
+    s->pk.search = 0;
+    s->top[0] = 0;
+    s->pk.top = s->top;
+    ss_item(s, "Anthropic extra usage", "Warn when Anthropic subscription auth may use paid extra usage",
+            pi_set_bool(s->sys, s->dir, "warnings.anthropicExtraUsage", 1) ? "true" : "false", 0, -1);
+}
+
+/* the model of "provider/id" being the session's or the default */
+static void ss_build_models(sset *s)
+{
+    int i, rank[ST_MAX], j;
+    char defp[100], defid[200], cur[300], key[300], lvl[40];
+    pi_models *ms = s->st->models;
+    long n = 0;
+    char *text = pi_store_read(s->sys, s->dir, "settings.json", &n);
+    s->nit = 0;
+    s->select_style = 1;
+    s->searchable = 1;
+    s->pk.search = 1;
+    ss_head(s, "Per-Model Thinking Level", "Step 1/2 \302\267 Select a model to configure");
+    s->nmods = 0;
+    defp[0] = defid[0] = 0;
+    pi_set_str(s->sys, s->dir, "defaultProvider", "", defp, sizeof(defp));
+    pi_set_str(s->sys, s->dir, "defaultModel", "", defid, sizeof(defid));
+    pi_scope_id(&s->p->s->model, cur, sizeof(cur));
+    for (i = 0; i < ms->reg.n && s->nmods < ST_MAX; i++)
+        if (pi_model_usable(ms, &ms->reg.m[i]))
+            s->mods[s->nmods++] = &ms->reg.m[i];
+    for (i = 0; i < s->nmods; i++) {
+        pi_scope_id(s->mods[i], key, sizeof(key));
+        rank[i] = !strcmp(key, cur) ? 0 : (defp[0] && !strcmp(s->mods[i]->provider, defp) && !strcmp(s->mods[i]->id, defid)) ? 1 : 2;
+    }
+    /* the current model first, the default second, then by provider (a stable sort) */
+    for (i = 1; i < s->nmods; i++) {
+        const llm_model *x = s->mods[i];
+        int rx = rank[i];
+        for (j = i; j > 0 && (rank[j - 1] > rx || (rank[j - 1] == rx && rx == 2 && ms_pcmp(s->mods[j - 1]->provider, x->provider) > 0)); j--) {
+            s->mods[j] = s->mods[j - 1];
+            rank[j] = rank[j - 1];
+        }
+        s->mods[j] = x;
+        rank[j] = rx;
+    }
+    if (!s->nmods)
+        ss_item(s, "No models available", "Log in to a provider or configure an API key first", "__none__", -1, -1);
+    for (i = 0; i < s->nmods; i++) {
+        char lab[300];
+        jv root, sub, v;
+        pi_scope_id(s->mods[i], key, sizeof(key));
+        lvl[0] = 0;
+        if (text && !json_parse(text, n, &root) && json_get(root, "modelThinkingLevels", &sub) && json_type(sub) == J_OBJ) {
+            jit ji;
+            jv k;
+            json_iter(sub, &ji);
+            while (json_next(&ji, &k, &v)) {
+                char kk[300];
+                json_str(k, kk, sizeof(kk));
+                if (!strcmp(kk, key) && json_type(v) == J_STR)
+                    json_str(v, lvl, sizeof(lvl));
+            }
+        }
+        cl_copy(lab, s->mods[i]->id, sizeof(lab));
+        cl_cat(lab, " [", sizeof(lab));
+        cl_cat(lab, s->mods[i]->provider, sizeof(lab));
+        cl_cat(lab, "]", sizeof(lab));
+        ss_item(s, lab, lvl, key, i, (int)strlen(s->mods[i]->id) + 1);
+    }
+    free(text);
+    ss_filter(s, 0);
+    /* preselect: currentModelKey ?? currentDefaultModelKey */
+    for (i = 0; i < s->pk.n; i++)
+        if (s->it[s->vis[i]].tag >= 0 && !strcmp(s->it[s->vis[i]].val, cur)) {
+            s->pk.sel = i;
+            break;
+        }
+}
+
+static void ss_build_levels(sset *s)
+{
+    const llm_model *m = s->mods[s->mt_model];
+    unsigned av = llm_think_levels(m);
+    int i, active = -1;
+    char key[300], t[200], lvl[40], gdef[40];
+    long n = 0;
+    char *text = pi_store_read(s->sys, s->dir, "settings.json", &n);
+    jv root, sub, v;
+    s->nit = 0;
+    s->select_style = 1;
+    s->searchable = 0;
+    s->pk.search = 0;
+    pi_scope_id(m, key, sizeof(key));
+    cl_copy(t, "Thinking Level for ", sizeof(t));
+    cl_cat(t, m->id, sizeof(t));
+    cl_cat(t, " [", sizeof(t));
+    cl_cat(t, m->provider, sizeof(t));
+    cl_cat(t, "]", sizeof(t));
+    ss_head(s, t, "Step 2/2 \302\267 Select default thinking level for this model");
+    lvl[0] = 0;
+    if (text && !json_parse(text, n, &root) && json_get(root, "modelThinkingLevels", &sub) && json_type(sub) == J_OBJ) {
+        jit ji;
+        jv k;
+        json_iter(sub, &ji);
+        while (json_next(&ji, &k, &v)) {
+            char kk[300];
+            json_str(k, kk, sizeof(kk));
+            if (!strcmp(kk, key) && json_type(v) == J_STR)
+                json_str(v, lvl, sizeof(lvl));
+        }
+    }
+    free(text);
+    if (lvl[0])
+        active = llm_think_of(lvl);
+    for (i = 0; i < LT_N; i++)
+        if (av & (1u << i)) {
+            char lab[60];
+            cl_copy(lab, i == active ? "\342\234\223 " : "  ", sizeof(lab));
+            cl_cat(lab, llm_think_name(i), sizeof(lab));
+            ss_item(s, lab, level_desc[i], llm_think_name(i), i, -1);
+        }
+    if (lvl[0]) {
+        char d[120];
+        pi_set_str(s->sys, s->dir, "defaultThinkingLevel", "medium", gdef, sizeof(gdef));
+        cl_copy(d, "Revert to global default (", sizeof(d));
+        cl_cat(d, gdef, sizeof(d));
+        cl_cat(d, ")", sizeof(d));
+        ss_item(s, "  (clear override)", d, "__clear__", -1, -1);
+    }
+    ss_filter(s, 0);
+    for (i = 0; i < s->pk.n; i++)
+        if (s->it[s->vis[i]].tag == active && active >= 0)
+            s->pk.sel = i;
+}
+
+/* the view the stack's top names, built afresh */
+static void ss_build(sset *s)
+{
+    switch (s->view) {
+    case SV_MAIN:
+        ss_build_main(s, 0);
+        break;
+    case SV_THEME:
+        ss_build_theme_single(s);
+        ss_filter(s, 0);
+        break;
+    case SV_AUTO:
+        ss_build_theme_auto(s);
+        ss_filter(s, 0);
+        break;
+    case SV_CHOOSE:
+        ss_build_choose(s);
+        ss_filter(s, 0);
+        break;
+    case SV_WARN:
+        ss_build_warn(s);
+        ss_filter(s, 0);
+        break;
+    case SV_MODELS:
+        ss_build_models(s);
+        break;
+    case SV_LEVELS:
+        ss_build_levels(s);
+        break;
+    }
+}
+
+/* back one view (Esc): the parent, built again, its selection restored */
+static void ss_pop(sset *s)
+{
+    int sel;
+    if (!s->depth) {
+        s->pk.done = 1;
+        return;
+    }
+    s->view = s->stack[--s->depth];
+    sel = s->sel_at[s->depth];
+    cl_copy(s->pk.query, s->query_at[s->depth], sizeof(s->pk.query));
+    ss_build(s);
+    if (s->view != SV_MODELS && sel < s->pk.n)       /* the model step comes back with its own preselection (SteppedSubmenu.buildStep) */
+        s->pk.sel = sel;
+}
+
+/* ---- the keys ---- */
+
+static void ss_preview_selection(sset *s)
+{
+    if (s->view == SV_THEME && s->pk.n) {
+        const char *v = s->it[s->vis[s->pk.sel]].val;
+        if (!strcmp(v, "/")) {
+            char a[160];
+            cl_copy(a, s->tlight, sizeof(a));
+            cl_cat(a, "/", sizeof(a));
+            cl_cat(a, s->tdark, sizeof(a));
+            ss_theme_preview(s, a);
+        } else
+            ss_theme_preview(s, v);
+    } else if (s->view == SV_CHOOSE && s->pk.n)
+        ss_theme_preview(s, s->it[s->vis[s->pk.sel]].val);
+}
+
+/* SettingsList.activateItem and the callbacks of SettingsSelectorComponent */
+static void ss_apply_value(sset *s, const pi_setting *d, const char *shown)
+{
+    pi_setting_write(s->sys, s->dir, d, shown);
+    settings_live(s->p, s->st, d->id);
+}
+
+static void ss_theme_done(sset *s, const char *setting)
+{
+    /* onDone(setting): the main list's Theme row takes it and onThemeChange saves it */
+    s->dirty_theme = 1;
+    if (setting) {
+        const pi_setting *d = pi_settings_find("theme");
+        jw v;
+        jw_init(&v);
+        jw_strz(&v, setting);
+        pi_store_set_path(s->sys, s->dir, d->path, v.p);
+        jw_free(&v);
+        settings_live(s->p, s->st, "theme");
+    } else
+        ss_theme_preview(s, s->orig);
+    cl_copy(s->pk.query, s->query_at[0], sizeof(s->pk.query));
+    s->depth = 0;
+    s->view = SV_MAIN;
+    ss_build_main(s, 0);
+    {
+        int i;
+        for (i = 0; i < s->pk.n; i++)
+            if (!strcmp(pi_settings_at(s->it[s->vis[i]].tag)->id, "theme"))
+                s->pk.sel = i;
+    }
+}
+
+static void ss_activate(sset *s)
+{
+    const sitem *it;
+    if (!s->pk.n)
+        return;
+    it = &s->it[s->vis[s->pk.sel]];
+    switch (s->view) {
+    case SV_MAIN: {
+        const pi_setting *d = pi_settings_at(it->tag);
+        char next[100];
+        if (d->kind == PSK_MENU) {
+            if (!strcmp(d->id, "theme")) {
+                char cur[160], l[64], dk[64];
+                ss_themes_load(s);
+                cl_copy(cur, it->val, sizeof(cur));
+                cl_copy(s->orig, cur, sizeof(s->orig));
+                if (ss_parse_auto(cur, l, dk, 64)) {
+                    s->tauto = 1;
+                    ss_preferred(s, l, "system", s->tlight, sizeof(s->tlight));
+                    ss_preferred(s, dk, "system", s->tdark, sizeof(s->tdark));
+                    ss_preferred(s, dk, "system", s->tsingle, sizeof(s->tsingle));      /* the terminal reports no appearance: dark */
+                } else {
+                    s->tauto = 0;
+                    ss_preferred(s, cur, "system", s->tsingle, sizeof(s->tsingle));
+                    ss_preferred(s, strchr(cur, '/') ? "" : cur, "system", s->tlight, sizeof(s->tlight));
+                    cl_copy(s->tdark, s->tlight, sizeof(s->tdark));
+                }
+                ss_push(s, s->tauto ? SV_AUTO : SV_THEME);
+                ss_build(s);
+                if (s->view == SV_THEME) {
+                    int i;
+                    for (i = 0; i < s->pk.n; i++)
+                        if (!strcmp(s->it[s->vis[i]].val, s->tsingle))
+                            s->pk.sel = i;
+                }
+            } else if (!strcmp(d->id, "warnings")) {
+                ss_push(s, SV_WARN);
+                ss_build(s);
+            } else {
+                ss_push(s, SV_MODELS);
+                ss_build(s);
+            }
+            return;
+        }
+        pi_setting_next(d, it->val, next, sizeof(next));
+        ss_apply_value(s, d, next);
+        ss_build_main(s, 1);
+        return;
+    }
+    case SV_THEME:
+        if (!strcmp(it->val, "/")) {
+            s->tauto = 1;
+            {
+                char a[160];
+                cl_copy(a, s->tlight, sizeof(a));
+                cl_cat(a, "/", sizeof(a));
+                cl_cat(a, s->tdark, sizeof(a));
+                ss_theme_preview(s, a);
+            }
+            s->view = SV_AUTO;
+            ss_build(s);
+        } else {
+            cl_copy(s->tsingle, it->val, sizeof(s->tsingle));
+            ss_theme_done(s, s->tsingle);
+        }
+        return;
+    case SV_AUTO:
+        if (it->tag == 0 || it->tag == 1) {
+            s->choose = it->tag;
+            ss_push(s, SV_CHOOSE);
+            ss_build(s);
+            {
+                int i;
+                const char *cur = s->choose ? s->tdark : s->tlight;
+                for (i = 0; i < s->pk.n; i++)
+                    if (!strcmp(s->it[s->vis[i]].val, cur))
+                        s->pk.sel = i;
+            }
+        } else if (it->tag == 2) {
+            char a[160];
+            ss_theme_setting(s, a, sizeof(a));
+            ss_theme_done(s, a);
+        } else {
+            s->tauto = 0;
+            cl_copy(s->tsingle, s->tdark, sizeof(s->tsingle));              /* getActiveAutomaticTheme: dark */
+            ss_theme_preview(s, s->tsingle);
+            s->view = SV_THEME;
+            ss_build(s);
+            {
+                int i;
+                for (i = 0; i < s->pk.n; i++)
+                    if (!strcmp(s->it[s->vis[i]].val, s->tsingle))
+                        s->pk.sel = i;
+            }
+        }
+        return;
+    case SV_CHOOSE:
+        if (s->choose)
+            cl_copy(s->tdark, it->val, sizeof(s->tdark));
+        else
+            cl_copy(s->tlight, it->val, sizeof(s->tlight));
+        {
+            char a[160];
+            ss_theme_setting(s, a, sizeof(a));
+            ss_theme_preview(s, a);
+        }
+        ss_pop(s);
+        return;
+    case SV_WARN: {
+        int on = !strcmp(it->val, "true");
+        pi_store_set_path(s->sys, s->dir, "warnings.anthropicExtraUsage", on ? "false" : "true");
+        ss_build_warn(s);
+        ss_filter(s, 0);
+        return;
+    }
+    case SV_MODELS:
+        if (it->tag < 0)
+            return;
+        s->mt_model = it->tag;
+        ss_push(s, SV_LEVELS);
+        ss_build(s);
+        return;
+    case SV_LEVELS: {
+        char key[300];
+        pi_scope_id(s->mods[s->mt_model], key, sizeof(key));
+        if (!strcmp(it->val, "__clear__"))
+            pi_store_set_sub(s->sys, s->dir, "modelThinkingLevels", key, 0);
+        else {
+            jw v;
+            jw_init(&v);
+            jw_strz(&v, it->val);
+            pi_store_set_sub(s->sys, s->dir, "modelThinkingLevels", key, v.p);
+            jw_free(&v);
+        }
+        /* loop: true -- the first step again with the new summary */
+        s->depth = s->depth > 0 ? s->depth - 1 : 0;
+        s->view = SV_MODELS;
+        ss_build(s);
+        return;
+    }
+    }
+}
+
+static int ss_key(void *u, const cl_key *key, int act)
+{
+    sset *s = (sset *)u;
+    (void)act;
+    if (key->k == K_UP || key->k == K_DOWN) {
+        if (!s->pk.n)
+            return 1;
+        if (key->k == K_UP)
+            s->pk.sel = s->pk.sel == 0 ? s->pk.n - 1 : s->pk.sel - 1;
+        else
+            s->pk.sel = s->pk.sel == s->pk.n - 1 ? 0 : s->pk.sel + 1;
+        ss_preview_selection(s);
+        return 1;
+    }
+    if (key->k == K_ENTER || (key->k == K_CHAR && key->ch == ' ' && (s->view == SV_MAIN || s->view == SV_AUTO || s->view == SV_WARN) &&
+                              (!s->searchable || !s->pk.query[0]))) {
+        ss_activate(s);
+        return 1;
+    }
+    if (key->k == K_ESC || (key->k == K_CTRL && key->ch == 'c')) {
+        switch (s->view) {
+        case SV_MAIN:
+            s->pk.done = 1;
+            break;
+        case SV_THEME:
+        case SV_AUTO:
+            ss_theme_done(s, 0);
+            break;
+        case SV_CHOOSE: {
+            char a[160];
+            ss_theme_setting(s, a, sizeof(a));
+            ss_theme_preview(s, a);
+            ss_pop(s);
+            break;
+        }
+        case SV_LEVELS:
+            ss_pop(s);
+            break;
+        case SV_MODELS:
+        case SV_WARN:
+            ss_pop(s);
+            ss_build_main(s, 1);
+            break;
+        }
+        return 1;
+    }
+    if (s->searchable && qkey(&s->pk, key))
+        ss_filter(s, 0);
+    return 1;
+}
+
+/* showSettingsSelector */
+static void settings_command(pi_ui *p, cl_tui *t)
+{
+    static sset s;
+    memset(&s, 0, sizeof(s));
+    s.p = p;
+    s.st = (pi_store *)p->s->command_u;
+    s.sys = s.st->models ? s.st->models->sys : 0;
+    s.dir = s.st->models ? s.st->models->agent_dir : 0;
+    s.images = ui_images;
+    {
+        /* room for the settings and for every model the per-model menu lists */
+        int i, nm = 0;
+        if (s.st->models)
+            for (i = 0; i < s.st->models->reg.n; i++)
+                if (pi_model_usable(s.st->models, &s.st->models->reg.m[i]))
+                    nm++;
+        s.cap = 48 + (nm < ST_MAX - 48 ? nm : ST_MAX - 48);
+    }
+    s.it = (sitem *)calloc((size_t)s.cap, sizeof(sitem));
+    if (!s.it || !s.sys || !s.dir) {
+        free(s.it);
+        pshow_error(&p->ps, "settings cannot be changed here");
+        return;
+    }
+    s.view = SV_MAIN;
+    pitheme_sgr(&p->theme, PR_ACCENT, s.arrow);
+    s.pk.row = ss_row;
+    s.pk.key = ss_key;
+    s.pk.tail = ss_tail;
+    s.pk.u = &s;
+    s.pk.layout = TUI_PICK_FRAME;
+    ss_build_main(&s, 0);
+    tui_pick_run(t, &s.pk);
+    free(s.it);
+    if (s.dirty_theme || p->redraw_after)
+        redraw_session(p);
+    p->redraw_after = 0;
+    status(p);
+}
+
+/* what a changed setting does to the running screen and session (id: the table's id of the row, 0 every one: the start); the settings the table
+ * calls "next start" are read where they start */
+static void settings_live(pi_ui *p, pi_store *st, const char *id)
+{
+    cl_sys *sys = st->models->sys;
+    const char *dir = st->models->agent_dir;
+    cl_tui *t = p->ui.tui;
+    char v[40];
+    pi_settings_session(sys, dir, p->s, st, id);
+    if (!id || !strcmp(id, "autocompact"))
+        status(p);
+    if (t && (!id || !strcmp(id, "editor-padding"))) {
+        long x = pi_set_num(sys, dir, "editorPaddingX", 0);
+        t->pi_edpad = x < 0 ? 0 : x > 3 ? 3 : (int)x;
+    }
+    if (t && (!id || !strcmp(id, "autocomplete-max-visible"))) {
+        long x = pi_set_num(sys, dir, "autocompleteMaxVisible", 5);
+        t->pi_menu_max = x < 3 ? 3 : x > 20 ? 20 : (int)x;
+    }
+    if (t && (!id || !strcmp(id, "double-escape-action"))) {
+        pi_set_str(sys, dir, "doubleEscapeAction", "tree", v, sizeof(v));
+        t->pi_dbl_esc = !strcmp(v, "fork") ? 1 : !strcmp(v, "none") ? 2 : 0;
+    }
+    if (t && (!id || !strcmp(id, "show-hardware-cursor")))
+        t->pi_hwcursor = pi_set_bool(sys, dir, "showHardwareCursor", 0);
+    if (id && !strcmp(id, "skill-commands")) {          /* setupAutocompleteProvider: the skills read again, the menu's /skill:name rows follow */
+        char err[200];
+        reload_resources(p, err, sizeof(err));
+    }
+    if (id && !strcmp(id, "output-padding")) {
+        long x = pi_set_num(sys, dir, "outputPad", 1);
+        pshow_set_pad(&p->ps, x == 0 ? 0 : 1);
+        p->redraw_after = 1;
+    }
+    if (id && !strcmp(id, "theme")) {
+        char th[160];
+        pi_set_str(sys, dir, "theme", "system", th, sizeof(th));
+        if (ui_themes_src && ui_themes_src->load && !ui_themes_src->load(ui_themes_src->u, th, &p->theme)) {
+            pshow_theme(&p->ps, &p->theme);
+            status(p);
+        }
+    }
 }
 
 /* ---- /fork ---- */
@@ -2950,6 +4354,14 @@ static int run_command(pi_ui *p, cl_tui *t, const char *line)
         }
         if (!strcmp(line, "/fork")) {
             fork_command(p, t);
+            return 1;
+        }
+        if (!strcmp(line, "/scoped-models") && ((pi_store *)p->s->command_u)->models) {
+            scoped_selector(p, t);
+            return 1;
+        }
+        if (!strcmp(line, "/settings") && ((pi_store *)p->s->command_u)->models) {
+            settings_command(p, t);
             return 1;
         }
     }
