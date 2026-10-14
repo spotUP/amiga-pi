@@ -1,6 +1,6 @@
 # amiga-pi architecture (milestone 0)
 
-Plan: `~/Code/vtcon/thoughts/shared/plans/2026-10-07-amiga-pi.md` (phase A). Research: `~/Code/vtcon/thoughts/shared/research/2026-10-07_pi-like-amiga-agent.md` (R-numbers below). pi source facts: `thoughts/shared/research/2026-10-07_pi-sources-addendum.md` (research addendum read pi commit f10993bc, a main snapshot between 1.0.4 and 1.1.0; since 2026-10-12 the reference is **pi 1.1.0 = tag `v1.1.0`, commit abe508e1b89912adde45528136c3221eb69acdd7**, github.com/earendil-works/pi, cloned in `~/Code/amiga-pi/vendor/pi-src` (gitignored): `git clone --branch v1.1.0 https://github.com/earendil-works/pi vendor/pi-src`; read pi code there, not on the web). Nothing here ran on an Amiga.
+Plan: `~/Code/vtcon/thoughts/shared/plans/2026-10-07-amiga-pi.md` (phase A). Research: `~/Code/vtcon/thoughts/shared/research/2026-10-07_pi-like-amiga-agent.md` (R-numbers below). pi source facts: `thoughts/shared/research/2026-10-07_pi-sources-addendum.md` (research addendum read pi commit f10993bc, a main snapshot between 1.0.4 and 1.1.0; since 2026-10-14 (P12) the reference is **pi 1.2.0 = tag `v1.2.0`, commit 06a466935536f8c9bcacb2d5efc0fc021be1bdff** (1.1.0, tag `v1.1.0`, abe508e1b89912adde45528136c3221eb69acdd7, was it from 2026-10-12 to 2026-10-14), github.com/earendil-works/pi, cloned in `~/Code/amiga-pi/vendor/pi-src` (gitignored): `git clone --branch v1.1.0 https://github.com/earendil-works/pi vendor/pi-src`; read pi code there, not on the web). Nothing here ran on an Amiga.
 
 ## Decisions recorded (owner, 2026-10-07)
 
@@ -241,6 +241,12 @@ PITUI_TAG.
 dialogs. RPC mode sends pi's requests; the TUI shows statuses on a footer row and widgets above and below the editor (vtcon
 claude/tui.c); print and json mode have none (pi's no-op context). Line mode reads a dialog's answer within the extension's
 timeout through the console's timed read.
+
+## Reference version and the oracle (P12, 2026-10-14)
+
+Every claim of equality with pi is a golden made by running pi itself. The pin is pi 1.2.0 (tag `v1.2.0`, 06a46693), installed with `npm install --prefix vendor/pi-1.2.0 @earendil-works/pi-coding-agent@1.2.0` (vendor/ is gitignored; a `build/wt-*` worktree finds the main checkout's copy). The generators use that install and nothing else: `tui_gen.py` and `rpc_gen.py` run its `pi` binary (never the pi on the PATH), and `tools/pi_oracle/gen.ts` (`make oracle-session`) imports the package's own dist (`SessionManager`, `convertToLlm`, compaction, branch summarization, `AgentSession`) for tests/pi/sessions. Until P12 gen.ts ran a hand-assembled copy of f10993bc's sources in the untracked build/pi-oracle, and the A8 regeneration needed a hand patch of its compaction/utils.ts; that copy is no longer used by gen.ts. gen.ts exits 2 and writes nothing when the install is not 1.2.0, and tests/test_pi_session.c `test_oracle_pin` regenerates every sessions expected file into a temp dir, compares it byte for byte with the committed one, and proves the refusal with vendor/pi-1.1.0. Moving the pin means changing `PINNED` in gen.ts, `find_pi` and the install path together, then regenerating. The other generators under tools/pi_oracle that still read build/pi-oracle (gen_resources.ts, gen_model.ts, mkoracle_g.py, mkprompts.py, mcp_oracle.sh) are not yet moved to the pinned install.
+
+pi 1.2.0 changes that need no code on the Amiga (codemode, MCP OAuth and CLI, OSC 52, Kitty and Herdr images, Windows fixes) are listed in COMPATIBILITY.md, "pi 1.2.0: not applicable on the Amiga".
 
 ## What is not in phase A
 
