@@ -188,6 +188,10 @@ typedef struct pi_session {
     char *pend_custom[8];
     int npend_custom;
     char *deferred_custom;
+    int starting;               /* the run is starting: before_agent_start's handlers are running (agent-session.ts _startRun) */
+    char *start_steer[8];       /* pi.sendMessage with triggerTurn from those handlers: steered into the starting run, after its messages */
+    int nstart_steer;
+    char *start_custom;         /* the run's starting message when pi.sendMessage with triggerTurn started it (BeforeAgentStartTrigger "custom") */
     int result_error;           /* the tool running now returned a result with isError set, which is no thrown error (an extension's
                                  * tool; its details stay as it gave them): reset by the loop before each call */
     int active;                 /* a prompt is running (pi's isStreaming) */

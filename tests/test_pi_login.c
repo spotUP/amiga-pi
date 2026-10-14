@@ -1114,7 +1114,10 @@ static void test_requests(void)
         q_sse("../pi/openai_text.sse");
         in_lines[0] = "hello";
         in_lines[1] = 0;
+        env_name[3] = "PI_OFFLINE";              /* the per-key model list (P12-A10) is not what this case is about */
+        env_val[3] = "1";
         CHECK_INT(run_app(ARGC(orm), orm), 0);
+        env_name[3] = 0;
         CHECK_INT(ps.nreq, 1);
         if (ps.nreq == 1) {
             CHECK(strstr(ps.head[0], "POST /api/v1/chat/completions HTTP/1.1\r\nHost: openrouter.ai\r\n") == ps.head[0]);
@@ -1562,7 +1565,10 @@ static void test_openrouter_radius_dialog(void)
     in_lines[1] = "1";
     in_lines[2] = "http://127.0.0.1:50000/oauth/callback/x?code=my-code";
     in_lines[3] = 0;
+    env_name[3] = "PI_OFFLINE";                  /* the per-key model list after the login (P12-A10) is not what this case is about */
+    env_val[3] = "1";
     run_app(ARGC(a), a);
+    env_name[3] = 0;
     CHECK_INT(pi_auth_logins - l0, 1);
     CHECK(pos_of(out.p, "Select authentication method for OpenRouter:") >= 0 && pos_of(out.p, "1) Sign in with OpenRouter") >= 0);
     CHECK(pos_of(out.p, "Login to OpenRouter") >= 0 && pos_of(out.p, "https://openrouter.ai/auth?callback_url=http%3A%2F%2F127.0.0.1%3A") >= 0);

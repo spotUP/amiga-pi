@@ -1,0 +1,18 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "export default function (pi) {\n  pi.on(\"before_agent_start\", async (event, ctx) => {\n    await ctx.ui.input(\"Wait?\", \"x\");\n  });\n}\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": []
+}

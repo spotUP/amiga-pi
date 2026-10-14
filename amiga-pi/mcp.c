@@ -819,7 +819,7 @@ static int tool_exposure(const mcp_server *s, const char *tool)
         }
     }
     if (e == MX_NONE)
-        e = MX_DIRECT;          /* amiga-pi's default (pi's is codemode, not built here) */
+        e = MX_CODEMODE;        /* pi's default (docs/mcp.md): no schema declared, found through tool_search */
     if (e == MX_CODEMODE)
         e = MX_DEFERRED;        /* reached through tool_search */
     return e;
@@ -1913,13 +1913,7 @@ int mcp_result_ex(mcp *m, const char *server, const char *tool, const char *id, 
         *is_error = 1;
         return -1;
     }
-    if (json_get(v, "structuredContent", &sc) && json_type(sc) != J_OBJ) {
-        jw_rawz(out, "[");
-        llm_b_text(out, "Invalid MCP tools/call structured content", 41, 0);
-        jw_rawz(out, "]");
-        *is_error = 1;
-        return -1;
-    }
+    /* MCP 2026-07-28 (pi 1.2.0 protocol/content.ts): structuredContent is any JSON value, not only an object */
     memset(&c, 0, sizeof(c));
     jw_init(&c.blocks);
     jw_init(&c.texts);
@@ -2561,8 +2555,8 @@ static int indirect(const mcp_server *s)
 {
     jv o, k, v;
     jit it;
-    if (s->exposure == MX_CODEMODE || s->exposure == MX_DEFERRED)
-        return 1;
+    if (s->exposure == MX_NONE || s->exposure == MX_CODEMODE || s->exposure == MX_DEFERRED)
+        return 1;           /* an unset exposure is pi's default, codemode */
     if (s->tool_exposure && !json_parse(s->tool_exposure, (long)strlen(s->tool_exposure), &o)) {
         json_iter(o, &it);
         while (json_next(&it, &k, &v))
@@ -2685,7 +2679,7 @@ int mcp_attach(mcp *m, pi_session *s)
                 deferred = 1;
         }
         if (m->srv[i].enabled && !m->srv[i].connected &&
-            (m->srv[i].exposure == MX_DEFERRED || m->srv[i].exposure == MX_CODEMODE))
+            (m->srv[i].exposure == MX_DEFERRED || m->srv[i].exposure == MX_CODEMODE || m->srv[i].exposure == MX_NONE))
             deferred = 1;
     }
     /* a direct tool the session has no room for is left out (pi has no cap; PI_TOOLS is ours); the last slot

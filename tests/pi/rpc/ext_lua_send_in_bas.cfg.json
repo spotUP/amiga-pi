@@ -1,0 +1,23 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"before_agent_start\", function(event, ctx)\n  pi.sendMessage({ customType = \"late\", content = \"sent in handler\", display = true }, { triggerTurn = true })\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "session.jsonl"
+ ],
+ "golden": "ext_send_in_bas",
+ "lua_dump": "session.jsonl",
+ "canonical": true
+}

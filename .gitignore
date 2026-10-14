@@ -5,4 +5,5 @@ __pycache__/
 *.pyc
 vendor/pi-1.0.4/
 vendor/pi-1.1.0/
+vendor/pi-1.2.0/
 vendor/pi-src/

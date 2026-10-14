@@ -1,0 +1,5 @@
+HTTP/1.1 400 X
+content-type: application/json
+content-length: 115
+
+{"type": "error", "error": {"type": "invalid_request_error", "message": "The upstream provider returned an error"}}

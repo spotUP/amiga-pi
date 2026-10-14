@@ -1,0 +1,19 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.on(\"before_agent_start\", function(event, ctx)\n  ctx.ui.input(\"Wait?\", \"x\")\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [],
+ "golden": "ext_abort_in_bas"
+}

@@ -1,0 +1,24 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.lua": "pi.registerCommand(\"go\", { description = \"Go\", handler = function(args, ctx)\n  pi.sendMessage({ customType = \"note\", content = \"started by go\", display = true }, { triggerTurn = true })\nend })\npi.on(\"before_agent_start\", function(event, ctx)\n  print(json.encode({ messageType = event.messageType, message = event.message, prompt = event.prompt }))\n  return { message = { customType = \"added\", content = \"added by handler\", display = true } }\nend)\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl",
+  "session.jsonl"
+ ],
+ "golden": "ext_trigger_bas",
+ "lua_dump": "dump.jsonl",
+ "canonical": true
+}
