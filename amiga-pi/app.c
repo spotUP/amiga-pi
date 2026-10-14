@@ -21,6 +21,7 @@
 #include "resources.h"
 #include "mode_json.h"
 #include "mode_rpc.h"
+#include "radius.h"
 #include "templates.h"
 #include "resreport.h"
 #include "claude/util.h"
@@ -1220,6 +1221,12 @@ int pi_rt_run(pi_rt *rt)
             cl_cat(line, warn[i], sizeof(line));
             diag_out(pl, line);
         }
+    /* main.ts:937-947 and the interactive start: the interactive and RPC modes refresh the model catalogs from the network (PI_OFFLINE
+     * set: never, checked in pi_radius_refresh); amiga-pi has the Radius ones, when a credential is at hand, and a failure is silent as in pi */
+    if ((rt->mode == PI_MODE_RPC || (rt->mode == PI_MODE_TEXT && !a.print))) {
+        char rerr[300];
+        pi_radius_refresh(&auth, 0, rerr, sizeof(rerr));
+    }
     if (rt->mode == PI_MODE_JSON)
         return pi_mode_json(&s, &store, rt->io, (const char *const *)a.msg, a.nmsg);
     if (rt->mode == PI_MODE_RPC)

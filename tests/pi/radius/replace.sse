@@ -1,0 +1,29 @@
+data: {"type":"start"}
+
+data: {"type":"text_start","contentIndex":0}
+
+data: {"type":"text_delta","contentIndex":0,"delta":"draft"}
+
+data: {"type":"text_end","contentIndex":0,"content":"final"}
+
+data: {"type":"thinking_start","contentIndex":1}
+
+data: {"type":"thinking_end","contentIndex":1,"content":"","contentSignature":"enc","redacted":true}
+
+data: {"type":"toolcall_start","contentIndex":2,"id":"c9","toolName":"read"}
+
+data: {"type":"toolcall_delta","contentIndex":2,"delta":"{\"path\": \"x\""}
+
+data: {"type":"toolcall_end","contentIndex":2,"toolCall":{"type":"toolCall","id":"c9","name":"read","arguments":{"path":"y"},"thoughtSignature":"ts"}}
+
+data: {"type":"done","reason":"toolUse","usage":{"input":120,"output":7,"cacheRead":3,"cacheWrite":0,"totalTokens":130,"cost":{"input":0.00036,"output":0.000105,"cacheRead":9e-7,"cacheWrite":0,"total":0.000465}},"responseId":"resp_4"}
+
+----
+data: {"type":"start"}
+
+data: {"type":"text_start","contentIndex":0}
+
+data: {"type":"text_end","contentIndex":0,"content":"ok"}
+
+data: {"type":"done","reason":"stop","usage":{"input":120,"output":7,"cacheRead":3,"cacheWrite":0,"totalTokens":130,"cost":{"input":0.00036,"output":0.000105,"cacheRead":9e-7,"cacheWrite":0,"total":0.000465}}}
+

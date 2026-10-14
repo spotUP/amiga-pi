@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "login.h"
+#include "radius.h"
 #include "authstore.h"
 #include "mcp.h"
 #include "claude/util.h"
@@ -744,7 +745,17 @@ static int finish(pi_auth *a, const pi_login_ui *ui, const oa_provider *p, int o
     char path[320], line[500], why[500];
     pi_session *s = a->s;
     const char *selected = 0;
+    int rad = !strcmp(p->id, RADIUS_ID), refreshed = 0, rfail = 0;
+    char rerr[300];
     why[0] = 0;
+    rerr[0] = 0;
+    /* a Radius catalog is the account's: when the default model is not in the one at hand, the refresh comes first
+     * (deferSelection, interactive-mode.ts completeProviderAuthentication) */
+    if (rad && s && !pi_model_usable(a->m, &s->model) && !llm_reg_find(&a->m->reg, p->id, default_model(p->id))) {
+        refreshed = 1;
+        if (pi_radius_refresh(a, p->id, rerr, sizeof(rerr)) <= 0 && rerr[0])
+            rfail = 1;
+    }
     cl_copy(path, a->agent_dir ? a->agent_dir : "", sizeof(path));
     if (path[0] && path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
         cl_cat(path, "/", sizeof(path));
@@ -753,6 +764,16 @@ static int finish(pi_auth *a, const pi_login_ui *ui, const oa_provider *p, int o
         const char *want = default_model(p->id);
         const llm_model *mo = want ? llm_reg_find(&a->m->reg, p->id, want) : 0;
         char err[200], label[160];
+        if (rad && !mo) {
+            /* "Radius catalogs vary by account; prefer balanced, then use catalog order" */
+            int k;
+            for (k = 0; k < a->m->reg.n; k++)
+                if (!strcmp(a->m->reg.m[k].provider, p->id)) {
+                    mo = &a->m->reg.m[k];
+                    want = mo->id;
+                    break;
+                }
+        }
         cl_copy(label, oauth ? "Logged in to " : "Saved API key for ", sizeof(label));
         cl_cat(label, p->name, sizeof(label));
         if (!want) {
@@ -786,6 +807,14 @@ static int finish(pi_auth *a, const pi_login_ui *ui, const oa_provider *p, int o
     ui->note(ui->u, PL_OK, line);
     if (why[0])
         ui->note(ui->u, PL_ERROR, why);
+    if (rad && !refreshed && pi_radius_refresh(a, p->id, rerr, sizeof(rerr)) <= 0 && rerr[0])
+        rfail = 1;
+    if (rfail) {
+        cl_copy(line, oauth ? "Logged in to " : "Saved API key for ", sizeof(line));
+        cl_cat(line, p->name, sizeof(line));
+        cl_cat(line, ", but its model catalog could not be refreshed; using cached models.", sizeof(line));
+        ui->note(ui->u, PL_WARNING, line);
+    }
     return 1;
 }
 

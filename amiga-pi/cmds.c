@@ -15,6 +15,7 @@
  * pi's selector is a full-screen list; this is the same operations as commands (COMPATIBILITY.md). */
 #include <stdlib.h>
 #include <string.h>
+#include "radius.h"
 #include "store.h"
 #include "ext_events.h"
 #include "resources.h"
@@ -677,6 +678,11 @@ int pi_cmd(pi_store *st, const char *line, jw *reply, jw *editor)
             return 1;
         }
         if (!*a) {
+            /* the model selector refreshes the catalogs (model-catalog-refresh.ts); the Radius ones when there is a credential */
+            if (ag->auth_u) {
+                char rerr[300];
+                pi_radius_refresh((pi_auth *)ag->auth_u, 0, rerr, sizeof(rerr));
+            }
             pi_models_list(ms, ag, reply);
             jw_rawz(reply, "Switch with /model <number> or /model <provider/model>.");
             return 1;
