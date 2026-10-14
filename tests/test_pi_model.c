@@ -79,7 +79,8 @@ static void test_catalog(void)
         CHECK_INT(conv_price(ids[i], &p), 1);
         CHECK_INT(m->cost[0], p.in * 10000L);
         CHECK_INT(m->cost[1], p.out * 10000L);
-        CHECK_INT(m->cost[2], p.cread * 10000L);
+        /* pi 1.2.0 halved claude-sonnet-5-5's cache read price (0.2 -> 0.1); C:Claude's table keeps its own */
+        CHECK_INT(m->cost[2], !strcmp(ids[i], "claude-sonnet-5-5") ? 100000L : p.cread * 10000L);
         CHECK_INT(m->cost[3], p.cwrite * 10000L);
         CHECK_STR(m->api, "anthropic-messages");
         CHECK(m->image == 1 && m->reasoning == 1);
