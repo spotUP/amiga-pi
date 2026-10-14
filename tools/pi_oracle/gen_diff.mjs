@@ -2,8 +2,9 @@
 //   lines: [0, old, new, diff, firstChangedLine, patch]   generateDiffString + generateUnifiedPatch (core/tools/edit-diff.ts)
 //   words: [1, old, new, [[flag, value], ...]]            Diff.diffWords (components/diff.ts renderIntraLineDiff); flag 0 same, 1 added, 2 removed
 //   node tools/pi_oracle/gen_diff.mjs > tests/pi/diff/cases.json
+import { npmRoot } from "./pin.mjs";
 import { createRequire } from 'node:module';
-const root = new URL('../../vendor/pi-1.1.0/node_modules/', import.meta.url).pathname;
+const root = npmRoot + '/';
 const { generateDiffString, generateUnifiedPatch } = await import(root + '@earendil-works/pi-coding-agent/dist/core/tools/edit-diff.js');
 const Diff = await import(root + 'diff/libesm/index.js');
 let seed = 12345;

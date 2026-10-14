@@ -1,5 +1,5 @@
-// gen_yaml.mjs -- the expected results of tests/test_pi_yaml.c, produced by pi 1.1.0's own utils/frontmatter.ts parseFrontmatter (which
-// calls the yaml package's `parse`): the pinned install vendor/pi-1.1.0 (or PI_PKG=<node_modules/@earendil-works/pi-coding-agent>),
+// gen_yaml.mjs -- the expected results of tests/test_pi_yaml.c, produced by pi 1.2.0's own utils/frontmatter.ts parseFrontmatter (which
+// calls the yaml package's `parse`): the pinned install vendor/pi-1.2.0 (tools/pi_oracle/pin.mjs),
 // never the pi on the PATH.
 //
 //   node tools/pi_oracle/gen_yaml.mjs        writes tests/pi/yaml/cases.json
@@ -12,24 +12,13 @@
 import { readFileSync, realpathSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { caDir } from "./pin.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = resolve(here, "..", "..", "tests", "pi", "yaml");
-function findPkg() {
-	if (process.env.PI_PKG) return process.env.PI_PKG;
-	for (const up of ["../..", "../../../.."]) {
-		const p = resolve(here, up, "vendor", "pi-1.1.0", "node_modules", "@earendil-works", "pi-coding-agent");
-		try {
-			realpathSync(p);
-			return p;
-		} catch {}
-	}
-	throw new Error("gen_yaml: no pinned pi: npm install --prefix vendor/pi-1.1.0 @earendil-works/pi-coding-agent@1.1.0, or set PI_PKG");
-}
-const pkg = findPkg();
+const pkg = caDir;
 const pi = await import(pathToFileURL(join(pkg, "dist", "index.js")).href);
 const version = JSON.parse(readFileSync(join(pkg, "package.json"), "utf-8")).version;
-if (version !== "1.1.0") throw new Error(`gen_yaml: pi ${version}, not 1.1.0`);
 process.removeAllListeners("warning");
 process.on("warning", () => {});
 

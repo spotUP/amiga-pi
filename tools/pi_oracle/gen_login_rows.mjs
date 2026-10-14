@@ -2,13 +2,13 @@
 // login_apikey show pi's whole list, which amiga-pi has only in part): getLoginProviderOptions of interactive-mode.ts over the
 // builtin providers of pi-ai (the same list the ModelRuntime holds), sorted by name. Writes tests/pi/tui/login_rows.txt:
 // one line per row: <authType> TAB <id> TAB <name> TAB <login method's name> TAB <1 when subscription>
-//   [PI_NPM=<pi install>] node tools/pi_oracle/gen_login_rows.mjs
+//   node tools/pi_oracle/gen_login_rows.mjs
 import { writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { npmRoot } from "./pin.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
-const npm = process.env.PI_NPM || join(here, "../../vendor/pi-1.1.0");
-const all = await import(pathToFileURL(join(npm, "node_modules/@earendil-works/pi-ai/dist/providers/all.js")).href);
+const all = await import(pathToFileURL(join(npmRoot, "@earendil-works/pi-ai/dist/providers/all.js")).href);
 const options = [];
 for (const provider of all.builtinProviders()) {
   const subscription = provider.auth.oauth?.isSubscription === true;

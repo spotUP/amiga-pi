@@ -5,13 +5,13 @@
  Login to OpenAI
 
  https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client&
- agent_name_hint=Pi&ext_agent_host_id=urn%3Auuid%3A035d420b-b91e-4dd1-9f5c-ed08
- 890beeb7&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%
+ agent_name_hint=Pi&ext_agent_host_id=urn%3Auuid%3A029f100e-c819-4c7f-ade5-7c3c
+ 175eb4d7&response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%
  2Fcallback&resource=https%3A%2F%2Fapi.openai.com%2Fv1&scope=openid+profile+ema
- il+offline_access+resource.invoke+chatgpt.tokens.use.direct&state=4RwA4-KC6NvN
- 5rEgXaCz-xaT-4DPCB0mv38H3J7xTdI&code_challenge=SBiqWojb8kL_CWiJwSaP4vBxzGaJlgq
- PqNwCc2j-TFM&code_challenge_method=S256&nonce=8e23KKd6hCKbr7fYx6PM0k76B3vnrluH
- Sw1s3Dg8uQc
+ il+offline_access+resource.invoke+chatgpt.tokens.use.direct&state=1mBzYcVl2Fy3
+ IOtXn-xzBo9EPET3LMgwIoI02aoUrtI&code_challenge=Iq7YZgUlprQWVXiihhUfFjGZEaiHBBE
+ yqjUifF4K_DM&code_challenge_method=S256&nonce=oYZBrkiTY7BH6IkXWK3L9JEVdaRDEKE6
+ WMtzO0ESXwo
  Cmd+click to open • ctrl+x to copy
 
  Complete sign-in in your browser. If the callback does not complete, paste the

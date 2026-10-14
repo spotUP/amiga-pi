@@ -1,5 +1,5 @@
 // gen_skills.mjs -- the expected outputs of tests/test_pi_skills.c (plan phase I), produced by pi 1.2.0's own code: the pinned install
-// vendor/pi-1.2.0 (or PI_PKG=<node_modules/@earendil-works/pi-coding-agent>), never the pi on the PATH. What runs is pi's
+// vendor/pi-1.2.0 (tools/pi_oracle/pin.mjs), never the pi on the PATH. What runs is pi's
 // DefaultResourceLoader (core/resource-loader.ts, core/package-manager.ts: the order and the places skills are found in, settings.json "skills"),
 // loadSkills (core/skills.ts: the validation and its messages), buildSystemPromptSections (the "skills" section) and
 // AgentSession._expandSkillCommand (core/agent-session.ts: /skill:name args).
@@ -14,29 +14,17 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { caDir } from "./pin.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = resolve(here, "..", "..", "tests", "pi", "skills");
-function findPkg() {
-	if (process.env.PI_PKG) return process.env.PI_PKG;
-	for (const up of ["../..", "../../../.."]) {
-		// this checkout, then the main one when this is build/wt-<name>
-		const p = resolve(here, up, "vendor", "pi-1.2.0", "node_modules", "@earendil-works", "pi-coding-agent");
-		try {
-			realpathSync(p);
-			return p;
-		} catch {}
-	}
-	throw new Error("gen_skills: no pinned pi: npm install --prefix vendor/pi-1.2.0 @earendil-works/pi-coding-agent@1.2.0, or set PI_PKG");
-}
 process.env.PI_OFFLINE = "1"; // a package source npm:/git: is not fetched: pi skips it
-const pkg = findPkg();
+const pkg = caDir;
 const pi = await import(pathToFileURL(join(pkg, "dist", "index.js")).href);
 const { buildSystemPromptSections } = await import(pathToFileURL(join(pkg, "dist", "core", "system-prompt.js")).href);
 const { AgentSession } = await import(pathToFileURL(join(pkg, "dist", "core", "agent-session.js")).href);
 const { resolvePath: piResolvePath } = await import(pathToFileURL(join(pkg, "dist", "utils", "paths.js")).href);
 const version = JSON.parse((await import("node:fs")).readFileSync(join(pkg, "package.json"), "utf-8")).version;
-if (version !== "1.2.0") throw new Error(`gen_skills: pi ${version}, not 1.2.0`);
 
 const sk = (name, desc, extra = "") =>
 	`---\n${name === null ? "" : `name: ${name}\n`}${desc === null ? "" : `description: ${desc}\n`}${extra}---\nBody of ${name ?? "the skill"}.\n\nSecond paragraph.\n`;

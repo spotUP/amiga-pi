@@ -3,7 +3,7 @@
 size, against a local fake Messages API (scripted answers, no key, no cost), each screen captured
 with `tmux capture-pane -e -p` (text and SGR colours).
 
-  python3 tools/pi_oracle/tui_gen.py [--only <scenario>] [--cols 80] [--rows 25] [--keep]
+  python3 tools/pi_oracle/tui_gen.py [--only <scenario>] [--stale] [--cols 80] [--rows 25] [--keep]
 
 The mode and the theme of every scenario are written into its settings.json (TM1, TM6): `tui` is pi's tuiMode
 ("fullscreen", pi 1.0.4's default and the mode of every golden captured before TM1, or "regular"), `theme` the theme
@@ -31,11 +31,11 @@ def find_pi():
     the owner's `pi update` moves it (it moved to 1.1.0 mid-phase once)."""
     if os.environ.get('PI_BIN'):
         return os.environ['PI_BIN']
-    for root in ('../..', '../../../..'):         # this checkout, then the main one when this is build/wt-<name>
-        c = os.path.normpath(os.path.join(HERE, root, 'vendor', 'pi-1.2.0', 'node_modules', '.bin', 'pi'))
-        if os.path.exists(c):
-            return c
-    sys.exit('tui_gen: no pinned pi: npm install --prefix vendor/pi-1.2.0 @earendil-works/pi-coding-agent@1.2.0, or set PI_BIN')
+    # the one place that knows the pin: tools/pi_oracle/pin.mjs (this checkout's vendor/, else the main one; exit 2 if not 1.2.0)
+    r = subprocess.run(['node', os.path.join(HERE, 'pin.mjs'), 'npm'], capture_output=True, text=True)
+    if r.returncode:
+        sys.exit('tui_gen: ' + r.stderr.strip())
+    return os.path.join(r.stdout.strip(), '.bin', 'pi')
 
 
 TAG = os.environ.get('PITUI_TAG', 'pitui')
@@ -1145,6 +1145,7 @@ def main():
     ap.add_argument('--cols', type=int, default=80)
     ap.add_argument('--rows', type=int, default=25)
     ap.add_argument('--keep', action='store_true')
+    ap.add_argument('--stale', action='store_true', help='only scenarios whose <name>.mode does not name the pinned pi (resumable)')
     a = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     # the skills of the skills_* scenarios, for tests/test_pi_tui.c to put in its own agent directory
@@ -1160,6 +1161,12 @@ def main():
     for n, sc in SCENARIOS.items():
         if a.only and a.only != n:
             continue
+        if a.stale:
+            try:
+                if open(os.path.join(OUT, n + '.mode')).readline().split()[0] == 'pi=' + PI_VERSION:
+                    continue
+            except OSError:
+                pass
         run(n, sc, a.cols, a.rows, a.keep)
 
 

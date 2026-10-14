@@ -4,16 +4,16 @@
 // the session id its store makes (the tools are pi's real declarations, $VTCON_DIR/tests/pi/pi_tools.json). Writes tests/pi/model/switch_second.json
 // (Anthropic answer, then gpt-4.1) and switch_back_second.json (gpt-4.1 answer, then Anthropic at the level the
 // switch clamps off to).
-//   VTCON_DIR=<vtcon> [PI_NPM=<pi install>] node tools/pi_oracle/gen_switch.mjs
+//   VTCON_DIR=<vtcon> node tools/pi_oracle/gen_switch.mjs
 // Also writes the Anthropic-only conversation tests/pi/model/levels_{first,second,third}.json: opus-5-5 prompted at
 // low, high and medium (the system messages pi inserts carry the levels of the earlier answers). The models are
 // pi-ai's own data, unaltered: claude-opus-5-5 carries supportsMidConvoEffort / SystemMessages / ToolChanges.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-const npm = process.env.PI_NPM || "/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent";
+import { npmRoot } from "./pin.mjs";
 const vt = process.env.VTCON_DIR || "../vtcon";
-const dist = join(npm, "node_modules/@earendil-works/pi-ai/dist");
+const dist = join(npmRoot, "@earendil-works/pi-ai/dist");
 const imp = (p) => import(pathToFileURL(join(dist, p)).href);
 const { MODELS } = await imp("models.generated.js");
 const { clampThinkingLevel } = await imp("models.js");

@@ -9,16 +9,16 @@
 //                "error <message>"
 // The scripted user: a select prompt takes the scenario's next "select" index, a text prompt its next "text", a pasted
 // redirect/code is "paste" with $STATE replaced by the state parameter of the URL pi showed.
-//   PI_NPM=<dir holding node_modules/@earendil-works/pi-ai> node tools/pi_oracle/gen_oauth.mjs [--only name]
-//   (the pinned install: vendor/pi-1.1.0)
+//   node tools/pi_oracle/gen_oauth.mjs [--only name]
+//   (the pinned install: tools/pi_oracle/pin.mjs)
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { npmRoot } from "./pin.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const npm = process.env.PI_NPM || join(here, "..", "..", "vendor", "pi-1.1.0");
-const dist = join(npm, "node_modules/@earendil-works/pi-ai/dist");
+const dist = join(npmRoot, "@earendil-works/pi-ai/dist");
 const dir = join(here, "..", "..", "tests", "pi", "oauth");
 const { now: NOW, scenarios } = JSON.parse(readFileSync(join(dir, "scenarios.json"), "utf8"));
 const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : null;

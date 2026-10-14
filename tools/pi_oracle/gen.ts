@@ -10,7 +10,7 @@
 // dump of what opening it gives), and writer.scn + writer.expected (a scenario of appends and the file pi
 // writes for it, ids and times normalised). PI_SESSIONS_OUT redirects the writes (the test's reproducibility
 // check regenerates into a temp copy and compares).
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -18,25 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const sessions = resolve(here, "..", "..", "tests", "pi", "sessions");
 const outDir = process.env.PI_SESSIONS_OUT ?? sessions;
-const PINNED = "1.2.0";
-// this checkout's vendor/, else the main checkout's when this is build/wt-<name>
-function findOracle(): string {
-	// exit 2: the install found is not 1.2.0; exit 3: there is none
-	if (process.env.PI_ORACLE_DIR) return resolve(process.env.PI_ORACLE_DIR);
-	for (const root of ["../..", "../../../.."]) {
-		const c = resolve(here, root, "vendor", "pi-1.2.0");
-		if (existsSync(join(c, "node_modules", "@earendil-works", "pi-coding-agent", "package.json"))) return c;
-	}
-	console.error("gen: no pinned pi: npm install --prefix vendor/pi-1.2.0 @earendil-works/pi-coding-agent@1.2.0");
-	process.exit(3);
-}
-const npmRoot = join(findOracle(), "node_modules");
-const caDir = join(npmRoot, "@earendil-works", "pi-coding-agent");
-const caVersion = JSON.parse(readFileSync(join(caDir, "package.json"), "utf8")).version;
-if (caVersion !== PINNED) {
-	console.error(`gen: the oracle is pi-coding-agent ${caVersion}, not the pinned ${PINNED}; refusing to write goldens`);
-	process.exit(2);
-}
+import { caDir, npmRoot } from "./pin.mjs";
 const dist = (f: string) => import(pathToFileURL(join(caDir, "dist", f)).href);
 const { SessionManager } = await dist("core/session-manager.js");
 const { convertToLlm } = await dist("core/messages.js");

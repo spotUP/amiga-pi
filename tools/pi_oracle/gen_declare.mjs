@@ -6,14 +6,14 @@
 // Writes tests/pi/model/declare_roles.txt (the roles in message_end order), declare_message.json (the declaring system
 // message, timestamp 0), declare_first_tools.json and declare_second_tools.json (the "tools" the two requests carry), and the
 // declare55_* files of a model that does take system messages in the conversation (below).
-//   VTCON_DIR=<vtcon> [PI_NPM=<pi install>] node tools/pi_oracle/gen_declare.mjs
+//   VTCON_DIR=<vtcon> node tools/pi_oracle/gen_declare.mjs
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-const npm = process.env.PI_NPM || "/opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent";
+import { npmRoot } from "./pin.mjs";
 const vt = process.env.VTCON_DIR || "../vtcon";
-const ai = join(npm, "node_modules/@earendil-works/pi-ai/dist");
-const core = join(npm, "node_modules/@earendil-works/pi-agent-core/dist");
+const ai = join(npmRoot, "@earendil-works/pi-ai/dist");
+const core = join(npmRoot, "@earendil-works/pi-agent-core/dist");
 const imp = (p) => import(pathToFileURL(p).href);
 const { MODELS } = await imp(join(ai, "models.generated.js"));
 const resp = await imp(join(ai, "api/openai-responses.js"));
