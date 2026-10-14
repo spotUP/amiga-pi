@@ -1780,7 +1780,7 @@ static void test_chatgpt_dialog(void)
         free(file);
     }
     dev = read_agent("settings.json");
-    CHECK(dev && !strcmp(dev, "{\n  \"deviceId\": \"41414141-4141-4141-8141-414141414141\"\n}"));
+    CHECK(dev && !strcmp(dev, "{\n  \"lastChangelogVersion\": \"" PI_VERSION "\",\n  \"deviceId\": \"41414141-4141-4141-8141-414141414141\"\n}"));   /* (the first start recorded the version, P12-B2) */
     free(dev);
     /* the second login names the same installation and asks for no random bytes for it */
     fixed_random = 0;
