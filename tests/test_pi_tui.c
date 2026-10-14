@@ -2511,6 +2511,7 @@ static void test_theme_keys_app(void)
 {
     static const char *keys1[] = { "\020", "\004", 0 };
     static const char *keys2[] = { "\024", "\033[Z", "\004", 0 };
+    static const char *keys3[] = { "\024", "\004", 0 };
     int system_fg;
     char path[600];
     /* the theme a file names colours the screen: the rules of the editor (thinkingOff) in dark.json's grey */
@@ -2556,6 +2557,16 @@ static void test_theme_keys_app(void)
     CHECK_INT(app_run(80, 25, keys2, 0, 0, take_shot), 0);
     CHECK(shot_has("claude-opus-5-5 \342\200\242 high"));
     CHECK(shot_has("unknown action"));
+    /* P12-B5 (pi 1.2.0 keybindings.ts toKeybindingsConfig): "$schema" is skipped without a warning, and a value that is
+     * not a key id is dropped (the action keeps its default) */
+    app_write("keybindings.json", "{\"$schema\":\"https://pi.dev/schemas/keybindings.schema.json\",\"app.thinking.cycle\":\"ctrl+t\"}\n");
+    CHECK_INT(app_run(80, 25, keys2, 0, 0, take_shot), 0);
+    CHECK(shot_has("claude-opus-5-5 \342\200\242 high"));
+    CHECK(!shot_has("unknown action"));
+    app_write("keybindings.json", "{\"app.thinking.cycle\":\"ctrl+ctrl+t\"}\n");
+    CHECK_INT(app_run(80, 25, keys3, 0, 0, take_shot), 0);
+    CHECK(!shot_has("claude-opus-5-5 \342\200\242 high"));                /* Ctrl+T cycles nothing: the default key stays */
+    CHECK(!shot_has("unknown action"));
     app_write("keybindings.json", "{}\n");
     unlink(path);
 }
