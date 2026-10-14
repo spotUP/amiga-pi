@@ -1231,14 +1231,14 @@ int pi_rt_run(pi_rt *rt)
         return pi_mode_json(&s, &store, rt->io, (const char *const *)a.msg, a.nmsg);
     if (rt->mode == PI_MODE_RPC)
         return pi_mode_rpc(rt);
-    if (a.print)
+    if (a.print) {
         rc = pi_ui_print(&s, pl->io, a.prompt);
         /* print-mode.ts:151-157 (pi 1.2.0): an answer cut off at the output token limit is printed, then this line on stderr and exit 1 */
         if (s.stop == LS_LENGTH) {
             diag_out(pl, "Response was truncated: the model reached its output token limit.");
             rc = 1;
         }
-    else {
+    } else {
         static cl_pitheme th;
         static char *kb;
         long kn = 0;
