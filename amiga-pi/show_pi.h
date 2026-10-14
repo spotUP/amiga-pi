@@ -33,7 +33,7 @@ typedef struct ps_box {
 /* one thing in the chat, as pi's chatContainer holds a component: what is needed to draw it again (the screen is lines
  * already written, so Ctrl+O, toolOutputExpanded, draws the items again; interactive-mode.ts:4557-4574 setExpanded on each child) */
 enum { PK_HEADER, PK_USER, PK_ANSWER, PK_NOTE, PK_STATUS, PK_ERROR, PK_TOOL, PK_BASH, PK_COMPACT, PK_BRANCH, PK_CUSTOM,
-       PK_RTITLE, PK_RLINE, PK_REND, PK_BLANK, PK_RESET };
+       PK_RTITLE, PK_RLINE, PK_REND, PK_BLANK, PK_RESET, PK_NEWS };
 typedef struct ps_item {
     int kind;
     long a, b, c;               /* role, kind, token count, exit code, cancelled, excluded; PK_RESET: a conversation drawn again begins */
@@ -130,6 +130,8 @@ void pshow_resource_title(pi_show *s, int role, const char *title);
 void pshow_resource_line(pi_show *s, int kind, int mode, const char *text);
 void pshow_resource_end(pi_show *s);
 void pshow_blank(pi_show *s);
+/* What's New: mode 0 the startup block, 1 its collapsed line, 2 the /changelog block; text the Markdown of the entries */
+void pshow_news(pi_show *s, int mode, const char *text, long n);
 /* the block written again (/reload): begin drops the old one and makes what pshow_blank and pshow_resource_* write take its place, end draws the screen again */
 void pshow_resources_begin(pi_show *s);
 void pshow_resources_end(pi_show *s);

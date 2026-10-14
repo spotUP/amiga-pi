@@ -156,6 +156,7 @@ int main(int argc, char **argv)
     if (a_getenv("PI_CODING_AGENT_DIR", agent, sizeof(agent)) <= 0)
         cl_copy(agent, "ENVARC:amiga-pi", sizeof(agent));
     pl.agent_dir = agent;
+    pl.changelog = "ENVARC:uppkg/amiga-pi/CHANGELOG.md";    /* the archive's record drawer: pi reads its CHANGELOG.md from its package directory */
     if (dd_dir(&sys, "amiga-pi", data, sizeof(data)) >= 0)
         pl.data_dir = data;     /* the data-directory rule (claude/datadir.h) */
     rc = pi_app(argc, argv, &pl);

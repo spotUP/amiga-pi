@@ -44,6 +44,9 @@ typedef struct pi_platform {
     void *random_u;
     /* the tests' OAuth server (login.h pi_auth.url_base); 0 in the programs */
     const char *oauth_url_base;
+    /* the CHANGELOG.md What's New and /changelog show (pi: the package directory's; amiga-pi's own, written in pi's format);
+     * 0: none (the host program reads PI_CHANGELOG) */
+    const char *changelog;
 } pi_platform;
 
 /* the runtime of one run: what pi_app builds from the command line. One per process (the pieces it points to are

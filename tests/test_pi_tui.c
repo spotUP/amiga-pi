@@ -28,6 +28,7 @@
 #include "../amiga-pi/tools_pi.h"
 #include "claude/sys_posix.h"
 #include "claude/theme.h"
+#include "../amiga-pi/changelog.h"
 #include "view/hl_style.h"
 #include <unistd.h>
 #include <sys/stat.h>
@@ -1077,6 +1078,7 @@ static void rest_hook(void)
 }
 
 /* pi_app with the keys typed on a screen of cols x rows; the answers streamed in order. The exit code. */
+static const char *app_changelog;   /* pl.changelog for the next app_run: the CHANGELOG.md What's New and /changelog show, 0 none */
 static const char *app_session;     /* --session <file> for the next app_run, 0 none */
 static const char *app_agent;       /* the agent directory for the next app_run (0: the sandbox's) */
 static const char *app_tui_cli;     /* --tui-mode <x> for the next app_run, 0 none */
@@ -1154,6 +1156,7 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pl.utc = 1;
     pl.data_dir = adata;
     pl.agent_dir = app_agent ? app_agent : aagent;
+    pl.changelog = app_changelog;
     pl.ready = app_ready;
     pl.random = app_random;
     rc = pi_app(argc, a, &pl);
@@ -1738,6 +1741,97 @@ static int load_login_rows(int want_type)         /* 1 oauth, 0 API key, -1 both
     lrow_n = k;
     lrow_oauth = kinds == 3;
     return k;
+}
+
+/* the agent directory's settings.json as text, "" when there is none */
+static char *app_settings_text(void)
+{
+    char p[520];
+    long n;
+    char *t;
+    strcpy(p, aagent);
+    strcat(p, "/settings.json");
+    {
+        FILE *f = fopen(p, "rb");
+        t = 0;
+        n = 0;
+        if (f) {
+            fseek(f, 0, SEEK_END);
+            n = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            t = (char *)calloc((size_t)n + 1, 1);
+            if (t && fread(t, 1, (size_t)n, f) != (size_t)n)
+                t[0] = 0;
+            fclose(f);
+        }
+    }
+    return t ? t : (char *)calloc(1, 1);
+}
+
+/* P12-B2/B3 (D1): What's New after an update and /changelog, from amiga-pi's CHANGELOG.md in pi's format. The goldens are pi 1.2.0's own
+ * screens for the same file (tests/pi/tui/changelog_fixture.md, PI_PACKAGE_DIR): the new entries between two rules with the loaded
+ * resources above, collapsed to one line, nothing on a first start (which records the version), nothing when the version is
+ * current, every entry oldest first for /changelog; a resumed session shows nothing and records nothing */
+static void test_whats_new(void)
+{
+    static const char *keys_end[] = { "\004", 0 }, *keys_cmd[] = { "/changelog\r", "\004", 0 };
+    static const int m_bot[] = { 21, 25, 0 };
+    char *t;
+    {
+        /* pi's parseChangelog / getNewEntries: numbers compare as numbers, a "## " heading with no version ends the entry and starts none */
+        static const char doc[] = "# Changelog\n\n## [Unreleased]\n\n- later\n\n## [1.10.0] - x\n\n- ten\n\n## 1.9.2\n- nine\n\n## [1.9.0]\n- old\n";
+        jw o;
+        char ver[24];
+        jw_init(&o);
+        CHECK_INT(pi_cl_newer(doc, (long)strlen(doc), "1.9.1", &o), 2);
+        CHECK_STR(o.p, "## [1.10.0] - x\n\n- ten\n\n## 1.9.2\n- nine");
+        jw_reset(&o);
+        CHECK_INT(pi_cl_newer(doc, (long)strlen(doc), "1.10.0", &o), 0);
+        jw_reset(&o);
+        CHECK_INT(pi_cl_all(doc, (long)strlen(doc), &o), 3);
+        CHECK(strstr(o.p, "## [1.9.0]") == o.p);                    /* oldest first */
+        pi_cl_latest("junk\n## [1.10.0] - x\n## [1.9.0]", ver, sizeof(ver));
+        CHECK_STR(ver, "1.10.0");
+        jw_free(&o);
+    }
+    app_changelog = PI_TESTS "/pi/tui/changelog_fixture.md";
+    fresh_agent();
+    skills_case("whats_new", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.1.0\"}\n", keys_end, 0, 0, 0, 0, m_bot, 0);
+    t = app_settings_text();
+    CHECK(strstr(t, "\"lastChangelogVersion\": \"1.2.0\"") != 0);          /* recorded once shown */
+    free(t);
+    skills_case("whats_new_collapsed", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.1.0\",\"collapseChangelog\":true}\n", keys_end,
+                0, 0, 0, 0, m_bot, 0);
+    skills_case("whats_new_fresh", "{\"quietStartup\":true}\n", keys_end, 0, 0, 0, 0, m_bot, 0);
+    t = app_settings_text();
+    CHECK(strstr(t, "\"lastChangelogVersion\": \"1.2.0\"") != 0);          /* a first start records the version and shows nothing */
+    free(t);
+    skills_case("whats_new_current", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.2.0\"}\n", keys_end, 0, 0, 0, 0, m_bot, 0);
+    skills_case("changelog_cmd", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.2.0\"}\n", keys_cmd, 0, 0, 0, 0, m_bot, 0);
+    /* a resumed session: no notice, nothing recorded */
+    {
+        char path[600];
+        static const char *k2[] = { "\004", 0 };
+        if (put_session("took_session.jsonl", "took_session.jsonl", path)) {
+            app_write("settings.json", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.1.0\"}\n");
+            app_session = path;
+            CHECK_INT(app_run(80, 25, k2, 0, 0, 0), 0);
+            app_session = 0;
+            CHECK(app_out && strstr(app_out, "What's New") == 0);
+            t = app_settings_text();
+            CHECK(strstr(t, "\"lastChangelogVersion\":\"1.1.0\"") != 0);
+            free(t);
+        }
+    }
+    /* without a CHANGELOG.md: /changelog says so, and a start with an older version shows and records nothing */
+    app_changelog = 0;
+    app_write("settings.json", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.1.0\"}\n");
+    CHECK_INT(app_run(80, 25, keys_cmd, 0, 0, 0), 0);
+    CHECK(app_out && strstr(app_out, "No changelog entries found.") != 0);
+    t = app_settings_text();
+    CHECK(strstr(t, "\"lastChangelogVersion\":\"1.1.0\"") != 0);
+    free(t);
+    app_write("settings.json", "{\"quietStartup\":true}\n");
 }
 
 static void test_login_screens(void)
@@ -3395,7 +3489,7 @@ static void test_menu_rows_uncapped(void)
     pi_ui_set_extra_commands(2, rows, 700);
     app_write("settings.json", "{\"quietStartup\":true}\n");
     CHECK_INT(app_run(80, 25, keys, 0, 0, take_shot), 0);
-    CHECK(shot_has("(1/712)"));             /* twelve built-in rows (with /login and /logout) and 700 more */
+    CHECK(shot_has("(1/713)"));             /* thirteen built-in rows (with /login, /logout and /changelog) and 700 more */
     CHECK_INT(app_run(80, 25, keys_x, 0, 0, take_shot), 0);
     CHECK(shot_has("a row"));               /* the editor holds "/x699" too: the menu row is what has a description */
     /* Esc closes a menu of more than eight rows (it once asked for the matches into a table of eight) */
@@ -3553,6 +3647,7 @@ void suite_pi_tui(void)
     test_expand_summaries();
     test_skills_screen();
     test_login_screens();
+    test_whats_new();
     test_login_typed();
     test_compact_live();
     test_export();

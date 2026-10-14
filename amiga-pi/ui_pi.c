@@ -3,6 +3,7 @@
 #include <string.h>
 #include "ui_pi.h"
 #include "fuzzy.h"
+#include "changelog.h"
 #include "args.h"
 #include "claude/tui.h"
 #include "claude/show.h"
@@ -57,6 +58,7 @@ static const cl_cmd default_cmds[] = {
     { "/export", "Export session (HTML default, or specify path: .html/.jsonl)" },
     { "/name", "Set session display name" },
     { "/session", "Show session info and stats" },
+    { "/changelog", "Show changelog entries" },
     { "/fork", "Create a new fork from a previous user message" },
     { "/clone", "Duplicate the current session at the current position" },
     { "/trust", "Save project trust decision for future sessions" },
@@ -150,6 +152,19 @@ void pi_ui_add_warning(const char *text)
         cl_cat(ui_warn[ui_nwarn], text, sizeof(ui_warn[0]));
         ui_nwarn++;
     }
+}
+
+static const char *ui_cl_file, *ui_cl_news;
+static long ui_cl_file_n, ui_cl_news_n;
+static int ui_cl_collapsed;
+
+void pi_ui_set_changelog(const char *file, long file_n, const char *news, long news_n, int collapsed)
+{
+    ui_cl_file = file;
+    ui_cl_file_n = file_n;
+    ui_cl_news = news;
+    ui_cl_news_n = news_n;
+    ui_cl_collapsed = collapsed;
 }
 
 static int ui_regular, ui_hint_only, ui_bar;
@@ -1955,6 +1970,25 @@ static void reload_command(pi_ui *p)
     note(p, "Reloaded skills, prompts, and context files");
 }
 
+/* /changelog (interactive-mode.ts handleChangelogCommand): every entry, oldest first, in the What's New block */
+static void changelog_command(pi_ui *p)
+{
+    jw all;
+    int n = 0;
+    jw_init(&all);
+    if (ui_cl_file)
+        n = pi_cl_all(ui_cl_file, ui_cl_file_n, &all);
+    if (!n) {
+        jw_reset(&all);
+        jw_rawz(&all, "No changelog entries found.");
+    }
+    if (p->look)
+        pshow_news(&p->ps, 2, all.p, all.n);
+    else
+        ui_line(&p->ui, all.p);
+    jw_free(&all);
+}
+
 static int run_command(pi_ui *p, cl_tui *t, const char *line)
 {
     jw reply, editor;
@@ -1963,6 +1997,10 @@ static int run_command(pi_ui *p, cl_tui *t, const char *line)
     if (!strcmp(line, "/reload")) {
         reload_command(p);
         status(p);
+        return 1;
+    }
+    if (!strcmp(line, "/changelog")) {
+        changelog_command(p);
         return 1;
     }
     if (p->look && t && !strcmp(line, "/tree") && p->s->command) {
@@ -2126,7 +2164,23 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
     }
     resources_report(&p, ui_quiet == 0);
     if (p.look && s->nmsg)
-        redraw_session(&p);            /* a resumed session shows its conversation, as pi's renderInitialMessages */
+        redraw_session(&p);
+    if (ui_cl_news && ui_cl_news_n) {
+        /* showStartupNoticesIfNeeded: the new entries once, after the loaded resources */
+        if (p.look)
+            pshow_news(&p.ps, ui_cl_collapsed ? 1 : 0, ui_cl_news, ui_cl_news_n);
+        else if (ui_cl_collapsed) {
+            char ver[24], l[100];
+            pi_cl_latest(ui_cl_news, ver, sizeof(ver));
+            cl_copy(l, "Updated to v", sizeof(l));
+            cl_cat(l, ver, sizeof(l));
+            cl_cat(l, ". Use /changelog to view full changelog.", sizeof(l));
+            ui_line(&p.ui, l);
+        } else {
+            ui_line(&p.ui, "What's New");
+            ui_line(&p.ui, ui_cl_news);
+        }
+    }            /* a resumed session shows its conversation, as pi's renderInitialMessages */
     {
         /* run(): the startup diagnostics as warnings (interactive-mode.ts:1197-1204) */
         int i;

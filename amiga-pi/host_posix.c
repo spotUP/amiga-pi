@@ -199,5 +199,6 @@ int pi_host_run(int argc, char **argv, const pi_platform *over)
     }
     pl.agent_dir = agent;
     pl.data_dir = agent;        /* pi keeps what grows in its agent dir */
+    pl.changelog = getenv("PI_CHANGELOG");
     return pi_app(argc, argv, &pl);
 }

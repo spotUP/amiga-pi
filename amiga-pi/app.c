@@ -23,6 +23,8 @@
 #include "mode_rpc.h"
 #include "radius.h"
 #include "templates.h"
+#include "changelog.h"
+#include "authstore.h"
 #include "resreport.h"
 #include "claude/util.h"
 #include "claude/path.h"
@@ -249,6 +251,61 @@ static void tui_settings(const pi_platform *pl, int cli, int *regular, int *hint
     }
     if (cli)
         *regular = cli == 2;
+}
+
+/* What's New (interactive-mode.ts getChangelogForDisplay, getLastChangelogVersion / setLastChangelogVersion, getCollapseChangelog): the
+ * CHANGELOG.md of pl->changelog and settings.json's lastChangelogVersion decide what the start shows. A resumed session (it has
+ * messages) shows nothing and records nothing; no lastChangelogVersion (a first start) records the running version and shows
+ * nothing; entries newer than it record the running version and are shown. The texts go to the screen (pi_ui_set_changelog) and are
+ * freed by changelog_release when the run ends */
+static char *cl_file;
+static jw cl_news;
+
+static void changelog_release(void)
+{
+    jw_free(&cl_news);
+    CL_FREE(cl_file);
+    cl_file = 0;
+    pi_ui_set_changelog(0, 0, 0, 0, 0);
+}
+
+static void changelog_setup(const pi_platform *pl, const pi_session *ses)
+{
+    long fn = 0, sn = 0;
+    char *set = 0, *last = 0, err[200];
+    jw *news = &cl_news;
+    int cnt = 0, collapsed = 0;
+    jv o, x;
+    jw_init(news);
+    if (pl->sys && pl->changelog && pl->changelog[0] && pl->sys->kind(pl->sys->u, pl->changelog) == 1 &&
+        pl->sys->read(pl->sys->u, pl->changelog, 1024L * 1024, &cl_file, &fn))
+        cl_file = 0;
+    if (pl->sys && pl->agent_dir && pl->agent_dir[0]) {
+        set = pi_store_read(pl->sys, pl->agent_dir, "settings.json", &sn);
+        if (set && !json_parse(set, sn, &o) && json_get(o, "collapseChangelog", &x))
+            collapsed = json_type(x) == J_TRUE;
+        last = set ? pi_jobj_str(set, sn, "lastChangelogVersion") : 0;
+    }
+    if (!ses->nmsg && pl->sys && pl->agent_dir && pl->agent_dir[0]) {
+        int record = 0;
+        if (!last || !last[0])
+            record = 1;                                       /* a first start: recorded, nothing shown */
+        else if ((cnt = pi_cl_newer(cl_file ? cl_file : "", cl_file ? fn : 0, last, news)) > 0)
+            record = 1;
+        if (record) {
+            jw v, out;
+            jw_init(&v);
+            jw_init(&out);
+            jw_strz(&v, PI_VERSION);
+            if (!pi_jobj_set(set ? set : "", set ? sn : 0, "lastChangelogVersion", v.p, &out, err, sizeof(err)))
+                pi_store_write(pl->sys, pl->agent_dir, "settings.json", out.p, out.n, err, sizeof(err));
+            jw_free(&v);
+            jw_free(&out);
+        }
+    }
+    pi_ui_set_changelog(cl_file, fn, cnt > 0 ? news->p : 0, cnt > 0 ? news->n : 0, collapsed);
+    free(set);
+    free(last);
 }
 
 /* pi's resume line: the command that opens this session again, only when its file exists */
@@ -1271,7 +1328,9 @@ int pi_rt_run(pi_rt *rt)
         pi_ui_set_theme(&th);
         kb = keybindings_text(pl, &kn);
         pi_ui_set_keybindings(kb, kn);
+        changelog_setup(pl, &s);
         rc = pi_ui_run(&s, pl->io, a.prompt[0] ? a.prompt : 0);
+        changelog_release();
     }
     return rc;
 }

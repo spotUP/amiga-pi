@@ -5,6 +5,7 @@
 #include "ext.h"
 #include "resreport.h"
 #include "ansi.h"
+#include "changelog.h"
 #include "claude/util.h"
 #include "claude/json.h"
 #include "claude/show.h"
@@ -2165,6 +2166,91 @@ static void d_rend(pi_show *s)
     out(s);
 }
 
+/* DynamicBorder: a rule of the whole width in the border colour */
+static void d_rule(pi_show *s)
+{
+    char b[48];
+    int i;
+    raw(s, sg(s, PR_BORDER, b));
+    for (i = 0; i < s->t->cols; i++)
+        raw(s, "\342\224\200");
+    raw(s, SGR0 "\n");
+}
+
+/* Markdown(text, 1, pady, theme): the Markdown at the width less one column each side, every row one space in, pady blank rows
+ * above and below; the blank rows md leaves round its text are not kept */
+static void news_markdown(pi_show *s, const char *text, long n, int pady)
+{
+    jw md;
+    vw_out vo;
+    md_opts mo;
+    long a = 0, i, start = 0, stop = 0;
+    int k;
+    jw_init(&md);
+    vo_init(&vo, mdbox_sink, &md, VW_UTF8, s->th->depth >= 256 ? s->th->depth : 16, &s->hlt);
+    mo.width = s->t->cols - 2;
+    mo.urls = 1;
+    mo.look = MD_LOOK_PI;
+    md_render(text, n, &mo, &vo);
+    vo_flush(&vo);
+    for (i = 0; i < md.n; i++)
+        if (md.p[i] == '\n') {
+            if (tui_width(md.p + a, i - a)) {
+                if (!stop)
+                    start = a;
+                stop = i + 1;
+            }
+            a = i + 1;
+        }
+    for (k = 0; k < pady; k++)
+        blank(s);
+    for (a = start, i = start; i < stop; i++) {
+        if (md.p[i] != '\n')
+            continue;
+        raw(s, SGR0 " ");
+        jw_raw(&s->batch, md.p + a, i - a);
+        raw(s, SGR0 "\n");
+        a = i + 1;
+    }
+    for (k = 0; k < pady; k++)
+        blank(s);
+    jw_free(&md);
+}
+
+/* What's New (interactive-mode.ts showStartupNoticesIfNeeded, handleChangelogCommand). mode 0: the startup block, 1: its collapsed
+ * form (one line naming the newest version), 2: /changelog */
+static void d_news(pi_show *s, int mode, const char *text, long n)
+{
+    char b[48], l[300], ver[24];
+    if (mode == 2)
+        blank(s);                           /* Spacer(1) */
+    else if (s->any)
+        blank(s);
+    d_rule(s);
+    if (mode == 1) {
+        pi_cl_latest(text, ver, sizeof(ver));
+        cl_copy(l, " Updated to v", sizeof(l));
+        cl_cat(l, ver[0] ? ver : "", sizeof(l));
+        cl_cat(l, ". Use " BOLD "/changelog" "\033[22m to view full changelog.", sizeof(l));
+        raw(s, l);
+        raw(s, "\n");
+    } else {
+        cl_copy(l, " " BOLD, sizeof(l));
+        cl_cat(l, sg(s, PR_ACCENT, b), sizeof(l));
+        cl_cat(l, "What's New" SGR0, sizeof(l));
+        raw(s, l);
+        raw(s, "\n");
+        blank(s);
+        news_markdown(s, text, n, mode == 2 ? 1 : 0);
+        if (mode == 0)
+            blank(s);
+    }
+    d_rule(s);
+    s->any = 1;
+    s->after_block = 0;
+    out(s);
+}
+
 static void d_blank(pi_show *s)
 {
     blank(s);
@@ -2519,6 +2605,9 @@ static void item_draw(pi_show *s, ps_item *it)
     case PK_BLANK:
         d_blank(s);
         break;
+    case PK_NEWS:
+        d_news(s, (int)it->a, x, it->x.n);
+        break;
     case PK_RESET:
         s->any = 0;
         s->after_block = 0;
@@ -2672,6 +2761,13 @@ void pshow_resource_end(pi_show *s)
     item_text(s, PK_REND, 0, 0, 0, 0);
     if (s->ins < 0)
         d_rend(s);
+}
+
+void pshow_news(pi_show *s, int mode, const char *text, long n)
+{
+    item_text(s, PK_NEWS, mode, text, n, 0);
+    if (s->ins < 0)
+        d_news(s, mode, text, n);
 }
 
 void pshow_blank(pi_show *s)
