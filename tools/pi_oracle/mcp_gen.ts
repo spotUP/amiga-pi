@@ -1,18 +1,19 @@
 // mcp_gen.ts -- the expected outputs of tests/test_pi_mcp.c from pi's own MCP code
-// (pi f10993bc): createMcpToolName, limitMcpContent, convertMcpResult,
-// createMcpToolDefinition, the tool_search tool (BM25) and renderServersSection.
-// Run by tools/pi_oracle/mcp_oracle.sh (PI_ORACLE_MCP: the prepared files).
+// (the pinned pi 1.2.0 install, tools/pi_oracle/pin.mjs): createMcpToolName, limitMcpContent, convertMcpResult,
+// createMcpToolDefinition, the tool_search tool (BM25) and renderServersSection. Nothing is cut or copied.
+//   node tools/pi_oracle/mcp_gen.ts
 // Writes tests/pi/mcp/{names,limit,convert,search,section}.expected.
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { caDir } from "./pin.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dir = resolve(here, "..", "..", "tests", "pi", "mcp");
-const O = process.env.PI_ORACLE_MCP!;
-const T = await import(pathToFileURL(join(O, "tools.ts")).href);
-const S = await import(pathToFileURL(join(O, "tool-search.ts")).href);
-const R = await import(pathToFileURL(join(O, "section.ts")).href);
+const ext = (f: string) => import(pathToFileURL(join(caDir, "dist", "extensions", f)).href);
+const T = await ext("mcp/tools.js");
+const S = await ext("tool-search/tool.js");
+const R = await ext("mcp/index.js");
 
 // ---- the shared text generator (mirrored in tests/test_pi_mcp.c: long_text) ----
 export function longText(n: number): string {

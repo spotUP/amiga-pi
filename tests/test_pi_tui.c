@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <dirent.h>
 #include "pi_test.h"
 #include "claude/util.h"
 #include "pi_stub.h"
@@ -4010,6 +4011,54 @@ static void test_slash_fuzzy(void)
     free(f);
 }
 
+/* P12-G1: every golden is captured from the pinned pi. A .mode file records the version that drew it (tools/pi_oracle/tui_gen.py);
+ * one that names another pi is a golden nobody regenerated after the pin moved (138 of 210 said 1.1.0 at the close of P12).
+ * The pin is read from tools/pi_oracle/pin.mjs, the one place that has it. */
+static void test_golden_pin(void)
+{
+    char pin[32] = "", line[160];
+    FILE *f = fopen(PI_TESTS "/../tools/pi_oracle/pin.mjs", "r");
+    DIR *d;
+    struct dirent *e;
+    int seen = 0;
+    while (f && fgets(line, sizeof line, f)) {
+        const char *q = strstr(line, "PINNED = \"");
+        if (q && sscanf(q + 10, "%31[0-9.]", pin) == 1)
+            break;
+    }
+    if (f)
+        fclose(f);
+    CHECK(pin[0] != 0);
+    d = opendir(PI_TESTS "/pi/tui");
+    CHECK(d != 0);
+    while (d && pin[0] && (e = readdir(d)) != 0) {
+        size_t n = strlen(e->d_name);
+        char path[600], want[64];
+        if (n < 6 || strcmp(e->d_name + n - 5, ".mode"))
+            continue;
+        strcpy(path, PI_TESTS "/pi/tui/");
+        strncat(path, e->d_name, 200);
+        strcpy(want, "pi=");
+        strcat(want, pin);
+        strcat(want, " ");
+        f = fopen(path, "r");
+        line[0] = 0;
+        if (f) {
+            if (!fgets(line, sizeof line, f))
+                line[0] = 0;
+            fclose(f);
+        }
+        seen++;
+        if (strncmp(line, want, strlen(want))) {
+            printf("[FAIL] %s says \"%.12s\", not the pinned pi %s\n", e->d_name, line, pin);
+            CHECK(0);
+        }
+    }
+    if (d)
+        closedir(d);
+    CHECK(seen > 200);
+}
+
 /* I9: no row of the menu is dropped: 700 rows after the built-in ones (a copy once held 512), all of them offered and
  * found by their name (the menu once showed 64 matches at most) */
 static void test_menu_rows_uncapped(void)
@@ -4224,6 +4273,7 @@ void suite_pi_tui(void)
     test_bash_details();
     test_slash_fuzzy();
     test_menu_rows_uncapped();
+    test_golden_pin();
     app_cleanup();
     for (i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); i++) {
         if (getenv("PI_TUI_ONLY") && strcmp(getenv("PI_TUI_ONLY"), scenarios[i].name))

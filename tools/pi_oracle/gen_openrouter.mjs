@@ -1,17 +1,15 @@
 // P12-A10: pi 1.2.0's personalizeOpenRouterCatalog (ai/src/providers/openrouter.ts) against a local fake GET /models/user, one case per
 // answer; the models it keeps, with the limits and prices it gives them, are the golden of tests/test_pi_radius.c (the C side feeds the
 // same bodies through a stub transport). No network beyond 127.0.0.1: no key, no openrouter.ai.
-//   node tools/pi_oracle/gen_openrouter.mjs      (PI_DIST: the pinned install, default vendor/pi-1.2.0 of this checkout or the main one)
+//   node tools/pi_oracle/gen_openrouter.mjs      (the pinned install: tools/pi_oracle/pin.mjs)
 import { writeFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { npmRoot } from "./pin.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
-const cands = [process.env.PI_DIST, join(root, "vendor/pi-1.2.0"), join(root, "../amiga-pi/vendor/pi-1.2.0")].filter(Boolean);
-const pin = cands.find((c) => existsSync(join(c, "node_modules/@earendil-works/pi-ai/dist/providers/openrouter.js")));
-if (!pin) throw new Error("gen_openrouter: no pinned pi 1.2.0");
-const ai = join(pin, "node_modules/@earendil-works/pi-ai/dist/providers");
+const ai = join(npmRoot, "@earendil-works/pi-ai/dist/providers");
 const { personalizeOpenRouterCatalog } = await import(pathToFileURL(join(ai, "openrouter.js")).href);
 const { OPENROUTER_MODELS } = await import(pathToFileURL(join(ai, "openrouter.models.js")).href);
 const ids = ["moonshotai/kimi-k2.6", "openai/gpt-5.5", "google/gemini-3.1-pro-preview", "deepseek/deepseek-v3.2", "x-ai/grok-4.7"];

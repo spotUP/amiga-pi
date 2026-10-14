@@ -2,7 +2,7 @@
  "about": "The masks a record of pi's --mode json / --mode rpc output passes before it is compared with amiga-pi's: read by tests/test_pi_modes.c and by vtcon's tools/rig/amigapi_rig.py (mask_rpc), the one list of both. Each mask has its reason here and a COMPATIBILITY.md row (group pi-modes).",
  "star": {
   "timestamp": "made per run",
-  "durationMs": "pi 1.1.0: ms measured per run (a message's request time, a tool's execute() time); the key and its place are compared, the value is not",
+  "durationMs": "ms measured per run (a message's request time, a tool's execute() time); the key and its place are compared, the value is not",
   "labelTimestamp": "made per run",
   "sessionFile": "pi names session files by time and uuid, ours by the session's own naming",
   "targetSessionFile": "the same names, in session_shutdown and session_before_switch",

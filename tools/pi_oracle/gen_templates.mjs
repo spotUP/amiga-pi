@@ -1,13 +1,13 @@
 // Golden for tests/test_pi_templates.c: pi 1.1.0's own parseCommandArgs, substituteArgs and expandPromptTemplate
 // (core/prompt-templates.ts, run from the pinned install's dist/), every case written as pi answers it.
-//   node tools/pi_oracle/gen_templates.mjs      (PI_NPM=<pi install> to name another; default vendor/pi-1.1.0)
+//   node tools/pi_oracle/gen_templates.mjs
 // Writes tests/pi/templates/cases.json: {"subst": [{c, a, args, out}], "expand": {templates, cases: [{text, out}]}}
 import { writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { caDir } from "./pin.mjs";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const npm = process.env.PI_NPM || join(root, "vendor/pi-1.1.0");
-const mod = await import(pathToFileURL(join(npm, "node_modules/@earendil-works/pi-coding-agent/dist/core/prompt-templates.js")).href);
+const mod = await import(pathToFileURL(join(caDir, "dist/core/prompt-templates.js")).href);
 const { parseCommandArgs, substituteArgs, expandPromptTemplate } = mod;
 // [template content, the argument string typed after the name]
 const subst = [

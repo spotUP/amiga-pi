@@ -5,13 +5,13 @@
 //   then one line per query: <query><TAB><the names of the menu, space separated, in order>   (text "/" + query, cursor at its end)
 //   then one line per cursor case: @<text before the cursor>\t<text after it>\t<the menu>   (\n and \t spelled as two characters;
 //   the menu is empty off the editor's first line: editor.ts isSlashMenuAllowed, cursorLine === 0)
-//   [PI_NPM=<pi install>] node tools/pi_oracle/gen_fuzzy.mjs
+//   node tools/pi_oracle/gen_fuzzy.mjs
 import { writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { npmRoot } from "./pin.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
-const npm = process.env.PI_NPM || join(here, "../../vendor/pi-1.1.0");
-const dist = join(npm, "node_modules/@earendil-works/pi-tui/dist");
+const dist = join(npmRoot, "@earendil-works/pi-tui/dist");
 const { CombinedAutocompleteProvider } = await import(pathToFileURL(join(dist, "autocomplete.js")).href);
 const names = ["settings", "model", "tree", "thinking", "scoped-models", "export", "import", "share", "copy", "name", "session",
   "changelog", "hotkeys", "fork", "clone", "trust", "login", "logout", "new", "compact", "resume", "reload", "quit",

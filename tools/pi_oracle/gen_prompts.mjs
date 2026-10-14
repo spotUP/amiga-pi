@@ -1,5 +1,5 @@
 // gen_prompts.mjs -- the expected outputs of the prompt template discovery tests (tests/test_pi_templates.c, plan phase J5), produced
-// by pi 1.1.0's own code: the pinned install vendor/pi-1.1.0 (or PI_PKG=<node_modules/@earendil-works/pi-coding-agent>), never the pi
+// by pi 1.2.0's own code: the pinned install vendor/pi-1.2.0 (tools/pi_oracle/pin.mjs), never the pi
 // on the PATH. What runs is pi's DefaultResourceLoader (core/resource-loader.ts, core/package-manager.ts: the places templates are
 // found in, settings.json "prompts" and "packages", the ignore files), loadPromptTemplates (core/prompt-templates.ts: the files, the
 // frontmatter, the diagnostics) and expandPromptTemplate.
@@ -13,28 +13,16 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { caDir } from "./pin.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = resolve(here, "..", "..", "tests", "pi", "prompts");
-function findPkg() {
-	if (process.env.PI_PKG) return process.env.PI_PKG;
-	for (const up of ["../..", "../../../.."]) {
-		// this checkout, then the main one when this is build/wt-<name>
-		const p = resolve(here, up, "vendor", "pi-1.1.0", "node_modules", "@earendil-works", "pi-coding-agent");
-		try {
-			realpathSync(p);
-			return p;
-		} catch {}
-	}
-	throw new Error("gen_prompts: no pinned pi: npm install --prefix vendor/pi-1.1.0 @earendil-works/pi-coding-agent@1.1.0, or set PI_PKG");
-}
 process.env.PI_OFFLINE = "1"; // a package source npm:/git: is not fetched: pi skips it
-const pkg = findPkg();
+const pkg = caDir;
 const pi = await import(pathToFileURL(join(pkg, "dist", "index.js")).href);
 const { expandPromptTemplate } = await import(pathToFileURL(join(pkg, "dist", "core", "prompt-templates.js")).href);
 const { resolvePath: piResolvePath } = await import(pathToFileURL(join(pkg, "dist", "utils", "paths.js")).href);
 const version = JSON.parse(readFileSync(join(pkg, "package.json"), "utf-8")).version;
-if (version !== "1.1.0") throw new Error(`gen_prompts: pi ${version}, not 1.1.0`);
 process.removeAllListeners("warning");
 process.on("warning", () => {});
 

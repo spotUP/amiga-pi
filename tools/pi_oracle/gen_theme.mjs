@@ -5,8 +5,9 @@ import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { execSync } from "node:child_process";
+import { caDir, npmRoot } from "./pin.mjs";
 
-const root = join(execSync("npm root -g").toString().trim(), "@earendil-works/pi-coding-agent/dist/modes/interactive/theme");
+const root = join(caDir, "dist/modes/interactive/theme");
 const { generateSystemThemeColors } = await import(pathToFileURL(join(root, "system-theme.js")).href);
 const t = generateSystemThemeColors({});
 const out = [];
@@ -16,7 +17,7 @@ console.log(`[OK] ${out.length} roles`);
 
 // pi's own dark.json and light.json (copied) and what pi's parseColor / colorToHex make of each role: tests/pi/tui/theme_<name>.txt
 import { copyFileSync, readFileSync } from "node:fs";
-const tui = await import(pathToFileURL(join(root, "../../../../node_modules/@earendil-works/pi-tui/dist/colors.js")).href);
+const tui = await import(pathToFileURL(join(npmRoot, "@earendil-works/pi-tui/dist/colors.js")).href);
 const out2 = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "tests", "pi", "tui");
 for (const name of ["dark", "light"]) {
 	copyFileSync(join(root, name + ".json"), join(out2, name + ".json"));

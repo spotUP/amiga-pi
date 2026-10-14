@@ -2,10 +2,11 @@
 // a fixed tree; prints one line "<name>\t<details JSON>" per case (the text of details.truncation is cut to its first 40 characters: the test
 // compares that member's start). tests/test_pi_tools.c test_details holds the same cases.
 //   node tools/pi_oracle/gen_tool_details.mjs
+import { npmRoot } from "./pin.mjs";
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-const root = new URL('../../vendor/pi-1.1.0/node_modules/', import.meta.url).pathname;
+const root = npmRoot + '/';
 const T = await import(root + '@earendil-works/pi-coding-agent/dist/core/tools/index.js');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pidet-'));
 const w = (n, s) => { fs.mkdirSync(path.dirname(path.join(dir, n)), { recursive: true }); fs.writeFileSync(path.join(dir, n), s); };

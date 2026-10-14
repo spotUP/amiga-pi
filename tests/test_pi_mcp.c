@@ -1,7 +1,7 @@
 /* amiga-pi's MCP client (plan phase K) on the host:
  *   goldens   names, the 20 KB cut, result conversion, tool definitions and
  *             tool_search, the mcp_servers section -- each against what pi's
- *             own code gives (tests/pi/mcp/NAME.expected, tools/pi_oracle/mcp_oracle.sh);
+ *             own code gives (tests/pi/mcp/NAME.expected, tools/pi_oracle/mcp_gen.ts);
  *   protocol  initialize, tools/list with cursors, tools/call, a JSON-RPC
  *             error, the server's roots/list, over stdio (spawn2) and
  *             streamable HTTP (JSON and SSE answers, the session id, an

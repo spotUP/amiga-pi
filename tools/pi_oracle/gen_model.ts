@@ -1,52 +1,25 @@
-// gen_model.ts -- the expected outputs of tests/test_pi_model.c (plan phase F), produced by pi's own code
-// (pi f10993bc): transformMessages (ai/api/transform-messages.ts), shortHash (utils/hash.ts),
-// getSupportedThinkingLevels / clampThinkingLevel (models.ts), parseModelPattern (model-resolver.ts) and
-// resolveConfigValue (resolve-config-value.ts). Functions that sit in files with heavy imports are cut out of
-// the real source text, not rewritten.
+// gen_model.ts -- the expected outputs of tests/test_pi_model.c (plan phase F), produced by the pinned pi 1.2.0
+// install's own code (tools/pi_oracle/pin.mjs): transformMessages (pi-ai api/transform-messages), shortHash
+// (utils/hash), getSupportedThinkingLevels / clampThinkingLevel (models), parseModelPattern (model-resolver) and
+// resolveConfigValueUncached (resolve-config-value). Nothing is cut out of source or copied.
 //
-//   PI_SRC=<dir with the fetched pi files> node tools/pi_oracle/gen_model.ts
-//
-// PI_SRC defaults to build/pi-oracle/f (build/pi-oracle/fetch2.py fetches them).
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+//   node tools/pi_oracle/gen_model.ts
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { caDir, npmRoot } from "./pin.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(here, "..", "..", "tests", "pi", "model");
-const src = process.env.PI_SRC ?? join(here, "../../build/pi-oracle/f");
-const tmp = mkdtempSync(join(tmpdir(), "pimodel."));
 mkdirSync(out, { recursive: true });
 
 const imp = (p: string) => import(pathToFileURL(p).href);
-const { transformMessages } = await imp(join(src, "ai__src__api__transform-messages.ts"));
-const { shortHash } = await imp(join(src, "ai__src__utils__hash.ts"));
-
-// ---- pieces cut out of the real files ----
-function cut(file: string, from: string, to: string): string {
-	const t = readFileSync(join(src, file), "utf8");
-	const a = t.indexOf(from);
-	const b = t.indexOf(to, a);
-	if (a < 0 || b < 0) throw new Error(`cannot cut ${from} from ${file}`);
-	return t.slice(a, b);
-}
-const thinkSrc = cut("ai__src__models.ts", "const EXTENDED_THINKING_LEVELS", "/**\n * Check if two models are equal");
-writeFileSync(join(tmp, "think.ts"), thinkSrc);
-const { getSupportedThinkingLevels, clampThinkingLevel } = await imp(join(tmp, "think.ts"));
-
-const resSrc = cut("coding-agent__src__core__model-resolver.ts", "export const defaultModelPerProvider",
-	"export interface ModelScopeDiagnostic");
-writeFileSync(join(tmp, "resolver.ts"), `const VALID = ["off","minimal","low","medium","high","xhigh","max"];
-function isValidThinkingLevel(l: string) { return VALID.includes(l); }
-${resSrc}
-`);
-const { parseModelPattern } = await imp(join(tmp, "resolver.ts"));
-
-mkdirSync(join(tmp, "core"));
-mkdirSync(join(tmp, "utils"));
-copyFileSync(join(src, "coding-agent__src__core__resolve-config-value.ts"), join(tmp, "core", "resolve-config-value.ts"));
-writeFileSync(join(tmp, "utils", "shell.ts"), `export function getShellConfig() { return { shell: "/bin/sh", args: ["-c"], commandTransport: "args" }; }`);
-const { resolveConfigValueUncached } = await imp(join(tmp, "core", "resolve-config-value.ts"));
+const ai = join(npmRoot, "@earendil-works", "pi-ai", "dist");
+const { transformMessages } = await imp(join(ai, "api", "transform-messages.js"));
+const { shortHash } = await imp(join(ai, "utils", "hash.js"));
+const { getSupportedThinkingLevels, clampThinkingLevel } = await imp(join(ai, "models.js"));
+const { parseModelPattern } = await imp(join(caDir, "dist", "core", "model-resolver.js"));
+const { resolveConfigValueUncached } = await imp(join(caDir, "dist", "core", "resolve-config-value.js"));
 
 // ---- canonical JSON: keys sorted ----
 function canon(v: any): string {

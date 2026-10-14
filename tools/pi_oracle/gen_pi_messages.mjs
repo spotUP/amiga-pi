@@ -3,17 +3,15 @@
 // Per scenario <name>: <name>.sse (the gateway's answers, one stream per request, separated by a line "----"), <name>.body.<i>.json
 // (request bodies, timestamps masked), <name>.head.json (authorization, accept, content-type of request 0), <name>.messages.jsonl
 // (the assistant messages of message_end, timestamps and durations masked), <name>.url (path and query of request 0).
-//   VTCON_DIR=<vtcon> [PI_NPM=<pi install>] node tools/pi_oracle/gen_pi_messages.mjs
+//   VTCON_DIR=<vtcon> node tools/pi_oracle/gen_pi_messages.mjs
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { npmRoot } from "./pin.mjs";
 const here0 = dirname(fileURLToPath(import.meta.url));
-const npm = process.env.PI_NPM || join(here0, "../../vendor/pi-1.1.0/node_modules/@earendil-works/pi-coding-agent");
 const vt = process.env.VTCON_DIR || "../vtcon";
-import { existsSync } from "node:fs";
-const nested = join(npm, "node_modules/@earendil-works/pi-ai/dist");
-const ai = existsSync(nested) ? nested : join(npm, "../pi-ai/dist");     // the oracle install hoists pi-ai
-const core = existsSync(nested) ? join(npm, "node_modules/@earendil-works/pi-agent-core/dist") : join(npm, "../pi-agent-core/dist");
+const ai = join(npmRoot, "@earendil-works/pi-ai/dist");     // the install hoists pi-ai
+const core = join(npmRoot, "@earendil-works/pi-agent-core/dist");
 const imp = (p) => import(pathToFileURL(p).href);
 const pm = await imp(join(ai, "api/pi-messages.js"));
 const { RADIUS_MODELS } = await imp(join(ai, "providers/radius.models.js"));

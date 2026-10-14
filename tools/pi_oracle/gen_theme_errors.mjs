@@ -4,14 +4,10 @@
 import { readFileSync, writeFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { caDir } from "./pin.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-let pkg;
-for (const up of ["../..", "../../../.."]) {
-	const p = resolve(here, up, "vendor", "pi-1.2.0", "node_modules", "@earendil-works", "pi-coding-agent");
-	try { realpathSync(p); pkg = p; break; } catch {}
-}
-if (!pkg) throw new Error("gen_theme_errors: no pinned pi 1.2.0 (vendor/pi-1.2.0)");
+const pkg = caDir;
 const dist = join(pkg, "dist", "modes", "interactive", "theme");
 const { validateThemeJson } = await import(pathToFileURL(join(dist, "theme-schema.js")).href);
 const dark = JSON.parse(readFileSync(join(dist, "dark.json"), "utf8"));
