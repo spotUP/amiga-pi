@@ -1405,7 +1405,7 @@ static void group(const char *const *names)
 /* H1: `--mode json` */
 static void test_json(void)
 {
-    static const char *const names[] = { "json_text", "json_tool", "json_error", "json_think", "json_retry", 0 };
+    static const char *const names[] = { "json_text", "json_tool", "json_error", "json_think", "json_retry", "retry_upstream", 0 };
     group(names);
 }
 
@@ -1901,6 +1901,10 @@ static void test_retryable(void)
     CHECK(pi_retryable("Rate limit reached"));
     CHECK(pi_retryable("terminated"));
     CHECK(pi_retryable("fetch failed"));
+    /* P12-A2: pi 1.2.0 retries a gateway's upstream failure; "Provider returned error" (1.1.0) still, a quota message still not */
+    CHECK(pi_retryable("The upstream provider returned an error"));
+    CHECK(pi_retryable("Provider returned error"));
+    CHECK(!pi_retryable("The provider returned an invalid request"));
     CHECK(!pi_retryable("400 {\"error\":\"bad request\"}"));
     CHECK(!pi_retryable("429 insufficient_quota: you exceeded your current quota, billing"));
     CHECK(!pi_retryable("quota exceeded"));

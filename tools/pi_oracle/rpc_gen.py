@@ -96,6 +96,11 @@ sc('json_think', mode='json', args=['think about it'], model='fake-think', think
 sc('json_retry', mode='json', args=['hello'], retry=True,
    answers=[('http', 529, json.dumps({'type': 'error', 'error': {'type': 'overloaded_error', 'message': 'Overloaded'}})),
             A('Recovered.')])
+# P12-A2 (ai/src/utils/retry.ts, #10842): a gateway's "The upstream provider returned an error" is a transient failure
+sc('retry_upstream', mode='json', args=['hello'], retry=True,
+   answers=[('http', 400, json.dumps({'type': 'error', 'error': {'type': 'invalid_request_error',
+                                                                 'message': 'The upstream provider returned an error'}})),
+            A('Recovered.')])
 
 # ---- RPC: prompting ----
 sc('prompt', steps=[('prompt', 'hello')], answers=[A('Hello from the fixture.')])
