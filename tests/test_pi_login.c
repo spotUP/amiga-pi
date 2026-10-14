@@ -1693,6 +1693,13 @@ static void test_mcp_provider_auth(void)
     in_lines[0] = 0;
     run_app(ARGC(a), a);
     CHECK_INT(ps.nreq, 4);
+    if (ps.nreq != 4) {
+        /* seen once under load as nreq 1 (2026-10-14) and not reproduced: name the requests made and what the run printed */
+        int i;
+        for (i = 0; i < ps.nreq; i++)
+            printf("    request %d: %.*s\n", i, (int)strcspn(ps.head[i], "\r\n"), ps.head[i]);
+        printf("    output:\n%s\n", out.p ? out.p : "");
+    }
     if (ps.nreq == 4) {
         int i;
         CHECK(strstr(ps.head[0], "POST /mcp HTTP/1.1\r\nHost: radius.pi.dev\r\n") == ps.head[0]);
