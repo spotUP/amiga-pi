@@ -6,6 +6,13 @@ VTCON_DIR ?= $(UPTERM_ROOT)/vtcon
 CL_DIR := $(VTCON_DIR)/
 include $(VTCON_DIR)/sources.mk
 # a variable of vtcon's Makefile (vbcc's command line, HOSTCFLAGS, ...), not a copy
+# Everything compiled from VTCON_DIR is a prerequisite of what it builds (as vtcon's own Makefile lists its headers,
+# tests/test_host_deps.py there): the sources through sources.mk, the headers below through VTCON_HDR, and VTCON_STAMP
+# records the resolved VTCON_DIR, so pointing VTCON_DIR at another tree rebuilds. The stamp is rewritten at parse time,
+# only when the path changed (make -n must see the change too); tests/test_make_deps.py proves all of it.
+VTCON_HDR := $(wildcard $(addprefix $(VTCON_DIR)/,*.h */*.h */*.inc))
+VTCON_STAMP := build/vtcon_dir.stamp
+$(shell mkdir -p build; echo '$(realpath $(VTCON_DIR))' | cmp -s - $(VTCON_STAMP) || echo '$(realpath $(VTCON_DIR))' > $(VTCON_STAMP))
 vtvar = $(shell $(MAKE) -s --no-print-directory -C $(VTCON_DIR) -f Makefile -f $(CURDIR)/tools/vtcon_vars.mk print-$(1))
 
 HOSTCC ?= cc
@@ -39,15 +46,16 @@ PI_TESTS := tests/main.c tests/test_pi_agent.c tests/test_pi_tools.c tests/test_
 .DELETE_ON_ERROR:
 
 .PHONY: test layers lua-probe lua-probe-host amiga oracle-session
-# ONLY=pi_agent the agent suite alone, ONLY=pi_tools the tools and the gate, ONLY=pi_session the session file, ONLY=pi_store the store through pi_app, ONLY=pi_model the registry, models.json, handoff and the model switch, ONLY=pi_mcp MCP (python3 for tools/fake_mcp.py), ONLY=pi_resources context files, SYSTEM.md, trust, ONLY=pi_tui the screen against pi's captures (PI_TUI_ONLY=<scenario>, PI_TUI_DUMP=1 shows both screens), ONLY=pi_templates prompt templates (substitution table from pi 1.1.0, discovery, /name through pi_app), ONLY=pi_login the subscription logins (the flows against tools/claude_fixture.py --oauth and pi's own run of them, tests/pi/oauth; /login and the credential of a request through pi_app; PI_LOGIN_ONLY=<scenario> runs one), ONLY=pi_hooks hook commands on pi's extension events (decisions and payloads against pi's goldens, tests/pi/rpc/ext_*), ONLY=pi_radius pi-messages and the Radius catalog (pi's own run of the API, tests/pi/radius; the gateway's answers on the stub transport), ONLY=pi_modes the JSON and RPC modes against pi's records (tests/pi/rpc, PI_MODES_ONLY=<scenario>); ONLY=layers the layering check alone
+# ONLY=pi_agent the agent suite alone, ONLY=pi_tools the tools and the gate, ONLY=pi_session the session file, ONLY=pi_store the store through pi_app, ONLY=pi_model the registry, models.json, handoff and the model switch, ONLY=pi_mcp MCP (python3 for tools/fake_mcp.py), ONLY=pi_resources context files, SYSTEM.md, trust, ONLY=pi_tui the screen against pi's captures (PI_TUI_ONLY=<scenario>, PI_TUI_DUMP=1 shows both screens), ONLY=pi_templates prompt templates (substitution table from pi 1.1.0, discovery, /name through pi_app), ONLY=pi_login the subscription logins (the flows against tools/claude_fixture.py --oauth and pi's own run of them, tests/pi/oauth; /login and the credential of a request through pi_app; PI_LOGIN_ONLY=<scenario> runs one), ONLY=pi_hooks hook commands on pi's extension events (decisions and payloads against pi's goldens, tests/pi/rpc/ext_*), ONLY=pi_radius pi-messages and the Radius catalog (pi's own run of the API, tests/pi/radius; the gateway's answers on the stub transport), ONLY=pi_modes the JSON and RPC modes against pi's records (tests/pi/rpc, PI_MODES_ONLY=<scenario>); ONLY=layers the layering check alone, ONLY=make_hygiene the rebuild-on-vtcon-change check (tests/test_make_deps.py)
 test: build/pi_test
-	@if [ "$(ONLY)" != layers ]; then cd $(VTCON_DIR) && $(CURDIR)/build/pi_test $(ONLY); fi
+	@if [ "$(ONLY)" != layers ] && [ "$(ONLY)" != make_hygiene ]; then cd $(VTCON_DIR) && $(CURDIR)/build/pi_test $(ONLY); fi
 	@if [ -z "$(ONLY)" ] || [ "$(ONLY)" = layers ]; then $(MAKE) -s layers; fi
+	@if [ -z "$(ONLY)" ] || [ "$(ONLY)" = make_hygiene ]; then python3 -I tests/test_make_deps.py; fi
 	@if [ -z "$(ONLY)" ]; then grep -q '^\.DELETE_ON_ERROR:' Makefile || { echo "[ERROR] Makefile lacks .DELETE_ON_ERROR: (M2)"; exit 1; }; fi
 
 # the suites run in VTCON_DIR (its recordings: tests/claude, tests/pi); amiga-pi's
 # own goldens through PI_TESTS
-build/pi_test: $(PI_CORE) $(PI_HDR) amiga-pi/host_posix.c amiga-pi/host_posix.h $(PI_TESTS) $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) $(VT_TEST) tests/pi_test.h build/stb_impl.o $(LUA_HOST_OBJ)
+build/pi_test: $(PI_CORE) $(PI_HDR) amiga-pi/host_posix.c amiga-pi/host_posix.h $(PI_TESTS) $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) $(VT_TEST) tests/pi_test.h build/stb_impl.o $(LUA_HOST_OBJ) $(VTCON_HDR) $(VTCON_STAMP)
 	@mkdir -p build
 	$(HOSTCC) $(HOSTCFLAGS) -DVT_COUNT_ALLOC -DPI_TESTS='"$(CURDIR)/tests"' -o $@ $(PI_TESTS) amiga-pi/host_posix.c $(PI_CORE) \
 	  $(CLAUDE_CORE) $(CLAUDE_PI) $(VT_HOST) $(VT_TEST) build/stb_impl.o $(LUA_HOST_OBJ) -lm
@@ -61,7 +69,7 @@ build/stb_impl.o: $(STB)
 	$(HOSTCC) -std=c99 -O1 -g -fsanitize=address,undefined -w -Ivendor/stb -Iamiga-pi -c -o $@ amiga-pi/stb_impl.c
 
 # amiga-pi on the host (manual runs against tools/claude_fixture.py), plain http only
-build/amiga-pi-host: $(PI_CORE) $(PI_HDR) amiga-pi/main_posix.c amiga-pi/host_posix.c $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) build/stb_impl.o $(LUA_HOST_OBJ)
+build/amiga-pi-host: $(PI_CORE) $(PI_HDR) amiga-pi/main_posix.c amiga-pi/host_posix.c $(CLAUDE_CORE) $(CLAUDE_PI) $(CLAUDE_HDR) $(VT_HOST) build/stb_impl.o $(LUA_HOST_OBJ) $(VTCON_HDR) $(VTCON_STAMP)
 	@mkdir -p build
 	$(HOSTCC) $(HOSTCFLAGS) -o $@ amiga-pi/main_posix.c amiga-pi/host_posix.c $(PI_CORE) $(CLAUDE_CORE) $(CLAUDE_PI) $(VT_HOST) build/stb_impl.o $(LUA_HOST_OBJ) -lm
 
@@ -92,13 +100,13 @@ PI_AMIGA_SRC := $(abspath $(PI_CORE) amiga-pi/main_amiga.c) $(filter-out $(CL_DI
 amiga: build/amiga/amiga-pi
 # Lua's own files, one object each, with the warning numbers A5 measured (ARCHITECTURE.md, Extensions: 65, 79, 153, 163,
 # 166, 167, 170, 172, 306, 307; vtcon's VC already carries 163, 166, 167, 170, 306, 307), still -warnings-as-errors
-build/amiga/obj/lua_%.o: $(LUA_DIR)/%.c $(wildcard $(LUA_DIR)/*.h)
+build/amiga/obj/lua_%.o: $(LUA_DIR)/%.c $(wildcard $(LUA_DIR)/*.h) $(VTCON_STAMP)
 	@mkdir -p build/amiga/obj
 	cd $(VTCON_DIR) && $(call vtvar,VC) -dontwarn=65,79,153,172 -I$(CURDIR)/$(LUA_DIR) -c -o $(CURDIR)/$@ $(CURDIR)/$<
 
 # net_amiga.c and the TLS layer are compiled in the recipe: listed here, an edit of either relinks
 build/amiga/amiga-pi: $(PI_CORE) $(PI_HDR) amiga-pi/main_amiga.c $(CLAUDE_PORTABLE) $(CLAUDE_PI) $(CLAUDE_HDR) $(LLM_CORE) $(STB) $(LUA_AMIGA_OBJ) \
-  $(VTCON_DIR)/claude/net_amiga.c $(wildcard $(VTCON_DIR)/claude/tls_*.c)
+  $(VTCON_DIR)/claude/net_amiga.c $(wildcard $(VTCON_DIR)/claude/tls_*.c) $(VTCON_HDR) $(VTCON_STAMP)
 	@mkdir -p build/amiga/obj
 	$(MAKE) -s -C $(VTCON_DIR) build/amiga/obj/cpuchk-amiga-pi.o
 	cd $(VTCON_DIR) && $(filter-out -warnings-as-errors -warn=-1,$(call vtvar,VC)) -dontwarn=-1 -I$(CURDIR)/vendor/stb \
@@ -112,6 +120,6 @@ build/amiga/amiga-pi: $(PI_CORE) $(PI_HDR) amiga-pi/main_amiga.c $(CLAUDE_PORTAB
 	  $(addprefix $(CURDIR)/,$(LUA_AMIGA_OBJ)) build/amiga/obj/cpuchk-amiga-pi.o -lmieee
 
 # K5: a stdio MCP server that runs on the Amiga (rig step 10), on vtcon's json.c
-build/amiga/mcp-echo: tools/probe/mcp_echo.c
+build/amiga/mcp-echo: tools/probe/mcp_echo.c $(call cl_src,claude/json.c claude/util.c) $(VTCON_HDR) $(VTCON_STAMP)
 	@mkdir -p build/amiga
 	cd $(VTCON_DIR) && $(call vtvar,VC) -I$(VTCON_DIR) -o $(CURDIR)/$@ $(CURDIR)/tools/probe/mcp_echo.c claude/json.c claude/util.c
