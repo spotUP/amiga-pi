@@ -1,0 +1,12 @@
+data: {"type":"start"}
+
+data: {"type":"text_start","contentIndex":0}
+
+data: {"type":"text_delta","contentIndex":0,"delta":"Hel"}
+
+data: {"type":"text_delta","contentIndex":0,"delta":"lo"}
+
+data: {"type":"text_end","contentIndex":0,"content":"Hello"}
+
+data: {"type":"done","reason":"stop","usage":{"input":120,"output":7,"cacheRead":3,"cacheWrite":0,"totalTokens":130,"cost":{"input":0.00036,"output":0.000105,"cacheRead":9e-7,"cacheWrite":0,"total":0.000465}},"responseId":"resp_1","providerThinkingLevel":"high"}
+

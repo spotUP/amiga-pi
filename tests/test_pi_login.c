@@ -1515,6 +1515,7 @@ static void test_openrouter_radius_dialog(void)
     q_http(200, "{\"device_code\":\"rd-1\",\"user_code\":\"RAD-42\",\"verification_uri\":\"https://radius.pi.dev/device\",\"expires_in\":600,\"interval\":1}");
     q_http(400, "{\"error\":\"authorization_pending\"}");
     q_http(200, "{\"access_token\":\"rat-access-0001\",\"refresh_token\":\"rrt-refresh-0001\",\"expires_in\":3600,\"scope\":\"gateway offline_access\"}");
+    q_http(500, "no catalog today");           /* the catalog refresh that follows a Radius login (L3): a failure keeps the cached models */
     in_lines[0] = "/login";
     in_lines[1] = "3";
     in_lines[2] = "2";
@@ -1527,8 +1528,11 @@ static void test_openrouter_radius_dialog(void)
     CHECK(pos_of(out.p, "2) Sign in with device code (when signing in from another device)") >= 0);
     CHECK(pos_of(out.p, "Login to Radius") >= 0 && pos_of(out.p, "Enter code: RAD-42") >= 0);
     CHECK(pos_of(out.p, "Logged in to Radius") >= 0);
-    CHECK_INT(ps.nreq, 3);
-    if (ps.nreq == 3) {
+    CHECK_INT(ps.nreq, 4);
+    if (ps.nreq == 4) {
+        CHECK(strstr(ps.head[3], "GET /v1/config HTTP/1.1\r\nHost: radius.pi.dev\r\n") == ps.head[3]);
+        CHECK(strstr(ps.head[3], "authorization: Bearer rat-access-0001\r\n") != 0);
+        CHECK(pos_of(out.p, "Logged in to Radius, but its model catalog could not be refreshed; using cached models.") >= 0);
         CHECK(strstr(ps.head[0], "POST /v1/oauth/device HTTP/1.1\r\nHost: radius.pi.dev\r\n") == ps.head[0]);
         CHECK(strstr(ps.body[0], "client_id=pi-gateway&scope=gateway+offline_access") == ps.body[0]);
         CHECK(strstr(ps.body[2], "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&client_id=pi-gateway&device_code=rd-1") == ps.body[2]);
@@ -1679,10 +1683,11 @@ static void test_mcp_provider_auth(void)
     q_http(200, init);
     q_http(202, "");
     q_http(200, tools);
+    q_http(500, "");                            /* the interactive start's catalog refresh (L3), after the server was started */
     in_lines[0] = 0;
     run_app(ARGC(a), a);
-    CHECK_INT(ps.nreq, 3);
-    if (ps.nreq == 3) {
+    CHECK_INT(ps.nreq, 4);
+    if (ps.nreq == 4) {
         int i;
         CHECK(strstr(ps.head[0], "POST /mcp HTTP/1.1\r\nHost: radius.pi.dev\r\n") == ps.head[0]);
         for (i = 0; i < 3; i++) {
@@ -1699,10 +1704,11 @@ static void test_mcp_provider_auth(void)
     q_http(200, init);
     q_http(202, "");
     q_http(200, tools);
+    q_http(500, "");
     run_app(ARGC(a), a);
     CHECK_INT(pi_auth_refreshes - mark, 1);
-    CHECK_INT(ps.nreq, 4);
-    if (ps.nreq == 4) {
+    CHECK_INT(ps.nreq, 5);
+    if (ps.nreq == 5) {
         CHECK(strstr(ps.head[0], "POST /v1/oauth/token HTTP/1.1\r\nHost: radius.pi.dev\r\n") == ps.head[0]);
         CHECK(strstr(ps.body[0], "grant_type=refresh_token&client_id=pi-gateway&refresh_token=rrt-refresh-0001") == ps.body[0]);
         CHECK(has_line(ps.head[1], "Authorization: Bearer rat-access-0001"));
