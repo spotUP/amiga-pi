@@ -1025,6 +1025,9 @@ static llm_ts adv_now(void *u)
 static const char *app_pstatus;         /* PI_PROGRAM_STATUS in the test's environment (0: unset) */
 static const char *app_colorterm;       /* what the test's terminal says in COLORTERM (0: unset) */
 
+static int app_nokeys;              /* no provider key in the environment: the models of models.json are the only ones with a credential */
+static const char *app_model_cli;   /* --model for the next app_run, 0: anthropic/claude-opus-5-5 */
+
 static long app_env(const char *name, char *o, long cap)
 {
     const char *v = 0;
@@ -1034,9 +1037,9 @@ static long app_env(const char *name, char *o, long cap)
         v = "vtcon";
     else if (!strcmp(name, "PI_PROGRAM_STATUS"))
         v = app_pstatus;
-    if (!strcmp(name, "OPENAI_API_KEY"))
+    if (!app_nokeys && !strcmp(name, "OPENAI_API_KEY"))
         v = "sk-test-openai";
-    else if (!strcmp(name, "ANTHROPIC_API_KEY"))
+    else if (!app_nokeys && !strcmp(name, "ANTHROPIC_API_KEY"))
         v = "sk-ant-test-not-real";
     if (!v || (long)strlen(v) >= cap)
         return -1;
@@ -1106,6 +1109,8 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pi_platform pl;
     char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     int i, rc, argc = 3;
+    if (app_model_cli)
+        a[2] = (char *)app_model_cli;
     if (app_session) {
         a[3] = "--session";
         a[4] = (char *)app_session;
@@ -1743,6 +1748,71 @@ static int load_login_rows(int want_type)         /* 1 oauth, 0 API key, -1 both
     return k;
 }
 
+/* a models.json of the generator's fake provider (tools/pi_oracle/tui_gen.py): fake-model and, with more, fake-small and fake-large */
+static void fake_models(int reasoning, int more)
+{
+    char t[1500];
+    strcpy(t, "{\"providers\":{\"fake\":{\"baseUrl\":\"http://127.0.0.1:9\",\"api\":\"anthropic-messages\",\"apiKey\":\"k\",\"models\":["
+              "{\"id\":\"fake-model\",\"name\":\"fake-model\",\"reasoning\":");
+    strcat(t, reasoning ? "true" : "false");
+    strcat(t, ",\"input\":[\"text\"],\"contextWindow\":200000,\"maxTokens\":8192,\"cost\":{\"input\":3,\"output\":15,\"cacheRead\":0.3,\"cacheWrite\":3.75}}");
+    if (more)
+        strcat(t, ",{\"id\":\"fake-small\",\"name\":\"Fake Small\",\"reasoning\":false,\"input\":[\"text\"],\"contextWindow\":100000,\"maxTokens\":4096,"
+                  "\"cost\":{\"input\":1,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0}},{\"id\":\"fake-large\",\"name\":\"Fake Large\",\"reasoning\":false,"
+                  "\"input\":[\"text\"],\"contextWindow\":100000,\"maxTokens\":4096,\"cost\":{\"input\":1,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0}}");
+    strcat(t, "]}}}\n");
+    app_write("models.json", t);
+}
+
+/* P12-B9, B10, B15 (owner 2026-10-14: every menu by keyboard): /model, /thinking and /fork open pi 1.2.0's selectors over the screen's picker.
+ * The goldens are pi's own screens (model_*, thinking_*, fork_*); the reachability check is that /model through pi_app opens the
+ * selector (the screen shows its rows) and Enter switches the session's model (the footer and the next request name it) */
+static void test_selectors(void)
+{
+    static const char *k_model[] = { "/model\r", "\004", 0 };
+    static const char *k_search[] = { "/model\rlarge", "\004", 0 };
+    static const char *k_down[] = { "/model\r\033[B", "\004", 0 };
+    static const char *k_pick[] = { "/model\r\033[B\r", "\004", 0 };
+    static const char *k_wrap[] = { "/model\r\033[A", "\004", 0 };
+    static const char *k_think[] = { "/thinking\r", "\004", 0 };
+    static const char *k_think_search[] = { "/thinking\rlow", "\004", 0 };
+    static const char *k_think_pick[] = { "/thinking\r\033[B\r", "\004", 0 };
+    static const int m_foot[] = { 24, 25, 0 };
+    const char *quiet = "{\"quietStartup\":true,\"defaultProvider\":\"fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"off\"}\n";
+    fresh_agent();
+    app_nokeys = 1;
+    app_model_cli = "fake/fake-model";
+    fake_models(0, 1);
+    skills_case("model_selector", quiet, k_model, 0, 0, 0, 0, m_foot, 0);
+    skills_case("model_search", quiet, k_search, 0, 0, 0, 0, m_foot, 0);
+    skills_case("model_down", quiet, k_down, 0, 0, 0, 0, m_foot, 0);
+    rest_any = 1;                   /* (the footer names fake-small now: the status line shows when the screen is the one to take) */
+    rest_find = "Model: fake-small";
+    skills_case("model_select", quiet, k_pick, 0, 0, 0, 0, m_foot, 0);
+    rest_any = 0;
+    rest_find = "navigate";
+    CHECK(app_out && strstr(app_out, "Model: fake-small") != 0);
+    (void)k_wrap;
+    {
+        /* the scope: enabledModels shows the Scope line and the scoped list */
+        const char *scoped = "{\"quietStartup\":true,\"defaultProvider\":\"fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"off\","
+                             "\"enabledModels\":[\"fake/fake-model\",\"fake/fake-large\"]}\n";
+        skills_case("model_scoped", scoped, k_model, 0, 0, 0, 0, m_foot, 0);
+    }
+    fake_models(1, 0);
+    skills_case("thinking_selector", quiet, k_think, 0, 0, 0, 0, m_foot, 0);
+    skills_case("thinking_search", quiet, k_think_search, 0, 0, 0, 0, m_foot, 0);
+    rest_any = 1;
+    rest_find = "Thinking level: minimal";
+    skills_case("thinking_select", quiet, k_think_pick, 0, 0, 0, 0, m_foot, 0);
+    rest_any = 0;
+    rest_find = "navigate";
+    CHECK(app_out && strstr(app_out, "Thinking level: minimal") != 0);
+    app_nokeys = 0;
+    app_model_cli = 0;
+    app_write("models.json", "{}\n");
+}
+
 /* the agent directory's settings.json as text, "" when there is none */
 static char *app_settings_text(void)
 {
@@ -2007,6 +2077,68 @@ static void test_expand_summaries(void)
 }
 
 /* Enter in the selector moves the leaf (a user message goes back to the editor) and the conversation is drawn again */
+/* P12-B15: /fork opens pi's user-message selector (user-message-selector.ts): the title and its description, the messages with their
+ * position, the newest selected, Up moving to the one before; Enter forks there (the chat is drawn again, the message is back in the
+ * editor, "Forked to new session"). The goldens are pi's own screens for doc_branch.jsonl (the rows above the selector are the transcript
+ * and the model warning of the capture's fake model) */
+static void fork_case(const char *name, const char **keys)
+{
+    static scen sc = { "", { 0 }, { 0 }, 0, 1, 0, { { 1, 6, 0, 79, "the transcript above the selector, and the warning for the capture's fake model" },
+                                                    { 24, 25, 0, 79, "the folder and the model of the capture" } } };
+    char path[600];
+    int i;
+    sc.name = name;
+    if (!put_session("../sessions/doc_branch.jsonl", "fork_session.jsonl", path))
+        return;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    cur = &sc;
+    taken = 0;
+    diffs = 0;
+    memset(rowdiff, 0, sizeof(rowdiff));
+    first_diff[0] = 0;
+    load_golden(name);
+    CHECK(want != 0);
+    if (!want)
+        return;
+    app_session = path;
+    CHECK_INT(app_run(80, want_rows, keys, 0, 0, tree_rest), 0);
+    app_session = 0;
+    CHECK(taken);
+    if (diffs) {
+        printf("  %s: %d cells differ from pi's capture\n%s", name, diffs, first_diff);
+        if (getenv("PI_TUI_ROWS"))
+            for (i = 0; i < want_rows; i++)
+                if (rowdiff[i]) {
+                    printf("    row %2d pi       |%s\n", i + 1, h_row(want, i));
+                    printf("           amiga-pi |%s   (%d cells)\n", snap[i], rowdiff[i]);
+                }
+    }
+    CHECK_INT(diffs, 0);
+    vt_free(want);
+}
+
+static void test_fork_selector(void)
+{
+    static const char *k_fork[] = { "/fork\r", "\004", 0 };
+    static const char *k_up[] = { "/fork\r\033[A", "\004", 0 };
+    static const char *k_pick[] = { "/fork\r\033[A\r", "\004", 0 };
+    fork_case("fork_selector", k_fork);
+    fork_case("fork_up", k_up);
+    /* Enter forks at the message: a new session whose chat ends before it, the message in the editor, pi's status line */
+    {
+        char path[600];
+        strcpy(path, aroot);
+        strcat(path, "/fork_session.jsonl");
+        app_session = path;
+        CHECK_INT(app_run(80, 40, k_pick, 0, 0, take_shot), 0);
+        app_session = 0;
+        CHECK(shot_has("Forked to new session"));
+        CHECK(shot_has("approach A"));                      /* back in the editor */
+        CHECK(!shot_has("approach B"));
+        CHECK(!shot_has("Fork from Message"));
+    }
+}
+
 static void test_tree_nav(void)
 {
     static const char *keys[] = { "/tree\r", "\033[B", "\r", "\r", "\004", 0 };
@@ -3648,6 +3780,8 @@ void suite_pi_tui(void)
     test_skills_screen();
     test_login_screens();
     test_whats_new();
+    test_selectors();
+    test_fork_selector();
     test_login_typed();
     test_compact_live();
     test_export();

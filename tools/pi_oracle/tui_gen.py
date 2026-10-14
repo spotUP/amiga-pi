@@ -219,6 +219,31 @@ SCENARIOS = {
     'reg_start': dict(steps=[], answers=[], tui='regular'),
     # P12-B2/B3: What's New on the first start after an update (lastChangelogVersion older than 1.2.0), collapsed, on a fresh install,
     # and /changelog; the settings.json pi leaves is kept as <name>.settings
+    # P12-B9: /model, pi's model-selector.ts, over a fake provider with three models (the first is the session's)
+    'model_selector': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Model Name')], answers=[],
+                           models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True),
+    'model_search': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Model Name'), ('type', 'large'), ('sleep', 0.5)], answers=[],
+                         models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True),
+    'model_down': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Model Name'), ('key', 'Down'), ('sleep', 0.5)], answers=[],
+                       models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True),
+    'model_scoped': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Scope:')], answers=[],
+                         models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True,
+                         settings={'enabledModels': ['fake/fake-model', 'fake/fake-large']}),
+    'model_select': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Model Name'), ('key', 'Down'), ('enter',), ('wait', 'Model: ')], answers=[],
+                         models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True),
+    'model_arg': dict(steps=[('type', '/model small'), ('enter',), ('wait', 'Model: ')], answers=[],
+                      models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
+    'model_arg_search': dict(steps=[('type', '/model fak'), ('enter',), ('wait', 'Model Name')], answers=[],
+                             models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
+    # P12-B10: /thinking, thinking-selector.ts (a reasoning model); P12-B15: /fork, user-message-selector.ts
+    'thinking_selector': dict(steps=[('type', '/thinking'), ('enter',), ('wait', 'cycles thinking')], answers=[], reasoning=True),
+    'thinking_search': dict(steps=[('type', '/thinking'), ('enter',), ('wait', 'cycles thinking'), ('type', 'low'), ('sleep', 0.5)], answers=[],
+                            reasoning=True),
+    'thinking_select': dict(steps=[('type', '/thinking'), ('enter',), ('wait', 'cycles thinking'), ('key', 'Down'), ('enter',), ('wait', 'Thinking level: ')],
+                            answers=[], reasoning=True),
+    'fork_selector': dict(steps=[('type', '/fork'), ('enter',), ('wait', 'Fork from')], answers=[], session='../sessions/doc_branch.jsonl'),
+    'fork_up': dict(steps=[('type', '/fork'), ('enter',), ('wait', 'Fork from'), ('key', 'Up'), ('sleep', 0.5)], answers=[],
+                    session='../sessions/doc_branch.jsonl'),
     'whats_new': dict(steps=[], answers=[], changelog=True, settings={'lastChangelogVersion': '1.1.0'}),
     'whats_new_collapsed': dict(steps=[], answers=[], changelog=True, settings={'lastChangelogVersion': '1.1.0', 'collapseChangelog': True}),
     'whats_new_fresh': dict(steps=[], answers=[], changelog=True),
@@ -846,9 +871,18 @@ def run(name, sc, cols, rows, keep):
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     json.dump({'providers': {'fake': {'baseUrl': 'http://127.0.0.1:%d' % port, 'api': 'anthropic-messages', 'apiKey': 'k',
-              'models': [{'id': MODEL, 'name': MODEL, 'reasoning': False, 'input': ['text'], 'contextWindow': 200000,
-                          'maxTokens': 8192, 'cost': {'input': 3, 'output': 15, 'cacheRead': 0.3, 'cacheWrite': 3.75}}]}}},
+              'models': [{'id': MODEL, 'name': MODEL, 'reasoning': sc.get('reasoning', False), 'input': ['text'], 'contextWindow': 200000,
+                          'maxTokens': 8192, 'cost': {'input': 3, 'output': 15, 'cacheRead': 0.3, 'cacheWrite': 3.75}}] +
+                         [{'id': mid, 'name': mname, 'reasoning': False, 'input': ['text'], 'contextWindow': 100000,
+                           'maxTokens': 4096, 'cost': {'input': 1, 'output': 2, 'cacheRead': 0, 'cacheWrite': 0}}
+                          for mid, mname in sc.get('models', [])]}}},
               open(os.path.join(agent, 'models.json'), 'w'))
+    if sc.get('ollama'):      # amiga-pi lists its built-in local ollama model with no key; pi gets the same model from models.json
+        mj = json.load(open(os.path.join(agent, 'models.json')))
+        mj['providers']['ollama'] = {'baseUrl': 'http://127.0.0.1:11434/v1', 'api': 'openai-completions', 'apiKey': 'ollama',
+                                     'models': [{'id': 'qwen2.5-coder:7b', 'name': 'qwen2.5-coder:7b', 'reasoning': False, 'input': ['text'],
+                                                 'contextWindow': 32768, 'maxTokens': 4096, 'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}}]}
+        json.dump(mj, open(os.path.join(agent, 'models.json'), 'w'))
     # quietStartup hides the header: only the scenarios about the header show it (the rest would scroll by its height)
     settings = {'defaultProvider': 'fake', 'defaultModel': MODEL, 'defaultThinkingLevel': 'off',
                 'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start', 'skills_start', 'start_w64', 'pad0_start_w64', 'settings_bad', 'start_expanded', 'start_header_only', 'start_expanded_w64'),

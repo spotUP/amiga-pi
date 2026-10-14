@@ -197,3 +197,34 @@ char *pi_jobj_str(const char *text, long n, const char *key)
         return 0;
     return json_strdup(v, 0);
 }
+
+/* settings.json members set one at a time, the rest kept (pi's setDefaultModelAndProvider, setDefaultThinkingLevel): 0, -1 failed */
+int pi_store_set_member(cl_sys *sys, const char *dir, const char *key1, const char *val1, const char *key2, const char *val2)
+{
+    long n = 0;
+    char *t, err[200];
+    jw o1, o2, v;
+    int rc = -1;
+    if (!dir || !dir[0])
+        return -1;
+    t = pi_store_read(sys, dir, "settings.json", &n);
+    jw_init(&o1);
+    jw_init(&o2);
+    jw_init(&v);
+    jw_strz(&v, val1);
+    if (!pi_jobj_set(t ? t : "", t ? n : 0, key1, v.p, &o1, err, sizeof(err))) {
+        if (key2) {
+            jw_reset(&v);
+            jw_strz(&v, val2);
+            if (!pi_jobj_set(o1.p, o1.n, key2, v.p, &o2, err, sizeof(err)) &&
+                !pi_store_write(sys, dir, "settings.json", o2.p, o2.n, err, sizeof(err)))
+                rc = 0;
+        } else if (!pi_store_write(sys, dir, "settings.json", o1.p, o1.n, err, sizeof(err)))
+            rc = 0;
+    }
+    jw_free(&o1);
+    jw_free(&o2);
+    jw_free(&v);
+    free(t);
+    return rc;
+}

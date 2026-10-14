@@ -330,6 +330,19 @@ static int scope_models(pi_models *m, int *idx, int *lv, int max)
     return n;
 }
 
+int pi_models_scoped(pi_models *m, int *idx, int max)
+{
+    int *lv, n;
+    if (!m->scope || !m->scope[0] || max < 1)
+        return 0;
+    lv = (int *)malloc(sizeof(int) * (size_t)max);
+    if (!lv)
+        return 0;
+    n = scope_models(m, idx, lv, max);
+    free(lv);
+    return n;
+}
+
 int pi_model_cycle(pi_models *m, pi_session *s, int dir, char *msg, long cap)
 {
     int *idx, *lv, n = 0, cur = 0, i, next, scoped = m->scope != 0 && m->scope[0], rc = 1;

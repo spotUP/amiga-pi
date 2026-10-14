@@ -1,0 +1,25 @@
+ B answer
+
+ Warning: Could not restore model anthropic/claude-sonnet-4-5. Using
+ fake/fake-model
+
+
+ Fork from Message
+ Select a user message to copy the active path up to that point into a new
+ session
+
+────────────────────────────────────────────────────────────────────────────────
+
+  root question
+  Message 1 of 3
+
+› approach A
+  Message 2 of 3
+
+  approach B
+  Message 3 of 3
+
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+↑30 ↓15 $0.900 0.0%/200k (auto)                                       fake-model
