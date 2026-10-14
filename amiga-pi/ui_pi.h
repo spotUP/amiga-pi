@@ -71,5 +71,7 @@ int pi_ui_print(pi_session *s, cl_io *io, const char *prompt);
 /* the conversation until /exit, /quit or the end of input; first: a prompt
  * to start with, 0 none. 0 */
 int pi_ui_run(pi_session *s, cl_io *io, const char *first);
+/* the reachability tests' sentinel: /model <text> refreshes of every catalog (findExactModelMatch) so far */
+extern long pi_model_cmd_refreshes;
 
 #endif

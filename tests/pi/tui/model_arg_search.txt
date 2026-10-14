@@ -1,0 +1,25 @@
+
+ Refreshing model catalogs…
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+Only showing models from configured providers. Use /login to add providers.
+
+> fak
+
+→ ✓ fake-model [fake] · default
+    fake-small [fake]
+    fake-large [fake]
+
+  Model Name: fake-model
+
+  Model catalogs refreshed.
+
+  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

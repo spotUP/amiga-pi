@@ -1824,6 +1824,28 @@ static void test_selectors(void)
     CHECK(app_out && strstr(app_out, "Model: fake-small") != 0);
     (void)k_wrap;
     {
+        /* /model <text>: an exact id switches with no refresh; anything else refreshes every catalog first (one reachability check through
+         * the program's entry point: the sentinel moved, and "Refreshing model catalogs" comes before the selector it opens) */
+        static const char *k_arg[] = { "/model fake-small", "\033", "\r", "\004", 0 };
+        static const char *k_arg_s[] = { "/model fak", "\033", "\r", "\004", 0 };
+        long r0 = pi_model_cmd_refreshes;
+        rest_any = 1;
+        rest_find = "Model: fake-small";
+        skills_case("model_arg", quiet, k_arg, 0, 0, 0, 0, m_foot, 0);
+        rest_any = 0;
+        rest_find = "navigate";
+        CHECK(pi_model_cmd_refreshes == r0);
+        xm_row = 12;                /* the search box: pi's setValue leaves its cursor at the start, the picker's is at the end of the text */
+        xm_c0 = 2;
+        xm_c1 = 5;
+        xm_why = "the search input's cursor cell";
+        skills_case("model_arg_search", quiet, k_arg_s, 0, 0, 0, 0, m_foot, 0);
+        xm_row = 0;
+        CHECK(pi_model_cmd_refreshes > r0);
+        CHECK(app_out && strstr(app_out, "Refreshing model catalogs") != 0 && strstr(app_out, "Model Name") != 0 &&
+              strstr(app_out, "Refreshing model catalogs") < strstr(app_out, "Model Name"));
+    }
+    {
         /* the scope: enabledModels shows the Scope line and the scoped list */
         const char *scoped = "{\"quietStartup\":true,\"defaultProvider\":\"fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"off\","
                              "\"enabledModels\":[\"fake/fake-model\",\"fake/fake-large\"]}\n";
@@ -2096,9 +2118,17 @@ static void test_settings_behaviour(void)
     app_write("settings.json", settings_json("\"showHardwareCursor\":true"));
     CHECK_INT(app_run(80, 25, k_abc, 0, 0, take_shot), 0);
     CHECK(shot_cursor && shot_cx == 3 && shot_cy >= 0 && strstr(shot[shot_cy], "abc") != 0);
+    CHECK(app_out && strstr(app_out, "\033[7m") == 0);          /* pi 1.2.0 resolveFakeCursors: no reverse-video cell with the hardware cursor */
     app_write("settings.json", settings_json(0));
     CHECK_INT(app_run(80, 25, k_abc, 0, 0, take_shot), 0);
     CHECK(!shot_cursor);
+    {   /* off: the cell is ESC[7m<cell>ESC[27m, as in pi 1.2.0's own bytes */
+        long gn;
+        char *gb = slurp("status_bytes.bytes", &gn);
+        CHECK(gb != 0 && strstr(gb, "hello\033[7m \033[27m") != 0);
+        CHECK(app_out && strstr(app_out, "abc\033[7m \033[27m") != 0);
+        free(gb);
+    }
     /* autocompact: the footer's "(auto)" while auto-compaction is on */
     CHECK_INT(app_run(80, 25, k_abc, 0, 0, take_shot), 0);
     CHECK(shot_has("(auto)"));
@@ -2797,7 +2827,8 @@ static void test_program_status(void)
     g = slurp("start_bytes.bytes", &n);
     CHECK(g != 0);
     if (g) {
-        CHECK(memcmp(g, "", 0) == 0 && strstr(g, "\033[>7u\033[?u\033]7501;?\033\\\033[c") != 0);      /* pi's startup queries */
+        CHECK(strstr(g, "\033[>7u\033[?u\033]7501;?\033\\\033[c") != 0);      /* pi's startup queries */
+        CHECK(n > 1560 && strstr(g, "\033[>4;2m") != 0 && strstr(g, "\033]0;") != 0);      /* modifyOtherKeys 2 and the OSC 0 title follow the first frame (COMPATIBILITY) */
         CHECK_INT(osc7501(g, n, ours, 8), 1);           /* only the query: no report without support */
         free(g);
     }

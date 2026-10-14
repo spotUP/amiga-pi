@@ -21,6 +21,7 @@
 #include "login.h"
 #include "models.h"
 #include "radius.h"
+#include "llm/radius.h"
 #include "authstore.h"
 #include "session3.h"
 #include "scoped.h"
@@ -308,6 +309,7 @@ static void redraw_chat(pi_ui *p, int mode)
 
 static void status(pi_ui *p);
 static void settings_live(pi_ui *p, pi_store *st, const char *id);
+static void tui_settings_live(cl_tui *t, cl_sys *sys, const char *dir, const char *id);
 static void user_text(const char *json, long n, jw *out);
 static void sync_queue(pi_ui *p);
 
@@ -1407,6 +1409,10 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
     p->look = 1;
     show_init(sh, t);
     window_title(p, t);         /* before the start, which writes it */
+    if (p->s->command_u && ((pi_store *)p->s->command_u)->models) {
+        pi_store *ps0 = (pi_store *)p->s->command_u;
+        tui_settings_live(t, ps0->models->sys, ps0->models->agent_dir, 0);      /* the first frame follows the settings too */
+    }
     if (tui_start(t)) {
         show_free(sh);
         tui_free(t);
@@ -2492,7 +2498,59 @@ static void model_selector(pi_ui *p, cl_tui *t, const char *search)
     status(p);
 }
 
-/* handleModelCommand: no text opens the selector; an exact provider/id or id switches; anything else opens the selector searching for it */
+/* the models /model <text> is matched against: the scope when there is one, else every usable model (the available snapshot). 1 when scoped */
+static int model_candidates(pi_models *ms, const llm_model **list, int cap, int *n)
+{
+    int i, idx[MS_MAX], ns = pi_models_scoped(ms, idx, MS_MAX);
+    *n = 0;
+    if (ns > 0) {
+        for (i = 0; i < ns && *n < cap; i++)
+            list[(*n)++] = &ms->reg.m[idx[i]];
+        return 1;
+    }
+    for (i = 0; i < ms->reg.n && *n < cap; i++)
+        if (pi_model_usable(ms, &ms->reg.m[i]))
+            list[(*n)++] = &ms->reg.m[i];
+    return 0;
+}
+
+/* findExactModelMatch's refresh (interactive-mode.ts:5229-5261): every catalog once, each provider on its own so a failure names it; pi aborts at 15 s */
+long pi_model_cmd_refreshes;
+
+static void model_refresh_all(pi_ui *p, pi_models *ms)
+{
+    char names[400], e[300], line[500];
+    long t0 = ms->sys->now ? ms->sys->now(ms->sys->u) : -1, t1;
+    int i, nrad = ms->reg.nrad;
+    char ids[LLM_RADIUS_MAX + 1][64];
+    names[0] = 0;
+    for (i = 0; i < nrad; i++)
+        cl_copy(ids[i], ms->reg.rad[i].id, sizeof(ids[i]));
+    cl_copy(ids[nrad], LLM_OPENROUTER, sizeof(ids[nrad]));
+    pi_model_cmd_refreshes++;
+    pshow_note(&p->ps, PR_DIM, "Refreshing model catalogs\342\200\246");
+    for (i = 0; i <= nrad; i++) {
+        e[0] = 0;
+        pi_radius_refresh((pi_auth *)p->s->auth_u, ids[i], e, sizeof(e));
+        if (e[0]) {
+            if (names[0])
+                cl_cat(names, ", ", sizeof(names));
+            cl_cat(names, ids[i], sizeof(names));
+        }
+    }
+    t1 = ms->sys->now ? ms->sys->now(ms->sys->u) : -1;
+    if (t0 >= 0 && t1 - t0 >= 15)
+        pshow_note(&p->ps, PR_WARNING, "Warning: Model refresh timed out; searching cached models.");
+    else if (names[0]) {
+        cl_copy(line, "Warning: Could not refresh ", sizeof(line));
+        cl_cat(line, names, sizeof(line));
+        cl_cat(line, "; searching cached models.", sizeof(line));
+        pshow_note(&p->ps, PR_WARNING, line);
+    }
+}
+
+/* handleModelCommand: no text opens the selector; an exact provider/id or id switches, else (no scope) every catalog is refreshed and the
+ * match tried again; anything else opens the selector searching for it */
 static void model_command(pi_ui *p, cl_tui *t, const char *arg)
 {
     pi_store *st = (pi_store *)p->s->command_u;
@@ -2503,16 +2561,16 @@ static void model_command(pi_ui *p, cl_tui *t, const char *arg)
     }
     if (arg[0]) {
         const llm_model *list[MS_MAX], *to;
-        int i, n = 0, idx[MS_MAX];
-        int ns = pi_models_scoped(ms, idx, MS_MAX);
-        if (ns > 0)
-            for (i = 0; i < ns; i++)
-                list[n++] = &ms->reg.m[idx[i]];
-        else
-            for (i = 0; i < ms->reg.n && n < MS_MAX; i++)
-                if (pi_model_usable(ms, &ms->reg.m[i]))
-                    list[n++] = &ms->reg.m[i];
+        int n, scoped = model_candidates(ms, list, MS_MAX, &n);
         to = exact_model(ms, arg, list, n);
+        if (!to && !scoped) {
+            if (p->s->auth_u)
+                model_refresh_all(p, ms);
+            else
+                pshow_note(&p->ps, PR_DIM, "Refreshing model catalogs\342\200\246");
+            model_candidates(ms, list, MS_MAX, &n);
+            to = exact_model(ms, arg, list, n);
+        }
         if (to) {
             char err[200], line[300];
             if (pi_model_switch(ms, p->s, to, err, sizeof(err)))
@@ -4060,6 +4118,26 @@ static void settings_command(pi_ui *p, cl_tui *t)
     status(p);
 }
 
+/* the settings the editor's first frame already draws by (editor padding, menu rows, double Esc, hardware cursor): read before tui_start as well */
+static void tui_settings_live(cl_tui *t, cl_sys *sys, const char *dir, const char *id)
+{
+    char v[40];
+    if ((!id || !strcmp(id, "editor-padding"))) {
+        long x = pi_set_num(sys, dir, "editorPaddingX", 0);
+        t->pi_edpad = x < 0 ? 0 : x > 3 ? 3 : (int)x;
+    }
+    if ((!id || !strcmp(id, "autocomplete-max-visible"))) {
+        long x = pi_set_num(sys, dir, "autocompleteMaxVisible", 5);
+        t->pi_menu_max = x < 3 ? 3 : x > 20 ? 20 : (int)x;
+    }
+    if ((!id || !strcmp(id, "double-escape-action"))) {
+        pi_set_str(sys, dir, "doubleEscapeAction", "tree", v, sizeof(v));
+        t->pi_dbl_esc = !strcmp(v, "fork") ? 1 : !strcmp(v, "none") ? 2 : 0;
+    }
+    if ((!id || !strcmp(id, "show-hardware-cursor")))
+        t->pi_hwcursor = pi_set_bool(sys, dir, "showHardwareCursor", 0);
+}
+
 /* what a changed setting does to the running screen and session (id: the table's id of the row, 0 every one: the start); the settings the table
  * calls "next start" are read where they start */
 static void settings_live(pi_ui *p, pi_store *st, const char *id)
@@ -4067,24 +4145,11 @@ static void settings_live(pi_ui *p, pi_store *st, const char *id)
     cl_sys *sys = st->models->sys;
     const char *dir = st->models->agent_dir;
     cl_tui *t = p->ui.tui;
-    char v[40];
     pi_settings_session(sys, dir, p->s, st, id);
     if (!id || !strcmp(id, "autocompact"))
         status(p);
-    if (t && (!id || !strcmp(id, "editor-padding"))) {
-        long x = pi_set_num(sys, dir, "editorPaddingX", 0);
-        t->pi_edpad = x < 0 ? 0 : x > 3 ? 3 : (int)x;
-    }
-    if (t && (!id || !strcmp(id, "autocomplete-max-visible"))) {
-        long x = pi_set_num(sys, dir, "autocompleteMaxVisible", 5);
-        t->pi_menu_max = x < 3 ? 3 : x > 20 ? 20 : (int)x;
-    }
-    if (t && (!id || !strcmp(id, "double-escape-action"))) {
-        pi_set_str(sys, dir, "doubleEscapeAction", "tree", v, sizeof(v));
-        t->pi_dbl_esc = !strcmp(v, "fork") ? 1 : !strcmp(v, "none") ? 2 : 0;
-    }
-    if (t && (!id || !strcmp(id, "show-hardware-cursor")))
-        t->pi_hwcursor = pi_set_bool(sys, dir, "showHardwareCursor", 0);
+    if (t)
+        tui_settings_live(t, sys, dir, id);
     if (id && !strcmp(id, "skill-commands")) {          /* setupAutocompleteProvider: the skills read again, the menu's /skill:name rows follow */
         char err[200];
         reload_resources(p, err, sizeof(err));
