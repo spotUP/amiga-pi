@@ -1,0 +1,25 @@
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+ Select provider to configure:
+
+> cop
+
+ → GitHub Copilot [subscription] • not configured
+   GitHub Copilot [API key] • not configured
+   Anthropic [subscription] • not configured
+   Anthropic [API key] • not configured
+   Qwen Token Plan CN [API key] • not configured
+   OpenCode Go [API key] • not configured
+   OpenCode Zen [API key] • not configured
+   Xiaomi Token Plan CN [API key] • not configured
+   (1/16)
+
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

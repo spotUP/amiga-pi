@@ -1851,6 +1851,11 @@ static void test_selectors(void)
         rest_find = "navigate";
         CHECK(pi_model_cmd_refreshes == r0);
         skills_case("model_arg_search", quiet, k_arg_s, 0, 0, 0, 0, m_foot, 0);   /* the search box: pi's setValue leaves the cursor at the start (input.ts:66) */
+        {
+            /* Q3-18: Right, Right, a typed character, Home, Right: the cursor cell moves and the character goes in at the cursor */
+            static const char *k_arg_k[] = { "/model fak", "\033", "\r", "\033[C", "\033[C", "x", "\033[H", "\033[C", "\004", 0 };
+            skills_case("model_arg_keys", quiet, k_arg_k, 0, 0, 0, 0, m_foot, 0);
+        }
         CHECK(pi_model_cmd_refreshes > r0);
         CHECK(app_out && strstr(app_out, "Refreshing model catalogs") != 0 && strstr(app_out, "Model Name") != 0 &&
               strstr(app_out, "Refreshing model catalogs") < strstr(app_out, "Model Name"));
@@ -2409,6 +2414,17 @@ static void test_login_screens(void)
     pi_ui_set_login_rows(lrow, lrow_n, lrow_oauth);
     skills_case("login_providers", settings, k_accounts, 0, 0, 0, 0, m_foot, 0);
     skills_case("login_search", settings, k_search, 0, 0, 0, 0, m_foot, 0);
+    /* Q3-18: /login <text that names no provider> opens the provider selector with the text in its search box and the cursor at its
+     * start (oauth-selector.ts:107, input.ts:66); Right, Right, a typed character, End, Left, Left move and insert at the cursor
+     * (input.ts:171-203). The rows are both kinds, as pi lists them without a method chosen */
+    {
+        static const char *k_arg[] = { "/login cop", "\033", "\r", "\004", 0 };
+        static const char *k_argkeys[] = { "/login cop", "\033", "\r", "\033[C", "\033[C", "x", "\033[F", "\033[D", "\033[D", "\004", 0 };
+        CHECK(load_login_rows(-1) == 52);
+        pi_ui_set_login_rows(lrow, lrow_n, lrow_oauth);
+        skills_case("login_arg_search", settings, k_arg, 0, 0, 0, 0, m_foot, 0);
+        skills_case("login_arg_keys", settings, k_argkeys, 0, 0, 0, 0, m_foot, 0);
+    }
     CHECK(load_login_rows(0) == 43);
     pi_ui_set_login_rows(lrow, lrow_n, lrow_oauth);
     skills_case("login_apikey", settings, k_keys, 0, 0, 0, 0, m_foot, 0);

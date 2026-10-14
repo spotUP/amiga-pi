@@ -158,6 +158,11 @@ SCENARIOS = {
     'login_method': dict(steps=[('type', '/login'), ('enter',), ('sleep', 0.5)], answers=[]),
     'login_providers': dict(steps=[('type', '/login'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 0.5)], answers=[]),
     'login_search': dict(steps=[('type', '/login'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 0.5), ('type', 'cop')], answers=[]),
+    # Q3-18: /login with text that names no provider opens the provider selector with that text in its search box (setValue: the cursor
+    # at the start); Right, Right, a typed character, End and Left then move and insert at the cursor (input.ts:171-203)
+    'login_arg_search': dict(steps=[('type', '/login cop'), ('key', 'Escape'), ('enter',), ('sleep', 0.5)], answers=[]),
+    'login_arg_keys': dict(steps=[('type', '/login cop'), ('key', 'Escape'), ('enter',), ('sleep', 0.5), ('key', 'Right'), ('key', 'Right'), ('type', 'x'),
+                                  ('key', 'End'), ('key', 'Left'), ('key', 'Left'), ('sleep', 0.5)], answers=[]),
     'login_apikey': dict(steps=[('type', '/login'), ('enter',), ('sleep', 0.5), ('key', 'Down'), ('enter',), ('sleep', 0.5)], answers=[]),
     'login_copilot': dict(steps=[('type', '/login github-copilot'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 1.0)], answers=[]),
     'login_openai': dict(steps=[('type', '/login openai'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 1.0), ('enter',), ('sleep', 1.5)], answers=[]),
@@ -235,6 +240,9 @@ SCENARIOS = {
                       models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
     'model_arg_search': dict(steps=[('type', '/model fak'), ('key', 'Escape'), ('enter',), ('wait', 'Model Name'), ('sleep', 0.5)], answers=[],
                              models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
+    'model_arg_keys': dict(steps=[('type', '/model fak'), ('key', 'Escape'), ('enter',), ('wait', 'Model Name'), ('key', 'Right'), ('key', 'Right'),
+                                  ('type', 'x'), ('key', 'Home'), ('key', 'Right'), ('sleep', 0.5)], answers=[],
+                           models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
     # P12-B11: /scoped-models, scoped-models-selector.ts (all enabled, a scope, a toggle, a save to settings.json, a search, a reorder, "clear all")
     'scoped_selector': dict(steps=[('type', '/scoped-models'), ('enter',), ('wait', 'Model Configuration'), ('sleep', 1.0)], answers=[],
                             models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True),

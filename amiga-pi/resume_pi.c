@@ -635,7 +635,7 @@ static void redraw_texts(rs *v)
 static int key(void *u, const cl_key *k, int act)
 {
     rs *v = (rs *)u;
-    int qn = (int)strlen(v->pk.query), changed = 0;
+    int changed = 0;
     (void)act;
     v->msg[0] = 0;
     if (v->del >= 0) {
@@ -691,18 +691,9 @@ static int key(void *u, const cl_key *k, int act)
         v->pk.sel = v->pk.sel - RS_PAGE > 0 ? v->pk.sel - RS_PAGE : 0;
     else if (k->k == K_PGDN)
         v->pk.sel = v->pk.sel + RS_PAGE < v->nvis - 1 ? v->pk.sel + RS_PAGE : v->nvis > 0 ? v->nvis - 1 : 0;
-    else if (k->k == K_BS) {
-        if (qn) {
-            do
-                qn--;
-            while (qn > 0 && ((unsigned char)v->pk.query[qn] & 0xc0) == 0x80);
-            v->pk.query[qn] = 0;
-            changed = 1;
-        }
-    } else if (k->k == K_CHAR && k->ch >= 0x20 && qn + 5 < (int)sizeof(v->pk.query)) {
-        v->pk.query[qn + vw_put_utf8(v->pk.query + qn, k->ch)] = 0;
+    else if (tui_pick_qkey(&v->pk, k))
         changed = 1;
-    } else if (k->k == K_ENTER || k->k == K_ESC || (k->k == K_CTRL && k->ch == 'c'))
+    else if (k->k == K_ENTER || k->k == K_ESC || (k->k == K_CTRL && k->ch == 'c'))
         return 0;                           /* the picker's own: accept, cancel */
     if (changed)
         refilter(v);
