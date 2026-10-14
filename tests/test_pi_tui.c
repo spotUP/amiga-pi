@@ -2131,6 +2131,8 @@ static void test_settings_screens(void)
 static void test_settings_behaviour(void)
 {
     static const char *k_pad[] = { "hello padded world", "\004", 0 };
+    /* Q3-22: pi's word rule in the main editor: Ctrl+W twice, Ctrl+Y, Alt+B, x, Ctrl+A, Alt+F, y, Alt+Delete */
+    static const char *k_words[] = { "ab.cd ef.gh", "\027", "\027", "\031", "\033b", "x", "\001", "\033f", "y", "\033[3;3~", "\004", 0 };
     static const char *k_menu[] = { "/", "\004", 0 };
     static const char *k_abc[] = { "abc", "\004", 0 };
     static const char *k_skill[] = { "/skill:", "\004", 0 };
@@ -2145,6 +2147,7 @@ static void test_settings_behaviour(void)
     app_model_cli = "fake/fake-model";
     fake_models(0, 0);
     pi_ui_set_commands(pi_cmds, (int)(sizeof(pi_cmds) / sizeof(pi_cmds[0])));
+    skills_case("edit_words", settings_json(0), k_words, 0, 0, 0, 0, m_foot, 0);
     skills_case("pad_editor", settings_json("\"editorPaddingX\":2"), k_pad, 0, 0, 0, 0, m_foot, 0);
     skills_case("pad_menu", settings_json("\"editorPaddingX\":3,\"autocompleteMaxVisible\":10"), k_menu, 0, 0, 0, 0, m_foot, 0);
     skills_case("menu_max3", settings_json("\"autocompleteMaxVisible\":3"), k_menu, 0, 0, 0, 0, m_foot, 0);
