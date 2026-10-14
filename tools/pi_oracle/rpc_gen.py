@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""rpc_gen -- the goldens of tests/pi/rpc (plan H): real pi 1.1.0 (tui_gen.find_pi) in `--mode json` and `--mode rpc`,
+"""rpc_gen -- the goldens of tests/pi/rpc (plan H): real pi 1.2.0 (tui_gen.find_pi) in `--mode json` and `--mode rpc`,
 against a local fake Messages API (scripted answers, no key, no cost; the helpers of tui_gen.py),
 its stdout kept as pi wrote it.
 
