@@ -15,6 +15,7 @@ COMPATIBILITY.md has the full table.
 - Added `amiga-pi config`: pi's resource configuration screen for the user's skills and prompt templates (`-l` and the project mode are not built)
 - Added the settings `images.autoResize`, `images.blockImages`, `httpIdleTimeoutMs`, `editorPaddingX`, `autocompleteMaxVisible`, `doubleEscapeAction`, `treeFilterMode`, `showHardwareCursor`, `modelThinkingLevels` and `terminal.*` to the ones amiga-pi reads and writes; the ones amiga-pi cannot act on (`transport`, `cacheWarming`, `markdown.mermaid`, `hideThinkingBlock`, ...) are kept as they are
 - Added the cut-off warning of print mode: `-p` on an answer that stopped at the output token limit prints the text, then `Response was truncated: the model reached its output token limit.` on stderr and exits 1
+- Added four Amiga skills (`amigados`, `arexx`, `amiga-c-build`, `amiga-autodocs`) that the add-on installs beside your own; the autodoc skill reads your NDK through an `NDK:` assign (the autodocs are not shipped)
 
 ### Changed
 
