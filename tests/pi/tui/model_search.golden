@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+
+[38;5;3mOnly showing models from configured providers. Use /login to add providers.[39m
+
+> large[7m [0m
+
+[38;5;5m→ [39m  [38;5;5mfake-large[39m [2m[fake][0m
+
+[2m  Model Name: Fake Large[0m
+
+[38;5;2m  Model catalogs refreshed.[39m
+
+[2m  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel[0m
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[2m[39m~/project[0m
+[2m0.0%/200k (auto)                                               (fake) fake-model

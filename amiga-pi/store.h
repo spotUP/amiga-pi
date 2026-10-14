@@ -90,6 +90,7 @@ int pi_store_bash(pi_store *st, const char *command, const char *output, int exi
 int pi_store_branch(pi_store *st, int leaf, const char *entry_id, const char *position, jw *reply);
 /* the text of the user message entry i, as the input takes it back (the text blocks joined) */
 void pi_user_text(pi_s3 *s, int i, jw *out);
+int pi_store_fork_at(pi_store *st, int pick, jw *reply, jw *editor);
 /* pi's newSession: an empty session in the same directory (parentSession: parent, "" none), the agent's conversation
  * cleared and the session's model and thinking level recorded again. 0, -1 with err, 1 an extension cancelled it
  * (session_before_switch) */

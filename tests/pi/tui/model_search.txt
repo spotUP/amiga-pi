@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+Only showing models from configured providers. Use /login to add providers.
+
+> large
+
+→   fake-large [fake]
+
+  Model Name: Fake Large
+
+  Model catalogs refreshed.
+
+  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                               (fake) fake-model

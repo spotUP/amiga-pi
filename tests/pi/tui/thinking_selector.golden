@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+
+[39mThinking Level
+
+Shift+Tab cycles thinking levels in-session
+
+> [7m [0m
+
+[38;5;5m→ ✓ off       No reasoning · default[39m
+    minimal[2m   Very brief reasoning (~1k tokens)[0m
+    low[2m       Light reasoning (~2k tokens)[0m
+    medium[2m    Moderate reasoning (~8k tokens)[0m
+    high[2m      Deep reasoning (~16k tokens)[0m
+
+[2m  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel[0m
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[2m[39m~/project[0m
+[2m0.0%/200k (auto)                                       fake-model • thinking off

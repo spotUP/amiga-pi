@@ -109,6 +109,32 @@ ERR_BODY = json.dumps({'type': 'error', 'error': {'type': 'invalid_request_error
 
 # scenario: name, keys sent after the start (list of (text, enter?, wait)), answers served in order
 # an answer is ('sse', text) or ('http', status, body)
+
+# P12-B2/B3: the CHANGELOG.md pi reads (PI_PACKAGE_DIR holds symlinks to the install and this file); amiga-pi's tests feed the same file
+CHANGELOG_FIXTURE = """# Changelog
+
+## [1.2.0] - 2026-10-14
+
+### Added
+
+- Added `/changelog` and the **What's New** notice after an update.
+- Added [the manual](https://example.org/manual) for the Amiga port.
+
+### Fixed
+
+- Fixed a very long line in the changelog so that the Markdown renderer has to wrap it at the width of the window.
+
+## [1.1.0] - 2026-10-07
+
+### Added
+
+- Added the first interactive screen.
+
+## [1.0.0] - 2026-10-01
+
+- First release.
+"""
+
 SCENARIOS = {
     # the start screen alone
     'start': dict(steps=[], answers=[]),
@@ -191,6 +217,38 @@ SCENARIOS = {
     # TM1/TM3: regular mode (the main screen, no clearing, the editor follows the content) against fullscreen
     # (the alternate screen, the editor pinned to the bottom: the `twice` golden above)
     'reg_start': dict(steps=[], answers=[], tui='regular'),
+    # P12-B2/B3: What's New on the first start after an update (lastChangelogVersion older than 1.2.0), collapsed, on a fresh install,
+    # and /changelog; the settings.json pi leaves is kept as <name>.settings
+    # P12-B9: /model, pi's model-selector.ts, over a fake provider with three models (the first is the session's)
+    'model_selector': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Model Name')], answers=[],
+                           models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True),
+    'model_search': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Model Name'), ('type', 'large'), ('sleep', 0.5)], answers=[],
+                         models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True),
+    'model_down': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Model Name'), ('key', 'Down'), ('sleep', 0.5)], answers=[],
+                       models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True),
+    'model_scoped': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Scope:')], answers=[],
+                         models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True,
+                         settings={'enabledModels': ['fake/fake-model', 'fake/fake-large']}),
+    'model_select': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Model Name'), ('key', 'Down'), ('enter',), ('wait', 'Model: ')], answers=[],
+                         models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True),
+    'model_arg': dict(steps=[('type', '/model small'), ('enter',), ('wait', 'Model: ')], answers=[],
+                      models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
+    'model_arg_search': dict(steps=[('type', '/model fak'), ('enter',), ('wait', 'Model Name')], answers=[],
+                             models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
+    # P12-B10: /thinking, thinking-selector.ts (a reasoning model); P12-B15: /fork, user-message-selector.ts
+    'thinking_selector': dict(steps=[('type', '/thinking'), ('enter',), ('wait', 'cycles thinking')], answers=[], reasoning=True),
+    'thinking_search': dict(steps=[('type', '/thinking'), ('enter',), ('wait', 'cycles thinking'), ('type', 'low'), ('sleep', 0.5)], answers=[],
+                            reasoning=True),
+    'thinking_select': dict(steps=[('type', '/thinking'), ('enter',), ('wait', 'cycles thinking'), ('key', 'Down'), ('enter',), ('wait', 'Thinking level: ')],
+                            answers=[], reasoning=True),
+    'fork_selector': dict(steps=[('type', '/fork'), ('enter',), ('wait', 'Fork from')], answers=[], session='../sessions/doc_branch.jsonl'),
+    'fork_up': dict(steps=[('type', '/fork'), ('enter',), ('wait', 'Fork from'), ('key', 'Up'), ('sleep', 0.5)], answers=[],
+                    session='../sessions/doc_branch.jsonl'),
+    'whats_new': dict(steps=[], answers=[], changelog=True, settings={'lastChangelogVersion': '1.1.0'}),
+    'whats_new_collapsed': dict(steps=[], answers=[], changelog=True, settings={'lastChangelogVersion': '1.1.0', 'collapseChangelog': True}),
+    'whats_new_fresh': dict(steps=[], answers=[], changelog=True),
+    'whats_new_current': dict(steps=[], answers=[], changelog=True, settings={'lastChangelogVersion': '1.2.0'}),
+    'changelog_cmd': dict(steps=[('type', '/changelog'), ('enter',)], answers=[], changelog=True, settings={'lastChangelogVersion': '1.2.0'}),
     'reg_empty': dict(steps=[], answers=[], tui='regular'),
     'reg_twice': dict(steps=[('type', 'first'), ('enter',), ('wait', 'one'), ('type', 'second'), ('enter',), ('wait', 'two')],
                       answers=[('sse', text_answer('msg_a', 'answer one', 20)), ('sse', text_answer('msg_b', 'answer two', 20))],
@@ -813,9 +871,18 @@ def run(name, sc, cols, rows, keep):
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     json.dump({'providers': {'fake': {'baseUrl': 'http://127.0.0.1:%d' % port, 'api': 'anthropic-messages', 'apiKey': 'k',
-              'models': [{'id': MODEL, 'name': MODEL, 'reasoning': False, 'input': ['text'], 'contextWindow': 200000,
-                          'maxTokens': 8192, 'cost': {'input': 3, 'output': 15, 'cacheRead': 0.3, 'cacheWrite': 3.75}}]}}},
+              'models': [{'id': MODEL, 'name': MODEL, 'reasoning': sc.get('reasoning', False), 'input': ['text'], 'contextWindow': 200000,
+                          'maxTokens': 8192, 'cost': {'input': 3, 'output': 15, 'cacheRead': 0.3, 'cacheWrite': 3.75}}] +
+                         [{'id': mid, 'name': mname, 'reasoning': False, 'input': ['text'], 'contextWindow': 100000,
+                           'maxTokens': 4096, 'cost': {'input': 1, 'output': 2, 'cacheRead': 0, 'cacheWrite': 0}}
+                          for mid, mname in sc.get('models', [])]}}},
               open(os.path.join(agent, 'models.json'), 'w'))
+    if sc.get('ollama'):      # amiga-pi lists its built-in local ollama model with no key; pi gets the same model from models.json
+        mj = json.load(open(os.path.join(agent, 'models.json')))
+        mj['providers']['ollama'] = {'baseUrl': 'http://127.0.0.1:11434/v1', 'api': 'openai-completions', 'apiKey': 'ollama',
+                                     'models': [{'id': 'qwen2.5-coder:7b', 'name': 'qwen2.5-coder:7b', 'reasoning': False, 'input': ['text'],
+                                                 'contextWindow': 32768, 'maxTokens': 4096, 'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}}]}
+        json.dump(mj, open(os.path.join(agent, 'models.json'), 'w'))
     # quietStartup hides the header: only the scenarios about the header show it (the rest would scroll by its height)
     settings = {'defaultProvider': 'fake', 'defaultModel': MODEL, 'defaultThinkingLevel': 'off',
                 'retry': {'enabled': False}, 'quietStartup': name not in ('start', 'reg_start', 'dark_start', 'skills_start', 'start_w64', 'pad0_start_w64', 'settings_bad', 'start_expanded', 'start_header_only', 'start_expanded_w64'),
@@ -847,6 +914,17 @@ def run(name, sc, cols, rows, keep):
         env = env.replace('env -i ', 'env -i PI_TUI_WRITE_LOG=%s ' % rawlog)
     if sc.get('env'):
         env = env.replace('env -i ', 'env -i %s ' % sc['env'])
+    if sc.get('changelog'):     # pi's package directory with a CHANGELOG.md of ours: symlinks to the install, the file written
+        real = os.path.dirname(os.path.dirname(os.path.realpath(PI)))
+        while real != '/' and not os.path.exists(os.path.join(real, 'CHANGELOG.md')):
+            real = os.path.dirname(real)
+        pkgd = os.path.join(work, 'pkg')
+        os.makedirs(pkgd)
+        for ent in os.listdir(real):
+            if ent != 'CHANGELOG.md':
+                os.symlink(os.path.join(real, ent), os.path.join(pkgd, ent))
+        open(os.path.join(pkgd, 'CHANGELOG.md'), 'w').write(CHANGELOG_FIXTURE)
+        env = env.replace('env -i ', 'env -i PI_PACKAGE_DIR=%s ' % pkgd)
     if fixture:
         # (HTTPS_PROXY to a closed port: a request the shim misses fails here instead of reaching the real server)
         env = env.replace('env -i ', "env -i PI_FIXTURE=http://127.0.0.1:%d NODE_OPTIONS='--import %s' HTTPS_PROXY=http://127.0.0.1:1 NO_PROXY=127.0.0.1 "
@@ -907,6 +985,9 @@ def run(name, sc, cols, rows, keep):
             f.write(keep(capture(sess, False)) if HIST else capture(sess, False))
         with open(os.path.join(OUT, name + '.mode'), 'w') as f:      # what tmux saw before pi left
             f.write('pi=%s tuiMode=%s theme=%s alternate_screen=%s\n' % (PI_VERSION, sc.get('tui', 'fullscreen'), sc.get('theme', 'system'), shots['alt']))
+        if sc.get('changelog'):      # what pi wrote to settings.json (lastChangelogVersion), sorted
+            with open(os.path.join(OUT, name + '.settings'), 'w') as f:
+                f.write(json.dumps(json.load(open(os.path.join(agent, 'settings.json'))), sort_keys=True, indent=1) + '\n')
         if sc.get('pipe'):
             shutil.copyfile(pipelog, os.path.join(OUT, name + '.bytes'))
         if sc.get('raw'):
@@ -943,6 +1024,7 @@ def main():
     json.dump(SKILL_FILES, open(os.path.join(OUT, 'skills_files.json'), 'w'), indent=1)
     json.dump(PROMPT_FILES, open(os.path.join(OUT, 'prompts_files.json'), 'w'), indent=1)
     json.dump(CONFLICT_FILES, open(os.path.join(OUT, 'conflict_files.json'), 'w'), indent=1)
+    open(os.path.join(OUT, 'changelog_fixture.md'), 'w').write(CHANGELOG_FIXTURE)
     json.dump(RELOAD_FILES, open(os.path.join(OUT, 'reload_files.json'), 'w'), indent=1)
     json.dump(RELOAD_WRITES, open(os.path.join(OUT, 'reload_writes.json'), 'w'), indent=1)
     # the project files of the scenarios that have some (the tool scenarios of tests/test_pi_tui.c run amiga-pi's own tools on them)

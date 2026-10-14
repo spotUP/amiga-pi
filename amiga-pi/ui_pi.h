@@ -39,6 +39,11 @@ void pi_ui_set_resume(const char *(*fn)(void *u), void *u);
  * the theme is copied, the text only read while the screen starts */
 void pi_ui_set_theme(const cl_pitheme *th);
 void pi_ui_set_keybindings(const char *json, long n);
+/* What's New and /changelog (D1; pi interactive-mode.ts getChangelogForDisplay, handleChangelogCommand): file, the CHANGELOG.md text (0: none:
+ * /changelog says "No changelog entries found."), news, the Markdown of the entries newer than the last start's (0: none; pi shows them
+ * once, between two rules, after the loaded resources), collapsed (collapseChangelog: the one-line form). The texts stay valid until the run ends */
+void pi_ui_set_changelog(const char *file, long file_n, const char *news, long news_n, int collapsed);
+
 /* the slash commands the menu offers (claude/tui.h cl_cmd: "/name", the description); 0: amiga-pi's own */
 void pi_ui_set_commands(const cl_cmd *cmds, int n);
 /* the tests: the provider selector of /login shows these rows (pi's whole list, tests/pi/tui/login_rows.txt) instead of the

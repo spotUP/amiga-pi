@@ -3,6 +3,7 @@
 #include <string.h>
 #include "ui_pi.h"
 #include "fuzzy.h"
+#include "changelog.h"
 #include "args.h"
 #include "claude/tui.h"
 #include "claude/show.h"
@@ -18,6 +19,10 @@
 #include "store.h"
 #include "context.h"
 #include "login.h"
+#include "models.h"
+#include "radius.h"
+#include "authstore.h"
+#include "session3.h"
 
 #define XU_KEYS 16                  /* statuses and widgets an extension session keeps at most */
 #define XU_MAX_WIDGET_LINES 10      /* interactive-mode.ts MAX_WIDGET_LINES */
@@ -57,6 +62,7 @@ static const cl_cmd default_cmds[] = {
     { "/export", "Export session (HTML default, or specify path: .html/.jsonl)" },
     { "/name", "Set session display name" },
     { "/session", "Show session info and stats" },
+    { "/changelog", "Show changelog entries" },
     { "/fork", "Create a new fork from a previous user message" },
     { "/clone", "Duplicate the current session at the current position" },
     { "/trust", "Save project trust decision for future sessions" },
@@ -150,6 +156,19 @@ void pi_ui_add_warning(const char *text)
         cl_cat(ui_warn[ui_nwarn], text, sizeof(ui_warn[0]));
         ui_nwarn++;
     }
+}
+
+static const char *ui_cl_file, *ui_cl_news;
+static long ui_cl_file_n, ui_cl_news_n;
+static int ui_cl_collapsed;
+
+void pi_ui_set_changelog(const char *file, long file_n, const char *news, long news_n, int collapsed)
+{
+    ui_cl_file = file;
+    ui_cl_file_n = file_n;
+    ui_cl_news = news;
+    ui_cl_news_n = news_n;
+    ui_cl_collapsed = collapsed;
 }
 
 static int ui_regular, ui_hint_only, ui_bar;
@@ -1535,28 +1554,72 @@ typedef struct lgpick {
     tui_pick pk;
 } lgpick;
 
-static void lgp_filter(lgpick *k)
+/* the items whose text matches the query as pi's fuzzyFilter does, best first (Array.sort is stable: ties stay in item order): their
+ * indexes into vis, the scores into score; how many. An empty query keeps every item in order */
+static int fuzzy_order(const char *q, int n, const char *(*text)(void *u, int i), void *u, int *vis, long *score)
 {
     int i, m = 0, j;
-    const char *q = k->pk.query;
-    for (i = 0; i < k->n; i++) {
+    for (i = 0; i < n; i++) {
         long sc;
-        if (!q[0] || pi_fuzzy_item(q, (long)strlen(q), k->rows[i].search, (long)strlen(k->rows[i].search), &sc)) {
+        const char *tx = text(u, i);
+        if (!q[0] || pi_fuzzy_item(q, (long)strlen(q), tx, (long)strlen(tx), &sc)) {
             if (!q[0])
                 sc = 0;
             j = m++;
-            while (j > 0 && k->score[j - 1] > sc) {      /* Array.sort is stable: ties stay in row order */
-                k->vis[j] = k->vis[j - 1];
-                k->score[j] = k->score[j - 1];
+            while (j > 0 && score[j - 1] > sc) {
+                vis[j] = vis[j - 1];
+                score[j] = score[j - 1];
                 j--;
             }
-            k->vis[j] = i;
-            k->score[j] = sc;
+            vis[j] = i;
+            score[j] = sc;
         }
     }
-    k->pk.n = m;
-    if (k->pk.sel > m - 1)
-        k->pk.sel = m ? m - 1 : 0;
+    return m;
+}
+
+static const char *lgp_text(void *u, int i)
+{
+    return ((lgpick *)u)->rows[i].search;
+}
+
+static void lgp_filter(lgpick *k)
+{
+    k->pk.n = fuzzy_order(k->pk.query, k->n, lgp_text, k, k->vis, k->score);
+    if (k->pk.sel > k->pk.n - 1)
+        k->pk.sel = k->pk.n ? k->pk.n - 1 : 0;
+}
+
+/* the search box of a selector (pi's Input): a character, backspace or a paste edits pk->query. 1 when the key was one of those */
+static int qkey(tui_pick *pk, const cl_key *key)
+{
+    long ql = (long)strlen(pk->query);
+    switch (key->k) {
+    case K_BS:
+        if (ql) {
+            do
+                ql--;
+            while (ql > 0 && ((unsigned char)pk->query[ql] & 0xc0) == 0x80);
+            pk->query[ql] = 0;
+        }
+        return 1;
+    case K_CHAR:
+        if (key->ch >= 0x20 && ql + 5 < (long)sizeof(pk->query)) {
+            ql += vw_put_utf8(pk->query + ql, key->ch);
+            pk->query[ql] = 0;
+        }
+        return 1;
+    case K_PASTE: {
+        long i;
+        for (i = 0; i < key->n && ql + 1 < (long)sizeof(pk->query); i++)
+            if ((unsigned char)key->text[i] >= 0x20)
+                pk->query[ql++] = key->text[i];
+        pk->query[ql] = 0;
+        return 1;
+    }
+    default:
+        return 0;
+    }
 }
 
 /* a row: the arrow and the name in the accent colour when selected, the type in muted, the status (formatAuthSelectorProviderStatus) */
@@ -1603,7 +1666,6 @@ static void lgp_row(void *u, int i, int selected, char *out, long cap)
 static int lgp_key(void *u, const cl_key *key, int act)
 {
     lgpick *k = (lgpick *)u;
-    long ql = (long)strlen(k->pk.query);
     (void)act;
     switch (key->k) {
     case K_UP:
@@ -1618,30 +1680,11 @@ static int lgp_key(void *u, const cl_key *key, int act)
     case K_ESC:
         return 0;
     case K_BS:
-        if (ql) {
-            do
-                ql--;
-            while (ql > 0 && ((unsigned char)k->pk.query[ql] & 0xc0) == 0x80);
-            k->pk.query[ql] = 0;
-            lgp_filter(k);
-        }
-        return 1;
     case K_CHAR:
-        if (key->ch >= 0x20 && ql + 5 < (long)sizeof(k->pk.query)) {
-            ql += vw_put_utf8(k->pk.query + ql, key->ch);
-            k->pk.query[ql] = 0;
-            lgp_filter(k);
-        }
-        return 1;
-    case K_PASTE: {
-        long i;
-        for (i = 0; i < key->n && ql + 1 < (long)sizeof(k->pk.query); i++)
-            if ((unsigned char)key->text[i] >= 0x20)
-                k->pk.query[ql++] = key->text[i];
-        k->pk.query[ql] = 0;
+    case K_PASTE:
+        qkey(&k->pk, key);
         lgp_filter(k);
         return 1;
-    }
     default:
         return key->k == K_CTRL && key->ch == 'c' ? 0 : 1;
     }
@@ -1955,6 +1998,936 @@ static void reload_command(pi_ui *p)
     note(p, "Reloaded skills, prompts, and context files");
 }
 
+/* ---- /model, /thinking and /fork as pi's selectors (model-selector.ts, thinking-selector.ts, user-message-selector.ts) over the screen's
+ * picker (tui_pick, TUI_PICK_FRAME): the keys of /login and -r -- Up and Down wrap, typing filters with fuzzy.c, Enter selects, Esc or
+ * Ctrl+C cancels, Ctrl+S sets the default -- and the frames, rows and hints of pi 1.2.0 (tests/pi/tui model_*, thinking_*, fork_*) ---- */
+
+static const char *role_sg(const pi_ui *p, int role, char *buf)
+{
+    pitheme_sgr(p->ps.th, role, buf);
+    return buf;
+}
+
+/* a key the selectors leave to the picker (movement, Enter, Esc, Ctrl+C); 0 for the rest, which a selector takes for itself */
+static int pick_keeps(const cl_key *key, int act)
+{
+    return act == KA_SEL_NEXT || act == KA_SEL_PREV || act == KA_SEL_ACCEPT || act == KA_SEL_CANCEL || key->k == K_UP ||
+           key->k == K_DOWN || key->k == K_ENTER || key->k == K_ESC || (key->k == K_CTRL && key->ch == 'c');
+}
+
+/* the number of the first list row on the screen: a selector's window of maxv rows around the selection */
+static void pick_window(const tui_pick *pk, int maxv, int *start, int *end)
+{
+    int st = pk->sel - maxv / 2;
+    if (st > pk->n - maxv)
+        st = pk->n - maxv;
+    if (st < 0)
+        st = 0;
+    *start = st;
+    *end = st + maxv < pk->n ? st + maxv : pk->n;
+}
+
+static void pick_scroll(const pi_ui *p, const tui_pick *pk, int maxv, char *out, long cap)
+{
+    int st, en;
+    pick_window(pk, maxv, &st, &en);
+    if (st > 0 || en < pk->n) {
+        char mut[48], num[16];
+        cl_cat(out, role_sg(p, PR_MUTED, mut), cap);
+        cl_cat(out, "  (", cap);
+        cl_ltoa(pk->sel + 1, num);
+        cl_cat(out, num, cap);
+        cl_cat(out, "/", cap);
+        cl_ltoa(pk->n, num);
+        cl_cat(out, num, cap);
+        cl_cat(out, ")\033[0m\n", cap);
+    }
+}
+
+/* "text" in a role's colour, the colour switched off after it */
+static void cat_role(const pi_ui *p, int role, const char *text, char *out, long cap)
+{
+    char sgr[48];
+    cl_cat(out, role_sg(p, role, sgr), cap);
+    cl_cat(out, text, cap);
+    cl_cat(out, "\033[0m", cap);
+}
+
+/* findExactModelReferenceMatch (model-resolver.ts): provider/id in any case, else the id alone; only one match counts */
+static const llm_model *exact_model(pi_models *ms, const char *ref, const llm_model **list, int n)
+{
+    char low[300], full[300];
+    const llm_model *hit = 0;
+    int i, cnt = 0;
+    long l = (long)strlen(ref);
+    while (l > 0 && (ref[l - 1] == ' ' || ref[l - 1] == '\t'))
+        l--;
+    while (l > 0 && (*ref == ' ' || *ref == '\t')) {
+        ref++;
+        l--;
+    }
+    if (!l || l >= (long)sizeof(low))
+        return 0;
+    for (i = 0; i < l; i++)
+        low[i] = (char)((ref[i] >= 'A' && ref[i] <= 'Z') ? ref[i] + 32 : ref[i]);
+    low[l] = 0;
+    (void)ms;
+    for (i = 0; i < n; i++) {
+        long k;
+        cl_copy(full, list[i]->provider, sizeof(full));
+        cl_cat(full, "/", sizeof(full));
+        cl_cat(full, list[i]->id, sizeof(full));
+        for (k = 0; full[k]; k++)
+            if (full[k] >= 'A' && full[k] <= 'Z')
+                full[k] = (char)(full[k] + 32);
+        if (!strcmp(full, low)) {
+            hit = list[i];
+            cnt++;
+        }
+    }
+    if (cnt)
+        return cnt == 1 ? hit : 0;
+    for (cnt = 0, i = 0; i < n; i++) {
+        long k;
+        cl_copy(full, list[i]->id, sizeof(full));
+        for (k = 0; full[k]; k++)
+            if (full[k] >= 'A' && full[k] <= 'Z')
+                full[k] = (char)(full[k] + 32);
+        if (!strcmp(full, low)) {
+            hit = list[i];
+            cnt++;
+        }
+    }
+    return cnt == 1 ? hit : 0;
+}
+
+#define MS_MAX 600
+
+typedef struct msel {
+    pi_ui *p;
+    pi_models *ms;
+    const llm_model *all[MS_MAX], *sc[MS_MAX];   /* every model with a credential (current first, the default second, then by provider); the scope */
+    int nall, nsc, scoped;                       /* scoped: the scope is what the list shows */
+    int vis[MS_MAX];
+    long score[MS_MAX];
+    char defp[100], defid[200];
+    int has_def, save;
+    char refresh[100], err[300];
+    char top[700];
+    tui_pick pk;
+} msel;
+
+static int ms_same(const llm_model *a, const llm_model *b)
+{
+    return !strcmp(a->provider, b->provider) && !strcmp(a->id, b->id);
+}
+
+static int ms_is_default(const msel *m, const llm_model *mo)
+{
+    return m->has_def && !strcmp(mo->provider, m->defp) && !strcmp(mo->id, m->defid);
+}
+
+static const llm_model **ms_active(msel *m, int *n)
+{
+    *n = m->scoped ? m->nsc : m->nall;
+    return m->scoped ? m->sc : m->all;
+}
+
+/* getModelSelectorSearchText plus " default" for the default model */
+static const char *ms_text(void *u, int i)
+{
+    static char t[700];
+    msel *m = (msel *)u;
+    int n;
+    const llm_model **a = ms_active(m, &n);
+    const llm_model *mo = a[i];
+    cl_copy(t, mo->provider, sizeof(t));
+    cl_cat(t, " ", sizeof(t));
+    cl_cat(t, mo->provider, sizeof(t));
+    cl_cat(t, "/", sizeof(t));
+    cl_cat(t, mo->id, sizeof(t));
+    cl_cat(t, " ", sizeof(t));
+    cl_cat(t, mo->provider, sizeof(t));
+    cl_cat(t, " ", sizeof(t));
+    cl_cat(t, mo->id, sizeof(t));
+    if (mo->name && mo->name[0]) {
+        cl_cat(t, " ", sizeof(t));
+        cl_cat(t, mo->name, sizeof(t));
+    }
+    if (ms_is_default(m, mo))
+        cl_cat(t, " default", sizeof(t));
+    return t;
+}
+
+/* filterModels: the matches (a search for "default" puts the default model first), the cursor on the best match, or kept when the query is empty */
+static void ms_filter(msel *m, int keep_sel)
+{
+    int n, i, nv, j;
+    const llm_model **a = ms_active(m, &n);
+    const char *q = m->pk.query;
+    (void)a;
+    nv = fuzzy_order(q, n, ms_text, m, m->vis, m->score);
+    {
+        /* isDefaultSearch: the trimmed, lower-cased query is a non-empty start of "default" */
+        char low[40];
+        long l = 0, k = 0;
+        const char *w = q;
+        while (*w == ' ')
+            w++;
+        for (; w[k] && l < (long)sizeof(low) - 1; k++, l++)
+            low[l] = (char)(w[k] >= 'A' && w[k] <= 'Z' ? w[k] + 32 : w[k]);
+        low[l] = 0;
+        while (l > 0 && low[l - 1] == ' ')
+            low[--l] = 0;
+        if (l > 0 && !strncmp("default", low, (size_t)l)) {
+            int tmp[MS_MAX], nt = 0;
+            for (i = 0; i < n; i++)
+                if (ms_is_default(m, a[i]))
+                    tmp[nt++] = i;
+            for (i = 0; i < nv && nt < MS_MAX; i++) {
+                int dup = 0;
+                for (j = 0; j < nt; j++)
+                    if (tmp[j] == m->vis[i])
+                        dup = 1;
+                if (!dup)
+                    tmp[nt++] = m->vis[i];
+            }
+            memcpy(m->vis, tmp, sizeof(int) * (size_t)nt);
+            nv = nt;
+        }
+    }
+    m->pk.n = nv;
+    if (q[0])
+        m->pk.sel = 0;
+    else if (!keep_sel || m->pk.sel > nv - 1)
+        m->pk.sel = nv ? (keep_sel ? nv - 1 : 0) : 0;
+}
+
+/* the list at its start: the cursor on the session's model */
+static void ms_reset_sel(msel *m)
+{
+    int n, i;
+    const llm_model **a = ms_active(m, &n);
+    m->pk.sel = 0;
+    ms_filter(m, 1);
+    for (i = 0; i < m->pk.n; i++)
+        if (ms_same(a[m->vis[i]], &m->p->s->model)) {
+            m->pk.sel = i;
+            break;
+        }
+}
+
+static void ms_row(void *u, int i, int selected, char *out, long cap)
+{
+    msel *m = (msel *)u;
+    int n;
+    const llm_model *mo = ms_active(m, &n)[m->vis[i]];
+    int cur = ms_same(mo, &m->p->s->model);
+    char b[200];
+    out[0] = 0;
+    if (selected)
+        cat_role(m->p, PR_ACCENT, "\342\206\222 ", out, cap);
+    else
+        cl_cat(out, "  ", cap);
+    if (cur)
+        cat_role(m->p, PR_ACCENT, "\342\234\223 ", out, cap);
+    else
+        cl_cat(out, "  ", cap);
+    if (selected)
+        cat_role(m->p, PR_ACCENT, mo->id, out, cap);
+    else
+        cl_cat(out, mo->id, cap);
+    cl_cat(out, " ", cap);
+    cl_copy(b, "[", sizeof(b));
+    cl_cat(b, mo->provider, sizeof(b));
+    cl_cat(b, "]", sizeof(b));
+    cat_role(m->p, PR_MUTED, b, out, cap);
+    if (ms_is_default(m, mo))
+        cat_role(m->p, PR_MUTED, " \302\267 default", out, cap);
+}
+
+/* the scope lines or the hint above the search box (the frame adds the blank rows round them) */
+static void ms_top(msel *m)
+{
+    char sgr[48];
+    m->top[0] = '\n';
+    m->top[1] = 0;
+    if (m->nsc > 0) {
+        cat_role(m->p, PR_MUTED, "Scope: ", m->top, sizeof(m->top));
+        cat_role(m->p, m->scoped ? PR_MUTED : PR_ACCENT, "all", m->top, sizeof(m->top));
+        cat_role(m->p, PR_MUTED, " | ", m->top, sizeof(m->top));
+        cat_role(m->p, m->scoped ? PR_ACCENT : PR_MUTED, "scoped", m->top, sizeof(m->top));
+        cl_cat(m->top, "\n", sizeof(m->top));
+        /* keyHint("tui.input.tab", "scope"): the key dim, the words muted, then " (all/scoped)" muted */
+        cat_role(m->p, PR_DIM, "tab", m->top, sizeof(m->top));
+        cat_role(m->p, PR_MUTED, " scope", m->top, sizeof(m->top));
+        cat_role(m->p, PR_MUTED, " (all/scoped)", m->top, sizeof(m->top));
+    } else
+        cat_role(m->p, PR_WARNING, "Only showing models from configured providers. Use /login to add providers.", m->top, sizeof(m->top));
+    (void)sgr;
+    cl_cat(m->top, "\n", sizeof(m->top));
+    m->pk.top = m->top;
+}
+
+static void ms_tail(void *u, char *out, long cap)
+{
+    msel *m = (msel *)u;
+    int n;
+    const llm_model *cur;
+    out[0] = 0;
+    pick_scroll(m->p, &m->pk, 10, out, cap);
+    if (m->err[0]) {
+        const char *a = m->err;
+        for (;;) {
+            const char *nl = strchr(a, '\n');
+            char row[300];
+            long l = nl ? (long)(nl - a) : (long)strlen(a);
+            if (l >= (long)sizeof(row))
+                l = (long)sizeof(row) - 1;
+            memcpy(row, a, (size_t)l);
+            row[l] = 0;
+            cat_role(m->p, PR_ERROR, row, out, cap);
+            cl_cat(out, "\n", cap);
+            if (!nl)
+                break;
+            a = nl + 1;
+        }
+    } else if (!m->pk.n) {
+        cat_role(m->p, PR_MUTED, "  No matching models", out, cap);
+        cl_cat(out, "\n", cap);
+    } else {
+        char b[400];
+        cur = ms_active(m, &n)[m->vis[m->pk.sel]];
+        cl_cat(out, "\n", cap);
+        cl_copy(b, "  Model Name: ", sizeof(b));
+        cl_cat(b, cur->name && cur->name[0] ? cur->name : cur->id, sizeof(b));
+        cat_role(m->p, PR_MUTED, b, out, cap);
+        cl_cat(out, "\n", cap);
+    }
+    if (m->refresh[0]) {
+        char b[140];
+        cl_cat(out, "\n", cap);
+        cl_copy(b, "  ", sizeof(b));
+        cl_cat(b, m->refresh, sizeof(b));
+        cat_role(m->p, m->err[0] ? PR_MUTED : PR_SUCCESS, b, out, cap);
+        cl_cat(out, "\n", cap);
+    }
+    cl_cat(out, "\n", cap);
+    cat_role(m->p, PR_DIM, "  Enter to select \302\267 Ctrl+S to set as default \302\267 Escape/Ctrl+C to cancel", out, cap);
+}
+
+static int ms_key(void *u, const cl_key *key, int act)
+{
+    msel *m = (msel *)u;
+    if (key->k == K_TAB) {
+        if (m->nsc > 0) {
+            m->scoped = !m->scoped;
+            m->pk.sel = 0;
+            ms_reset_sel(m);
+            ms_top(m);
+            ms_filter(m, 1);
+        }
+        return 1;
+    }
+    if (key->k == K_CTRL && key->ch == 's') {
+        m->save = 1;
+        m->pk.done = 1;
+        return 1;
+    }
+    if (pick_keeps(key, act))
+        return 0;
+    if (qkey(&m->pk, key))
+        ms_filter(m, 0);
+    return 1;
+}
+
+/* localeCompare of two provider names, enough for ASCII: case-insensitive first, lower case before upper on a tie */
+static int ms_pcmp(const char *a, const char *b)
+{
+    const char *x = a, *y = b;
+    for (; *x && *y; x++, y++) {
+        int cx = *x >= 'A' && *x <= 'Z' ? *x + 32 : *x, cy = *y >= 'A' && *y <= 'Z' ? *y + 32 : *y;
+        if (cx != cy)
+            return cx - cy;
+    }
+    if (*x || *y)
+        return *x ? 1 : -1;
+    return -strcmp(a, b);
+}
+
+/* showModelSelector. search: the text the search box starts with (/model <text>) */
+static void model_selector(pi_ui *p, cl_tui *t, const char *search)
+{
+    static msel m;
+    pi_store *st = (pi_store *)p->s->command_u;
+    pi_models *ms = st->models;
+    char *set;
+    long sn = 0;
+    int i, j, res, rank_n = 0;
+    int rank[MS_MAX];
+    char rerr[300];
+    memset(&m, 0, sizeof(m));
+    m.p = p;
+    m.ms = ms;
+    rerr[0] = 0;
+    if (p->s->auth_u)
+        pi_radius_refresh((pi_auth *)p->s->auth_u, 0, rerr, sizeof(rerr));
+    set = pi_store_read(ms->sys, ms->agent_dir, "settings.json", &sn);
+    if (set) {
+        char *dp = pi_jobj_str(set, sn, "defaultProvider"), *dm = pi_jobj_str(set, sn, "defaultModel");
+        if (dp && dm && dp[0] && dm[0]) {
+            cl_copy(m.defp, dp, sizeof(m.defp));
+            cl_copy(m.defid, dm, sizeof(m.defid));
+            m.has_def = 1;
+        }
+        free(dp);
+        free(dm);
+        free(set);
+    }
+    for (i = 0; i < ms->reg.n && m.nall < MS_MAX; i++)
+        if (pi_model_usable(ms, &ms->reg.m[i]))
+            m.all[m.nall++] = &ms->reg.m[i];
+    for (i = 0; i < m.nall; i++)
+        rank[i] = ms_same(m.all[i], &p->s->model) ? 0 : ms_is_default(&m, m.all[i]) ? 1 : 2;
+    /* current first, the default second, then by provider (a stable sort) */
+    for (i = 1; i < m.nall; i++) {
+        const llm_model *x = m.all[i];
+        int rx = rank[i];
+        for (j = i; j > 0 && (rank[j - 1] > rx || (rank[j - 1] == rx && rx == 2 && ms_pcmp(m.all[j - 1]->provider, x->provider) > 0)); j--) {
+            m.all[j] = m.all[j - 1];
+            rank[j] = rank[j - 1];
+        }
+        m.all[j] = x;
+        rank[j] = rx;
+    }
+    (void)rank_n;
+    {
+        int idx[MS_MAX];
+        int ns = pi_models_scoped(ms, idx, MS_MAX);
+        for (i = 0; i < ns; i++)
+            m.sc[m.nsc++] = &ms->reg.m[idx[i]];
+    }
+    m.scoped = m.nsc > 0;
+    cl_copy(m.pk.query, search ? search : "", sizeof(m.pk.query));
+    if (rerr[0]) {
+        cl_copy(m.err, "Could not refresh radius; showing cached models.", sizeof(m.err));
+    } else
+        cl_copy(m.refresh, "Model catalogs refreshed.", sizeof(m.refresh));
+    ms_top(&m);
+    m.pk.maxrows = 10;
+    m.pk.row = ms_row;
+    m.pk.key = ms_key;
+    m.pk.tail = ms_tail;
+    m.pk.u = &m;
+    m.pk.layout = TUI_PICK_FRAME;
+    m.pk.search = 1;
+    ms_reset_sel(&m);
+    res = tui_pick_run(t, &m.pk);
+    if (res >= 0) {
+        int n;
+        const llm_model *to = ms_active(&m, &n)[m.vis[res]];
+        char err[200], line[300];
+        if (pi_model_switch(ms, p->s, to, err, sizeof(err))) {
+            pshow_error(&p->ps, err);
+        } else {
+            if (m.save)
+                pi_store_set_member(ms->sys, ms->agent_dir, "defaultProvider", to->provider, "defaultModel", to->id);
+            if (m.save) {
+                cl_copy(line, "Default model: ", sizeof(line));
+                cl_cat(line, to->provider, sizeof(line));
+                cl_cat(line, "/", sizeof(line));
+            } else
+                cl_copy(line, "Model: ", sizeof(line));
+            cl_cat(line, to->id, sizeof(line));
+            pshow_note(&p->ps, PR_DIM, line);
+        }
+    }
+    status(p);
+}
+
+/* handleModelCommand: no text opens the selector; an exact provider/id or id switches; anything else opens the selector searching for it */
+static void model_command(pi_ui *p, cl_tui *t, const char *arg)
+{
+    pi_store *st = (pi_store *)p->s->command_u;
+    pi_models *ms = st->models;
+    if (!ms) {
+        pshow_error(&p->ps, "models cannot be switched here");
+        return;
+    }
+    if (arg[0]) {
+        const llm_model *list[MS_MAX], *to;
+        int i, n = 0, idx[MS_MAX];
+        int ns = pi_models_scoped(ms, idx, MS_MAX);
+        if (ns > 0)
+            for (i = 0; i < ns; i++)
+                list[n++] = &ms->reg.m[idx[i]];
+        else
+            for (i = 0; i < ms->reg.n && n < MS_MAX; i++)
+                if (pi_model_usable(ms, &ms->reg.m[i]))
+                    list[n++] = &ms->reg.m[i];
+        to = exact_model(ms, arg, list, n);
+        if (to) {
+            char err[200], line[300];
+            if (pi_model_switch(ms, p->s, to, err, sizeof(err)))
+                pshow_error(&p->ps, err);
+            else {
+                cl_copy(line, "Model: ", sizeof(line));
+                cl_cat(line, to->id, sizeof(line));
+                pshow_note(&p->ps, PR_DIM, line);
+            }
+            status(p);
+            return;
+        }
+    }
+    model_selector(p, t, arg);
+}
+
+/* ---- /thinking ---- */
+
+typedef struct tsel {
+    pi_ui *p;
+    int lv[LT_N], n_all;         /* the levels the model supports, in order */
+    int vis[LT_N];
+    long score[LT_N];
+    int cur, def, save;
+    char desc[LT_N][80], text[LT_N][100];
+    tui_pick pk;
+} tsel;
+
+static const char *const level_desc[LT_N] = { "No reasoning", "Very brief reasoning (~1k tokens)", "Light reasoning (~2k tokens)",
+                                              "Moderate reasoning (~8k tokens)", "Deep reasoning (~16k tokens)",
+                                              "Extra-high reasoning (~32k tokens)", "Maximum reasoning" };
+
+static const char *ts_text(void *u, int i)
+{
+    return ((tsel *)u)->text[i];
+}
+
+static void ts_filter(tsel *t, int keep)
+{
+    int prev = t->pk.n ? t->vis[t->pk.sel] : -1, i;
+    t->pk.n = fuzzy_order(t->pk.query, t->n_all, ts_text, t, t->vis, t->score);
+    t->pk.sel = 0;
+    if (keep)
+        for (i = 0; i < t->pk.n; i++)
+            if (t->vis[i] == prev)
+                t->pk.sel = i;
+}
+
+static void ts_row(void *u, int i, int selected, char *out, long cap)
+{
+    tsel *t = (tsel *)u;
+    int k = t->vis[i], w = 0, j, widest = 0;
+    char label[64], pad[40];
+    cl_copy(label, t->lv[k] == t->cur ? "\342\234\223 " : "  ", sizeof(label));
+    cl_cat(label, llm_think_name(t->lv[k]), sizeof(label));
+    for (j = 0; j < t->pk.n; j++) {
+        int wl = 2 + (int)strlen(llm_think_name(t->lv[t->vis[j]]));
+        if (wl > widest)
+            widest = wl;
+    }
+    widest += 2;                                    /* PRIMARY_COLUMN_GAP */
+    if (widest < 12)
+        widest = 12;
+    if (widest > 32)
+        widest = 32;
+    w = 2 + (int)strlen(llm_think_name(t->lv[k]));
+    j = widest - w;
+    if (j < 1)
+        j = 1;
+    memset(pad, ' ', (size_t)j);
+    pad[j] = 0;
+    out[0] = 0;
+    if (selected) {
+        char b[200];
+        cl_copy(b, "\342\206\222 ", sizeof(b));
+        cl_cat(b, label, sizeof(b));
+        cl_cat(b, pad, sizeof(b));
+        cl_cat(b, t->desc[k], sizeof(b));
+        cat_role(t->p, PR_ACCENT, b, out, cap);
+    } else {
+        char b[200];
+        cl_cat(out, "  ", cap);
+        cl_cat(out, label, cap);
+        cl_copy(b, pad, sizeof(b));
+        cl_cat(b, t->desc[k], sizeof(b));
+        cat_role(t->p, PR_DIM, b, out, cap);
+    }
+}
+
+static void ts_tail(void *u, char *out, long cap)
+{
+    tsel *t = (tsel *)u;
+    out[0] = 0;
+    cl_cat(out, "\n", cap);
+    cat_role(t->p, PR_DIM, "  Enter to select \302\267 Ctrl+S to set as default \302\267 Escape/Ctrl+C to cancel", out, cap);
+}
+
+static int ts_key(void *u, const cl_key *key, int act)
+{
+    tsel *t = (tsel *)u;
+    if (key->k == K_CTRL && key->ch == 's') {
+        t->save = 1;
+        t->pk.done = 1;
+        return 1;
+    }
+    if (pick_keeps(key, act))
+        return 0;
+    if (qkey(&t->pk, key))
+        ts_filter(t, 1);
+    return 1;
+}
+
+/* the status line of a thinking level change (selectThinkingLevel) */
+static void thinking_set(pi_ui *p, int lv, int persist)
+{
+    pi_store *st = (pi_store *)p->s->command_u;
+    char line[100];
+    if (pi_thinking_set(st->models, p->s, lv) < 0) {
+        pshow_error(&p->ps, "the thinking level change could not be recorded");
+        return;
+    }
+    if (persist)
+        pi_store_set_member(st->models->sys, st->models->agent_dir, "defaultThinkingLevel", llm_think_name(lv), 0, 0);
+    cl_copy(line, persist ? "Default thinking level: " : "Thinking level: ", sizeof(line));
+    cl_cat(line, llm_think_name(lv), sizeof(line));
+    pshow_note(&p->ps, PR_DIM, line);
+    status(p);
+}
+
+static void thinking_selector(pi_ui *p, cl_tui *t)
+{
+    static tsel s;
+    pi_store *st = (pi_store *)p->s->command_u;
+    unsigned av = llm_think_levels(&p->s->model);
+    char *set;
+    long sn = 0;
+    int i, res;
+    char top[300], key[48];
+    memset(&s, 0, sizeof(s));
+    s.p = p;
+    s.cur = p->s->thinking;
+    s.def = LT_OFF;
+    set = pi_store_read(st->models->sys, st->models->agent_dir, "settings.json", &sn);
+    if (set) {
+        char *d = pi_jobj_str(set, sn, "defaultThinkingLevel");
+        if (d && llm_think_of(d) >= 0)
+            s.def = llm_think_of(d);
+        free(d);
+        free(set);
+    }
+    for (i = 0; i < LT_N; i++)
+        if (av & (1u << i)) {
+            s.lv[s.n_all] = i;
+            cl_copy(s.desc[s.n_all], level_desc[i], sizeof(s.desc[0]));
+            if (i == s.def)
+                cl_cat(s.desc[s.n_all], " \302\267 default", sizeof(s.desc[0]));
+            cl_copy(s.text[s.n_all], llm_think_name(i), sizeof(s.text[0]));
+            cl_cat(s.text[s.n_all], " ", sizeof(s.text[0]));
+            cl_cat(s.text[s.n_all], s.desc[s.n_all], sizeof(s.text[0]));
+            s.n_all++;
+        }
+    cl_copy(top, "\nThinking Level\n\n", sizeof(top));
+    key[0] = 0;
+    km_key_text(&t->km, KC_CHAT, KA_THINK_CYCLE, key, sizeof(key));
+    if (!key[0])
+        cl_copy(key, "Shift+Tab", sizeof(key));
+    else {
+        /* keyDisplayText: "shift+tab" is shown as "Shift+Tab" */
+        int k;
+        for (k = 0; key[k]; k++)
+            if ((k == 0 || key[k - 1] == '+') && key[k] >= 'a' && key[k] <= 'z')
+                key[k] = (char)(key[k] - 32);
+    }
+    cl_cat(top, key, sizeof(top));
+    cl_cat(top, " cycles thinking levels in-session\n", sizeof(top));
+    s.pk.top = top;
+    s.pk.search = 1;
+    s.pk.maxrows = LT_N;
+    s.pk.row = ts_row;
+    s.pk.key = ts_key;
+    s.pk.tail = ts_tail;
+    s.pk.u = &s;
+    s.pk.layout = TUI_PICK_FRAME;
+    s.pk.n = fuzzy_order("", s.n_all, ts_text, &s, s.vis, s.score);
+    for (i = 0; i < s.pk.n; i++)
+        if (s.lv[s.vis[i]] == s.cur)
+            s.pk.sel = i;
+    res = tui_pick_run(t, &s.pk);
+    if (res >= 0)
+        thinking_set(p, s.lv[s.vis[res]], s.save);
+    status(p);
+}
+
+/* handleThinkingCommand */
+static void thinking_command(pi_ui *p, cl_tui *t, const char *arg)
+{
+    pi_store *st = (pi_store *)p->s->command_u;
+    unsigned av = llm_think_levels(&p->s->model);
+    int i, lv;
+    char norm[40], msg[300];
+    long l;
+    if (!st->models) {
+        pshow_error(&p->ps, "the thinking level cannot be changed here");
+        return;
+    }
+    if (!arg[0]) {
+        thinking_selector(p, t);
+        return;
+    }
+    while (*arg == ' ')
+        arg++;
+    for (l = 0; arg[l] && l < (long)sizeof(norm) - 1; l++)
+        norm[l] = (char)(arg[l] >= 'A' && arg[l] <= 'Z' ? arg[l] + 32 : arg[l]);
+    norm[l] = 0;
+    while (l > 0 && norm[l - 1] == ' ')
+        norm[--l] = 0;
+    lv = llm_think_of(norm);
+    if (lv < 0 || !(av & (1u << lv))) {
+        cl_copy(msg, "Unknown thinking level \"", sizeof(msg));
+        cl_cat(msg, arg, sizeof(msg));
+        cl_cat(msg, "\". Available levels: ", sizeof(msg));
+        for (i = 0, l = 0; i < LT_N; i++)
+            if (av & (1u << i)) {
+                if (l++)
+                    cl_cat(msg, ", ", sizeof(msg));
+                cl_cat(msg, llm_think_name(i), sizeof(msg));
+            }
+        cl_cat(msg, ".", sizeof(msg));
+        pshow_error(&p->ps, msg);
+        return;
+    }
+    thinking_set(p, lv, 0);
+}
+
+/* ---- /fork ---- */
+
+typedef struct fsel {
+    pi_ui *p;
+    int *idx;                    /* tree indexes of the user messages on the active path, oldest first */
+    char (*text)[300];           /* each message as one line */
+    int n;
+    tui_pick pk;
+} fsel;
+
+static void fs_row(void *u, int i, int selected, char *out, long cap)
+{
+    fsel *f = (fsel *)u;
+    const char *tx = f->text[i];
+    int width = f->p->ui.tui->cols - 2;
+    char cut[320], b[100], num[16];
+    long k = 0, w = 0;
+    out[0] = 0;
+    /* truncateToWidth(text, width - 2): cut at the column, "…" in place of the last when it does not fit */
+    if (tui_width(tx, (long)strlen(tx)) <= width - 2)
+        cl_copy(cut, tx, sizeof(cut));
+    else {
+        long used = 0;
+        while (tx[k]) {
+            long l = 1;
+            int cw;
+            while ((tx[k + l] & 0xc0) == 0x80)
+                l++;
+            cw = tui_width(tx + k, l);
+            if (used + cw > width - 2 - 1)
+                break;
+            used += cw;
+            k += l;
+        }
+        memcpy(cut, tx, (size_t)k);
+        cut[k] = 0;
+        cl_cat(cut, "\342\200\246", sizeof(cut));
+    }
+    (void)w;
+    if (selected) {
+        char bold[300];
+        cat_role(f->p, PR_ACCENT, "\342\200\272 ", out, cap);
+        cl_copy(bold, "\033[1m", sizeof(bold));
+        cl_cat(bold, cut, sizeof(bold));
+        cl_cat(bold, "\033[22m", sizeof(bold));
+        cl_cat(out, bold, cap);
+    } else {
+        cl_cat(out, "  ", cap);
+        cl_cat(out, cut, cap);
+    }
+    cl_cat(out, "\n", cap);
+    cl_copy(b, "  Message ", sizeof(b));
+    cl_ltoa(i + 1, num);
+    cl_cat(b, num, sizeof(b));
+    cl_cat(b, " of ", sizeof(b));
+    cl_ltoa(f->n, num);
+    cl_cat(b, num, sizeof(b));
+    cat_role(f->p, PR_MUTED, b, out, cap);
+    cl_cat(out, "\n", cap);
+}
+
+static void fs_tail(void *u, char *out, long cap)
+{
+    fsel *f = (fsel *)u;
+    out[0] = 0;
+    pick_scroll(f->p, &f->pk, 10, out, cap);
+}
+
+/* showUserMessageSelector (user-message-selector.ts) and the fork it asks for: /fork N of cmds.c with the chat drawn again */
+static void fork_command(pi_ui *p, cl_tui *t)
+{
+    static fsel f;
+    pi_store *st = (pi_store *)p->s->command_u;
+    pi_s3 *s = &st->s3;
+    int *path = 0, np, i, res;
+    char top[600], cols_desc[400];
+    memset(&f, 0, sizeof(f));
+    f.p = p;
+    np = s->n;                                  /* getUserMessagesForForking: every user message of the file, the other branches too */
+    path = (int *)malloc(sizeof(int) * (size_t)(np ? np : 1));
+    for (i = 0; i < np && path; i++)
+        path[i] = i;
+    f.idx = (int *)malloc(sizeof(int) * (size_t)(np ? np : 1));
+    f.text = (char (*)[300])malloc(sizeof(char[300]) * (size_t)(np ? np : 1));
+    if (!f.idx || !f.text) {
+        free(f.idx);
+        free(f.text);
+        free(path);
+        return;
+    }
+    for (i = 0; i < np; i++)
+        if (s->e[path[i]].type == S3_MESSAGE && s->e[path[i]].role == S3R_USER) {
+            jw w;
+            long j, k = 0;
+            jw_init(&w);
+            pi_user_text(s, path[i], &w);
+            /* text.replace(/\n/g, " ").trim() */
+            for (j = 0; j < w.n && k < 299; j++)
+                f.text[f.n][k++] = w.p[j] == '\n' ? ' ' : w.p[j];
+            f.text[f.n][k] = 0;
+            while (k > 0 && (f.text[f.n][k - 1] == ' ' || f.text[f.n][k - 1] == '\t'))
+                f.text[f.n][--k] = 0;
+            for (j = 0; f.text[f.n][j] == ' ' || f.text[f.n][j] == '\t'; j++)
+                ;
+            if (j)
+                memmove(f.text[f.n], f.text[f.n] + j, strlen(f.text[f.n] + j) + 1);
+            f.idx[f.n++] = path[i];
+            jw_free(&w);
+        }
+    free(path);
+    if (!f.n) {
+        pshow_note(&p->ps, PR_DIM, "No messages to fork from");
+        free(f.idx);
+        free(f.text);
+        return;
+    }
+    {
+        /* Spacer, the title (padding 1), the muted description wrapped at the width less 2, Spacer, rule, Spacer */
+        char bold[60], mut[48], wrapped[500];
+        const char *d = "Select a user message to copy the active path up to that point into a new session";
+        int width = t->cols - 2, col = 0;
+        long k = 0;
+        const char *w = d;
+        wrapped[0] = 0;
+        top[0] = 2;
+        top[1] = 0;
+        cl_cat(top, "\n \033[1mFork from Message\033[22m\n", sizeof(top));
+        (void)bold;
+        cl_copy(cols_desc, " ", sizeof(cols_desc));
+        while (*w) {
+            const char *e = w;
+            long wl;
+            while (*e && *e != ' ')
+                e++;
+            wl = (long)(e - w);
+            if (col && col + 1 + wl > width) {
+                cl_cat(cols_desc, "\n ", sizeof(cols_desc));
+                col = 0;
+            } else if (col) {
+                cl_cat(cols_desc, " ", sizeof(cols_desc));
+                col++;
+            }
+            memcpy(wrapped, w, (size_t)wl);
+            wrapped[wl] = 0;
+            cl_cat(cols_desc, wrapped, sizeof(cols_desc));
+            col += (int)wl;
+            w = *e ? e + 1 : e;
+        }
+        (void)k;
+        (void)mut;
+        {
+            char dsc[500];
+            role_sg(p, PR_MUTED, mut);
+            /* the colour is set on each wrapped row: a row of its own ends it */
+            dsc[0] = 0;
+            {
+                const char *a = cols_desc;
+                for (;;) {
+                    const char *nl = strchr(a, '\n');
+                    long l = nl ? (long)(nl - a) : (long)strlen(a);
+                    char one[200];
+                    memcpy(one, a, (size_t)l);
+                    one[l] = 0;
+                    cl_cat(dsc, " ", sizeof(dsc));                  /* the padding is not in the colour */
+                    cat_role(p, PR_MUTED, one + (one[0] == ' '), dsc, sizeof(dsc));
+                    if (!nl)
+                        break;
+                    cl_cat(dsc, "\n", sizeof(dsc));
+                    a = nl + 1;
+                }
+            }
+            cl_cat(top, dsc, sizeof(top));
+        }
+        cl_cat(top, "\n\n\001\n", sizeof(top));
+    }
+    f.pk.top = top;
+    f.pk.search = 0;
+    f.pk.maxrows = 10;
+    f.pk.row = fs_row;
+    f.pk.tail = fs_tail;
+    f.pk.u = &f;
+    f.pk.layout = TUI_PICK_FRAME;
+    f.pk.n = f.n;
+    f.pk.sel = f.n - 1;
+    res = tui_pick_run(t, &f.pk);
+    if (res >= 0) {
+        jw reply, editor;
+        int rc;
+        jw_init(&reply);
+        jw_init(&editor);
+        rc = pi_store_fork_at(st, f.idx[res], &reply, &editor);
+        if (rc > 0)
+            ;                                   /* an extension cancelled it */
+        else if (rc < 0 && reply.p && strstr(reply.p, "[ERROR]"))
+            pshow_error(&p->ps, strstr(reply.p, "[ERROR]") + 8);
+        else {
+            pshow_clear(&p->ps);
+            redraw_session(p);
+            tui_set_text(t, editor.n ? editor.p : "");
+            pshow_note(&p->ps, PR_DIM, "Forked to new session");
+        }
+        jw_free(&reply);
+        jw_free(&editor);
+    }
+    free(f.idx);
+    free(f.text);
+    status(p);
+}
+
+/* /changelog (interactive-mode.ts handleChangelogCommand): every entry, oldest first, in the What's New block */
+static void changelog_command(pi_ui *p)
+{
+    jw all;
+    int n = 0;
+    jw_init(&all);
+    if (ui_cl_file)
+        n = pi_cl_all(ui_cl_file, ui_cl_file_n, &all);
+    if (!n) {
+        jw_reset(&all);
+        jw_rawz(&all, "No changelog entries found.");
+    }
+    if (p->look)
+        pshow_news(&p->ps, 2, all.p, all.n);
+    else
+        ui_line(&p->ui, all.p);
+    jw_free(&all);
+}
+
 static int run_command(pi_ui *p, cl_tui *t, const char *line)
 {
     jw reply, editor;
@@ -1963,6 +2936,25 @@ static int run_command(pi_ui *p, cl_tui *t, const char *line)
     if (!strcmp(line, "/reload")) {
         reload_command(p);
         status(p);
+        return 1;
+    }
+    if (p->look && t && p->s->command) {
+        /* the selectors of pi's look: /model and /thinking with or without a word, /fork alone (a number still forks, as in the line mode) */
+        if (!strcmp(line, "/model") || !strncmp(line, "/model ", 7)) {
+            model_command(p, t, line[6] ? line + 7 : line + 6);
+            return 1;
+        }
+        if (!strcmp(line, "/thinking") || !strncmp(line, "/thinking ", 10)) {
+            thinking_command(p, t, line[9] ? line + 10 : line + 9);
+            return 1;
+        }
+        if (!strcmp(line, "/fork")) {
+            fork_command(p, t);
+            return 1;
+        }
+    }
+    if (!strcmp(line, "/changelog")) {
+        changelog_command(p);
         return 1;
     }
     if (p->look && t && !strcmp(line, "/tree") && p->s->command) {
@@ -2126,7 +3118,23 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
     }
     resources_report(&p, ui_quiet == 0);
     if (p.look && s->nmsg)
-        redraw_session(&p);            /* a resumed session shows its conversation, as pi's renderInitialMessages */
+        redraw_session(&p);
+    if (ui_cl_news && ui_cl_news_n) {
+        /* showStartupNoticesIfNeeded: the new entries once, after the loaded resources */
+        if (p.look)
+            pshow_news(&p.ps, ui_cl_collapsed ? 1 : 0, ui_cl_news, ui_cl_news_n);
+        else if (ui_cl_collapsed) {
+            char ver[24], l[100];
+            pi_cl_latest(ui_cl_news, ver, sizeof(ver));
+            cl_copy(l, "Updated to v", sizeof(l));
+            cl_cat(l, ver, sizeof(l));
+            cl_cat(l, ". Use /changelog to view full changelog.", sizeof(l));
+            ui_line(&p.ui, l);
+        } else {
+            ui_line(&p.ui, "What's New");
+            ui_line(&p.ui, ui_cl_news);
+        }
+    }            /* a resumed session shows its conversation, as pi's renderInitialMessages */
     {
         /* run(): the startup diagnostics as warnings (interactive-mode.ts:1197-1204) */
         int i;

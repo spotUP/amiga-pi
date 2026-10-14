@@ -72,6 +72,10 @@ int pi_thinking_cycle(pi_models *m, pi_session *s, char *msg, long cap);
 /* a credential for the model's provider, or an endpoint that wants none (pi's getAvailable: what /model offers, what RPC lists) */
 int pi_model_usable(pi_models *m, const llm_model *mo);
 
+/* the models of the scope (settings.json enabledModels) that have a credential, in the order the patterns give them: indexes into
+ * m->reg.m, at most max; how many (0 with no scope) */
+int pi_models_scoped(pi_models *m, int *idx, int max);
+
 /* the lines of /model: every model whose provider has a credential, numbered, the current one marked */
 void pi_models_list(pi_models *m, const pi_session *s, jw *out);
 /* the model the Nth line of pi_models_list names (1-based): 0 none */

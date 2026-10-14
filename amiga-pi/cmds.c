@@ -335,6 +335,15 @@ void pi_user_text(pi_s3 *s, int i, jw *out)
     message_text(s, i, out);
 }
 
+/* the fork of /fork at the user message entry `pick` (a tree index): a new session ending before it, its text in editor. 0, or the
+ * words of the failure in reply ("[ERROR] ...") with -1; 1 when an extension cancelled it */
+int pi_store_fork_at(pi_store *st, int pick, jw *reply, jw *editor)
+{
+    pi_s3 *s = &st->s3;
+    message_text(s, pick, editor);
+    return pi_store_branch(st, s->e[pick].parent, s3_id(s, pick), "before", reply);
+}
+
 /* navigateTree */
 static void navigate(pi_store *st, int target, int summarize, const char *instr, int replace, const char *label,
                      jw *reply, jw *editor)

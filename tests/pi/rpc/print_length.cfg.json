@@ -1,0 +1,16 @@
+{
+ "mode": "text",
+ "args": [
+  "hello"
+ ],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": null,
+ "files": {},
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write"
+}

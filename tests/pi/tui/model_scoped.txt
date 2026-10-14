@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+Scope: all | scoped
+tab scope (all/scoped)
+
+>
+
+→ ✓ fake-model [fake] · default
+    fake-large [fake]
+
+  Model Name: fake-model
+
+  Model catalogs refreshed.
+
+  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

@@ -736,25 +736,7 @@ static const char *default_model(const char *provider)
 /* settings.json defaultProvider / defaultModel (pi's setDefaultModelAndProvider, written after a login picked a model) */
 static void save_default(pi_auth *a, const char *provider, const char *id)
 {
-    long n = 0;
-    char *t = pi_store_read(a->sys, a->agent_dir, "settings.json", &n), err[200];
-    jw o1, o2, v;
-    if (!a->agent_dir)
-        return;
-    jw_init(&o1);
-    jw_init(&o2);
-    jw_init(&v);
-    jw_strz(&v, provider);
-    if (!pi_jobj_set(t ? t : "", t ? n : 0, "defaultProvider", v.p, &o1, err, sizeof(err))) {
-        jw_reset(&v);
-        jw_strz(&v, id);
-        if (!pi_jobj_set(o1.p, o1.n, "defaultModel", v.p, &o2, err, sizeof(err)))
-            pi_store_write(a->sys, a->agent_dir, "settings.json", o2.p, o2.n, err, sizeof(err));
-    }
-    jw_free(&o1);
-    jw_free(&o2);
-    jw_free(&v);
-    free(t);
+    pi_store_set_member(a->sys, a->agent_dir, "defaultProvider", provider, "defaultModel", id);
 }
 
 /* completeProviderAuthentication (interactive-mode.ts :6066): the status line, and the provider's default model when

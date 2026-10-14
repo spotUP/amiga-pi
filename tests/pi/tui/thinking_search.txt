@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+Thinking Level
+
+Shift+Tab cycles thinking levels in-session
+
+> low
+
+→   low       Light reasoning (~2k tokens)
+
+  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                       fake-model • thinking off

@@ -28,6 +28,7 @@
 #include "../amiga-pi/tools_pi.h"
 #include "claude/sys_posix.h"
 #include "claude/theme.h"
+#include "../amiga-pi/changelog.h"
 #include "view/hl_style.h"
 #include <unistd.h>
 #include <sys/stat.h>
@@ -1024,6 +1025,9 @@ static llm_ts adv_now(void *u)
 static const char *app_pstatus;         /* PI_PROGRAM_STATUS in the test's environment (0: unset) */
 static const char *app_colorterm;       /* what the test's terminal says in COLORTERM (0: unset) */
 
+static int app_nokeys;              /* no provider key in the environment: the models of models.json are the only ones with a credential */
+static const char *app_model_cli;   /* --model for the next app_run, 0: anthropic/claude-opus-5-5 */
+
 static long app_env(const char *name, char *o, long cap)
 {
     const char *v = 0;
@@ -1033,9 +1037,9 @@ static long app_env(const char *name, char *o, long cap)
         v = "vtcon";
     else if (!strcmp(name, "PI_PROGRAM_STATUS"))
         v = app_pstatus;
-    if (!strcmp(name, "OPENAI_API_KEY"))
+    if (!app_nokeys && !strcmp(name, "OPENAI_API_KEY"))
         v = "sk-test-openai";
-    else if (!strcmp(name, "ANTHROPIC_API_KEY"))
+    else if (!app_nokeys && !strcmp(name, "ANTHROPIC_API_KEY"))
         v = "sk-ant-test-not-real";
     if (!v || (long)strlen(v) >= cap)
         return -1;
@@ -1077,6 +1081,7 @@ static void rest_hook(void)
 }
 
 /* pi_app with the keys typed on a screen of cols x rows; the answers streamed in order. The exit code. */
+static const char *app_changelog;   /* pl.changelog for the next app_run: the CHANGELOG.md What's New and /changelog show, 0 none */
 static const char *app_session;     /* --session <file> for the next app_run, 0 none */
 static const char *app_agent;       /* the agent directory for the next app_run (0: the sandbox's) */
 static const char *app_tui_cli;     /* --tui-mode <x> for the next app_run, 0 none */
@@ -1104,6 +1109,8 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pi_platform pl;
     char *a[] = { "amiga-pi", "--model", "anthropic/claude-opus-5-5", 0, 0, 0, 0, 0, 0, 0, 0, 0 };
     int i, rc, argc = 3;
+    if (app_model_cli)
+        a[2] = (char *)app_model_cli;
     if (app_session) {
         a[3] = "--session";
         a[4] = (char *)app_session;
@@ -1154,6 +1161,7 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     pl.utc = 1;
     pl.data_dir = adata;
     pl.agent_dir = app_agent ? app_agent : aagent;
+    pl.changelog = app_changelog;
     pl.ready = app_ready;
     pl.random = app_random;
     rc = pi_app(argc, a, &pl);
@@ -1740,6 +1748,162 @@ static int load_login_rows(int want_type)         /* 1 oauth, 0 API key, -1 both
     return k;
 }
 
+/* a models.json of the generator's fake provider (tools/pi_oracle/tui_gen.py): fake-model and, with more, fake-small and fake-large */
+static void fake_models(int reasoning, int more)
+{
+    char t[1500];
+    strcpy(t, "{\"providers\":{\"fake\":{\"baseUrl\":\"http://127.0.0.1:9\",\"api\":\"anthropic-messages\",\"apiKey\":\"k\",\"models\":["
+              "{\"id\":\"fake-model\",\"name\":\"fake-model\",\"reasoning\":");
+    strcat(t, reasoning ? "true" : "false");
+    strcat(t, ",\"input\":[\"text\"],\"contextWindow\":200000,\"maxTokens\":8192,\"cost\":{\"input\":3,\"output\":15,\"cacheRead\":0.3,\"cacheWrite\":3.75}}");
+    if (more)
+        strcat(t, ",{\"id\":\"fake-small\",\"name\":\"Fake Small\",\"reasoning\":false,\"input\":[\"text\"],\"contextWindow\":100000,\"maxTokens\":4096,"
+                  "\"cost\":{\"input\":1,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0}},{\"id\":\"fake-large\",\"name\":\"Fake Large\",\"reasoning\":false,"
+                  "\"input\":[\"text\"],\"contextWindow\":100000,\"maxTokens\":4096,\"cost\":{\"input\":1,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0}}");
+    strcat(t, "]}}}\n");
+    app_write("models.json", t);
+}
+
+/* P12-B9, B10, B15 (owner 2026-10-14: every menu by keyboard): /model, /thinking and /fork open pi 1.2.0's selectors over the screen's picker.
+ * The goldens are pi's own screens (model_*, thinking_*, fork_*); the reachability check is that /model through pi_app opens the
+ * selector (the screen shows its rows) and Enter switches the session's model (the footer and the next request name it) */
+static void test_selectors(void)
+{
+    static const char *k_model[] = { "/model\r", "\004", 0 };
+    static const char *k_search[] = { "/model\rlarge", "\004", 0 };
+    static const char *k_down[] = { "/model\r\033[B", "\004", 0 };
+    static const char *k_pick[] = { "/model\r\033[B\r", "\004", 0 };
+    static const char *k_wrap[] = { "/model\r\033[A", "\004", 0 };
+    static const char *k_think[] = { "/thinking\r", "\004", 0 };
+    static const char *k_think_search[] = { "/thinking\rlow", "\004", 0 };
+    static const char *k_think_pick[] = { "/thinking\r\033[B\r", "\004", 0 };
+    static const int m_foot[] = { 24, 25, 0 };
+    const char *quiet = "{\"quietStartup\":true,\"defaultProvider\":\"fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"off\"}\n";
+    fresh_agent();
+    app_nokeys = 1;
+    app_model_cli = "fake/fake-model";
+    fake_models(0, 1);
+    skills_case("model_selector", quiet, k_model, 0, 0, 0, 0, m_foot, 0);
+    skills_case("model_search", quiet, k_search, 0, 0, 0, 0, m_foot, 0);
+    skills_case("model_down", quiet, k_down, 0, 0, 0, 0, m_foot, 0);
+    rest_any = 1;                   /* (the footer names fake-small now: the status line shows when the screen is the one to take) */
+    rest_find = "Model: fake-small";
+    skills_case("model_select", quiet, k_pick, 0, 0, 0, 0, m_foot, 0);
+    rest_any = 0;
+    rest_find = "navigate";
+    CHECK(app_out && strstr(app_out, "Model: fake-small") != 0);
+    (void)k_wrap;
+    {
+        /* the scope: enabledModels shows the Scope line and the scoped list */
+        const char *scoped = "{\"quietStartup\":true,\"defaultProvider\":\"fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"off\","
+                             "\"enabledModels\":[\"fake/fake-model\",\"fake/fake-large\"]}\n";
+        skills_case("model_scoped", scoped, k_model, 0, 0, 0, 0, m_foot, 0);
+    }
+    fake_models(1, 0);
+    skills_case("thinking_selector", quiet, k_think, 0, 0, 0, 0, m_foot, 0);
+    skills_case("thinking_search", quiet, k_think_search, 0, 0, 0, 0, m_foot, 0);
+    rest_any = 1;
+    rest_find = "Thinking level: minimal";
+    skills_case("thinking_select", quiet, k_think_pick, 0, 0, 0, 0, m_foot, 0);
+    rest_any = 0;
+    rest_find = "navigate";
+    CHECK(app_out && strstr(app_out, "Thinking level: minimal") != 0);
+    app_nokeys = 0;
+    app_model_cli = 0;
+    app_write("models.json", "{}\n");
+}
+
+/* the agent directory's settings.json as text, "" when there is none */
+static char *app_settings_text(void)
+{
+    char p[520];
+    long n;
+    char *t;
+    strcpy(p, aagent);
+    strcat(p, "/settings.json");
+    {
+        FILE *f = fopen(p, "rb");
+        t = 0;
+        n = 0;
+        if (f) {
+            fseek(f, 0, SEEK_END);
+            n = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            t = (char *)calloc((size_t)n + 1, 1);
+            if (t && fread(t, 1, (size_t)n, f) != (size_t)n)
+                t[0] = 0;
+            fclose(f);
+        }
+    }
+    return t ? t : (char *)calloc(1, 1);
+}
+
+/* P12-B2/B3 (D1): What's New after an update and /changelog, from amiga-pi's CHANGELOG.md in pi's format. The goldens are pi 1.2.0's own
+ * screens for the same file (tests/pi/tui/changelog_fixture.md, PI_PACKAGE_DIR): the new entries between two rules with the loaded
+ * resources above, collapsed to one line, nothing on a first start (which records the version), nothing when the version is
+ * current, every entry oldest first for /changelog; a resumed session shows nothing and records nothing */
+static void test_whats_new(void)
+{
+    static const char *keys_end[] = { "\004", 0 }, *keys_cmd[] = { "/changelog\r", "\004", 0 };
+    static const int m_bot[] = { 21, 25, 0 };
+    char *t;
+    {
+        /* pi's parseChangelog / getNewEntries: numbers compare as numbers, a "## " heading with no version ends the entry and starts none */
+        static const char doc[] = "# Changelog\n\n## [Unreleased]\n\n- later\n\n## [1.10.0] - x\n\n- ten\n\n## 1.9.2\n- nine\n\n## [1.9.0]\n- old\n";
+        jw o;
+        char ver[24];
+        jw_init(&o);
+        CHECK_INT(pi_cl_newer(doc, (long)strlen(doc), "1.9.1", &o), 2);
+        CHECK_STR(o.p, "## [1.10.0] - x\n\n- ten\n\n## 1.9.2\n- nine");
+        jw_reset(&o);
+        CHECK_INT(pi_cl_newer(doc, (long)strlen(doc), "1.10.0", &o), 0);
+        jw_reset(&o);
+        CHECK_INT(pi_cl_all(doc, (long)strlen(doc), &o), 3);
+        CHECK(strstr(o.p, "## [1.9.0]") == o.p);                    /* oldest first */
+        pi_cl_latest("junk\n## [1.10.0] - x\n## [1.9.0]", ver, sizeof(ver));
+        CHECK_STR(ver, "1.10.0");
+        jw_free(&o);
+    }
+    app_changelog = PI_TESTS "/pi/tui/changelog_fixture.md";
+    fresh_agent();
+    skills_case("whats_new", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.1.0\"}\n", keys_end, 0, 0, 0, 0, m_bot, 0);
+    t = app_settings_text();
+    CHECK(strstr(t, "\"lastChangelogVersion\": \"1.2.0\"") != 0);          /* recorded once shown */
+    free(t);
+    skills_case("whats_new_collapsed", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.1.0\",\"collapseChangelog\":true}\n", keys_end,
+                0, 0, 0, 0, m_bot, 0);
+    skills_case("whats_new_fresh", "{\"quietStartup\":true}\n", keys_end, 0, 0, 0, 0, m_bot, 0);
+    t = app_settings_text();
+    CHECK(strstr(t, "\"lastChangelogVersion\": \"1.2.0\"") != 0);          /* a first start records the version and shows nothing */
+    free(t);
+    skills_case("whats_new_current", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.2.0\"}\n", keys_end, 0, 0, 0, 0, m_bot, 0);
+    skills_case("changelog_cmd", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.2.0\"}\n", keys_cmd, 0, 0, 0, 0, m_bot, 0);
+    /* a resumed session: no notice, nothing recorded */
+    {
+        char path[600];
+        static const char *k2[] = { "\004", 0 };
+        if (put_session("took_session.jsonl", "took_session.jsonl", path)) {
+            app_write("settings.json", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.1.0\"}\n");
+            app_session = path;
+            CHECK_INT(app_run(80, 25, k2, 0, 0, 0), 0);
+            app_session = 0;
+            CHECK(app_out && strstr(app_out, "What's New") == 0);
+            t = app_settings_text();
+            CHECK(strstr(t, "\"lastChangelogVersion\":\"1.1.0\"") != 0);
+            free(t);
+        }
+    }
+    /* without a CHANGELOG.md: /changelog says so, and a start with an older version shows and records nothing */
+    app_changelog = 0;
+    app_write("settings.json", "{\"quietStartup\":true,\"lastChangelogVersion\":\"1.1.0\"}\n");
+    CHECK_INT(app_run(80, 25, keys_cmd, 0, 0, 0), 0);
+    CHECK(app_out && strstr(app_out, "No changelog entries found.") != 0);
+    t = app_settings_text();
+    CHECK(strstr(t, "\"lastChangelogVersion\":\"1.1.0\"") != 0);
+    free(t);
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+}
+
 static void test_login_screens(void)
 {
     static const char *k_method[] = { "/login\r", "\004", 0 };
@@ -1913,6 +2077,68 @@ static void test_expand_summaries(void)
 }
 
 /* Enter in the selector moves the leaf (a user message goes back to the editor) and the conversation is drawn again */
+/* P12-B15: /fork opens pi's user-message selector (user-message-selector.ts): the title and its description, the messages with their
+ * position, the newest selected, Up moving to the one before; Enter forks there (the chat is drawn again, the message is back in the
+ * editor, "Forked to new session"). The goldens are pi's own screens for doc_branch.jsonl (the rows above the selector are the transcript
+ * and the model warning of the capture's fake model) */
+static void fork_case(const char *name, const char **keys)
+{
+    static scen sc = { "", { 0 }, { 0 }, 0, 1, 0, { { 1, 6, 0, 79, "the transcript above the selector, and the warning for the capture's fake model" },
+                                                    { 24, 25, 0, 79, "the folder and the model of the capture" } } };
+    char path[600];
+    int i;
+    sc.name = name;
+    if (!put_session("../sessions/doc_branch.jsonl", "fork_session.jsonl", path))
+        return;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    cur = &sc;
+    taken = 0;
+    diffs = 0;
+    memset(rowdiff, 0, sizeof(rowdiff));
+    first_diff[0] = 0;
+    load_golden(name);
+    CHECK(want != 0);
+    if (!want)
+        return;
+    app_session = path;
+    CHECK_INT(app_run(80, want_rows, keys, 0, 0, tree_rest), 0);
+    app_session = 0;
+    CHECK(taken);
+    if (diffs) {
+        printf("  %s: %d cells differ from pi's capture\n%s", name, diffs, first_diff);
+        if (getenv("PI_TUI_ROWS"))
+            for (i = 0; i < want_rows; i++)
+                if (rowdiff[i]) {
+                    printf("    row %2d pi       |%s\n", i + 1, h_row(want, i));
+                    printf("           amiga-pi |%s   (%d cells)\n", snap[i], rowdiff[i]);
+                }
+    }
+    CHECK_INT(diffs, 0);
+    vt_free(want);
+}
+
+static void test_fork_selector(void)
+{
+    static const char *k_fork[] = { "/fork\r", "\004", 0 };
+    static const char *k_up[] = { "/fork\r\033[A", "\004", 0 };
+    static const char *k_pick[] = { "/fork\r\033[A\r", "\004", 0 };
+    fork_case("fork_selector", k_fork);
+    fork_case("fork_up", k_up);
+    /* Enter forks at the message: a new session whose chat ends before it, the message in the editor, pi's status line */
+    {
+        char path[600];
+        strcpy(path, aroot);
+        strcat(path, "/fork_session.jsonl");
+        app_session = path;
+        CHECK_INT(app_run(80, 40, k_pick, 0, 0, take_shot), 0);
+        app_session = 0;
+        CHECK(shot_has("Forked to new session"));
+        CHECK(shot_has("approach A"));                      /* back in the editor */
+        CHECK(!shot_has("approach B"));
+        CHECK(!shot_has("Fork from Message"));
+    }
+}
+
 static void test_tree_nav(void)
 {
     static const char *keys[] = { "/tree\r", "\033[B", "\r", "\r", "\004", 0 };
@@ -2495,6 +2721,35 @@ static void test_themes(void)
         CHECK_INT(pitheme_load(&th, nov, (long)strlen(nov), pi_okcolor, err, sizeof(err)), -1);
         CHECK(strstr(err, "Variable reference not found: nothere") != 0);
     }
+    /* P12-B6: theme-schema.ts of pi 1.2.0 (tests/pi/tui/theme_errors.json is its own run): unknown keys in the root, colors and
+     * export objects, appearance and the name are refused with its messages; $schema and appearance are accepted */
+    {
+        jv all, c, th_v, er_v;
+        jit it;
+        jv key;
+        char *gj = slurp("theme_errors.json", &n), want[3000], name[40];
+        CHECK(gj != 0);
+        if (gj && !json_parse(gj, n, &all)) {
+            json_iter(all, &it);
+            while (json_next(&it, &key, &c)) {
+                int rc;
+                json_str(key, name, sizeof(name));
+                CHECK(json_get(c, "theme", &th_v) && json_get(c, "error", &er_v));
+                json_str(er_v, want, sizeof(want));
+                err[0] = 0;
+                rc = pitheme_load(&th, th_v.p, th_v.n, pi_okcolor, err, sizeof(err));
+                if (want[0]) {
+                    CHECK_INT(rc, -1);
+                    if (strcmp(err, want))
+                        printf("  theme %s:\n  want %s\n  got  %s\n", name, want, err);
+                    CHECK_STR(err, want);
+                } else
+                    CHECK_INT(rc, 0);
+            }
+        } else
+            CHECK(0);
+        free(gj);
+    }
 }
 
 static int rule_fg;
@@ -2511,6 +2766,7 @@ static void test_theme_keys_app(void)
 {
     static const char *keys1[] = { "\020", "\004", 0 };
     static const char *keys2[] = { "\024", "\033[Z", "\004", 0 };
+    static const char *keys3[] = { "\024", "\004", 0 };
     int system_fg;
     char path[600];
     /* the theme a file names colours the screen: the rules of the editor (thinkingOff) in dark.json's grey */
@@ -2556,6 +2812,16 @@ static void test_theme_keys_app(void)
     CHECK_INT(app_run(80, 25, keys2, 0, 0, take_shot), 0);
     CHECK(shot_has("claude-opus-5-5 \342\200\242 high"));
     CHECK(shot_has("unknown action"));
+    /* P12-B5 (pi 1.2.0 keybindings.ts toKeybindingsConfig): "$schema" is skipped without a warning, and a value that is
+     * not a key id is dropped (the action keeps its default) */
+    app_write("keybindings.json", "{\"$schema\":\"https://pi.dev/schemas/keybindings.schema.json\",\"app.thinking.cycle\":\"ctrl+t\"}\n");
+    CHECK_INT(app_run(80, 25, keys2, 0, 0, take_shot), 0);
+    CHECK(shot_has("claude-opus-5-5 \342\200\242 high"));
+    CHECK(!shot_has("unknown action"));
+    app_write("keybindings.json", "{\"app.thinking.cycle\":\"ctrl+ctrl+t\"}\n");
+    CHECK_INT(app_run(80, 25, keys3, 0, 0, take_shot), 0);
+    CHECK(!shot_has("claude-opus-5-5 \342\200\242 high"));                /* Ctrl+T cycles nothing: the default key stays */
+    CHECK(!shot_has("unknown action"));
     app_write("keybindings.json", "{}\n");
     unlink(path);
 }
@@ -3355,7 +3621,7 @@ static void test_menu_rows_uncapped(void)
     pi_ui_set_extra_commands(2, rows, 700);
     app_write("settings.json", "{\"quietStartup\":true}\n");
     CHECK_INT(app_run(80, 25, keys, 0, 0, take_shot), 0);
-    CHECK(shot_has("(1/712)"));             /* twelve built-in rows (with /login and /logout) and 700 more */
+    CHECK(shot_has("(1/713)"));             /* thirteen built-in rows (with /login, /logout and /changelog) and 700 more */
     CHECK_INT(app_run(80, 25, keys_x, 0, 0, take_shot), 0);
     CHECK(shot_has("a row"));               /* the editor holds "/x699" too: the menu row is what has a description */
     /* Esc closes a menu of more than eight rows (it once asked for the matches into a table of eight) */
@@ -3513,6 +3779,9 @@ void suite_pi_tui(void)
     test_expand_summaries();
     test_skills_screen();
     test_login_screens();
+    test_whats_new();
+    test_selectors();
+    test_fork_selector();
     test_login_typed();
     test_compact_live();
     test_export();

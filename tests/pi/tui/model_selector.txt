@@ -1,0 +1,25 @@
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+Only showing models from configured providers. Use /login to add providers.
+
+>
+
+→ ✓ fake-model [fake] · default
+    fake-small [fake]
+    fake-large [fake]
+    qwen2.5-coder:7b [ollama]
+
+  Model Name: fake-model
+
+  Model catalogs refreshed.
+
+  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                               (fake) fake-model

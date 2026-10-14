@@ -415,6 +415,24 @@
    "home/top/SKILL.md": "---\nname: top\ndescription: Found because ~ itself is an entry\n---\nBody of top.\n\nSecond paragraph.\n"
   }
  },
+ "tilde_overrides": {
+  "cwd": "w/proj",
+  "trusted": true,
+  "noSkills": false,
+  "skillPaths": [],
+  "expand": [],
+  "tools": [
+   [
+    "read"
+   ]
+  ],
+  "files": {
+   "agent/settings.json": "{\"skills\":[\"~/skills\",\"!~/skills/pdf\",\"-~/skills/zip\",\"+~/skills/zip\"]}",
+   "home/skills/pdf/SKILL.md": "---\nname: pdf\ndescription: Switched off by !~/skills/pdf\n---\nBody of pdf.\n\nSecond paragraph.\n",
+   "home/skills/zip/SKILL.md": "---\nname: zip\ndescription: Off by -~/skills/zip, which +~/skills/zip does not undo (the last one wins)\n---\nBody of zip.\n\nSecond paragraph.\n",
+   "home/skills/keep/SKILL.md": "---\nname: keep\ndescription: Stays\n---\nBody of keep.\n\nSecond paragraph.\n"
+  }
+ },
  "globcase": {
   "cwd": "w/proj",
   "trusted": false,

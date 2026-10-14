@@ -36,8 +36,8 @@
 #define PI_ARG_SKILLS 16
 #define PI_ARG_TMPLS 8
 
-/* the pi release amiga-pi matches (tag v1.1.0): the start header and --version both print it */
-#define PI_VERSION "1.1.0"
+/* the pi release amiga-pi matches (tag v1.2.0): the start header and --version both print it */
+#define PI_VERSION "1.2.0"
 
 enum { PI_MODE_TEXT, PI_MODE_JSON, PI_MODE_RPC };
 

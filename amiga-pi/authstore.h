@@ -22,6 +22,10 @@ int pi_store_write(cl_sys *sys, const char *dir, const char *name, const char *t
  * the file is then not to be written over), -2 out of memory */
 int pi_jobj_set(const char *text, long n, const char *key, const char *value, jw *out, char *err, long cap);
 
+/* settings.json's string member key1 set to val1 and, when key2 is not 0, key2 to val2; every other member kept (the file made when missing).
+ * 0, -1 when it could not be read as an object or written */
+int pi_store_set_member(cl_sys *sys, const char *dir, const char *key1, const char *val1, const char *key2, const char *val2);
+
 /* the member's value as a malloc'ed string, 0 when absent or not a string */
 char *pi_jobj_str(const char *text, long n, const char *key);
 
