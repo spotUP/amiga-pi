@@ -115,6 +115,11 @@ void pi_session_free(pi_session *s)
     s->npend_custom = 0;
     free(s->deferred_custom);
     s->deferred_custom = 0;
+    free(s->start_custom);
+    s->start_custom = 0;
+    for (i = 0; i < s->nstart_steer; i++)
+        free(s->start_steer[i]);
+    s->nstart_steer = 0;
     for (i = 0; i < s->npend; i++)
         free(s->pend[i]);
     s->npend = 0;
@@ -727,6 +732,17 @@ static int answer(pi_session *s, stream *t)
         e.err_type = "error";
         e.p = why;
         e.n = (long)strlen(why);
+        st_ev(t, &e);
+    } else if (s->aborted) {
+        /* agent_start (agent-session.ts _handleAgentEvent): an abort asked while the run was starting aborts it before the first
+         * request; the agent loop makes the failure message itself */
+        llm_event e;
+        llm_event_init(&e, LE_ERROR);
+        e.stop = LS_ERROR;
+        e.err_type = "error";
+        e.p = "This operation was aborted";
+        e.n = (long)strlen(e.p);
+        llm_acc_anew(&t->acc);
         st_ev(t, &e);
     } else if (!q.be) {
         llm_event e;
@@ -1403,6 +1419,13 @@ int pi_session_send_custom(pi_session *s, const char *message, int trigger, cons
         s->next_custom[s->nnext_custom++] = c;
         return 0;
     }
+    if (s->starting && trigger != 0) {
+        /* the starting run takes it (agent.steer): delivered with the first poll, after the starting messages */
+        if (s->nstart_steer >= 8 || !(c = dup_z(message)))
+            return -1;
+        s->start_steer[s->nstart_steer++] = c;
+        return 0;
+    }
     if (s->active && trigger != 0) {
         /* a steer or follow-up message of pi's agent: delivered at the next request; the queues here hold text, so it joins the
          * turn's end like the message that does not trigger */
@@ -1447,7 +1470,18 @@ static int run(pi_session *s, const char *text, const char *images)
             return s->stop;
         }
     }
+    if (s->start_custom) {      /* _prepareRun: the starting custom message, then the pending nextTurn ones and the handlers' */
+        custom_from_json(s, s->start_custom);
+        free(s->start_custom);
+        s->start_custom = 0;
+    }
     flush_next_custom(s);       /* before_agent_start's messages follow the user's */
+    for (i = 0; i < s->nstart_steer; i++) {     /* then what its handlers steered in */
+        custom_from_json(s, s->start_steer[i]);
+        free(s->start_steer[i]);
+        s->start_steer[i] = 0;
+    }
+    s->nstart_steer = 0;
     poll_queue(s, 0);           /* typed before the first request (pi polls at the start) */
     for (round = 0; round < PI_ROUNDS; round++) {
         stream t;
@@ -1582,11 +1616,16 @@ static int prompt_run(pi_session *s, const char *typed, const char *images)
     s->attempt = 0;
     s->retry_stop = 0;
     s->recover = 0;
-    /* the context against the window before the user message is kept */
-    if (typed && s->compact)
+    /* the context against the window before the starting message is kept (_prepareRun: a custom trigger takes the same start) */
+    if (s->compact && (typed || s->start_custom))
         s->compact(s->compact_u, s, PI_CP_PROMPT);
-    if (typed)
-        pi_ev_before_agent_start(s, text);      /* after the compaction check, before the run (agent-session.ts:2062) */
+    if (typed || s->start_custom) {
+        s->starting = 1;
+        pi_ev_before_agent_start(s, text, images, typed ? 0 : s->start_custom);   /* after the compaction check, before the run (agent-session.ts:2062) */
+        s->starting = 0;
+    }
+    /* _startRun: what pi.sendMessage queued while the handlers ran goes in before the starting messages */
+    flush_pending_custom(s);
     if (typed && s->started) {
         void (*f)(void *) = s->started;
         s->started = 0;
@@ -1675,12 +1714,8 @@ int pi_session_drain(pi_session *s)
     while (s->deferred_custom && !s->active) {
         char *m = s->deferred_custom;
         s->deferred_custom = 0;
-        if (s->nnext_custom < 8)
-            s->next_custom[s->nnext_custom++] = m;     /* flush_next_custom makes it the run's first message */
-        else {
-            free(m);
-            break;
-        }
+        free(s->start_custom);
+        s->start_custom = m;                           /* run() makes it the run's first message, after before_agent_start */
         rc = prompt_run(s, 0, 0);
     }
     return rc;

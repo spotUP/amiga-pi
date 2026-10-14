@@ -2116,7 +2116,7 @@ static void test_lua_register(void)
 {
     static const char *const names[] = { "ext_lua_tool", "ext_lua_tool_results", "ext_lua_tool_allow", "ext_lua_tool_named",
                                          "ext_lua_tool_only", "ext_lua_tool_none", "ext_lua_tool_minus", "ext_lua_tool_plus_none",
-                                         "ext_lua_tool_pattern", "ext_lua_tool_default", "ext_lua_tool_strict", "ext_lua_cmd", "ext_lua_cmd_dup",
+                                         "ext_lua_tool_pattern", "ext_lua_tool_default", "ext_lua_tool_strict", "ext_lua_trigger_bas", "ext_lua_send_in_bas", "ext_lua_abort_in_bas", "ext_lua_cmd", "ext_lua_cmd_dup",
                                          "ext_lua_cmd_scope", "ext_lua_entry", 0 };
     group(names);
 }

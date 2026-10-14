@@ -125,6 +125,22 @@ pi.registerTool({
   end,
 })
 '''
+LUA_TRIGGER = '''pi.registerCommand("go", { description = "Go", handler = function(args, ctx)
+  pi.sendMessage({ customType = "note", content = "started by go", display = true }, { triggerTurn = true })
+end })
+pi.on("before_agent_start", function(event, ctx)
+  print(json.encode({ messageType = event.messageType, message = event.message, prompt = event.prompt }))
+  return { message = { customType = "added", content = "added by handler", display = true } }
+end)
+'''
+LUA_SEND_IN_BAS = '''pi.on("before_agent_start", function(event, ctx)
+  pi.sendMessage({ customType = "late", content = "sent in handler", display = true }, { triggerTurn = true })
+end)
+'''
+LUA_ABORT_IN_BAS = '''pi.on("before_agent_start", function(event, ctx)
+  ctx.ui.input("Wait?", "x")
+end)
+'''
 L4 = {
     'ext_tool': {'agent/extensions/t.lua': LUA_TOOLS},
     'ext_tool_results': {'agent/extensions/t.lua': LUA_TOOLS},
@@ -137,6 +153,9 @@ L4 = {
     'ext_tool_pattern': {'agent/extensions/t.lua': LUA_TOOLS},
     'ext_tool_default': {'agent/extensions/t.lua': LUA_TOOLS},
     'ext_tool_strict': {'agent/extensions/t.lua': STRICTLY},
+    'ext_trigger_bas': {'agent/extensions/t.lua': LUA_TRIGGER},
+    'ext_send_in_bas': {'agent/extensions/t.lua': LUA_SEND_IN_BAS},
+    'ext_abort_in_bas': {'agent/extensions/t.lua': LUA_ABORT_IN_BAS},
     'ext_cmd': {'agent/extensions/t.lua': LUA_CMDS},
     'ext_cmd_dup': {'agent/extensions/a.lua': LUA_DUP % ('a', 'a'), 'agent/extensions/b.lua': LUA_DUP % ('b', 'b')},
     'ext_cmd_scope': {'project/.pi/extensions/p.lua': LUA_DUP % ('project', 'project'),

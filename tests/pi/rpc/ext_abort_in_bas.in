@@ -1,0 +1,5 @@
+{"id":"1","type":"prompt","message":"hello"}
+#after extension_ui_request
+{"id":"2","type":"abort"}
+{"type":"extension_ui_response","id":"$ui:1","cancelled":true}
+#after agent_settled

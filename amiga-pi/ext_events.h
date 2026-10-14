@@ -39,7 +39,10 @@ int pi_ev_before_settle(pi_session *s);
 int pi_ev_context(pi_session *s, jw *out);
 /* before_agent_start (runner.ts emitBeforeAgentStart): handlers may answer {message}, a custom message that joins the user's
  * (kept in s->next_custom); systemPrompt overrides are not read */
-void pi_ev_before_agent_start(pi_session *s, const char *prompt);
+/* a run starts (agent-session.ts _prepareRun, runner.ts emitBeforeAgentStart): the trigger is spread first, then type, systemPromptOptions and
+ * systemPrompt (1.2.0 goldens). A user run: prompt and its images (a JSON array, 0 none); an idle pi.sendMessage with triggerTurn:
+ * custom, the starting message as a JSON object {customType, content, display, details} (prompt 0) */
+void pi_ev_before_agent_start(pi_session *s, const char *prompt, const char *images, const char *custom);
 
 /* user_bash (runner.ts emitUserBash, rpc-mode.ts bash, interactive-mode.ts handleBashCommand): 1 when a handler answered
  * {result: {output, exitCode, cancelled, truncated}} -- text, code and cancelled then hold it and the command is not run. A

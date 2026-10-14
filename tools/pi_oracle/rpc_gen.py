@@ -433,6 +433,41 @@ GRAMMAR = ('http', 400, json.dumps({'type': 'error', 'error': {'type': 'invalid_
                                                              'message': 'The compiled grammar is too large, which would cause performance issues.'}}))
 sc('ext_tool_strict', mode='json', args=['go'], answers=[GRAMMAR, A('Went.')], text_files={'agent/extensions/t.ts': EXT_STRICT},
    requests=True, compat={'supportsStrictTools': True})
+# P12-A5, A6 (agent-session.ts _prepareRun / _startRun): a run an idle pi.sendMessage(triggerTurn) starts takes the start of a prompt
+# (before_agent_start with messageType "custom", the handler's message after the starting one); a sendMessage from a before_agent_start
+# handler joins the starting run, before its messages; an abort requested while the handlers run aborts the run at agent_start.
+# amiga-pi has no systemPrompt / systemPromptOptions results (COMPATIBILITY.md), so P12-A7 (the sections staying for the run) has no scenario.
+EXT_BAS_HEAD = '''import { appendFileSync } from "node:fs";
+export default function (pi) {
+  pi.registerCommand("go", { description: "Go", async handler(args, ctx) {
+    pi.sendMessage({ customType: "note", content: "started by go", display: true }, { triggerTurn: true });
+  } });
+'''
+EXT_TRIGGER = EXT_BAS_HEAD + '''  pi.on("before_agent_start", async (event) => {
+    appendFileSync("dump.jsonl", JSON.stringify({ messageType: event.messageType, message: event.message, prompt: event.prompt }) + "\\n");
+    return { message: { customType: "added", content: "added by handler", display: true } };
+  });
+}
+'''
+sc('ext_trigger_bas', steps=[('prompt', '/go')], answers=[A('Done.')], text_files={'agent/extensions/t.ts': EXT_TRIGGER},
+   session=True, collect=['dump.jsonl', 'session.jsonl'])
+EXT_SEND_IN_BAS = '''export default function (pi) {
+  pi.on("before_agent_start", async (event) => {
+    pi.sendMessage({ customType: "late", content: "sent in handler", display: true }, { triggerTurn: true });
+  });
+}
+'''
+sc('ext_send_in_bas', steps=[('prompt', 'hello')], answers=[A('Hello.')], text_files={'agent/extensions/t.ts': EXT_SEND_IN_BAS},
+   session=True, collect=['session.jsonl'])
+EXT_ABORT_IN_BAS = '''export default function (pi) {
+  pi.on("before_agent_start", async (event, ctx) => {
+    await ctx.ui.input("Wait?", "x");
+  });
+}
+'''
+sc('ext_abort_in_bas', steps=[('send', P('hello')), ('gate', 'extension_ui_request'), ('cmd', {'type': 'abort'}), ('ui', {'cancelled': True}),
+                              ('settle',)],
+   answers=[A('Never seen.')], text_files={'agent/extensions/t.ts': EXT_ABORT_IN_BAS}, session=True)
 sc('ext_tool_default', mode='json', args=['greet Ada'], answers=[TOOL('greet', {'name': 'Ada'}), A('Greeted.')],
    text_files=EXT_FILES, requests=True, settings={'defaultTools': ['read']})
 
