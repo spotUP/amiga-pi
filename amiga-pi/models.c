@@ -4,6 +4,7 @@
 #include "models.h"
 #include "ext_events.h"
 #include "authstore.h"
+#include "radius.h"
 #include "store.h"
 #include "claude/util.h"
 #include "claude/glob.h"
@@ -81,17 +82,23 @@ int pi_models_init(pi_models *m, cl_sys *sys, const char *agent_dir, long (*gete
         cl_copy(m->warn, m->reg.err[0] ? m->reg.err : "out of memory", sizeof(m->warn));
         return -1;
     }
+    cl_copy(m->agent_dir, agent_dir ? agent_dir : "", sizeof(m->agent_dir));
     txt = read_text(sys, agent_dir, "models.json", &n);
-    if (txt) {
-        if (llm_reg_overlay(&m->reg, txt, n)) {
-            cl_copy(m->warn, m->reg.err, sizeof(m->warn));
-            cl_cat(m->warn, " (models.json is ignored)", sizeof(m->warn));
-        }
-        free(txt);
-    }
     m->auth = pi_store_read(sys, agent_dir, "auth.json", &n);     /* after an interrupted write the new file or the old one */
     m->cfg.auth = m->auth;
     m->cfg.auth_n = m->auth ? n : 0;
+    /* provider order of pi's ModelRuntime: the Radius gateways (models.json's "oauth":"radius" ones and the public one), their
+     * catalogs from the store, then models.json over all of it */
+    llm_reg_radius_scan(&m->reg, txt, txt ? (long)strlen(txt) : 0);
+    pi_radius_restore(m);
+    if (txt) {
+        m->models_json = txt;
+        m->models_json_n = (long)strlen(txt);
+        if (llm_reg_overlay(&m->reg, txt, m->models_json_n)) {
+            cl_copy(m->warn, m->reg.err, sizeof(m->warn));
+            cl_cat(m->warn, " (models.json is ignored)", sizeof(m->warn));
+        }
+    }
     return 0;
 }
 
@@ -101,10 +108,18 @@ void pi_models_free(pi_models *m)
     llm_reg_free(&m->reg);
     free(m->auth);
     m->auth = 0;
+    free(m->models_json);
+    m->models_json = 0;
     free(m->scope);
     m->scope = 0;
     if (self == m)
         self = 0;
+}
+
+void pi_models_relay(pi_models *m)
+{
+    if (m->models_json)
+        llm_reg_overlay(&m->reg, m->models_json, m->models_json_n);
 }
 
 void pi_models_attach(pi_models *m, pi_session *s, struct pi_store *st)

@@ -21,6 +21,9 @@ typedef struct pi_models {
     long (*getenv)(const char *name, char *out, long cap);
     char *auth;                 /* auth.json text, owned */
     char warn[320];             /* what was wrong with models.json, "" nothing */
+    char agent_dir[300];        /* the agent directory (models-store.json, auth.json) */
+    char *models_json;          /* models.json's text (owned), 0 none: laid over the registry again when a Radius catalog is replaced */
+    long models_json_n;
     struct pi_store *store;     /* the session file the switches are recorded in, 0 none */
     char *scope;                /* settings.json enabledModels, the patterns one to a line (owned), 0 none: Ctrl+P cycles those */
     int default_level;          /* settings.json defaultThinkingLevel (LT_*), -1 none: a switch applies it (pi's getDefaultThinkingLevel) */
@@ -34,6 +37,8 @@ long pi_cfg_run(cl_sys *sys, const char *cmd, char *out, long cap);
  * a bad models.json is only a warning (m->warn): the catalog stays as it was */
 int pi_models_init(pi_models *m, cl_sys *sys, const char *agent_dir, long (*getenv)(const char *, char *, long));
 void pi_models_free(pi_models *m);
+/* models.json laid over the registry again (a catalog replaced the models of a provider underneath it) */
+void pi_models_relay(pi_models *m);
 /* the session takes the registry's credentials; the thinking level is clamped to s->model */
 void pi_models_attach(pi_models *m, pi_session *s, struct pi_store *st);
 
