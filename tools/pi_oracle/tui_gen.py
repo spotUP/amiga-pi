@@ -346,6 +346,12 @@ SCENARIOS = {
     # the kills join one ring entry), Ctrl+Y, Alt+B, a typed x, Ctrl+A, Alt+F, a typed y, Alt+Delete
     'edit_words': dict(steps=[('type', 'ab.cd ef.gh'), ('key', 'C-w'), ('key', 'C-w'), ('key', 'C-y'), ('key', 'M-b'), ('type', 'x'), ('key', 'C-a'),
                               ('key', 'M-f'), ('type', 'y'), ('key', 'M-DC'), ('sleep', 0.5)], answers=[]),
+    # Q3-26: the editor works per logical line (editor.ts moveWordBackwards 1973, moveWordForwards 2168, deleteWordBackwards 1692, deleteWordForward 1737):
+    # three lines (Ctrl+J), Ctrl+A, Alt+B at column 0 (the previous line's end), x, Alt+F at a line's end (the next line's start), y, Ctrl+A, Ctrl+W at column 0
+    # (joins the lines), Up, Ctrl+E, Alt+D at a line's end (joins), Ctrl+J, Alt+Backspace at column 0 (joins)
+    'edit_word_lines': dict(steps=[('type', 'ab cd'), ('key', 'C-j'), ('type', 'ef.gh'), ('key', 'C-j'), ('type', 'ij'), ('key', 'C-a'), ('key', 'M-b'), ('type', 'x'),
+                                   ('key', 'M-f'), ('type', 'y'), ('key', 'C-a'), ('key', 'C-w'), ('key', 'Up'), ('key', 'C-e'), ('key', 'M-d'), ('key', 'C-j'),
+                                   ('key', 'M-BSpace'), ('sleep', 0.5)], answers=[]),
     'pad_editor': dict(steps=[('type', 'hello padded world')], answers=[], settings={'editorPaddingX': 2}),
     'pad_menu': dict(steps=[('type', '/')], answers=[], settings={'editorPaddingX': 3, 'autocompleteMaxVisible': 10}),
     'menu_max3': dict(steps=[('type', '/')], answers=[], settings={'autocompleteMaxVisible': 3}),
