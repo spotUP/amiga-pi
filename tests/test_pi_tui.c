@@ -1031,6 +1031,7 @@ static const char *app_config_cli;      /* the arguments after `config` for the 
 
 static int app_nokeys;              /* no provider key in the environment: the models of models.json are the only ones with a credential */
 static const char *app_model_cli;   /* --model for the next app_run, 0: anthropic/claude-opus-5-5 */
+static const char *app_or_key;      /* OPENROUTER_API_KEY for the next app_run, 0 unset */
 
 static long app_env(const char *name, char *o, long cap)
 {
@@ -1045,6 +1046,8 @@ static long app_env(const char *name, char *o, long cap)
         v = app_imgproto;
     else if (!strcmp(name, "HOME"))
         v = app_home;
+    else if (!strcmp(name, "OPENROUTER_API_KEY"))
+        v = app_or_key;
     if (!app_nokeys && !strcmp(name, "OPENAI_API_KEY"))
         v = "sk-test-openai";
     else if (!app_nokeys && !strcmp(name, "ANTHROPIC_API_KEY"))
@@ -1661,6 +1664,18 @@ static void skills_rest(void)
 
 /* one capture: settings, the keys, the golden compared. mr: pairs of golden rows (first, last) left out, ended by 0: the
  * editor border and the footer carry the capture's fake model, a block compared with a shift has the rows around it left out */
+static unsigned long refresh_c0;
+static int refresh_n0;
+
+/* from the first rest of the screen on the server accepts and never answers (the refresh test); the clock and the request count are read here */
+static void refresh_silent(void)
+{
+    ps.silent = 1;
+    app_or_key = "or-test-key";               /* the key comes with the silence: the start's refresh has none, no network */
+    refresh_c0 = ps.clock;
+    refresh_n0 = ps.nreq;
+}
+
 static void skills_case(const char *name, const char *settings, const char **keys, const char *const *sse, int nsse,
                         int session, int shift, const int *mr, int with_skills)
 {
@@ -1835,15 +1850,30 @@ static void test_selectors(void)
         rest_any = 0;
         rest_find = "navigate";
         CHECK(pi_model_cmd_refreshes == r0);
-        xm_row = 12;                /* the search box: pi's setValue leaves its cursor at the start, the picker's is at the end of the text */
-        xm_c0 = 2;
-        xm_c1 = 5;
-        xm_why = "the search input's cursor cell";
-        skills_case("model_arg_search", quiet, k_arg_s, 0, 0, 0, 0, m_foot, 0);
-        xm_row = 0;
+        skills_case("model_arg_search", quiet, k_arg_s, 0, 0, 0, 0, m_foot, 0);   /* the search box: pi's setValue leaves the cursor at the start (input.ts:66) */
         CHECK(pi_model_cmd_refreshes > r0);
         CHECK(app_out && strstr(app_out, "Refreshing model catalogs") != 0 && strstr(app_out, "Model Name") != 0 &&
               strstr(app_out, "Refreshing model catalogs") < strstr(app_out, "Model Name"));
+    }
+    {
+        /* /model <text> aborts a refresh that gets no answer (interactive-mode.ts:5229-5261, AbortSignal.timeout): the server accepts and never
+         * answers; the limit (shortened to 2 s) reaches the transport, so the request ends near it, not at the 30 s idle limit, the
+         * remaining catalogs are not tried and pi's warnings are shown (the command's, then the selector's own refresh, model-selector.ts:184-199) */
+        static const char *k_to[] = { "/model zzzz", "\033", "\r", "\004", 0 };
+        long limit0 = pi_model_refresh_limit_ms;
+        pi_model_refresh_limit_ms = 2000;
+        refresh_c0 = refresh_n0 = 0;
+        rest_any = rest_now = 1;                    /* the server goes silent once the command is typed, before Enter: not for the start's refresh */
+        rest_find = "/model zzzz";
+        CHECK_INT(app_run(80, 25, k_to, 0, 0, refresh_silent), 0);
+        rest_any = rest_now = 0;
+        rest_find = "navigate";
+        app_or_key = 0;
+        pi_model_refresh_limit_ms = limit0;
+        CHECK_INT(ps.nreq - refresh_n0, 2);                   /* one request for /model's refresh, one for the selector it opens; no catalog after the first is tried */
+        CHECK(ps.clock - refresh_c0 < 2UL * (2000UL + 500UL));   /* old: the idle limit of the transport, 30 s each */
+        CHECK(app_out && strstr(app_out, "Model refresh timed out; searching cached models.") != 0);
+        CHECK(app_out && strstr(app_out, "Model refresh timed out; showing cached models.") != 0);
     }
     {
         /* the scope: enabledModels shows the Scope line and the scoped list */

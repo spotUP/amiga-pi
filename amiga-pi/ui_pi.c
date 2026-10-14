@@ -1622,36 +1622,49 @@ static void lgp_filter(lgpick *k)
         k->pk.sel = k->pk.n ? k->pk.n - 1 : 0;
 }
 
-/* the search box of a selector (pi's Input): a character, backspace or a paste edits pk->query. 1 when the key was one of those */
+/* the search box of a selector (pi's Input): a character, backspace or a paste edits pk->query at its cursor (pk->qcur1: the byte offset
+ * + 1, 0 at the end). 1 when the key was one of those */
 static int qkey(tui_pick *pk, const cl_key *key)
 {
-    long ql = (long)strlen(pk->query);
+    long ql = (long)strlen(pk->query), cur = pk->qcur1 ? pk->qcur1 - 1 : ql, n = 0;
+    char ins[8];
+    if (cur > ql)
+        cur = ql;
     switch (key->k) {
     case K_BS:
-        if (ql) {
+        if (cur) {
+            long from = cur;
             do
-                ql--;
-            while (ql > 0 && ((unsigned char)pk->query[ql] & 0xc0) == 0x80);
-            pk->query[ql] = 0;
+                from--;
+            while (from > 0 && ((unsigned char)pk->query[from] & 0xc0) == 0x80);
+            memmove(pk->query + from, pk->query + cur, (size_t)(ql - cur + 1));
+            cur = from;
         }
-        return 1;
+        break;
     case K_CHAR:
         if (key->ch >= 0x20 && ql + 5 < (long)sizeof(pk->query)) {
-            ql += vw_put_utf8(pk->query + ql, key->ch);
-            pk->query[ql] = 0;
+            n = vw_put_utf8(ins, key->ch);
+            memmove(pk->query + cur + n, pk->query + cur, (size_t)(ql - cur + 1));
+            memcpy(pk->query + cur, ins, (size_t)n);
+            cur += n;
         }
-        return 1;
+        break;
     case K_PASTE: {
         long i;
-        for (i = 0; i < key->n && ql + 1 < (long)sizeof(pk->query); i++)
-            if ((unsigned char)key->text[i] >= 0x20)
-                pk->query[ql++] = key->text[i];
-        pk->query[ql] = 0;
-        return 1;
+        for (i = 0; i < key->n && ql + n + 1 < (long)sizeof(pk->query); i++)
+            if ((unsigned char)key->text[i] >= 0x20) {
+                memmove(pk->query + cur + 1, pk->query + cur, (size_t)(ql + n - cur + 1));
+                pk->query[cur++] = key->text[i];
+                n++;
+            }
+        break;
     }
     default:
         return 0;
     }
+    ql = (long)strlen(pk->query);
+    pk->qcur1 = cur >= ql ? 0 : (int)cur + 1;
+    return 1;
 }
 
 /* a row: the arrow and the name in the accent colour when selected, the type in muted, the status (formatAuthSelectorProviderStatus) */
@@ -2414,15 +2427,19 @@ static void model_selector(pi_ui *p, cl_tui *t, const char *search)
     pi_models *ms = st->models;
     char *set;
     long sn = 0;
-    int i, j, res, rank_n = 0;
+    int i, j, res, rank_n = 0, timed_out = 0;
     int rank[MS_MAX];
     char rerr[300];
     memset(&m, 0, sizeof(m));
     m.p = p;
     m.ms = ms;
     rerr[0] = 0;
-    if (p->s->auth_u)
+    if (p->s->auth_u) {
+        pi_auth_deadline((pi_auth *)p->s->auth_u, pi_model_refresh_limit_ms);   /* model-selector.ts:184-189: the same 15 s */
         pi_radius_refresh((pi_auth *)p->s->auth_u, 0, rerr, sizeof(rerr));
+        timed_out = pi_auth_timed_out((pi_auth *)p->s->auth_u);
+        pi_auth_deadline((pi_auth *)p->s->auth_u, 0);
+    }
     set = pi_store_read(ms->sys, ms->agent_dir, "settings.json", &sn);
     if (set) {
         char *dp = pi_jobj_str(set, sn, "defaultProvider"), *dm = pi_jobj_str(set, sn, "defaultModel");
@@ -2460,7 +2477,10 @@ static void model_selector(pi_ui *p, cl_tui *t, const char *search)
     }
     m.scoped = m.nsc > 0;
     cl_copy(m.pk.query, search ? search : "", sizeof(m.pk.query));
-    if (rerr[0]) {
+    m.pk.qcur1 = m.pk.query[0] ? 1 : 0;  /* Input.setValue leaves the cursor at the start (tui input.ts:66) */
+    if (timed_out) {
+        cl_copy(m.err, "Model refresh timed out; showing cached models.", sizeof(m.err));
+    } else if (rerr[0]) {
         cl_copy(m.err, "Could not refresh radius; showing cached models.", sizeof(m.err));
     } else
         cl_copy(m.refresh, "Model catalogs refreshed.", sizeof(m.refresh));
@@ -2516,11 +2536,12 @@ static int model_candidates(pi_models *ms, const llm_model **list, int cap, int 
 
 /* findExactModelMatch's refresh (interactive-mode.ts:5229-5261): every catalog once, each provider on its own so a failure names it; pi aborts at 15 s */
 long pi_model_cmd_refreshes;
+long pi_model_refresh_limit_ms = 15000;       /* pi's AbortSignal.timeout(15000); a test shortens it */
 
 static void model_refresh_all(pi_ui *p, pi_models *ms)
 {
     char names[400], e[300], line[500];
-    long t0 = ms->sys->now ? ms->sys->now(ms->sys->u) : -1, t1;
+    int timed_out;
     int i, nrad = ms->reg.nrad;
     char ids[LLM_RADIUS_MAX + 1][64];
     names[0] = 0;
@@ -2529,7 +2550,8 @@ static void model_refresh_all(pi_ui *p, pi_models *ms)
     cl_copy(ids[nrad], LLM_OPENROUTER, sizeof(ids[nrad]));
     pi_model_cmd_refreshes++;
     pshow_note(&p->ps, PR_DIM, "Refreshing model catalogs\342\200\246");
-    for (i = 0; i <= nrad; i++) {
+    pi_auth_deadline((pi_auth *)p->s->auth_u, pi_model_refresh_limit_ms);
+    for (i = 0; i <= nrad && !pi_auth_timed_out((pi_auth *)p->s->auth_u); i++) {
         e[0] = 0;
         pi_radius_refresh((pi_auth *)p->s->auth_u, ids[i], e, sizeof(e));
         if (e[0]) {
@@ -2538,8 +2560,9 @@ static void model_refresh_all(pi_ui *p, pi_models *ms)
             cl_cat(names, ids[i], sizeof(names));
         }
     }
-    t1 = ms->sys->now ? ms->sys->now(ms->sys->u) : -1;
-    if (t0 >= 0 && t1 - t0 >= 15)
+    timed_out = pi_auth_timed_out((pi_auth *)p->s->auth_u);
+    pi_auth_deadline((pi_auth *)p->s->auth_u, 0);
+    if (timed_out)
         pshow_note(&p->ps, PR_WARNING, "Warning: Model refresh timed out; searching cached models.");
     else if (names[0]) {
         cl_copy(line, "Warning: Could not refresh ", sizeof(line));
