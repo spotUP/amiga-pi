@@ -18,7 +18,12 @@
  * before models.json is laid over the registry. */
 void pi_radius_restore(pi_models *m);
 
-/* GET <gateway>/v1/config for the Radius providers that have a credential (only: that provider id), the catalog replaced and
+/* OpenRouter (P12-A10, pi 1.2.0 personalizeOpenRouterCatalog): the same refresh and the same store: GET <baseUrl>/models/user with the key
+ * narrows the shipped catalog to the chat models the key may use (limits and prices from the answer, read as a stream); 401/403/404 keep
+ * it; kept in models-store.json under "openrouter" and restored with no network by pi_radius_restore. pi_radius_refresh does it with the
+ * Radius ones (only 0 or "openrouter").
+ *
+ * GET <gateway>/v1/config for the Radius providers that have a credential (only: that provider id), the catalog replaced and
  * saved. Plain http gateways are skipped (a credential never goes over plain http). Returns how many catalogs were refreshed;
  * a failure is the words in err (the last one; "" none) and leaves the provider's models as they are. */
 int pi_radius_refresh(pi_auth *a, const char *only, char *err, long cap);

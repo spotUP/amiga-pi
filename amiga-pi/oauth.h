@@ -56,6 +56,10 @@ typedef struct oa_io {
     int (*known_model)(void *u, const char *provider, const char *id);
     const char *device_id;                  /* this installation's UUID (Sign in with ChatGPT needs one), 0 none */
     const char *agent_name;                 /* what the app is called to the provider ("pi"), 0: pi */
+    /* like http (GET or POST, no request body), but the body of a 2xx answer goes piece by piece to sink and is not kept: a
+     * list too long to hold (OpenRouter's /models/user). 0 with the status; -1 with the transport's words in err. 0 pointer: none */
+    int (*http_stream)(void *u, const char *method, const char *url, const char *hdrs, int *status,
+                       void (*sink)(void *su, const char *s, long n), void *su, char *err, long cap);
 } oa_io;
 
 typedef struct oa_provider {
