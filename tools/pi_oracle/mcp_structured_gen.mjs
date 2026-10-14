@@ -1,15 +1,15 @@
-// What pi 1.1.0's convertMcpResult returns beside the model content: details and structuredContent (the CallToolResult
+// What pi 1.2.0's convertMcpResult returns beside the model content: details and structuredContent (the CallToolResult
 // without _meta), for each result of tests/pi/mcp/results.json plus a result whose text is cut and saved. Written to
 // tests/pi/mcp/structured.expected, the file tests/test_pi_mcp.c compares mcp_result_ex against.
-//   node tools/pi_oracle/mcp_structured_gen.mjs      (PI_DIST: the pinned install, default vendor/pi-1.1.0 of this checkout or the main one)
+//   node tools/pi_oracle/mcp_structured_gen.mjs      (PI_DIST: the pinned install, default vendor/pi-1.2.0 of this checkout or the main one)
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
-const cands = [process.env.PI_DIST, join(root, "vendor/pi-1.1.0"), join(root, "../amiga-pi/vendor/pi-1.1.0")].filter(Boolean);
+const cands = [process.env.PI_DIST, join(root, "vendor/pi-1.2.0"), join(root, "../amiga-pi/vendor/pi-1.2.0")].filter(Boolean);
 const pin = cands.find((c) => existsSync(join(c, "node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/tools.js")));
-if (!pin) throw new Error("mcp_structured_gen: no pinned pi 1.1.0 (npm install --prefix vendor/pi-1.1.0 @earendil-works/pi-coding-agent@1.1.0)");
+if (!pin) throw new Error("mcp_structured_gen: no pinned pi 1.2.0 (npm install --prefix vendor/pi-1.2.0 @earendil-works/pi-coding-agent@1.2.0)");
 const T = await import(pathToFileURL(join(pin, "node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/tools.js")).href);
 const dir = join(root, "tests", "pi", "mcp");
 // results.json, then numbers.json: results with numbers as JS prints them (1.0 -> 1, 1e21, 1e-7, -0 -> 0, past the range -> null)

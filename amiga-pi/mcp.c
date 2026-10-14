@@ -1913,13 +1913,7 @@ int mcp_result_ex(mcp *m, const char *server, const char *tool, const char *id, 
         *is_error = 1;
         return -1;
     }
-    if (json_get(v, "structuredContent", &sc) && json_type(sc) != J_OBJ) {
-        jw_rawz(out, "[");
-        llm_b_text(out, "Invalid MCP tools/call structured content", 41, 0);
-        jw_rawz(out, "]");
-        *is_error = 1;
-        return -1;
-    }
+    /* MCP 2026-07-28 (pi 1.2.0 protocol/content.ts): structuredContent is any JSON value, not only an object */
     memset(&c, 0, sizeof(c));
     jw_init(&c.blocks);
     jw_init(&c.texts);
