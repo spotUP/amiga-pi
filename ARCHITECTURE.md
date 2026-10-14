@@ -7,7 +7,7 @@ Plan: `~/Code/vtcon/thoughts/shared/plans/2026-10-07-amiga-pi.md` (phase A). Res
 | Id | Decision | Source |
 |---|---|---|
 | D1 | amiga-pi lives in its own LOCAL repo `~/Code/amiga-pi` (no remote, no push). | owner, this task |
-| D2 | It shares C:Claude's core and `llm/` by REFERENCE: sources are compiled in place from `$(VTCON_DIR)` (default `$(UPTERM_ROOT)/vtcon`, `UPTERM_ROOT` default `~/Code`), never copied (plan B5 reuse rule). | owner |
+| D2 | It shares C:Claude's core and `llm/` by REFERENCE: sources are compiled in place from `$(VTCON_DIR)` (default `$(UPTERM_ROOT)/vtcon`, `UPTERM_ROOT` default the parent of this checkout), never copied (plan B5 reuse rule). | owner |
 | D3 | The shell tool is named `bash` and runs `vsh -c` (the kit's bash-level shell); AmigaDOS Shell only as fallback when vsh is absent, and the model is told which. | owner, round 2 item 5 |
 | D4 | Extension language: Lua 5.4. The owner chose Lua on 2026-10-07 evening ("Lua now"), overriding the native-modules call from A5's criterion 1 (the 5-warning limit was a guess). The Amiga run of the probe is a check, not a gate (Extensions below). | owner 2026-10-07 evening, again 2026-10-10 |
 | D5 | Stored format: pi message model and JSONL session v3; local timestamps without offset (E9). | plan, round 2 item 1 |

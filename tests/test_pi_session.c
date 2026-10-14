@@ -1125,23 +1125,23 @@ static void test_names(void)
     const char *name;
     llm_ts t;
     /* pi's directory: "--" + the cwd without its leading separator, / \ : as -, "--" */
-    CHECK_INT(s3_dir("UP-Term:var/amiga-pi", "/Users/spot/Code/vtcon", d1, sizeof(d1)), 0);
-    CHECK_STR(d1, "UP-Term:var/amiga-pi/sessions/--Users-spot-Code-vtcon--");
+    CHECK_INT(s3_dir("UP-Term:var/amiga-pi", "/work/vtcon", d1, sizeof(d1)), 0);
+    CHECK_STR(d1, "UP-Term:var/amiga-pi/sessions/--work-vtcon--");
     CHECK_INT(s3_dir("UP-Term:var/amiga-pi", "Work:Projects/amiga-pi", d1, sizeof(d1)), 0);
     CHECK_STR(d1, "UP-Term:var/amiga-pi/sessions/--Work-Projects-amiga-pi--");
     /* a long one is cut to 30 characters by C:Claude's rule, two long ones differ */
-    CHECK_INT(s3_dir("D", "/Users/spot/Code/vtcon/some/very/long/path/to/a/project", d1, sizeof(d1)), 0);
-    CHECK_INT(s3_dir("D", "/Users/spot/Code/vtcon/some/very/long/path/to/another/project", d2, sizeof(d2)), 0);
-    CHECK_INT(s3_dir("D", "/Users/spot/Code/vtcon/some/very/long/path/to/a/project", d3, sizeof(d3)), 0);
+    CHECK_INT(s3_dir("D", "/work/vtcon/some/very/long/path/to/a/project", d1, sizeof(d1)), 0);
+    CHECK_INT(s3_dir("D", "/work/vtcon/some/very/long/path/to/another/project", d2, sizeof(d2)), 0);
+    CHECK_INT(s3_dir("D", "/work/vtcon/some/very/long/path/to/a/project", d3, sizeof(d3)), 0);
     CHECK_INT((int)strlen(d1) - (int)strlen("D/sessions/"), 30);
     CHECK_INT((int)strlen(d2) - (int)strlen("D/sessions/"), 30);
     CHECK(strcmp(d1, d2) != 0);
     CHECK_STR(d1, d3);
     /* the file: <YYYYMMDDTHHMMSS>_<8 hex>.jsonl is 30 characters and every name created is at most 30 */
     path_of(base, root, "names");
-    CHECK_INT(s3_dir(base, "/Users/spot/Code/vtcon/some/very/long/path/to/a/project", dir, sizeof(dir)), 0);
+    CHECK_INT(s3_dir(base, "/work/vtcon/some/very/long/path/to/a/project", dir, sizeof(dir)), 0);
     s3_init(&st, &sys, tick, 0, 1, 11);
-    CHECK_INT(s3_new(&st, dir, "/Users/spot/Code/vtcon/some/very/long/path/to/a/project", 0, 0, 1), 0);
+    CHECK_INT(s3_new(&st, dir, "/work/vtcon/some/very/long/path/to/a/project", 0, 0, 1), 0);
     CHECK_INT(s3_message(&st, USER_MSG, (long)strlen(USER_MSG)), 0);
     name = strrchr(st.file, '/') + 1;
     CHECK_INT((int)strlen(name), 30);

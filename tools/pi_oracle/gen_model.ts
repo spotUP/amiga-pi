@@ -6,7 +6,7 @@
 //
 //   PI_SRC=<dir with the fetched pi files> node tools/pi_oracle/gen_model.ts
 //
-// PI_SRC defaults to ~/Code/amiga-pi/build/pi-oracle/f (build/pi-oracle/fetch2.py fetches them).
+// PI_SRC defaults to build/pi-oracle/f (build/pi-oracle/fetch2.py fetches them).
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -14,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(here, "..", "..", "tests", "pi", "model");
-const src = process.env.PI_SRC ?? join(process.env.HOME!, "Code/amiga-pi/build/pi-oracle/f");
+const src = process.env.PI_SRC ?? join(here, "../../build/pi-oracle/f");
 const tmp = mkdtempSync(join(tmpdir(), "pimodel."));
 mkdirSync(out, { recursive: true });
 

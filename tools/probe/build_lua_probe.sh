@@ -1,9 +1,9 @@
 #!/bin/bash
-# A5: build Lua 5.4 + luaprobe + hello with vbcc, reusing ~/Code/vtcon's vbcc setup
+# A5: build Lua 5.4 + luaprobe + hello with vbcc, reusing vtcon's vbcc setup
 # (tools/vbcc-aos68k.cfg.in; VBCC_PREFIX). Usage: tools/probe/build_lua_probe.sh [extra vc flags]
 set -u
 HERE=$(cd "$(dirname "$0")/../.." && pwd)
-VTCON=${VTCON_DIR:-$HOME/Code/vtcon}
+VTCON=${VTCON_DIR:-${UPTERM_ROOT:-$(dirname "$HERE")}/vtcon}
 VBCC_PREFIX=${VBCC_PREFIX:-$(brew --prefix vbcc 2>/dev/null || echo /opt/homebrew/opt/vbcc)}
 export VBCC=$VBCC_PREFIX
 B=$HERE/build; mkdir -p "$B/amiga/obj"
