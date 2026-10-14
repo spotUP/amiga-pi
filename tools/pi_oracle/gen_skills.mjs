@@ -1,5 +1,5 @@
-// gen_skills.mjs -- the expected outputs of tests/test_pi_skills.c (plan phase I), produced by pi 1.1.0's own code: the pinned install
-// vendor/pi-1.1.0 (or PI_PKG=<node_modules/@earendil-works/pi-coding-agent>), never the pi on the PATH. What runs is pi's
+// gen_skills.mjs -- the expected outputs of tests/test_pi_skills.c (plan phase I), produced by pi 1.2.0's own code: the pinned install
+// vendor/pi-1.2.0 (or PI_PKG=<node_modules/@earendil-works/pi-coding-agent>), never the pi on the PATH. What runs is pi's
 // DefaultResourceLoader (core/resource-loader.ts, core/package-manager.ts: the order and the places skills are found in, settings.json "skills"),
 // loadSkills (core/skills.ts: the validation and its messages), buildSystemPromptSections (the "skills" section) and
 // AgentSession._expandSkillCommand (core/agent-session.ts: /skill:name args).
@@ -21,13 +21,13 @@ function findPkg() {
 	if (process.env.PI_PKG) return process.env.PI_PKG;
 	for (const up of ["../..", "../../../.."]) {
 		// this checkout, then the main one when this is build/wt-<name>
-		const p = resolve(here, up, "vendor", "pi-1.1.0", "node_modules", "@earendil-works", "pi-coding-agent");
+		const p = resolve(here, up, "vendor", "pi-1.2.0", "node_modules", "@earendil-works", "pi-coding-agent");
 		try {
 			realpathSync(p);
 			return p;
 		} catch {}
 	}
-	throw new Error("gen_skills: no pinned pi: npm install --prefix vendor/pi-1.1.0 @earendil-works/pi-coding-agent@1.1.0, or set PI_PKG");
+	throw new Error("gen_skills: no pinned pi: npm install --prefix vendor/pi-1.2.0 @earendil-works/pi-coding-agent@1.2.0, or set PI_PKG");
 }
 process.env.PI_OFFLINE = "1"; // a package source npm:/git: is not fetched: pi skips it
 const pkg = findPkg();
@@ -36,7 +36,7 @@ const { buildSystemPromptSections } = await import(pathToFileURL(join(pkg, "dist
 const { AgentSession } = await import(pathToFileURL(join(pkg, "dist", "core", "agent-session.js")).href);
 const { resolvePath: piResolvePath } = await import(pathToFileURL(join(pkg, "dist", "utils", "paths.js")).href);
 const version = JSON.parse((await import("node:fs")).readFileSync(join(pkg, "package.json"), "utf-8")).version;
-if (version !== "1.1.0") throw new Error(`gen_skills: pi ${version}, not 1.1.0`);
+if (version !== "1.2.0") throw new Error(`gen_skills: pi ${version}, not 1.2.0`);
 
 const sk = (name, desc, extra = "") =>
 	`---\n${name === null ? "" : `name: ${name}\n`}${desc === null ? "" : `description: ${desc}\n`}${extra}---\nBody of ${name ?? "the skill"}.\n\nSecond paragraph.\n`;
@@ -294,6 +294,19 @@ L.tilde = {
 		"home/cli-skills/c1/SKILL.md": sk("c1", "From --skill ~/cli-skills/c1"),
 		"home/cli-skills/c2/SKILL.md": sk("c2", "From a trimmed --skill"),
 		"home/top/SKILL.md": sk("top", "Found because ~ itself is an entry"),
+	},
+	expand: [],
+	tools: [["read"]],
+};
+L.tilde_overrides = {
+	// P12-B7 (pi 1.2.0, #10765): `~` in a !pattern, +path or -path entry of settings.json is the home directory (package-manager.ts normalizePath)
+	cwd: "w/proj",
+	trusted: true,
+	files: {
+		"agent/settings.json": JSON.stringify({ skills: ["~/skills", "!~/skills/pdf", "-~/skills/zip", "+~/skills/zip"] }),
+		"home/skills/pdf/SKILL.md": sk("pdf", "Switched off by !~/skills/pdf"),
+		"home/skills/zip/SKILL.md": sk("zip", "Off by -~/skills/zip, which +~/skills/zip does not undo (the last one wins)"),
+		"home/skills/keep/SKILL.md": sk("keep", "Stays"),
 	},
 	expand: [],
 	tools: [["read"]],

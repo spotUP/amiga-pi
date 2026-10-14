@@ -549,8 +549,17 @@ static int rel_to(const char *base, const char *path, char *rel, long cap)
     return 0;
 }
 
+/* package-manager.ts normalizePath (pi 1.2.0, #10765) on an entry of !pattern, +path, -path or a manifest pattern: `~`, `~/x` from the
+ * home directory and file:// as a path, anything else (a glob, a relative path) as written */
+static const char *norm_pat(const pm_opts *o, const char *p, char *buf, long cap)
+{
+    if (((p[0] == '~' && (!p[1] || p[1] == '/')) || !strncmp(p, "file://", 7)) && !pm_path(o, p, "", 0, buf, cap))
+        return buf;
+    return p;
+}
+
 /* matchesAnyPattern / matchesAnyExactPattern for one file: the entries of pats (without their first character) */
-static int matches_any(const char *file, const char *base, char *const *pats, int n, int exact)
+static int matches_any(const pm_opts *o, const char *file, const char *base, char *const *pats, int n, int exact)
 {
     char rel[PM_P], parent[PM_P], prel[PM_P];
     const char *name = base_name(file);
@@ -562,7 +571,8 @@ static int matches_any(const char *file, const char *base, char *const *pats, in
         rel_to(base, parent, prel, sizeof(prel));
     }
     for (i = 0; i < n; i++) {
-        const char *p = pats[i];
+        char nb[PM_P];
+        const char *p = norm_pat(o, pats[i], nb, sizeof(nb));
         if (exact) {
             if (p[0] == '.' && p[1] == '/')
                 p += 2;                 /* normalizeExactPattern */
@@ -592,7 +602,7 @@ static void pick(char *const *pats, int n, int c, int cut, sl *out)
 }
 
 /* isEnabledByOverrides(file, entries, base): !x switches off, +x on again, -x off for good; the other entries are not read */
-static int enabled_by_overrides(const char *file, const char *base, char *const *entries, int n)
+static int enabled_by_overrides(const pm_opts *o, const char *file, const char *base, char *const *entries, int n)
 {
     sl ex, in, out;
     int en = 1;
@@ -602,11 +612,11 @@ static int enabled_by_overrides(const char *file, const char *base, char *const 
     pick(entries, n, '!', 1, &ex);
     pick(entries, n, '+', 1, &in);
     pick(entries, n, '-', 1, &out);
-    if (ex.n && matches_any(file, base, ex.v, ex.n, 0))
+    if (ex.n && matches_any(o, file, base, ex.v, ex.n, 0))
         en = 0;
-    if (in.n && matches_any(file, base, in.v, in.n, 1))
+    if (in.n && matches_any(o, file, base, in.v, in.n, 1))
         en = 1;
-    if (out.n && matches_any(file, base, out.v, out.n, 1))
+    if (out.n && matches_any(o, file, base, out.v, out.n, 1))
         en = 0;
     sl_free(&ex);
     sl_free(&in);
@@ -615,7 +625,7 @@ static int enabled_by_overrides(const char *file, const char *base, char *const 
 }
 
 /* applyPatterns for one file: includes (plain entries) must match, !x excludes, +x brings back, -x removes */
-static int enabled_by_patterns(const char *file, const char *base, char *const *entries, int n)
+static int enabled_by_patterns(const pm_opts *o, const char *file, const char *base, char *const *entries, int n)
 {
     sl inc, ex, in, out;
     int en = 1;
@@ -627,13 +637,13 @@ static int enabled_by_patterns(const char *file, const char *base, char *const *
     pick(entries, n, '!', 1, &ex);
     pick(entries, n, '+', 1, &in);
     pick(entries, n, '-', 1, &out);
-    if (inc.n && !matches_any(file, base, inc.v, inc.n, 0))
+    if (inc.n && !matches_any(o, file, base, inc.v, inc.n, 0))
         en = 0;
-    if (ex.n && matches_any(file, base, ex.v, ex.n, 0))
+    if (ex.n && matches_any(o, file, base, ex.v, ex.n, 0))
         en = 0;
-    if (in.n && matches_any(file, base, in.v, in.n, 1))
+    if (in.n && matches_any(o, file, base, in.v, in.n, 1))
         en = 1;
-    if (out.n && matches_any(file, base, out.v, out.n, 1))
+    if (out.n && matches_any(o, file, base, out.v, out.n, 1))
         en = 0;
     sl_free(&inc);
     sl_free(&ex);
@@ -768,7 +778,7 @@ static int resolve_local_entries(pm_ctx *c, const sl *entries, int scope, const 
             if (is_pattern(entries->v[i]))
                 sl_add(&pats, entries->v[i]);
         for (i = 0; i < files.n && rc == 0; i++)
-            rc = pm_add(c, files.v[i], enabled_by_patterns(files.v[i], base, pats.v, pats.n) ? 1 : 0, scope, PMK_LOCAL, "", "");
+            rc = pm_add(c, files.v[i], enabled_by_patterns(c->o, files.v[i], base, pats.v, pats.n) ? 1 : 0, scope, PMK_LOCAL, "", "");
         sl_free(&pats);
     }
     sl_free(&files);
@@ -907,11 +917,11 @@ static int manifest_files(pm_ctx *c, const sl *entries, const char *root, sl *fi
 }
 
 /* the files that pass a list of patterns (applyPatterns), in the order of files */
-static int apply_patterns(const sl *files, const sl *pats, const char *base, sl *out)
+static int apply_patterns(const pm_opts *o, const sl *files, const sl *pats, const char *base, sl *out)
 {
     int i, rc = 0;
     for (i = 0; i < files->n && rc == 0; i++)
-        if (enabled_by_patterns(files->v[i], base, pats->v, pats->n))
+        if (enabled_by_patterns(o, files->v[i], base, pats->v, pats->n))
             rc = sl_add(out, files->v[i]);
     return rc;
 }
@@ -932,7 +942,7 @@ static int manifest_all_files(pm_ctx *c, const char *root, const manifest *m, sl
                 sl_add(&pats, m->e[t].v[i]);
         if (rc == 0) {
             if (pats.n)
-                rc = apply_patterns(&files, &pats, root, all);
+                rc = apply_patterns(c->o, &files, &pats, root, all);
             else
                 for (i = 0; i < files.n && rc == 0; i++)
                     rc = sl_add(all, files.v[i]);
@@ -963,7 +973,7 @@ static int add_default(pm_ctx *c, const char *root, const manifest *m, int scope
             if (is_override(m->e[t].v[i]))
                 sl_add(&pats, m->e[t].v[i]);
         if (rc == 0)
-            rc = apply_patterns(&files, &pats, root, &enabled);
+            rc = apply_patterns(c->o, &files, &pats, root, &enabled);
         for (i = 0; i < files.n && rc == 0; i++) {
             int j, on = 0;
             for (j = 0; j < enabled.n; j++)
@@ -1008,7 +1018,7 @@ static void delta_filter(pm_ctx *c, const sl *all, const sl *pats, const char *r
         char *arr[1];
         arr[0] = (char *)(pat + (is_override(pat) ? 1 : 0));
         for (i = 0; i < all->n; i++)
-            if (matches_any(all->v[i], root, arr, 1, exact)) {
+            if (matches_any(c->o, all->v[i], root, arr, 1, exact)) {
                 if (!val[i])
                     order[norder++] = i;
                 val[i] = en ? 1 : 2;      /* 1 on, 2 off */
@@ -1045,7 +1055,7 @@ static int pkg_resources(pm_ctx *c, const char *root, const pm_pkg *filter, int 
             memset(&on, 0, sizeof(on));
             rc = manifest_all_files(c, root, &m, &all);
             if (rc == 0 && pats->n)
-                rc = apply_patterns(&all, pats, root, &on);
+                rc = apply_patterns(c->o, &all, pats, root, &on);
             for (i = 0; i < all.n && rc == 0; i++) {
                 int j, en = 0;
                 for (j = 0; j < on.n; j++)
@@ -1238,7 +1248,7 @@ static int add_autos(pm_ctx *c, const sl *files, const pm_set *set, int type_ix,
 {
     int i, rc = 0;
     for (i = 0; i < files->n && rc == 0; i++)
-        rc = pm_add(c, files->v[i], enabled_by_overrides(files->v[i], base, set->entries[type_ix].v, set->entries[type_ix].n),
+        rc = pm_add(c, files->v[i], enabled_by_overrides(c->o, files->v[i], base, set->entries[type_ix].v, set->entries[type_ix].n),
                     scope, PMK_AUTO, base, "");
     return rc;
 }
