@@ -2495,6 +2495,35 @@ static void test_themes(void)
         CHECK_INT(pitheme_load(&th, nov, (long)strlen(nov), pi_okcolor, err, sizeof(err)), -1);
         CHECK(strstr(err, "Variable reference not found: nothere") != 0);
     }
+    /* P12-B6: theme-schema.ts of pi 1.2.0 (tests/pi/tui/theme_errors.json is its own run): unknown keys in the root, colors and
+     * export objects, appearance and the name are refused with its messages; $schema and appearance are accepted */
+    {
+        jv all, c, th_v, er_v;
+        jit it;
+        jv key;
+        char *gj = slurp("theme_errors.json", &n), want[3000], name[40];
+        CHECK(gj != 0);
+        if (gj && !json_parse(gj, n, &all)) {
+            json_iter(all, &it);
+            while (json_next(&it, &key, &c)) {
+                int rc;
+                json_str(key, name, sizeof(name));
+                CHECK(json_get(c, "theme", &th_v) && json_get(c, "error", &er_v));
+                json_str(er_v, want, sizeof(want));
+                err[0] = 0;
+                rc = pitheme_load(&th, th_v.p, th_v.n, pi_okcolor, err, sizeof(err));
+                if (want[0]) {
+                    CHECK_INT(rc, -1);
+                    if (strcmp(err, want))
+                        printf("  theme %s:\n  want %s\n  got  %s\n", name, want, err);
+                    CHECK_STR(err, want);
+                } else
+                    CHECK_INT(rc, 0);
+            }
+        } else
+            CHECK(0);
+        free(gj);
+    }
 }
 
 static int rule_fg;
