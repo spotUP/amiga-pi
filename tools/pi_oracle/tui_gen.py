@@ -231,9 +231,9 @@ SCENARIOS = {
                          settings={'enabledModels': ['fake/fake-model', 'fake/fake-large']}),
     'model_select': dict(steps=[('type', '/model'), ('enter',), ('wait', 'Model Name'), ('key', 'Down'), ('enter',), ('wait', 'Model: ')], answers=[],
                          models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama=True),
-    'model_arg': dict(steps=[('type', '/model small'), ('enter',), ('wait', 'Model: ')], answers=[],
+    'model_arg': dict(steps=[('type', '/model fake-small'), ('key', 'Escape'), ('enter',), ('wait', 'Model: ')], answers=[],
                       models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
-    'model_arg_search': dict(steps=[('type', '/model fak'), ('enter',), ('wait', 'Model Name')], answers=[],
+    'model_arg_search': dict(steps=[('type', '/model fak'), ('key', 'Escape'), ('enter',), ('wait', 'Model Name'), ('sleep', 0.5)], answers=[],
                              models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
     # P12-B11: /scoped-models, scoped-models-selector.ts (all enabled, a scope, a toggle, a save to settings.json, a search, a reorder, "clear all")
     'scoped_selector': dict(steps=[('type', '/scoped-models'), ('enter',), ('wait', 'Model Configuration'), ('sleep', 1.0)], answers=[],
