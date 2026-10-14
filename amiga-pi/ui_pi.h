@@ -73,5 +73,6 @@ int pi_ui_print(pi_session *s, cl_io *io, const char *prompt);
 int pi_ui_run(pi_session *s, cl_io *io, const char *first);
 /* the reachability tests' sentinel: /model <text> refreshes of every catalog (findExactModelMatch) so far */
 extern long pi_model_cmd_refreshes;
+extern long pi_model_refresh_limit_ms;
 
 #endif

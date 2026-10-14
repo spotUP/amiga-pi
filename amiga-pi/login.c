@@ -103,7 +103,29 @@ static int a_cancelled(void *u)
         a->cancel = 1;
     if (!a->cancel && a->ui && a->ui->cancelled && a->ui->cancelled(a->ui->u))
         a->cancel = 1;
+    if (!a->cancel && a->deadline_on && a->s && a->s->h.ms && (long)(a->s->h.ms(a->s->h.u) - a->deadline_ms) >= 0) {
+        a->timed_out = 1;
+        a->cancel = 1;
+    }
     return a->cancel;
+}
+
+void pi_auth_deadline(pi_auth *a, long limit_ms)
+{
+    if (limit_ms > 0 && a->s && a->s->h.ms) {
+        a->deadline_ms = a->s->h.ms(a->s->h.u) + (unsigned long)limit_ms;
+        a->deadline_on = 1;
+        a->timed_out = 0;
+        return;
+    }
+    if (a->timed_out)
+        a->cancel = 0;                       /* the stop was the limit's, not Ctrl+C: later exchanges run */
+    a->deadline_on = 0;
+}
+
+int pi_auth_timed_out(const pi_auth *a)
+{
+    return a->timed_out;
 }
 
 /* waits ms in slices that watch for Ctrl+C: 1 when it was pressed */

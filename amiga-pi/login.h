@@ -78,6 +78,8 @@ typedef struct pi_auth {
     const pi_login_ui *ui;      /* while a login runs */
     const char *login_desc;     /* the text under the title of the login's own selectors (Radius' intro), 0 none */
     int cancel;                 /* Ctrl+C was pressed during the login */
+    int deadline_on, timed_out; /* pi_auth_deadline: an exchange running at deadline_ms (the session's ms clock) is stopped like Ctrl+C is; timed_out says it was */
+    unsigned long deadline_ms;
     char device_id[40];
 } pi_auth;
 
@@ -93,6 +95,11 @@ void pi_auth_init(pi_auth *a, pi_models *m, pi_session *s, cl_sys *sys, const ch
 /* the exchange hooks of a flow bound to this auth (the network through the session's pool, its clock and sleeping, the
  * random source); the caller sets info, prompt and select. For oauth.h's flows when they are driven without the dialog */
 void pi_auth_io(pi_auth *a, oa_io *io);
+/* the exchanges of a (a Radius or OpenRouter refresh included) stop when the session's ms clock has run limit_ms (pi's AbortSignal.timeout):
+ * the one in flight is cut off the way Ctrl+C cuts it (the poll the transport waits in), a_cancelled stays set until the limit is lifted.
+ * limit_ms 0 lifts it (and the stop with it). pi_auth_timed_out: 1 when the limit stopped something since it was set */
+void pi_auth_deadline(pi_auth *a, long limit_ms);
+int pi_auth_timed_out(const pi_auth *a);
 
 /* pi_session.auth_hook: the credential of s->model's provider ready for a request. force: renew it whatever its expiry
  * (the API refused it). 0, or -1 with pi's message in err ("OAuth refresh failed for meta: Meta session expired ...") */
