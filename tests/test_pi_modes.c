@@ -1745,7 +1745,7 @@ static void test_thinking_warning(void)
     ro.more_argv[0] = "bad";
     ro.more_argv[1] = "-v";
     scenario("json_text", &ro);
-    CHECK(ro.out && !strcmp(ro.out, "1.1.0\n"));
+    CHECK(ro.out && !strcmp(ro.out, "1.2.0\n"));
     CHECK_STR(diag_log, w1);
     CHECK_INT(ro.rc, 0);
     free(ro.out);
@@ -1765,7 +1765,7 @@ static void test_version_flag(void)
         ro.diag = 1;
         ro.more_args = flag[i];
         scenario("json_text", &ro);
-        CHECK(ro.out && !strcmp(ro.out, "1.1.0\n"));
+        CHECK(ro.out && !strcmp(ro.out, "1.2.0\n"));
         CHECK_INT(ro.rc, 0);
         CHECK(diag_log[0] == 0);
         free(ro.out);
