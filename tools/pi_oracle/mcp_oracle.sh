@@ -3,7 +3,7 @@
 # writing the expected outputs of tests/test_pi_mcp.c into tests/pi/mcp/*.expected.
 #
 #   tools/pi_oracle/mcp_oracle.sh            (PI_ORACLE: the oracle tree, default
-#                                             ~/Code/amiga-pi/build/pi-oracle/oracle)
+#                                             build/pi-oracle/oracle)
 #
 # It fetches, once, into $PI_ORACLE/mcp/: extensions/mcp/tools.ts,
 # extensions/tool-search/tool.ts, core/mcp-servers.ts, core/tools/truncate.ts,
@@ -14,7 +14,7 @@
 set -e
 cd "$(dirname "$0")/../.."
 PI=f10993bc7f28145df1375f3ff39c7f5c4cfc05f0
-O=${PI_ORACLE:-$HOME/Code/amiga-pi/build/pi-oracle/oracle}/mcp
+O=${PI_ORACLE:-$PWD/build/pi-oracle/oracle}/mcp
 RAW=https://raw.githubusercontent.com/earendil-works/pi/$PI/packages
 mkdir -p "$O"
 get() { [ -f "$O/$2" ] || curl -sf "$RAW/$1" -o "$O/$2"; }

@@ -4,7 +4,7 @@ SYSTEM.md / APPEND_SYSTEM.md and project-trust code, so tools/pi_oracle/gen_reso
 run it. Functions are cut out of pi's files by name (never retyped); only imports are
 rewritten to the oracle's stubs.
 
-  mkoracle_g.py [oracle dir]     (default ~/Code/amiga-pi/build/pi-oracle/oracle)
+  mkoracle_g.py [oracle dir]     (default build/pi-oracle/oracle)
 
 Fetches (once, into <oracle dir>/../g/) from pi f10993bc:
   core/system-prompt.ts   buildSystemPromptSections, renderProjectContext (as they are)
@@ -19,7 +19,7 @@ docs paths); skills.ts formatSkillsForPrompt (no skills until phase I)."""
 import os, re, sys, urllib.request
 
 PI = "f10993bc7f28145df1375f3ff39c7f5c4cfc05f0"
-oracle = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Code/amiga-pi/build/pi-oracle/oracle")
+oracle = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "pi-oracle", "oracle")
 cache = os.path.join(os.path.dirname(os.path.abspath(oracle)), "g")
 os.makedirs(cache, exist_ok=True)
 

@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const sessions = resolve(here, "..", "..", "tests", "pi", "sessions");
-const oracle = process.env.PI_ORACLE ?? join(process.env.HOME!, "Code/amiga-pi/build/pi-oracle/oracle");
+const oracle = process.env.PI_ORACLE ?? join(here, "../../build/pi-oracle/oracle");
 const { SessionManager } = await import(pathToFileURL(join(oracle, "core/session-manager.ts")).href);
 const { convertToLlm } = await import(pathToFileURL(join(oracle, "core/messages.ts")).href);
 const { getCurrentSystemMessage } = await import(pathToFileURL(join(oracle, "ai/transcript.ts")).href);

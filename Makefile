@@ -1,5 +1,5 @@
 # amiga-pi. C:Claude's core and llm/ are read IN PLACE from VTCON_DIR (never copied; D2, D9).
-UPTERM_ROOT ?= $(abspath ..)
+UPTERM_ROOT ?= $(abspath $(CURDIR)/..)
 VTCON_DIR ?= $(UPTERM_ROOT)/vtcon
 
 # vtcon's source lists (sources.mk), every path below VTCON_DIR

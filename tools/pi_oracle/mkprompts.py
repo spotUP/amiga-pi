@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Writes amiga-pi/cp_prompts.[ch]: pi's summarization prompts (pi f10993bc core/compaction/ (compaction, utils, branch-summarization)) as C strings,
 cut out of the template literals byte for byte so no one retypes them.
-  mkprompts.py <oracle dir>   (default ~/Code/amiga-pi/build/pi-oracle/oracle)"""
+  mkprompts.py <oracle dir>   (default build/pi-oracle/oracle)"""
 import os, re, sys
-root = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Code/amiga-pi/build/pi-oracle/oracle")
+root = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "build", "pi-oracle", "oracle")
 want = [("compaction.ts", "SUMMARIZATION_PROMPT"), ("compaction.ts", "UPDATE_SUMMARIZATION_INSTRUCTIONS"),
         ("compaction.ts", "TURN_PREFIX_SUMMARIZATION_PROMPT"), ("utils.ts", "SUMMARIZATION_SYSTEM_PROMPT"),
         ("branch-summarization.ts", "BRANCH_SUMMARY_PREAMBLE"), ("branch-summarization.ts", "BRANCH_SUMMARY_PROMPT")]

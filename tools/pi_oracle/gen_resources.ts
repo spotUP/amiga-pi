@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outDir = resolve(here, "..", "..", "tests", "pi", "resources");
-const oracle = process.env.PI_ORACLE ?? join(process.env.HOME!, "Code/amiga-pi/build/pi-oracle/oracle");
+const oracle = process.env.PI_ORACLE ?? join(here, "../../build/pi-oracle/oracle");
 const g = (f: string) => pathToFileURL(join(oracle, "g", f)).href;
 const { buildSystemPromptSections } = await import(g("system-prompt.ts"));
 const R = await import(g("resources.ts"));
