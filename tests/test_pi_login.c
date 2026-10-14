@@ -98,7 +98,9 @@ static int fixture_start(void)
     if (sys.spawn2(sys.u, argv, 0, 0, &fx_h))
         return -1;
     while (k < (long)sizeof(buf) - 1 && (k == 0 || buf[k - 1] != '\n')) {
-        n = sys.spawn2_read(sys.u, fx_h, buf + k, (long)sizeof(buf) - 1 - k, 10000);
+        /* a guard against a fixture that never starts, not a time limit on a busy machine: python's start under
+         * a loaded host took over 10 s with 8 suites side by side */
+        n = sys.spawn2_read(sys.u, fx_h, buf + k, (long)sizeof(buf) - 1 - k, 60000);
         if (n <= 0)
             return -1;
         k += n;
