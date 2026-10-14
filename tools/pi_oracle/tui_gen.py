@@ -163,6 +163,10 @@ SCENARIOS = {
     'login_arg_search': dict(steps=[('type', '/login cop'), ('key', 'Escape'), ('enter',), ('sleep', 0.5)], answers=[]),
     'login_arg_keys': dict(steps=[('type', '/login cop'), ('key', 'Escape'), ('enter',), ('sleep', 0.5), ('key', 'Right'), ('key', 'Right'), ('type', 'x'),
                                   ('key', 'End'), ('key', 'Left'), ('key', 'Left'), ('sleep', 0.5)], answers=[]),
+    # Q3-20: the search box's word moves, kills, yank and undo (input.ts:111-215, keybindings.ts:82-141): End, Ctrl+W (kills cc), Ctrl+A, Alt+D (kills aa),
+    # Ctrl+E, Ctrl+Y (aa back), Ctrl+Minus (undoes the yank), Alt+B, a typed x
+    'login_arg_edit': dict(steps=[('type', '/login aa bb cc'), ('key', 'Escape'), ('enter',), ('sleep', 0.5), ('key', 'End'), ('key', 'C-w'), ('key', 'C-a'),
+                                  ('key', 'M-d'), ('key', 'C-e'), ('key', 'C-y'), ('key', 'C-_'), ('key', 'M-b'), ('type', 'x'), ('sleep', 0.5)], answers=[]),
     'login_apikey': dict(steps=[('type', '/login'), ('enter',), ('sleep', 0.5), ('key', 'Down'), ('enter',), ('sleep', 0.5)], answers=[]),
     'login_copilot': dict(steps=[('type', '/login github-copilot'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 1.0)], answers=[]),
     'login_openai': dict(steps=[('type', '/login openai'), ('enter',), ('sleep', 0.5), ('enter',), ('sleep', 1.0), ('enter',), ('sleep', 1.5)], answers=[]),
