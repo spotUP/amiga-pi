@@ -1405,7 +1405,7 @@ static void test_reach(void)
     port = start_http(0, &h);
     CHECK(port > 0);
     jw_init(&cfg);
-    http_config(&cfg, "127.0.0.1", port, 0);
+    http_config(&cfg, "127.0.0.1", port, ",\"exposure\":\"direct\"");
     cl_copy(path, agent, sizeof(path));
     cl_cat(path, "/mcp.json", sizeof(path));
     CHECK_INT(sys.write(sys.u, path, cfg.p, cfg.n), 0);
@@ -1419,6 +1419,20 @@ static void test_reach(void)
     CHECK(ps.nreq >= 1 && strstr(ps.body[0], "\"name\":\"mcp__fake__echo\"") != 0);     /* declared (direct) */
     CHECK(ps.nreq >= 2 && strstr(ps.body[1], "echo: from the model") != 0);            /* its result went back */
     CHECK(out.p && strstr(out.p, "The server said it back.") != 0);
+    /* P12-A11: a server with no exposure is pi's default, codemode: no schema declared (15,630 input tokens for one word with the
+     * Radius server), tool_search offered, the server listed in the mcp_servers section of the system prompt */
+    jw_reset(&cfg);
+    http_config(&cfg, "127.0.0.1", port, 0);
+    CHECK_INT(sys.write(sys.u, path, cfg.p, cfg.n), 0);
+    calls = mcp_call_count;
+    CHECK_INT(app_run(0), 0);
+    CHECK_INT(mcp_call_count - calls, 0);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "\"name\":\"mcp__fake__echo\"") == 0);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "\"name\":\"tool_search\"") != 0);
+    CHECK(ps.nreq >= 1 && strstr(ps.body[0], "MCP servers whose tools are not declared to you") != 0);
+    jw_reset(&cfg);
+    http_config(&cfg, "127.0.0.1", port, ",\"exposure\":\"direct\"");
+    CHECK_INT(sys.write(sys.u, path, cfg.p, cfg.n), 0);
     /* --no-mcp: the knob moves the output -- the tool is not declared, nothing is called */
     calls = mcp_call_count;
     app_run(1);
@@ -1477,7 +1491,7 @@ static void test_project_trust(void)
     port = start_http(0, &h);
     CHECK(port > 0);
     jw_init(&cfg);
-    http_config(&cfg, "127.0.0.1", port, 0);
+    http_config(&cfg, "127.0.0.1", port, ",\"exposure\":\"direct\"");
     cl_copy(proj, root, sizeof(proj));
     cl_cat(proj, "/proj", sizeof(proj));
     mkdir(proj, 0777);
