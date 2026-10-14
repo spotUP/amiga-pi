@@ -1751,6 +1751,24 @@ static void test_thinking_warning(void)
     free(ro.out);
 }
 
+/* P12-B4: -p on an answer cut off at the output token limit (stop reason "length", print-mode.ts:151-157, pi 1.2.0): the partial
+ * text is printed, then `Response was truncated: the model reached its output token limit.` on stderr, exit code 1 (1.1.0
+ * printed the text and exited 0). An answer that ends normally prints no such line and exits 0. */
+static void test_print_truncated(void)
+{
+    run_opts ro;
+    memset(&ro, 0, sizeof(ro));
+    ro.nocmp = 1;
+    ro.diag = 1;
+    ro.force_mode = "text";
+    ro.more_args = "-p";
+    scenario("print_length", &ro);
+    CHECK(ro.out && !strcmp(ro.out, "A cut-off answer\n"));
+    CHECK(!strcmp(diag_log, "Response was truncated: the model reached its output token limit."));
+    CHECK_INT(ro.rc, 1);
+    free(ro.out);
+}
+
 /* --version / -v prints exactly what pi prints, the pi version amiga-pi matches, and exits 0, in every mode and over an
  * unknown option or -p without a prompt (oracle run, pi 1.1.0: `pi -v` -> "1.1.0\n" rc 0; `-v --bogus`, `--bogus -v`,
  * `-p -v`, `--mode json -v` the same; `--mode xx -v` is still the mode error, rc 1) */
@@ -2151,6 +2169,7 @@ void suite_pi_modes(void)
     test_templates_rpc();
     test_diag_one_line();
     test_arg_error_on_diag();
+    test_print_truncated();
     test_version_flag();
     test_thinking_warning();
     test_hooks_pi();
