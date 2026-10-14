@@ -699,24 +699,15 @@ void cp_serialize(const pi_ctx *msgs, jw *out)
                 jw_raw(out, part.p, part.n);
             }
         } else if (!strcmp(role, "assistant")) {
-            jw thinking, calls;
-            int nthink = 0, ncalls = 0, has_text = 0;
-            jw_init(&thinking);
+            jw calls;
+            int ncalls = 0, has_text = 0;
             jw_init(&calls);
             if (json_get(m, "content", &c) && json_type(c) == J_ARR) {
                 json_iter(c, &it);
                 while (json_next(&it, 0, &b)) {
                     if (json_type(b) != J_OBJ || !json_get(b, "type", &t))
                         continue;
-                    if (json_streq(t, "thinking")) {
-                        long zn;
-                        char *z = json_get(b, "thinking", &x) && json_type(x) == J_STR ? json_strdup(x, &zn) : 0;
-                        if (nthink++)
-                            jw_rawz(&thinking, "\n");
-                        if (z)
-                            jw_raw(&thinking, z, zn);
-                        free(z);
-                    } else if (json_streq(t, "toolCall")) {
+                    if (json_streq(t, "toolCall")) {
                         long zn;
                         char *z = json_get(b, "name", &x) && json_type(x) == J_STR ? json_strdup(x, &zn) : 0;
                         if (ncalls++)
@@ -747,12 +738,7 @@ void cp_serialize(const pi_ctx *msgs, jw *out)
                 if (has_text)
                     content_text(c, "\n", &part);
             }
-            if (nthink) {
-                if (any++)
-                    jw_rawz(out, "\n\n");
-                jw_rawz(out, "[Assistant thinking]: ");
-                jw_raw(out, thinking.p, thinking.n);
-            }
+            /* pi 1.2.0 (compaction/utils.ts serializeConversation): thinking is not part of the summarization request */
             if (has_text) {
                 if (any++)
                     jw_rawz(out, "\n\n");
@@ -765,7 +751,6 @@ void cp_serialize(const pi_ctx *msgs, jw *out)
                 jw_rawz(out, "[Assistant tool calls]: ");
                 jw_raw(out, calls.p, calls.n);
             }
-            jw_free(&thinking);
             jw_free(&calls);
         } else if (!strcmp(role, "toolResult")) {
             if (json_get(m, "content", &c))
