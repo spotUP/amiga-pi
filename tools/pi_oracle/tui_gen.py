@@ -342,6 +342,10 @@ SCENARIOS = {
                                    'tuiMode': 'fullscreen', 'fullscreenExitOutput': 'resume-hint', 'fullscreenScrollbar': 'hidden',
                                    'fullscreenCopyOnSelect': False, 'warnings': {'anthropicExtraUsage': False}}),
     # P12-B12 behaviours: editorPaddingX and autocompleteMaxVisible (the editor and the slash menu), showHardwareCursor
+    # Q3-22: the main editor's word rule (editor.ts:833-838, 881-886, word-navigation.ts; keybindings.ts:90-130): Ctrl+W twice (word starts, not blanks;
+    # the kills join one ring entry), Ctrl+Y, Alt+B, a typed x, Ctrl+A, Alt+F, a typed y, Alt+Delete
+    'edit_words': dict(steps=[('type', 'ab.cd ef.gh'), ('key', 'C-w'), ('key', 'C-w'), ('key', 'C-y'), ('key', 'M-b'), ('type', 'x'), ('key', 'C-a'),
+                              ('key', 'M-f'), ('type', 'y'), ('key', 'M-DC'), ('sleep', 0.5)], answers=[]),
     'pad_editor': dict(steps=[('type', 'hello padded world')], answers=[], settings={'editorPaddingX': 2}),
     'pad_menu': dict(steps=[('type', '/')], answers=[], settings={'editorPaddingX': 3, 'autocompleteMaxVisible': 10}),
     'menu_max3': dict(steps=[('type', '/')], answers=[], settings={'autocompleteMaxVisible': 3}),
