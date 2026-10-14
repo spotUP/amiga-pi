@@ -13,5 +13,9 @@
  "numbers_with_content": {
   "content": [{"type": "text", "text": "has content"}],
   "structuredContent": {"a": 1.0, "b": [2.50, 1e21], "c": -0.0}
- }
+ },
+ "numbers_sc_array": {"content": [], "structuredContent": [1, 2]},
+ "numbers_sc_null": {"content": [], "structuredContent": null},
+ "numbers_sc_string": {"content": [], "structuredContent": "x"},
+ "numbers_sc_number": {"content": [], "structuredContent": 7}
 }

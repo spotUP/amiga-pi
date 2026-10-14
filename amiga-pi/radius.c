@@ -74,6 +74,29 @@ static void store_entry(pi_models *m, const char *id, const char *models, long n
     free(t);
 }
 
+/* OpenRouter's per-key list kept in the store ("openrouter": {models, checkedAt}) narrows the shipped catalog with no network; an empty
+ * or missing list leaves the shipped models (withPersonalizedCatalog) */
+static void or_restore(pi_models *m)
+{
+    long n = 0;
+    char *st;
+    llm_or_entry *e;
+    int k;
+    if (!llm_reg_has_provider(&m->reg, LLM_OPENROUTER))
+        return;
+    st = stored_models(m, LLM_OPENROUTER, &n);
+    if (!st)
+        return;
+    e = (llm_or_entry *)malloc(LLM_OR_MAX * sizeof(*e));
+    if (e) {
+        k = llm_or_stored(st, n, e, LLM_OR_MAX);
+        if (k > 0)
+            llm_or_apply(&m->reg, e, k);
+        free(e);
+    }
+    free(st);
+}
+
 void pi_radius_restore(pi_models *m)
 {
     int i;
@@ -97,6 +120,7 @@ void pi_radius_restore(pi_models *m)
         } else if (!is_default(r))
             llm_reg_drop_provider(&m->reg, r->id);    /* a custom gateway does not inherit the public catalog */
     }
+    or_restore(m);
 }
 
 /* loadRadiusGatewayConfig's failure words */
@@ -188,6 +212,106 @@ static int refresh_one(pi_auth *a, const llm_rad *r, char *err, long cap)
     return rc;
 }
 
+/* OpenRouter: GET <baseUrl>/models/user with the key narrows the shipped catalog to the chat models the key may use, with their limits
+ * and prices (personalizeOpenRouterCatalog); 401, 403 and 404 keep the shipped catalog; any other failure leaves the models as they are.
+ * The answer is read as a stream (llm_or_user), whatever its size. 1 refreshed, 0 nothing to do, -1 failed (words in err) */
+typedef struct or_sink {
+    llm_or_user *p;
+    int oom;
+} or_sink;
+
+static void or_body(void *u, const char *s, long n)
+{
+    or_sink *k = (or_sink *)u;
+    if (llm_or_user_feed(k->p, s, n))
+        k->oom = 1;
+}
+
+static int or_refresh(pi_auth *a, char *err, long cap)
+{
+    oa_io io;
+    char url[300], hdrs[4400], key[4200], num[16], base[240];
+    int status = 0, rc = -1, i;
+    llm_model t;
+    pi_models *m = a->m;
+    or_sink k;
+    llm_or_entry *e;
+    jw models;
+    const llm_model *first = 0;
+    if (!llm_reg_has_provider(&m->reg, LLM_OPENROUTER))
+        return 0;
+    if (pi_auth_provider_token(a, LLM_OPENROUTER, key, sizeof(key)) != 0) {
+        llm_model_init(&t);
+        t.provider = LLM_OPENROUTER;
+        t.api = "openai-completions";
+        t.id = "";
+        key[0] = 0;
+        llm_cfg_key(&m->cfg, &t, key, sizeof(key), 0);
+    }
+    if (!key[0])
+        return 0;                                /* no credential: the shipped catalog stands */
+    for (i = 0; i < m->reg.n && !first; i++)
+        if (!strcmp(m->reg.m[i].provider, LLM_OPENROUTER))
+            first = &m->reg.m[i];
+    cl_copy(base, first && first->base_url && *first->base_url ? first->base_url : LLM_OPENROUTER_BASE, sizeof(base));
+    i = (int)strlen(base);
+    while (i > 0 && base[i - 1] == '/')
+        base[--i] = 0;
+    if (strncmp(base, "https://", 8))
+        return 0;                                /* plain http: the credential stays home */
+    cl_copy(url, base, sizeof(url));
+    cl_cat(url, "/models/user", sizeof(url));
+    cl_copy(hdrs, "accept: application/json\r\nauthorization: Bearer ", sizeof(hdrs));
+    cl_cat(hdrs, key, sizeof(hdrs));
+    cl_cat(hdrs, "\r\n", sizeof(hdrs));
+    memset(key, 0, sizeof(key));
+    pi_auth_io(a, &io);
+    if (!io.http_stream)
+        return 0;
+    k.p = llm_or_user_new();
+    k.oom = 0;
+    if (!k.p) {
+        cl_copy(err, "out of memory", cap);
+        return -1;
+    }
+    if (io.http_stream(io.u, "GET", url, hdrs, &status, or_body, &k, err, cap)) {
+        memset(hdrs, 0, sizeof(hdrs));
+        llm_or_user_free(k.p);
+        return -1;
+    }
+    memset(hdrs, 0, sizeof(hdrs));
+    if (status == 401 || status == 403 || status == 404) {
+        llm_or_reset(&m->reg);                   /* the catalog returned unchanged, saved all the same */
+        rc = 1;
+    } else if (status < 200 || status > 299) {
+        cl_ltoa(status, num);
+        cl_copy(err, "OpenRouter model list request failed: ", cap);
+        cl_cat(err, num, cap);
+    } else if (k.oom || llm_or_user_end(k.p)) {
+        cl_copy(err, k.oom ? "out of memory" : "Invalid OpenRouter model list response", cap);
+    } else {
+        llm_or_reset(&m->reg);
+        e = (llm_or_entry *)malloc(LLM_OR_MAX * sizeof(*e));
+        if (e) {
+            for (i = 0; i < llm_or_user_count(k.p); i++)
+                e[i] = *llm_or_user_get(k.p, i);
+            llm_or_apply(&m->reg, e, llm_or_user_count(k.p));
+            free(e);
+            rc = 1;
+        } else
+            cl_copy(err, "out of memory", cap);
+    }
+    if (rc == 1) {
+        jw_init(&models);
+        llm_or_store(&m->reg, &models);
+        pi_models_relay(m);
+        store_entry(m, LLM_OPENROUTER, models.p, models.n, io.now(io.u));
+        jw_free(&models);
+    }
+    llm_or_user_free(k.p);
+    return rc;
+}
+
 int pi_radius_refresh(pi_auth *a, const char *only, char *err, long cap)
 {
     int i, ok = 0;
@@ -202,6 +326,15 @@ int pi_radius_refresh(pi_auth *a, const char *only, char *err, long cap)
             continue;
         e[0] = 0;
         rc = refresh_one(a, r, e, sizeof(e));
+        if (rc > 0)
+            ok++;
+        else if (rc < 0)
+            cl_copy(err, e, cap);
+    }
+    if (!only || !strcmp(only, LLM_OPENROUTER)) {
+        int rc;
+        e[0] = 0;
+        rc = or_refresh(a, e, sizeof(e));
         if (rc > 0)
             ok++;
         else if (rc < 0)

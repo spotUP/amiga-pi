@@ -4,6 +4,7 @@
 #include "ext_events.h"
 #include "ext_payload.h"
 #include "claude/util.h"
+#include "llm/backend.h"
 
 static int plain(pi_session *s, const char *type, jw *b)
 {
@@ -458,18 +459,43 @@ static int bas_apply(void *u, jv answer, jv after, jw *payload)
     return 0;
 }
 
-void pi_ev_before_agent_start(pi_session *s, const char *prompt)
+void pi_ev_before_agent_start(pi_session *s, const char *prompt, const char *images, const char *custom)
 {
     jw p;
     int i;
     if (!s || !pi_exts_has(&s->ext, "before_agent_start"))
         return;
     jw_init(&p);
-    jw_rawz(&p, "{\"type\":\"before_agent_start\",\"prompt\":");
-    jw_strz(&p, prompt);
-    jw_rawz(&p, ",\"systemPrompt\":");
-    jw_strz(&p, s->system ? s->system : "");
-    jw_rawz(&p, ",\"systemPromptOptions\":{\"selectedTools\":[");
+    if (custom) {
+        jv m, v;
+        jw_rawz(&p, "{\"messageType\":\"custom\",\"message\":{\"role\":\"custom\",\"customType\":");
+        if (!json_parse(custom, (long)strlen(custom), &m) && json_get(m, "customType", &v))
+            jw_raw(&p, v.p, v.n);
+        else
+            jw_rawz(&p, "\"\"");
+        jw_rawz(&p, ",\"content\":");
+        if (!json_parse(custom, (long)strlen(custom), &m) && json_get(m, "content", &v) && json_type(v) != J_NULL)
+            jw_raw(&p, v.p, v.n);
+        else
+            jw_rawz(&p, "[]");
+        jw_rawz(&p, !json_parse(custom, (long)strlen(custom), &m) && json_get(m, "display", &v) && json_type(v) == J_TRUE
+                        ? ",\"display\":true" : ",\"display\":false");
+        if (!json_parse(custom, (long)strlen(custom), &m) && json_get(m, "details", &v) && json_type(v) != J_NULL) {
+            jw_rawz(&p, ",\"details\":");
+            jw_raw(&p, v.p, v.n);
+        }
+        jw_rawz(&p, ",\"timestamp\":");
+        llm_w_ts(&p, llm_wall());
+        jw_rawz(&p, "}");
+    } else {
+        jw_rawz(&p, "{\"messageType\":\"user\",\"prompt\":");
+        jw_strz(&p, prompt ? prompt : "");
+        if (images && images[0]) {
+            jw_rawz(&p, ",\"images\":");
+            jw_rawz(&p, images);
+        }
+    }
+    jw_rawz(&p, ",\"type\":\"before_agent_start\",\"systemPromptOptions\":{\"selectedTools\":[");
     for (i = 0; i < s->ntools; i++) {
         if (i)
             jw_rawz(&p, ",");
@@ -485,7 +511,9 @@ void pi_ev_before_agent_start(pi_session *s, const char *prompt)
     }
     jw_rawz(&p, "},\"toolGuidelines\":{},\"promptGuidelines\":[],\"appendSystemPrompt\":\"\",\"sections\":{},\"cwd\":");
     jw_strz(&p, s->ext.cwd ? s->ext.cwd : "");
-    jw_rawz(&p, ",\"contextFiles\":[],\"skills\":[]}}");
+    jw_rawz(&p, ",\"contextFiles\":[],\"skills\":[]},\"systemPrompt\":");
+    jw_strz(&p, s->system ? s->system : "");
+    jw_rawz(&p, "}");
     if (!p.oom)
         pi_exts_emit(&s->ext, "before_agent_start", &p, 0, bas_apply, s);
     jw_free(&p);

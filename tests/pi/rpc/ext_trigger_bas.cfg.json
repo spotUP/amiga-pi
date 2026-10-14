@@ -1,0 +1,21 @@
+{
+ "mode": "rpc",
+ "args": [],
+ "model": "fake-model",
+ "thinking": "off",
+ "retry": false,
+ "settings": {},
+ "session": "new",
+ "files": {},
+ "text_files": {
+  "agent/extensions/t.ts": "import { appendFileSync } from \"node:fs\";\nexport default function (pi) {\n  pi.registerCommand(\"go\", { description: \"Go\", async handler(args, ctx) {\n    pi.sendMessage({ customType: \"note\", content: \"started by go\", display: true }, { triggerTurn: true });\n  } });\n  pi.on(\"before_agent_start\", async (event) => {\n    appendFileSync(\"dump.jsonl\", JSON.stringify({ messageType: event.messageType, message: event.message, prompt: event.prompt }) + \"\\n\");\n    return { message: { customType: \"added\", content: \"added by handler\", display: true } };\n  });\n}\n"
+ },
+ "answers": [
+  "sse"
+ ],
+ "tools": "read,bash,edit,write",
+ "collect": [
+  "dump.jsonl",
+  "session.jsonl"
+ ]
+}

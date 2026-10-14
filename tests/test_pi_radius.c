@@ -20,6 +20,7 @@
 #include "../amiga-pi/app.h"
 #include "../amiga-pi/session3.h"
 #include "../amiga-pi/radius.h"
+#include "llm/radius.h"
 
 static char root[400], data[420], sdir[520], agent[420];
 static sys_posix sp;
@@ -29,6 +30,8 @@ static const char *in_lines[8];
 static int in_n;
 static long clock_s;
 static const char *offline;     /* PI_OFFLINE for this run: 0 unset */
+static int rad_key = 1;         /* RADIUS_API_KEY is set */
+static const char *or_key;      /* OPENROUTER_API_KEY, 0 unset */
 
 static llm_ts adv_now(void *u)
 {
@@ -42,8 +45,10 @@ static llm_ts adv_now(void *u)
 static long env(const char *name, char *o, long cap)
 {
     const char *v = 0;
-    if (!strcmp(name, "RADIUS_API_KEY"))
+    if (!strcmp(name, "RADIUS_API_KEY") && rad_key)
         v = "radius-test-token";
+    else if (!strcmp(name, "OPENROUTER_API_KEY"))
+        v = or_key;
     else if (!strcmp(name, "PI_OFFLINE"))
         v = offline;
     if (!v || (long)strlen(v) >= cap)
@@ -577,6 +582,248 @@ static void test_legacy(void)
     offline = 0;
 }
 
+
+/* ---- P12-A10: OpenRouter's per-key list (pi 1.2.0 personalizeOpenRouterCatalog; tests/pi/openrouter/cases.json from pi's own run
+ * against a fake GET /models/user, tools/pi_oracle/gen_openrouter.mjs). The answer is read as a stream, whatever the pieces. ---- */
+#include <malloc/malloc.h>
+
+static long micro_of(jv v)
+{
+    return llm_r_micro(v);
+}
+
+/* the registry's shipped OpenRouter models equal the case's `result` (ids, limits, prices); 1 when they do */
+static int or_matches(const llm_reg *r, jv result, int *count)
+{
+    jv m, v, c;
+    jit it;
+    int ok = 1, n = 0, i, held = 0;
+    static const char *const nm[4] = { "input", "output", "cacheRead", "cacheWrite" };
+    json_iter(result, &it);
+    while (json_next(&it, 0, &m)) {
+        char id[96];
+        const llm_model *mo;
+        n++;
+        json_get(m, "id", &v);
+        json_str(v, id, sizeof(id));
+        mo = llm_reg_find(r, "openrouter", id);
+        if (!mo) {
+            ok = 0;
+            continue;
+        }
+        json_get(m, "contextWindow", &v);
+        ok = ok && mo->context_window == json_long(v, -1);
+        json_get(m, "maxTokens", &v);
+        ok = ok && mo->max_tokens == json_long(v, -1);
+        json_get(m, "cost", &c);
+        for (i = 0; i < 4; i++) {
+            json_get(c, nm[i], &v);
+            ok = ok && mo->cost[i] == micro_of(v);
+        }
+    }
+    for (i = 0; i < r->n; i++)
+        if (!strcmp(r->m[i].provider, "openrouter"))
+            held++;
+    *count = n;
+    return ok && held == n;
+}
+
+static void test_openrouter_pure(void)
+{
+    char path[600];
+    char *txt;
+    jv root, cases, cs, v, exp, res;
+    jit it;
+    long tn = 0;
+    static const long pieces[3] = { 1, 7, 100000 };
+    cl_copy(path, PI_TESTS "/pi/openrouter/cases.json", sizeof(path));
+    txt = slurp(path);
+    CHECK(txt != 0);
+    if (!txt || json_parse(txt, (long)strlen(txt), &root))
+        return;
+    json_get(root, "cases", &cases);
+    json_iter(cases, &it);
+    while (json_next(&it, 0, &cs)) {
+        char name[48], *body;
+        long bn, k, at;
+        int status, p, cnt;
+        json_get(cs, "name", &v);
+        json_str(v, name, sizeof(name));
+        json_get(cs, "status", &v);
+        status = (int)json_long(v, 0);
+        json_get(cs, "body", &v);
+        body = json_strdup(v, &bn);
+        json_get(cs, "expected", &exp);
+        if (status != 200 || !json_get(exp, "result", &res)) {
+            free(body);
+            continue;
+        }
+        for (p = 0; p < 3; p++) {
+            llm_reg r;
+            llm_or_user *u = llm_or_user_new();
+            llm_or_entry *e = (llm_or_entry *)malloc(LLM_OR_MAX * sizeof(*e));
+            int i;
+            llm_reg_init(&r);
+            CHECK_INT(llm_reg_builtin(&r), 0);
+            for (at = 0; at < bn; at += pieces[p]) {
+                k = bn - at < pieces[p] ? bn - at : pieces[p];
+                CHECK_INT(llm_or_user_feed(u, body + at, k), 0);
+            }
+            CHECK_INT(llm_or_user_end(u), 0);
+            for (i = 0; i < llm_or_user_count(u); i++)
+                e[i] = *llm_or_user_get(u, i);
+            CHECK_INT(llm_or_reset(&r), 0);
+            CHECK_INT(llm_or_apply(&r, e, llm_or_user_count(u)), 0);
+            if (!or_matches(&r, res, &cnt)) {
+                printf("  [FAIL] openrouter case %s, pieces of %ld differ from pi\n", name, pieces[p]);
+                CHECK(0);
+            }
+            llm_or_user_free(u);
+            free(e);
+            llm_reg_free(&r);
+        }
+        free(body);
+        tn++;
+    }
+    CHECK(tn >= 3);
+    free(txt);
+}
+
+/* a body that is not {"data":[...]} is refused, and a 3 MB answer is read in a few KB: the elements are dropped as they pass */
+static void test_openrouter_stream(void)
+{
+    llm_or_user *u = llm_or_user_new();
+    malloc_statistics_t st;
+    long base, peak = 0, sent = 0;
+    char piece[4096];
+    int i;
+    static const char head[] = "{\"object\":\"list\",\"data\":[";
+    CHECK_INT(llm_or_user_feed(u, "{\"x\":[1,2]}", 11), 0);
+    CHECK_INT(llm_or_user_end(u), -1);
+    llm_or_user_free(u);
+    u = llm_or_user_new();
+    malloc_zone_statistics(0, &st);
+    base = (long)st.size_in_use;
+    CHECK_INT(llm_or_user_feed(u, head, (long)sizeof(head) - 1), 0);
+    for (i = 0; i < 1000; i++) {
+        long k;
+        /* an element of about 3 KB: a description with braces in it */
+        strcpy(piece, "{\"id\":\"vendor/model-");
+        sprintf(piece + strlen(piece), "%d\",\"description\":\"", i);
+        k = (long)strlen(piece);
+        memset(piece + k, 'x', 3000);
+        piece[k + 100] = '}';
+        piece[k + 200] = ']';
+        piece[k + 300] = '\\';
+        piece[k + 301] = '"';
+        strcpy(piece + k + 3000, "\",\"context_length\":1000},");
+        CHECK_INT(llm_or_user_feed(u, piece, (long)strlen(piece)), 0);
+        sent += (long)strlen(piece);
+        malloc_zone_statistics(0, &st);
+        if ((long)st.size_in_use - base > peak)
+            peak = (long)st.size_in_use - base;
+    }
+    {
+        static const char last[] = "{\"id\":\"openai/gpt-5.5\",\"context_length\":777}]}";
+        CHECK_INT(llm_or_user_feed(u, last, (long)sizeof(last) - 1), 0);
+    }
+    CHECK_INT(llm_or_user_end(u), 0);
+    CHECK_INT(llm_or_user_count(u), 1);
+    CHECK(llm_or_user_count(u) == 1 && llm_or_user_get(u, 0)->ctx == 777);
+    CHECK(sent > 3000000L);
+    printf("  [INFO] OpenRouter list: %ld bytes read, heap peak %ld bytes above the start\n", sent, peak);
+    CHECK(peak < 60000L);
+    llm_or_user_free(u);
+}
+
+/* through pi_app: /model (and the start) fetch the list with the key; the models are kept in models-store.json and restored with no
+ * network; 401 keeps the shipped catalog; a 500 changes nothing */
+static void test_openrouter(void)
+{
+    char *a[] = { "amiga-pi", "--model", "openrouter/openai/gpt-5.5", 0 };
+    char *f, path[600], *txt;
+    jv root, cases, cs, v, exp;
+    jit it;
+    rm_agent("models-store.json");
+    rm_agent("auth.json");
+    rad_key = 0;
+    or_key = "or-test-key";
+    cl_copy(path, PI_TESTS "/pi/openrouter/cases.json", sizeof(path));
+    txt = slurp(path);
+    CHECK(txt != 0);
+    if (!txt || json_parse(txt, (long)strlen(txt), &root)) {
+        rad_key = 1;
+        or_key = 0;
+        return;
+    }
+    json_get(root, "cases", &cases);
+    json_iter(cases, &it);
+    while (json_next(&it, 0, &cs)) {
+        char name[48], *body;
+        long bn;
+        int status;
+        json_get(cs, "name", &v);
+        json_str(v, name, sizeof(name));
+        if (strcmp(name, "list") && strcmp(name, "status401") && strcmp(name, "status500") && strcmp(name, "nodata"))
+            continue;
+        json_get(cs, "status", &v);
+        status = (int)json_long(v, 0);
+        json_get(cs, "body", &v);
+        body = json_strdup(v, &bn);
+        json_get(cs, "expected", &exp);
+        rm_agent("models-store.json");
+        offline = 0;
+        fresh();
+        q_json(status, body);
+        q_json(status, body);
+        in_lines[0] = "/model";
+        in_lines[1] = 0;
+        run(ARGC(a), a);
+        CHECK_INT(ps.nreq, 2);
+        if (ps.nreq >= 1) {
+            CHECK(strstr(ps.head[0], "GET /api/v1/models/user HTTP/1.1\r\nHost: openrouter.ai\r\n") == ps.head[0]);
+            CHECK(has_line(ps.head[0], "accept: application/json") && has_line(ps.head[0], "authorization: Bearer or-test-key"));
+        }
+        f = get_agent("models-store.json");
+        if (!strcmp(name, "list")) {
+            CHECK(in_out("openrouter/openai/gpt-5.5") && in_out("openrouter/moonshotai/kimi-k2.6"));
+            CHECK(!in_out("openrouter/google/gemini-3.1-pro-preview") && in_out("openrouter/x-ai/grok-4.7"));
+            CHECK(f && strstr(f, "\"openrouter\"") && strstr(f, "\"checkedAt\"") && strstr(f, "\"maxTokens\": 100000"));
+            free(f);
+            /* the next start has no network and the key's list still narrows the catalog (the store) */
+            offline = "1";
+            fresh();
+            in_lines[0] = "/model";
+            in_lines[1] = 0;
+            run(ARGC(a), a);
+            CHECK_INT(ps.nreq, 0);
+            CHECK(in_out("openrouter/moonshotai/kimi-k2.6") && !in_out("openrouter/google/gemini-3.1-pro-preview"));
+        } else if (!strcmp(name, "status401")) {
+            CHECK(in_out("openrouter/google/gemini-3.1-pro-preview") && in_out("openrouter/moonshotai/kimi-k2.6"));
+            CHECK(f != 0);                       /* the shipped catalog, saved all the same */
+            free(f);
+        } else {
+            CHECK(in_out("openrouter/google/gemini-3.1-pro-preview"));
+            CHECK(f == 0);                       /* a failed refresh changes nothing and saves nothing */
+            free(f);
+        }
+        free(body);
+    }
+    free(txt);
+    /* no key, no network */
+    or_key = 0;
+    offline = 0;
+    fresh();
+    rm_agent("models-store.json");
+    in_lines[0] = "/model";
+    in_lines[1] = 0;
+    run(ARGC(a), a);
+    CHECK_INT(ps.nreq, 0);
+    rad_key = 1;
+    offline = 0;
+    rm_agent("models-store.json");
+}
+
 void suite_pi_radius(void)
 {
     const char *base = getenv("TMPDIR");
@@ -601,5 +848,8 @@ void suite_pi_radius(void)
     test_catalog();
     test_custom_gateway();
     test_legacy();
+    test_openrouter_pure();
+    test_openrouter_stream();
+    test_openrouter();
     jw_free(&out);
 }

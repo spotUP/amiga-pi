@@ -136,6 +136,8 @@ static long a_getenv(void *u, const char *name, char *out, long cap)
 typedef struct hx {
     pi_auth *a;
     jw *resp;
+    void (*sink)(void *su, const char *s, long n);      /* a 2xx body goes here instead of into resp */
+    void *su;
     char head[2048 + 4096];
     long hn;
 } hx;
@@ -156,7 +158,9 @@ static int hx_poll(void *u)
 static void hx_body(void *u, const char *s, long n)
 {
     hx *h = (hx *)u;
-    if (h->resp->n < 262144L)
+    if (h->sink)
+        h->sink(h->su, s, n);
+    else if (h->resp->n < 262144L)
         jw_raw(h->resp, s, n);
 }
 
@@ -168,8 +172,8 @@ static unsigned long hx_ms(void *u)
 
 /* one exchange (oauth.h oa_io.http). The URL is https, or under a->url_base (the tests' loopback server) http. The
  * head carries the credential of the exchange; it is never logged (no h.log here) */
-static int a_http(void *u, const char *method, const char *url, const char *hdrs, const char *body, long bn, int *status,
-                  jw *resp, char *err, long cap)
+static int do_http(void *u, const char *method, const char *url, const char *hdrs, const char *body, long bn, int *status,
+                   jw *resp, void (*sink)(void *su, const char *s, long n), void *su, char *err, long cap)
 {
     pi_auth *a = (pi_auth *)u;
     char mapped[700];
@@ -212,6 +216,8 @@ static int a_http(void *u, const char *method, const char *url, const char *hdrs
     }
     h->a = a;
     h->resp = resp;
+    h->sink = sink;
+    h->su = su;
     {
         char len[24];
         cl_copy(h->head, method, sizeof(h->head));
@@ -260,7 +266,7 @@ static int a_http(void *u, const char *method, const char *url, const char *hdrs
     free(h);
     if (rc == LP_OK) {
         *status = hr.status;
-        if (errbody.n && resp->n < 262144L)
+        if (resp && errbody.n && resp->n < 262144L)
             jw_raw(resp, errbody.p, errbody.n);
         jw_free(&errbody);
         return 0;
@@ -280,6 +286,18 @@ static int a_http(void *u, const char *method, const char *url, const char *hdrs
         cl_cat(err, c.err, cap);
     }
     return -1;
+}
+
+static int a_http(void *u, const char *method, const char *url, const char *hdrs, const char *body, long bn, int *status,
+                  jw *resp, char *err, long cap)
+{
+    return do_http(u, method, url, hdrs, body, bn, status, resp, 0, 0, err, cap);
+}
+
+static int a_http_stream(void *u, const char *method, const char *url, const char *hdrs, int *status,
+                         void (*sink)(void *su, const char *s, long n), void *su, char *err, long cap)
+{
+    return do_http(u, method, url, hdrs, 0, 0, status, 0, sink, su, err, cap);
 }
 
 /* ---- the user's side of a flow ---- */
@@ -344,6 +362,7 @@ void pi_auth_io(pi_auth *a, oa_io *io)
     memset(io, 0, sizeof(*io));
     io->u = a;
     io->http = a_http;
+    io->http_stream = a_http_stream;
     io->now = a_now;
     io->sleep = a_sleep;
     io->cancelled = a_cancelled;
@@ -789,7 +808,7 @@ static int finish(pi_auth *a, const pi_login_ui *ui, const oa_provider *p, int o
     ui->note(ui->u, PL_OK, line);
     if (why[0])
         ui->note(ui->u, PL_ERROR, why);
-    if (rad && !refreshed && pi_radius_refresh(a, p->id, rerr, sizeof(rerr)) <= 0 && rerr[0])
+    if ((rad || !strcmp(p->id, "openrouter")) && !refreshed && pi_radius_refresh(a, p->id, rerr, sizeof(rerr)) <= 0 && rerr[0])
         rfail = 1;
     if (rfail) {
         cl_copy(line, oauth ? "Logged in to " : "Saved API key for ", sizeof(line));
