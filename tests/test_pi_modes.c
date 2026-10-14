@@ -601,6 +601,7 @@ static void sandbox_clear(void)
 
 /* the scenario's files: models.json, settings.json from its cfg, the session and the extra files */
 static const char *extra_settings, *extra_retry;
+static int models_schema;       /* run_opts.schema: models.json starts with a "$schema" member */
 
 static int setup_files(jv cfg, char *session_arg, long cap)
 {
@@ -633,6 +634,18 @@ static int setup_files(jv cfg, char *session_arg, long cap)
             put_file(path, models, n);
     } else
         put_file(path, models, n);
+    if (models_schema) {                /* P12-B8: pi 1.2.0 model-config.ts accepts "$schema" and ignores it */
+        char *p = strchr(models, '{');
+        if (p) {
+            jw sm;
+            jw_init(&sm);
+            jw_raw(&sm, models, (long)(p - models) + 1);
+            jw_rawz(&sm, "\"$schema\":\"https://pi.dev/schemas/models.schema.json\",");
+            jw_raw(&sm, p + 1, n - (long)(p - models) - 1);
+            put_file(path, sm.p, sm.n);
+            jw_free(&sm);
+        }
+    }
     free(models);
     strcpy(model, "fake-model");
     strcpy(think, "off");
@@ -786,6 +799,7 @@ typedef struct run_opts {
                                      * this test's: in a child process, the commands on a pipe as its stdin */
     long prompts;                   /* out with host: pi_prompt calls the run made */
     int bad_models;                 /* models.json is not JSON: the warning of the start, a diagnostic */
+    int schema;                     /* models.json and settings.json carry a "$schema" member */
     int diag;                       /* capture the diagnostic stream (pl.diag) in diag_log: one entry per call, '|' between */
     int nocmp;                      /* do not compare with the golden: the caller reads the output */
     int refuse;                     /* the first this many connects fail (nothing listening), the answers after them */
@@ -1163,6 +1177,7 @@ static int scenario(const char *name, run_opts *ro)
     sandbox();
     extra_settings = ro ? ro->extra_settings : 0;
     extra_retry = ro ? ro->extra_retry : 0;
+    models_schema = ro ? ro->schema : 0;
     if (setup_files(cfg, session_arg, sizeof(session_arg))) {
         printf("  %s: sandbox failed\n", name);
         CHECK(0);
@@ -1751,6 +1766,20 @@ static void test_thinking_warning(void)
     free(ro.out);
 }
 
+/* P12-B8: "$schema" in settings.json and models.json is accepted and has no effect (settings-schema.ts:208, model-config.ts:85): no
+ * diagnostic, the run equals the golden of the same scenario without it */
+static void test_schema_keys(void)
+{
+    run_opts ro;
+    memset(&ro, 0, sizeof(ro));
+    ro.diag = 1;
+    ro.schema = 1;
+    ro.extra_settings = "\"$schema\":\"https://pi.dev/schemas/settings.schema.json\"";
+    CHECK(scenario("json_text", &ro));
+    CHECK_STR(diag_log, "");
+    CHECK_INT(ro.rc, 0);
+}
+
 /* P12-B4: -p on an answer cut off at the output token limit (stop reason "length", print-mode.ts:151-157, pi 1.2.0): the partial
  * text is printed, then `Response was truncated: the model reached its output token limit.` on stderr, exit code 1 (1.1.0
  * printed the text and exited 0). An answer that ends normally prints no such line and exits 0. */
@@ -2170,6 +2199,7 @@ void suite_pi_modes(void)
     test_diag_one_line();
     test_arg_error_on_diag();
     test_print_truncated();
+    test_schema_keys();
     test_version_flag();
     test_thinking_warning();
     test_hooks_pi();
