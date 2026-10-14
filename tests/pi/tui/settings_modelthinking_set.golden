@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[1m[38;5;5mPer-Model Thinking Level[0m
+
+[2mStep 1/2 · Select a model to configure[0m
+
+> [7m [0m
+
+[38;5;5m→ fake-model [2m[39m[fake][0m          low
+  fake-small [2m[fake][0m
+  fake-large [2m[fake][0m
+  qwen2.5-coder:7b [2m[ollama][0m
+
+[2m  Type to filter · Enter to select · Esc to go back[0m
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[2m[39m~/project[0m
+[2m0.0%/200k (auto)                                         (fake) fake-model • low

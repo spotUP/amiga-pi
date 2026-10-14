@@ -1,0 +1,17 @@
+{
+ "defaultModel": "fake-model",
+ "defaultProvider": "fake",
+ "defaultThinkingLevel": "off",
+ "prompts": [
+  "-prompts/fix.md"
+ ],
+ "quietStartup": true,
+ "retry": {
+  "enabled": false
+ },
+ "skills": [
+  "-skills/terse/SKILL.md"
+ ],
+ "theme": "system",
+ "tuiMode": "fullscreen"
+}

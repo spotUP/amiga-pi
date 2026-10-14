@@ -1,0 +1,45 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+  Quiet startup                     true
+  Install telemetry                 false
+  Default project trust             Always trust
+  Double-escape action              fork
+  Tree filter mode                  user-only
+→ Warnings                          configure
+  Default thinking level per model  none
+  TUI mode                          fullscreen
+  Fullscreen exit output            resume-hint
+  Fullscreen scrollbar              hidden
+  (25/32)
+
+  Enable or disable individual warnings
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k                                                             fake-model

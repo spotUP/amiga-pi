@@ -17,6 +17,8 @@
 #include "ext_lua.h"
 #include "store.h"
 #include "models.h"
+#include "settings_pi.h"
+#include "config_pi.h"
 #include "mcp.h"
 #include "resources.h"
 #include "mode_json.h"
@@ -347,23 +349,6 @@ static const char *resume_cmd(void *u)
     return cmd;
 }
 
-/* settings.json's steeringMode / followUpMode: 1 for "all", 0 for "one-at-a-time" (the default) */
-static int queue_mode_all(const pi_platform *pl, const char *key)
-{
-    char *b, path[300], v[32];
-    long n;
-    jv o, x;
-    int all = 0;
-    if (settings_text(pl, &b, &n, path, sizeof(path)))
-        return 0;
-    if (!json_parse(b, n, &o) && json_get(o, key, &x) && json_type(x) == J_STR) {
-        json_str(x, v, sizeof(v));
-        all = !strcmp(v, "all");
-    }
-    CL_FREE(b);
-    return all;
-}
-
 /* settings.json's enabledModels (an array of patterns): joined by newlines into out, "" when absent */
 static void enabled_models(const pi_platform *pl, char *out, long cap)
 {
@@ -387,22 +372,14 @@ static void enabled_models(const pi_platform *pl, char *out, long cap)
     CL_FREE(b);
 }
 
-/* the theme settings.json names ("theme"; "system" when absent): a file <data dir>/themes/<name>.json or
- * <agent dir>/themes/<name>.json, else pi's built-in dark or light; a theme that is invalid or missing is told and
- * the system theme used (pi: the same fallback) */
-static void load_theme(const pi_platform *pl, cl_pitheme *th)
+/* the theme `name` names: a file <data dir>/themes/<name>.json or <agent dir>/themes/<name>.json, else pi's built-in dark or light, else
+ * the system theme. A theme that is invalid or missing is told (warn) and the system theme used (pi: the same fallback) */
+static void load_theme_named(const pi_platform *pl, const char *name, cl_pitheme *th, int warn)
 {
-    char *b, path[300], name[80], err[800], *txt = 0;
-    long n, tn = 0;
-    jv o, v;
+    char path[300], err[800], *txt = 0;
+    long tn = 0;
     int i, own = 0;
     pitheme_system(th);
-    name[0] = 0;
-    if (!settings_text(pl, &b, &n, path, sizeof(path))) {
-        if (!json_parse(b, n, &o) && json_get(o, "theme", &v) && json_type(v) == J_STR)
-            json_str(v, name, sizeof(name));
-        CL_FREE(b);
-    }
     if (!name[0] || !strcmp(name, "system"))
         return;
     for (i = 0; i < 2 && !txt; i++) {
@@ -423,7 +400,8 @@ static void load_theme(const pi_platform *pl, cl_pitheme *th)
     if (!txt) {
         const char *bt = !strcmp(name, "dark") ? pi_theme_dark : !strcmp(name, "light") ? pi_theme_light : 0;
         if (!bt) {
-            say(pl->io, "[WARN] Theme not found: ", name);
+            if (warn)
+                say(pl->io, "[WARN] Theme not found: ", name);
             return;
         }
         if (pitheme_load(th, bt, (long)strlen(bt), pi_okcolor, err, sizeof(err)))
@@ -431,11 +409,27 @@ static void load_theme(const pi_platform *pl, cl_pitheme *th)
         return;
     }
     if (pitheme_load(th, txt, tn, pi_okcolor, err, sizeof(err))) {
-        say(pl->io, "[WARN] ", err);
+        if (warn)
+            say(pl->io, "[WARN] ", err);
         pitheme_system(th);
     }
     if (own)
         CL_FREE(txt);
+}
+
+/* the theme settings.json names ("theme"; "system" when absent) */
+static void load_theme(const pi_platform *pl, cl_pitheme *th)
+{
+    char *b, path[300], name[80];
+    long n;
+    jv o, v;
+    name[0] = 0;
+    if (!settings_text(pl, &b, &n, path, sizeof(path))) {
+        if (!json_parse(b, n, &o) && json_get(o, "theme", &v) && json_type(v) == J_STR)
+            json_str(v, name, sizeof(name));
+        CL_FREE(b);
+    }
+    load_theme_named(pl, name, th, 1);
 }
 
 /* A loaded theme is drawn in the depth pi would pick on this terminal (pi-tui 1.0.4: truecolor when COLORTERM or
@@ -453,6 +447,89 @@ static void theme_depth(const pi_platform *pl, cl_pitheme *th)
         pl->getenv("PI_TRUE_COLOR", pt, sizeof(pt));
     }
     th->depth = pitheme_depth(term, ct, pt);
+}
+
+/* the themes /settings offers (getAvailableThemes): system, then dark, light and the files of <data dir>/themes and <agent dir>/themes by
+ * name, "system" first */
+typedef struct tn_acc {
+    char (*names)[64];
+    int n, max;
+} tn_acc;
+
+static void tn_add(tn_acc *a, const char *name)
+{
+    int i;
+    for (i = 0; i < a->n; i++)
+        if (!strcmp(a->names[i], name))
+            return;
+    if (a->n < a->max && strlen(name) < 64)
+        strcpy(a->names[a->n++], name);
+}
+
+static int tn_dir(void *c, const cl_dirent *e)
+{
+    long l = (long)strlen(e->name);
+    char nm[64];
+    if (!e->dir && l > 5 && l - 5 < 64 && !strcmp(e->name + l - 5, ".json")) {
+        memcpy(nm, e->name, (size_t)(l - 5));
+        nm[l - 5] = 0;
+        tn_add((tn_acc *)c, nm);
+    }
+    return 0;
+}
+
+static int tn_cmp(const char *a, const char *b)
+{
+    for (; *a && *b; a++, b++) {
+        int x = *a >= 'A' && *a <= 'Z' ? *a + 32 : *a, y = *b >= 'A' && *b <= 'Z' ? *b + 32 : *b;
+        if (x != y)
+            return x - y;
+    }
+    return *a ? 1 : *b ? -1 : 0;
+}
+
+static int theme_names(void *u, char (*names)[64], int max)
+{
+    const pi_platform *pl = (const pi_platform *)u;
+    tn_acc a;
+    int i, j;
+    a.names = names;
+    a.n = 0;
+    a.max = max;
+    tn_add(&a, "system");
+    tn_add(&a, "dark");
+    tn_add(&a, "light");
+    for (i = 0; i < 2; i++) {
+        const char *dir = i ? pl->agent_dir : pl->data_dir;
+        char path[300];
+        if (!dir || !dir[0] || !pl->sys || !pl->sys->list)
+            continue;
+        cl_copy(path, dir, sizeof(path));
+        if (path[strlen(path) - 1] != ':' && path[strlen(path) - 1] != '/')
+            cl_cat(path, "/", sizeof(path));
+        cl_cat(path, "themes", sizeof(path));
+        pl->sys->list(pl->sys->u, path, tn_dir, &a);
+    }
+    for (i = 1; i < a.n; i++) {                  /* after "system": by name, dark and light among the rest */
+        char x[64];
+        strcpy(x, names[i]);
+        for (j = i; j > 1 && tn_cmp(names[j - 1], x) > 0; j--)
+            strcpy(names[j], names[j - 1]);
+        strcpy(names[j], x);
+    }
+    return a.n;
+}
+
+/* a theme setting ("name", or "light/dark": the terminal reports no appearance, so the dark half) */
+static int theme_load_cb(void *u, const char *setting, cl_pitheme *th)
+{
+    const pi_platform *pl = (const pi_platform *)u;
+    const char *sl = strchr(setting, '/');
+    char name[96];
+    cl_copy(name, sl ? sl + 1 : setting, sizeof(name));
+    load_theme_named(pl, name, th, 0);
+    theme_depth(pl, th);
+    return 0;
 }
 
 /* <agent dir>/keybindings.json read (pi's shape): the text, CL_FREEd by the caller; 0 none */
@@ -1014,6 +1091,42 @@ static void debug_log(pi_platform *pl)
     }
 }
 
+/* `config` (package-manager-cli.ts handleConfigCommand): pi's resource configuration screen over the user's skills and prompt templates (config_pi.h).
+ * The project mode (-l) is not built. Exit 0 when the screen closes (pi: process.exit(0)) */
+static int config_command(const pi_platform *pl, const pi_args *a)
+{
+    pi_config_env e;
+    cl_pitheme th;
+    long kn = 0;
+    char *kb;
+    int rc;
+    if (a->config_local) {
+        diag_out(pl, "Error: config --local (the project mode of the resource screen) is not built; the user's resources are configured without it");
+        return 1;
+    }
+    if (!pl->sys || !pl->agent_dir || !pl->agent_dir[0]) {
+        diag_out(pl, "Error: there is no agent directory to configure");
+        return 1;
+    }
+    load_theme(pl, &th);
+    theme_depth(pl, &th);
+    kb = keybindings_text(pl, &kn);
+    memset(&e, 0, sizeof(e));
+    e.io = pl->io;
+    e.sys = pl->sys;
+    e.th = &th;
+    e.agent_dir = pl->agent_dir;
+    e.data_dir = pl->data_dir;
+    e.cwd = pl->cwd;
+    e.home = pl_home(pl);
+    e.kb = kb;
+    e.kbn = kb ? kn : 0;
+    rc = pi_config_run(&e);
+    if (kb)
+        CL_FREE(kb);
+    return rc ? 1 : -1;                         /* -1: done, exit 0 */
+}
+
 int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
 {
     const pi_platform *pl;
@@ -1027,9 +1140,20 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     rt->io = plat->io;
     pl = &rt->pl;
     if (pi_args_parse(&a, argc, argv)) {
+        if (a.config_err[0]) {                  /* `config` with a wrong argument: pi's two lines, exit 1 */
+            char *nl = strchr(a.config_err, '\n');
+            if (nl)
+                *nl = 0;
+            diag_out(pl, a.config_err);
+            if (nl)
+                diag_out(pl, nl + 1);
+            return 1;
+        }
         arg_warnings(pl, &a);
         return usage(pl, &a);
     }
+    if (a.config)
+        return config_command(pl, &a);
     arg_warnings(pl, &a);
     if (a.version) {
         say(pl->io, PI_VERSION, 0);     /* pi main.ts:632: console.log(VERSION), exit 0, before any mode or session */
@@ -1103,8 +1227,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
         level0 = pi_models_start_level(&m, want);
     }
     pi_session_init(&s, &m, 0, pl->pool, &pl->h);
-    s.steer_all = queue_mode_all(pl, "steeringMode");
-    s.follow_all = queue_mode_all(pl, "followUpMode");
+    pi_settings_session(pl->sys, pl->agent_dir, &s, &store, 0);
     retry_settings(pl, &s);
     s.thinking = level0;
     if (a.api_key[0]) {
@@ -1326,6 +1449,19 @@ int pi_rt_run(pi_rt *rt)
         load_theme(pl, &th);
         theme_depth(pl, &th);
         pi_ui_set_theme(&th);
+        {
+            static pi_ui_themes src;
+            char proto[16];
+            src.list = theme_names;
+            src.load = theme_load_cb;
+            src.u = (void *)pl;
+            pi_ui_set_themes(&src);
+            /* pi-tui detectCapabilities: PI_IMAGE_PROTOCOL kitty or iterm2 says the terminal draws images */
+            proto[0] = 0;
+            if (pl->getenv)
+                pl->getenv("PI_IMAGE_PROTOCOL", proto, sizeof(proto));
+            pi_ui_set_images(!strcmp(proto, "kitty") || !strcmp(proto, "iterm2"));
+        }
         kb = keybindings_text(pl, &kn);
         pi_ui_set_keybindings(kb, kn);
         changelog_setup(pl, &s);

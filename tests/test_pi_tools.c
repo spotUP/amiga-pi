@@ -983,6 +983,15 @@ static void test_images(void)
     CHECK(px && w == 2000 && h == 8 && px[2] == 255 && px[0] == 0);
     pi_stb_free(px);
     rd_free(&r);
+    /* images.autoResize false (processImage without autoResizeImages): the converted PNG as it is, 2400 wide, no dimension note */
+    pi_image_set_resize(0);
+    CHECK_INT(read_img("{\"path\":\"im/wide.bmp\"}", &r), 0);
+    CHECK_STR(r.text, "Read image file [image/png]\n[Image converted from image/bmp to image/png.]");
+    px = r.data ? pi_stb_load(r.data, (int)r.n, &w, &h) : 0;
+    CHECK(px && w == 2400 && h == 10);
+    pi_stb_free(px);
+    rd_free(&r);
+    pi_image_set_resize(1);
     /* a JPEG with EXIF orientation 6: turned first (1200x2400), then scaled to 1000x2000;
      * the red top-left quarter ends up at the top right */
     strcpy(p, PI_TESTS "/img/rot6.jpg");

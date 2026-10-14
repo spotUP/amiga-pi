@@ -1,0 +1,25 @@
+
+────────────────────────────────────────────────────────────────────────────────
+
+Global Resources                                        space toggle · esc close
+~/.pi/agent/settings.json
+
+>
+
+  User (~/agent/)
+    Skills
+      [x] greet
+      [x] terse
+    Prompts
+>     [x] fix.md
+      [x] review.md
+  Built-in
+    Extensions
+      [x] codemode
+      [x] llama.cpp
+      [x] mcp
+      [x] tool-search
+
+────────────────────────────────────────────────────────────────────────────────
+
+

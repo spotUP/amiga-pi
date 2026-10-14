@@ -20,6 +20,7 @@ void suite_pi_login(void);
 void suite_pi_yaml(void);
 void suite_pi_diff(void);
 void suite_pi_radius(void);
+void suite_pi_settings(void);
 
 static const h_suite suites[] = {
     { "pi_agent", suite_pi_agent },
@@ -37,7 +38,8 @@ static const h_suite suites[] = {
     { "pi_login", suite_pi_login },
     { "pi_yaml", suite_pi_yaml },
     { "pi_diff", suite_pi_diff },
-    { "pi_radius", suite_pi_radius }
+    { "pi_radius", suite_pi_radius },
+    { "pi_settings", suite_pi_settings }
 };
 
 int pi_golden(const char *name, const char *got)

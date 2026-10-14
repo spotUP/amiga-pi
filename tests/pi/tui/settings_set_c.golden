@@ -1,0 +1,45 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[39m> [7m [0m
+
+  Quiet startup                     [2mtrue
+[0m  Install telemetry                 [2mfalse[0m
+  Default project trust             [2mAlways trust[0m
+  Double-escape action              [2mfork
+[0m  Tree filter mode                  [2muser-only[0m
+[38;5;5m→ Warnings                        [39m  [38;5;5mconfigure[39m
+  Default thinking level per model  [2mnone
+[0m  TUI mode                          [2mfullscreen[0m
+  Fullscreen exit output            [2mresume-hint[0m
+  Fullscreen scrollbar              [2mhidden[0m
+[2m  (25/32)[0m
+
+[2m  Enable or disable individual warnings[0m
+
+[2m  Type to search · Enter/Space to change · Esc to cancel[0m
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[2m[39m~/project[0m
+[2m0.0%/200k                                                             fake-model

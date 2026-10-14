@@ -1,0 +1,25 @@
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+  Double-escape action              tree
+  Tree filter mode                  default
+  Warnings                          configure
+  Default thinking level per model  none
+  TUI mode                          fullscreen
+  Fullscreen exit output            transcript
+  Fullscreen scrollbar              auto
+  Fullscreen copy on select         true
+  Fullscreen wheel scrolling        auto
+→ Theme                             system
+  (32/32)
+
+  Color theme for the interface
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

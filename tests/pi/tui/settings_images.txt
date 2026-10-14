@@ -1,0 +1,25 @@
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+→ Auto-compact                      true
+  Show images                       true
+  Image width                       60
+  Auto-resize images                true
+  Block images                      false
+  Skill commands                    true
+  Show hardware cursor              false
+  Editor padding                    0
+  Output padding                    1
+  Autocomplete max items            5
+  (1/34)
+
+  Automatically compact context when it gets too large
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

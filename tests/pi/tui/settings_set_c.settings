@@ -1,0 +1,50 @@
+{
+ "autocompleteMaxVisible": 10,
+ "cacheWarming": "idle",
+ "collapseChangelog": true,
+ "compaction": {
+  "enabled": false,
+  "reserveTokens": 1000
+ },
+ "defaultModel": "fake-model",
+ "defaultProjectTrust": "always",
+ "defaultProvider": "fake",
+ "defaultThinkingLevel": "off",
+ "doubleEscapeAction": "fork",
+ "editorPaddingX": 2,
+ "enableInstallTelemetry": false,
+ "enableSkillCommands": false,
+ "followUpMode": "all",
+ "fullscreenCopyOnSelect": false,
+ "fullscreenExitOutput": "resume-hint",
+ "fullscreenScrollbar": "hidden",
+ "fullscreenWheelScrollLines": 7,
+ "hideThinkingBlock": true,
+ "httpIdleTimeoutMs": 0,
+ "images": {
+  "blockImages": true
+ },
+ "lastChangelogVersion": "1.2.0",
+ "markdown": {
+  "mermaid": "off"
+ },
+ "outputPad": 0,
+ "quietStartup": true,
+ "retry": {
+  "enabled": false
+ },
+ "showCacheMissNotices": true,
+ "showHardwareCursor": true,
+ "steeringMode": "all",
+ "terminal": {
+  "clearOnShrink": true,
+  "showImages": false
+ },
+ "theme": "system",
+ "transport": "sse",
+ "treeFilterMode": "user-only",
+ "tuiMode": "fullscreen",
+ "warnings": {
+  "anthropicExtraUsage": false
+ }
+}

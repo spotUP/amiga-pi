@@ -1,0 +1,14 @@
+{
+ "defaultModel": "fake-model",
+ "defaultProvider": "fake",
+ "defaultThinkingLevel": "off",
+ "quietStartup": true,
+ "retry": {
+  "enabled": false
+ },
+ "skills": [
+  "-skills/greet/SKILL.md"
+ ],
+ "theme": "system",
+ "tuiMode": "fullscreen"
+}

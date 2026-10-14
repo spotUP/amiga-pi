@@ -1,0 +1,17 @@
+{
+ "defaultModel": "fake-model",
+ "defaultProvider": "fake",
+ "defaultThinkingLevel": "off",
+ "enabledModels": [
+  "ollama/qwen2.5-coder:7b",
+  "fake/fake-small",
+  "fake/fake-large"
+ ],
+ "lastChangelogVersion": "1.2.0",
+ "quietStartup": true,
+ "retry": {
+  "enabled": false
+ },
+ "theme": "system",
+ "tuiMode": "fullscreen"
+}

@@ -1,0 +1,25 @@
+
+
+
+
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+
+[1m[38;5;5mModel Configuration[0m
+[2mSession-only. Ctrl+S to save to settings.[0m
+
+> [7m [0m
+
+[38;5;5m→ ✓ fake-large[2m[39m [fake][0m
+  [38;5;5m✓ [39mfake-model[2m [fake][0m
+    qwen2.5-coder:7b[2m [ollama][0m
+    fake-small[2m [fake][0m
+
+[2m  Model Name: Fake Large[0m
+
+[38;5;2m  Model catalogs refreshed.[39m
+[2m  Enter toggle · Ctrl+A all · Ctrl+X clear · Ctrl+P provider ·
+Option+Up/Option+Down reorder · Ctrl+S save · 2/4 enabled[0m
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[2m[39m~/project[0m
+[2m0.0%/200k (auto)                                                      fake-model

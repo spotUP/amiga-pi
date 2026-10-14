@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Theme
+
+Select a theme, or choose automatic to follow terminal appearance.
+
+→ ✓ system     Theme created from your terminal's colors
+    automatic  Use separate themes for light and dark terminal appearance
+    dark
+    light
+
+  Enter to select · Esc to go back
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

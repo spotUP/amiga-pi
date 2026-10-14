@@ -1,0 +1,6 @@
+{
+ "skills/greet/SKILL.md": "---\nname: greet\ndescription: Greets the user by name\n---\nSay hello warmly.\n",
+ "skills/terse/SKILL.md": "---\nname: terse\ndescription: Answers in five words\n---\nSay hello warmly.\n",
+ "prompts/fix.md": "---\ndescription: Fix the failing test\n---\nFix the failing test: $ARGUMENTS\n",
+ "prompts/review.md": "---\ndescription: Review the diff\n---\nReview the diff: $ARGUMENTS\n"
+}

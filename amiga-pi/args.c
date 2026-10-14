@@ -15,6 +15,31 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
     a->gate = -1;
     a->thinking = -1;
     a->approve = -1;
+    if (argc > 1 && !strcmp(argv[1], "config")) {
+        /* package-manager-cli.ts handleConfigCommand: [-l|--local] [-a|--approve|-na|--no-approve]; anything else is told and the exit code is 1 */
+        a->config = 1;
+        for (i = 2; i < argc; i++) {
+            const char *s = argv[i];
+            if (!strcmp(s, "-l") || !strcmp(s, "--local"))
+                a->config_local = 1;
+            else if (!strcmp(s, "-a") || !strcmp(s, "--approve"))
+                a->approve = 1;
+            else if (!strcmp(s, "-na") || !strcmp(s, "--no-approve"))
+                a->approve = 0;
+            else if (s[0] == '-') {
+                cl_copy(a->config_err, "Unknown option ", sizeof(a->config_err));
+                cl_cat(a->config_err, s, sizeof(a->config_err));
+                cl_cat(a->config_err, " for \"config\".\nUse \"amiga-pi --help\" or \"amiga-pi config [-l] [--approve|--no-approve]\".", sizeof(a->config_err));
+                return -1;
+            } else {
+                cl_copy(a->config_err, "Unexpected argument ", sizeof(a->config_err));
+                cl_cat(a->config_err, s, sizeof(a->config_err));
+                cl_cat(a->config_err, ".\nUsage: amiga-pi config [-l] [--approve|--no-approve]", sizeof(a->config_err));
+                return -1;
+            }
+        }
+        return 0;
+    }
     for (i = 1; i < argc; i++) {
         const char *s = argv[i];
         if (!strcmp(s, "-p") || !strcmp(s, "--print"))

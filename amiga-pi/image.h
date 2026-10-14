@@ -28,6 +28,8 @@ typedef struct pi_img {
 unsigned char *pi_b64_decode(const char *s, long n, long *out_n);
 /* pi's detectSupportedImageMimeType: "image/png" ... "image/bmp", 0 none */
 const char *pi_image_type(const unsigned char *b, long n);
+/* settings.json images.autoResize (default 1): 0 sends an image as it is (a BMP still becomes a PNG), without the 2000x2000 limit */
+void pi_image_set_resize(int on);
 /* pi's processImage: 0 sent (r->data), 1 omitted (r->note says why) */
 int pi_image_process(const unsigned char *b, long n, const char *mime, pi_img *r);
 void pi_image_free(pi_img *r);

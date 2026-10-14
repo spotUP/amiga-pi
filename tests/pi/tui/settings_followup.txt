@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+> follow
+
+→ Follow-up mode                    one-at-a-time
+
+  Option+Enter queues follow-up messages until agent stops. 'one-at-a-time':
+  deliver one, wait for response. 'all': deliver all at once.
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

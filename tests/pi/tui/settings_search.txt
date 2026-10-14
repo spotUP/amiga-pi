@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+> steer
+
+→ Steering mode                     one-at-a-time
+  Install telemetry                 true
+
+  Enter while streaming queues steering messages. 'one-at-a-time': deliver
+  one, wait for response. 'all': deliver all at once.
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

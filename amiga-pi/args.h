@@ -71,6 +71,9 @@ typedef struct pi_args {
     char api_key[512];          /* --api-key */
     int thinking;               /* --thinking as LT_*, -1 not given */
     int tui_mode;               /* --tui-mode: 1 fullscreen, 2 regular, 0 settings.json decides */
+    int config;                 /* `config`: pi's resource configuration screen (config_pi.h); config_err holds the lines when the arguments are wrong */
+    int config_local;           /* config -l / --local: the project mode, not built */
+    char config_err[320];
     int list_models;            /* --list-models */
     char list_search[64];
     char prompt[4096];

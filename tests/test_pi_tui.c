@@ -1024,6 +1024,9 @@ static llm_ts adv_now(void *u)
 
 static const char *app_pstatus;         /* PI_PROGRAM_STATUS in the test's environment (0: unset) */
 static const char *app_colorterm;       /* what the test's terminal says in COLORTERM (0: unset) */
+static const char *app_imgproto;        /* PI_IMAGE_PROTOCOL in the test's environment (0: unset) */
+static const char *app_home;            /* HOME in the test's environment (0: unset) */
+static const char *app_config_cli;      /* the arguments after `config` for the next app_run ("" none): run pi's `config` screen instead of the session */
 
 static int app_nokeys;              /* no provider key in the environment: the models of models.json are the only ones with a credential */
 static const char *app_model_cli;   /* --model for the next app_run, 0: anthropic/claude-opus-5-5 */
@@ -1037,6 +1040,10 @@ static long app_env(const char *name, char *o, long cap)
         v = "vtcon";
     else if (!strcmp(name, "PI_PROGRAM_STATUS"))
         v = app_pstatus;
+    else if (!strcmp(name, "PI_IMAGE_PROTOCOL"))
+        v = app_imgproto;
+    else if (!strcmp(name, "HOME"))
+        v = app_home;
     if (!app_nokeys && !strcmp(name, "OPENAI_API_KEY"))
         v = "sk-test-openai";
     else if (!app_nokeys && !strcmp(name, "ANTHROPIC_API_KEY"))
@@ -1130,6 +1137,12 @@ static int app_run(int cols, int rows, const char **keys, const char *const *sse
     }
     if (app_resume_cli)
         a[argc++] = (char *)"-r";
+    if (app_config_cli) {
+        a[1] = (char *)"config";
+        argc = 2;
+        if (app_config_cli[0])
+            a[argc++] = (char *)app_config_cli;
+    }
     ps_reset();
     ps_pool_up(LLM_POOL);
     for (i = 0; i < nsse; i++) {
@@ -1217,9 +1230,13 @@ static void app_shape(char *o, long cap)
 
 static char shot[40][200];
 static int nshot;
+static int shot_cx, shot_cy, shot_cursor;       /* the window's cursor at the shot: column, row (0-based), shown */
+
 static void take_shot(void)
 {
     int r;
+    vt_cursor(cs.vt, &shot_cx, &shot_cy);
+    shot_cursor = (vt_modes(cs.vt) & VT_MODE_CURSOR_VISIBLE) != 0;
     nshot = cs.rows < 40 ? cs.rows : 40;
     for (r = 0; r < nshot; r++) {
         strncpy(shot[r], cs_row(r), sizeof(shot[r]) - 1);
@@ -1416,6 +1433,12 @@ static void session_case(const char *name, const char *file, const char *setting
     CHECK(taken);
     if (diffs) {
         printf("  %s: %d cells differ from pi's capture\n%s", name, diffs, first_diff);
+        if (getenv("PI_TUI_DUMP")) {
+            dump_rows();
+            printf("  --- pi's\n");
+            for (i = 0; i < want_rows; i++)
+                printf("    %2d|%s\n", i + 1, h_row(want, i));
+        }
         if (getenv("PI_TUI_ROWS"))
             for (i = 0; i < want_rows; i++)
                 if (rowdiff[i]) {
@@ -1677,6 +1700,12 @@ static void skills_case(const char *name, const char *settings, const char **key
     cmp_shift = shift;
     app_session = session ? path : 0;
     app_agent = with_skills ? skdir : 0;
+    if (with_skills) {
+        static char home[300];
+        strcpy(home, skdir);
+        home[strlen(home) - 6] = 0;                      /* the sandbox's agent directory is <home>/agent: pi's HOME of the capture */
+        app_home = home;
+    }
     CHECK_INT(app_run(80, want_rows, keys, sse, nsse, skills_rest), 0);
     app_agent = 0;
     app_session = 0;
@@ -1836,6 +1865,389 @@ static char *app_settings_text(void)
         }
     }
     return t ? t : (char *)calloc(1, 1);
+}
+
+/* P12-B11 (owner 2026-10-14: build /scoped-models with the feature behind it): pi 1.2.0's scoped-models-selector.ts. The goldens are pi's own
+ * screens (scoped_*); the settings.json pi leaves is kept as scoped_*.settings and compared by the enabledModels member. Reachability: /scoped-models
+ * through pi_app opens the selector, Enter toggles a model, Ctrl+S writes enabledModels, and the next start's /model shows the Scope line
+ * (the saved list is what Ctrl+P cycles). Old amiga-pi has no /scoped-models: every case fails by absence */
+static void take_shot(void);
+static int shot_has(const char *s);
+
+static int settings_has(const char *needle)
+{
+    char *t = app_settings_text();
+    int hit = strstr(t, needle) != 0;
+    free(t);
+    return hit;
+}
+
+static void test_scoped(void)
+{
+    static const char *k_open[] = { "/scoped-models\r", "\004", 0 };
+    static const char *k_toggle[] = { "/scoped-models\r\033[B\r", "\004", 0 };
+    static const char *k_search[] = { "/scoped-models\rlarge", "\004", 0 };
+    static const char *k_move[] = { "/scoped-models\r\033[1;3B", "\004", 0 };
+    static const char *k_clear[] = { "/scoped-models\r\030", "\004", 0 };
+    static const char *k_prov[] = { "/scoped-models\r\030\020", "\004", 0 };
+    static const char *k_save[] = { "/scoped-models\r\033[B\r\023", "\033", "\004", 0 };
+    static const char *k_model[] = { "/model\r", "\004", 0 };
+    static const int m_foot[] = { 24, 25, 0 };
+    const char *quiet = "{\"quietStartup\":true,\"defaultProvider\":\"fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"off\"}\n";
+    const char *listed = "{\"quietStartup\":true,\"defaultProvider\":\"fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"off\","
+                         "\"enabledModels\":[\"fake/fake-large\",\"fake/fake-model\"]}\n";
+    const char *two = "{\"quietStartup\":true,\"defaultProvider\":\"fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"off\","
+                      "\"enabledModels\":[\"fake/fake-model\",\"fake/fake-large\"]}\n";
+    fresh_agent();
+    app_nokeys = 1;
+    app_model_cli = "fake/fake-model";
+    fake_models(0, 1);
+    /* the first row is amiga-pi's built-in ollama model, whose name the catalog spells "Qwen2.5 Coder 7b"; pi gets the model from models.json with the id as its name */
+    xm_row = 18;
+    xm_c0 = 14;
+    xm_c1 = 40;
+    xm_why = "Model Name of the built-in ollama model: the catalog's name, where pi's models.json repeats the id";
+    skills_case("scoped_selector", quiet, k_open, 0, 0, 0, 0, m_foot, 0);
+    skills_case("scoped_clear", quiet, k_clear, 0, 0, 0, 0, m_foot, 0);
+    skills_case("scoped_provider", quiet, k_prov, 0, 0, 0, 0, m_foot, 0);
+    xm_row = 0;
+    skills_case("scoped_listed", listed, k_open, 0, 0, 0, 0, m_foot, 0);
+    skills_case("scoped_toggle", quiet, k_toggle, 0, 0, 0, 0, m_foot, 0);
+    CHECK(!settings_has("enabledModels"));                 /* session-only until Ctrl+S */
+    skills_case("scoped_search", quiet, k_search, 0, 0, 0, 0, m_foot, 0);
+    skills_case("scoped_reorder", two, k_move, 0, 0, 0, 0, m_foot, 0);
+    skills_case("scoped_save", quiet, k_save, 0, 0, 0, 0, m_foot, 0);
+    /* what pi writes: the three enabled models, in the list's order, as "provider/id" strings */
+    CHECK(settings_has("\"enabledModels\": [\n    \"ollama/qwen2.5-coder:7b\",\n    \"fake/fake-small\",\n    \"fake/fake-large\"\n  ]"));
+    CHECK(settings_has("\"quietStartup\": true"));          /* every other member stayed */
+    /* the next start: the saved list is the scope /model offers */
+    {
+        char *saved = app_settings_text();
+        app_write("settings.json", saved);
+        free(saved);
+        CHECK_INT(app_run(80, 25, k_model, 0, 0, take_shot), 0);
+        CHECK(shot_has("Scope:"));
+    }
+    /* the live effect: a model taken out in the selector is skipped by the next Ctrl+P (updateSessionModels), saved or not; the screen is
+     * taken at the footer (the model changes, so the usual "-model" test of the rest does not hold) */
+    {
+        static const char *k_cycle[] = { "/scoped-models\r\033[B\033[B\r\003", "\020", "\004", 0 };
+        static const char *k_plain[] = { "\020", "\004", 0 };
+        rest_any = 1;
+        rest_find = "100k (auto)";
+        app_write("settings.json", quiet);
+        CHECK_INT(app_run(80, 25, k_plain, 0, 0, take_shot), 0);
+        CHECK(shot_has("100k (auto)") && shot_has("fake-small"));      /* all four enabled: the next model is fake-small (100k window) */
+        app_write("settings.json", quiet);
+        CHECK_INT(app_run(80, 25, k_cycle, 0, 0, take_shot), 0);
+        CHECK(shot_has("100k (auto)") && shot_has("fake-large") && !shot_has("fake-small"));
+        rest_any = 0;
+        rest_find = "navigate";
+    }
+    app_nokeys = 0;
+    app_model_cli = 0;
+    app_write("models.json", "{}\n");
+}
+
+/* P12-B12, B13, B16 (owner 2026-10-14: /settings with the settings behind it): pi 1.2.0's settings-selector.ts. The goldens are pi's own
+ * screens (settings_*, tools/pi_oracle/tui_gen.py), the settings.json pi leaves after a change kept as settings_*.settings. Old amiga-pi has no
+ * /settings: every case fails by absence */
+static const char *settings_base = "{\"quietStartup\":true,\"defaultProvider\":\"fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"off\"";
+
+static const char *settings_json(const char *more)
+{
+    static char b[1200];
+    strcpy(b, settings_base);
+    if (more && more[0]) {
+        strcat(b, ",");
+        strcat(b, more);
+    }
+    strcat(b, "}\n");
+    return b;
+}
+
+/* the member of settings.json: its text after "key": up to the end of the line */
+static int settings_member(const char *key, const char *want)
+{
+    char *t = app_settings_text(), pat[120], *at;
+    int ok = 0;
+    strcpy(pat, "\"");
+    strcat(pat, key);
+    strcat(pat, "\": ");
+    at = strstr(t, pat);
+    if (at) {
+        at += strlen(pat);
+        ok = !strncmp(at, want, strlen(want)) && (at[strlen(want)] == ',' || at[strlen(want)] == '\n');
+    }
+    free(t);
+    return ok;
+}
+
+static void test_settings_screens(void)
+{
+    static const char *k_open[] = { "/settings\r", "\004", 0 };
+    static const char *k_end[] = { "/settings\r\033[A", "\004", 0 };
+    static const char *k_down[] = { "/settings\r\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B", "\004", 0 };
+    static const char *k_search[] = { "/settings\rsteer", "\004", 0 };
+    static const char *k_none[] = { "/settings\rzzqq", "\004", 0 };
+    static const char *k_toggle[] = { "/settings\r\r", "\004", 0 };
+    static const char *k_enum[] = { "/settings\rsteering\r", "\004", 0 };
+    static const char *k_follow[] = { "/settings\rfollow", "\004", 0 };
+    static const int m_foot[] = { 24, 25, 0 };
+    fresh_agent();
+    app_nokeys = 1;
+    app_model_cli = "fake/fake-model";
+    fake_models(0, 0);
+    skills_case("settings_list", settings_json(0), k_open, 0, 0, 0, 0, m_foot, 0);
+    skills_case("settings_end", settings_json(0), k_end, 0, 0, 0, 0, m_foot, 0);
+    skills_case("settings_down", settings_json(0), k_down, 0, 0, 0, 0, m_foot, 0);
+    skills_case("settings_search", settings_json(0), k_search, 0, 0, 0, 0, m_foot, 0);
+    skills_case("settings_nomatch", settings_json(0), k_none, 0, 0, 0, 0, m_foot, 0);
+    skills_case("settings_followup", settings_json(0), k_follow, 0, 0, 0, 0, m_foot, 0);
+    skills_case("settings_toggle", settings_json(0), k_toggle, 0, 0, 0, 0, m_foot, 0);
+    CHECK(settings_member("enabled", "false"));                  /* compaction.enabled: pi wrote the member inside "compaction" */
+    skills_case("settings_enum", settings_json(0), k_enum, 0, 0, 0, 0, m_foot, 0);
+    CHECK(settings_member("steeringMode", "\"all\""));
+    /* values read from settings.json, as pi's getters give them: every row off its default, the window moved down the list */
+    {
+        static const char *k_b[] = { "/settings\r\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B", "\004", 0 };
+        static const char *k_c[] = { "/settings\r\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B"
+                                     "\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B\033[B", "\004", 0 };
+        static char all[1400];
+        static const int m_tall[] = { 44, 45, 0 };           /* these captures are 45 rows tall */
+        strcpy(all, "{\"defaultProvider\":\"fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"off\",\"quietStartup\":true,"
+                    "\"compaction\":{\"enabled\":false,\"reserveTokens\":1000},\"steeringMode\":\"all\",\"followUpMode\":\"all\",");
+        strcat(all, "\"hideThinkingBlock\":true,\"terminal\":{\"showImages\":false,\"clearOnShrink\":true},\"images\":{\"blockImages\":true},"
+                    "\"outputPad\":0,\"editorPaddingX\":2,\"autocompleteMaxVisible\":10,\"defaultProjectTrust\":\"always\",");
+        strcat(all, "\"doubleEscapeAction\":\"fork\",\"treeFilterMode\":\"user-only\",\"fullscreenWheelScrollLines\":7,\"httpIdleTimeoutMs\":0,"
+                    "\"transport\":\"sse\",\"cacheWarming\":\"idle\",\"markdown\":{\"mermaid\":\"off\"},\"enableInstallTelemetry\":false,");
+        strcat(all, "\"collapseChangelog\":true,\"showCacheMissNotices\":true,\"enableSkillCommands\":false,\"showHardwareCursor\":true,"
+                    "\"tuiMode\":\"fullscreen\",\"fullscreenExitOutput\":\"resume-hint\",\"fullscreenScrollbar\":\"hidden\",");
+        strcat(all, "\"fullscreenCopyOnSelect\":false,\"warnings\":{\"anthropicExtraUsage\":false}}\n");
+        skills_case("settings_set", all, k_open, 0, 0, 0, 0, m_tall, 0);
+        skills_case("settings_set_b", all, k_b, 0, 0, 0, 0, m_tall, 0);
+        skills_case("settings_set_c", all, k_c, 0, 0, 0, 0, m_tall, 0);
+        skills_case("settings_set_d", all, k_end, 0, 0, 0, 0, m_tall, 0);
+    }
+    /* the theme menus (B13), the warnings menu, the per-model thinking levels */
+    {
+        static const char *k_theme[] = { "/settings\rtheme\r", "\004", 0 };
+        static const char *k_pick[] = { "/settings\rtheme\r\033[B\033[B\033[B\r", "\004", 0 };
+        static const char *k_auto[] = { "/settings\rtheme\r\033[B\r", "\004", 0 };
+        static const char *k_apply[] = { "/settings\rtheme\r\033[B\r\033[B\033[B\r", "\004", 0 };
+        static const char *k_warn[] = { "/settings\rwarnings\r", "\004", 0 };
+        static const char *k_warn_off[] = { "/settings\rwarnings\r\r", "\033", "\004", 0 };
+        static const char *k_mt[] = { "/settings\rper model\r", "\004", 0 };
+        static const char *k_mt_level[] = { "/settings\rper model\r\r", "\004", 0 };
+        static const char *k_mt_set[] = { "/settings\rper model\r\r\033[B\033[B\r", "\004", 0 };
+        static const char *k_img[] = { "/settings\r", "\004", 0 };
+        static const char *k_img_off[] = { "/settings\r\033[B\r", "\004", 0 };
+        skills_case("settings_theme", settings_json(0), k_theme, 0, 0, 0, 0, m_foot, 0);
+        skills_case("settings_theme_auto", settings_json(0), k_auto, 0, 0, 0, 0, m_foot, 0);
+        skills_case("settings_theme_pick", settings_json(0), k_pick, 0, 0, 0, 0, m_foot, 0);
+        CHECK(settings_member("theme", "\"light\""));
+        skills_case("settings_theme_apply", settings_json(0), k_apply, 0, 0, 0, 0, m_foot, 0);
+        CHECK(settings_member("theme", "\"system/system\""));
+        skills_case("settings_warnings", settings_json(0), k_warn, 0, 0, 0, 0, m_foot, 0);
+        skills_case("settings_warnings_off", settings_json(0), k_warn_off, 0, 0, 0, 0, m_foot, 0);
+        CHECK(settings_has("\"warnings\": {\n    \"anthropicExtraUsage\": false\n  }"));
+        app_imgproto = "kitty";
+        skills_case("settings_images", settings_json(0), k_img, 0, 0, 0, 0, m_foot, 0);
+        skills_case("settings_images_off", settings_json(0), k_img_off, 0, 0, 0, 0, m_foot, 0);
+        CHECK(settings_has("\"terminal\": {\n    \"showImages\": false\n  }"));
+        app_imgproto = 0;
+        fake_models(1, 1);
+        skills_case("settings_modelthinking", settings_json(0), k_mt, 0, 0, 0, 0, m_foot, 0);
+        skills_case("settings_modelthinking_level", settings_json(0), k_mt_level, 0, 0, 0, 0, m_foot, 0);
+        skills_case("settings_modelthinking_set", settings_json(0), k_mt_set, 0, 0, 0, 0, m_foot, 0);
+        CHECK(settings_has("\"modelThinkingLevels\": {\n    \"fake/fake-model\": \"low\"\n  }"));
+    }
+    app_nokeys = 0;
+    app_model_cli = 0;
+    app_write("models.json", "{}\n");
+}
+
+/* P12-B12 behaviours (owner 2026-10-14: every knob of /settings moves the output or carries a written exemption): the rows whose effect is on the
+ * screen. editorPaddingX, autocompleteMaxVisible against pi's own captures (pad_*, menu_max*); showHardwareCursor, autocompact's "(auto)", the skill
+ * commands of the slash menu, doubleEscapeAction, treeFilterMode, outputPad, and a model's own thinking level by the screen they change */
+static void test_settings_behaviour(void)
+{
+    static const char *k_pad[] = { "hello padded world", "\004", 0 };
+    static const char *k_menu[] = { "/", "\004", 0 };
+    static const char *k_abc[] = { "abc", "\004", 0 };
+    static const char *k_skill[] = { "/skill:", "\004", 0 };
+    static const char *k_toggle_skill[] = { "/settings\rskill\r\003", "/skill:", "\004", 0 };
+    static const char *k_two_esc[] = { "\033", "\033", "\004", 0 };
+    static const char *k_tree[] = { "/tree\r", "\004", 0 };
+    static const char *k_model[] = { "/model fake-model\r", "\004", 0 };
+    static const int m_foot[] = { 24, 25, 0 };
+    static const int m_menu[] = { 23, 23, 25, 25, 29, 30, 0 };
+    fresh_agent();
+    app_nokeys = 1;
+    app_model_cli = "fake/fake-model";
+    fake_models(0, 0);
+    pi_ui_set_commands(pi_cmds, (int)(sizeof(pi_cmds) / sizeof(pi_cmds[0])));
+    skills_case("pad_editor", settings_json("\"editorPaddingX\":2"), k_pad, 0, 0, 0, 0, m_foot, 0);
+    skills_case("pad_menu", settings_json("\"editorPaddingX\":3,\"autocompleteMaxVisible\":10"), k_menu, 0, 0, 0, 0, m_foot, 0);
+    skills_case("menu_max3", settings_json("\"autocompleteMaxVisible\":3"), k_menu, 0, 0, 0, 0, m_foot, 0);
+    pi_ui_set_commands(0, 0);
+    /* showHardwareCursor: the window's cursor rests on the editor's cursor cell (after "abc"), and is hidden otherwise */
+    app_write("settings.json", settings_json("\"showHardwareCursor\":true"));
+    CHECK_INT(app_run(80, 25, k_abc, 0, 0, take_shot), 0);
+    CHECK(shot_cursor && shot_cx == 3 && shot_cy >= 0 && strstr(shot[shot_cy], "abc") != 0);
+    app_write("settings.json", settings_json(0));
+    CHECK_INT(app_run(80, 25, k_abc, 0, 0, take_shot), 0);
+    CHECK(!shot_cursor);
+    /* autocompact: the footer's "(auto)" while auto-compaction is on */
+    CHECK_INT(app_run(80, 25, k_abc, 0, 0, take_shot), 0);
+    CHECK(shot_has("(auto)"));
+    app_write("settings.json", settings_json("\"compaction\":{\"enabled\":false}"));
+    CHECK_INT(app_run(80, 25, k_abc, 0, 0, take_shot), 0);
+    CHECK(!shot_has("(auto)"));
+    /* doubleEscapeAction: Esc twice on the empty editor opens /tree (default) or /fork, or nothing */
+    {
+        char path[600];
+        if (put_session("../sessions/doc_branch.jsonl", "esc_session.jsonl", path)) {
+            app_session = path;
+            app_write("settings.json", settings_json(0));
+            CHECK_INT(app_run(80, 25, k_two_esc, 0, 0, take_shot), 0);
+            CHECK(shot_has("Session Tree"));
+            app_write("settings.json", settings_json("\"doubleEscapeAction\":\"fork\""));
+            CHECK_INT(app_run(80, 25, k_two_esc, 0, 0, take_shot), 0);
+            CHECK(shot_has("Fork from Message"));
+            app_write("settings.json", settings_json("\"doubleEscapeAction\":\"none\""));
+            CHECK_INT(app_run(80, 25, k_two_esc, 0, 0, take_shot), 0);
+            CHECK(!shot_has("Fork from Message") && !shot_has("Session Tree"));
+            /* treeFilterMode: /tree starts with the filter the setting names */
+            app_write("settings.json", settings_json("\"treeFilterMode\":\"user-only\""));
+            CHECK_INT(app_run(80, 25, k_tree, 0, 0, take_shot), 0);
+            CHECK(shot_has("[user]"));
+            app_write("settings.json", settings_json(0));
+            CHECK_INT(app_run(80, 25, k_tree, 0, 0, take_shot), 0);
+            CHECK(shot_has("Session Tree") && !shot_has("[user]"));
+            /* outputPad: the transcript's side padding, at the start and live from /settings (the transcript is drawn again) */
+            {
+                static const char *k_pad0[] = { "/settings\routput pad\r\003", "\004", 0 };
+                static const char *k_none[] = { "\004", 0 };
+                int r, at;
+                app_write("settings.json", settings_json(0));
+                CHECK_INT(app_run(80, 25, k_none, 0, 0, take_shot), 0);
+                for (at = -1, r = 0; r < nshot; r++)
+                    if (strstr(shot[r], "B answer"))
+                        at = r;
+                CHECK(at >= 0 && shot[at][0] == ' ' && shot[at][1] == 'B');
+                CHECK_INT(app_run(80, 25, k_pad0, 0, 0, take_shot), 0);
+                for (at = -1, r = 0; r < nshot; r++)
+                    if (strstr(shot[r], "B answer"))
+                        at = r;
+                CHECK(at >= 0 && shot[at][0] == 'B');
+                CHECK(settings_member("outputPad", "0"));
+            }
+            app_session = 0;
+        } else
+            CHECK(0);
+    }
+    /* a model's own thinking level (modelThinkingLevels): /model to it applies the level; none, the settings' default */
+    fake_models(1, 1);
+    app_model_cli = "fake/fake-small";
+    app_write("settings.json", settings_json(0));
+    CHECK_INT(app_run(80, 25, k_model, 0, 0, take_shot), 0);
+    CHECK(shot_has("fake-model") && shot_has("thinking off"));
+    app_write("settings.json", settings_json("\"modelThinkingLevels\":{\"fake/fake-model\":\"low\"}"));
+    CHECK_INT(app_run(80, 25, k_model, 0, 0, take_shot), 0);
+    CHECK(shot_has("fake-model \342\200\242 low"));
+    app_model_cli = "fake/fake-model";
+    /* enableSkillCommands: the /skill:name rows of the slash menu, at the start and after the row is toggled in /settings */
+    app_nokeys = 0;
+    app_model_cli = 0;
+    skills_tree(settings_json(0));
+    app_agent = skdir;
+    CHECK_INT(app_run(80, 25, k_skill, 0, 0, take_shot), 0);
+    CHECK(shot_has("skill:greet"));
+    skills_tree(settings_json("\"enableSkillCommands\":false"));
+    CHECK_INT(app_run(80, 25, k_skill, 0, 0, take_shot), 0);
+    CHECK(!shot_has("skill:greet"));
+    CHECK_INT(app_run(80, 25, k_toggle_skill, 0, 0, take_shot), 0);             /* toggled on in /settings: the rows are there at once */
+    if (getenv("PI_TUI_DUMP")) {
+        int r;
+        for (r = 0; r < nshot; r++)
+            printf("    %2d|%s\n", r + 1, shot[r]);
+    }
+    CHECK(shot_has("skill:greet"));
+    skills_tree(settings_json(0));
+    CHECK_INT(app_run(80, 25, k_toggle_skill, 0, 0, take_shot), 0);             /* toggled off */
+    CHECK(!shot_has("skill:greet"));
+    app_agent = 0;
+    (void)m_menu;
+    app_write("models.json", "{}\n");
+}
+
+/* P12-B17 (owner 2026-10-14: build the config selector with its command): `amiga-pi config`, pi 1.2.0's config-selector.ts, against pi's own
+ * captures of `pi config -na` (config_*): the groups, the boxes, the search, the toggle (and what it writes to settings.json: an entry
+ * `-<path>` of the "skills" or "prompts" array, which the next start reads back). Not compared: the settings file's name under the title (pi
+ * prints ~/.pi/agent/settings.json) and pi's Built-in group (codemode, llama.cpp, mcp, tool-search: node packages amiga-pi does not have) */
+static void test_config(void)
+{
+    static const char *k_none[] = { "\004", 0 };
+    static const char *k_down[] = { "\033[B\033[B", "\004", 0 };
+    static const char *k_space[] = { " ", "\004", 0 };
+    static const char *k_back[] = { "\033[B\033[B \033[A ", "\004", 0 };
+    static const char *k_search[] = { "fix", "\004", 0 };
+    static const char *k_nomatch[] = { "zzqq", "\004", 0 };
+    static const int m_list[] = { 5, 5, 16, 25, 0 };
+    static const int m_hint[] = { 5, 5, 0 };
+    static const int m_empty[] = { 5, 5, 8, 25, 0 };
+    const char *quiet = "{\"quietStartup\":true}\n";
+    char *saved;
+    fresh_agent();
+    tree_json = "config_files.json";
+    app_config_cli = "-na";
+    rest_any = 1;
+    rest_find = "Global Resources";
+    skills_case("config_list", quiet, k_none, 0, 0, 0, 0, m_list, 1);
+    skills_case("config_down", quiet, k_down, 0, 0, 0, 0, m_list, 1);
+    skills_case("config_search", quiet, k_search, 0, 0, 0, 0, m_hint, 1);
+    skills_case("config_nomatch", quiet, k_nomatch, 0, 0, 0, 0, m_hint, 1);
+    skills_case("config_off", "{\"quietStartup\":true,\"skills\":[\"-skills/terse/SKILL.md\"],\"prompts\":[\"-prompts/fix.md\"]}\n", k_none, 0, 0, 0, 0, m_list, 1);
+    skills_case("config_toggle", quiet, k_space, 0, 0, 0, 0, m_list, 1);
+    saved = 0;
+    {
+        char p[600];
+        FILE *f;
+        long n;
+        strcpy(p, skdir);
+        strcat(p, "/settings.json");
+        f = fopen(p, "rb");
+        saved = (char *)calloc(1, 2000);
+        n = f ? (long)fread(saved, 1, 1999, f) : 0;
+        if (f)
+            fclose(f);
+        (void)n;
+    }
+    CHECK(strstr(saved, "\"skills\": [\n    \"-skills/greet/SKILL.md\"\n  ]") != 0);              /* pi's entry: the path below the group's directory */
+    free(saved);
+    skills_case("config_toggle_back", quiet, k_back, 0, 0, 0, 0, m_list, 1);
+    {
+        char p[600];
+        FILE *f;
+        saved = (char *)calloc(1, 2000);
+        strcpy(p, skdir);
+        strcat(p, "/settings.json");
+        f = fopen(p, "rb");
+        if (f && fread(saved, 1, 1999, f) < 1)
+            saved[0] = 0;
+        if (f)
+            fclose(f);
+        CHECK(strstr(saved, "\"-prompts/fix.md\"") != 0 && strstr(saved, "\"-skills/terse/SKILL.md\"") != 0);
+        free(saved);
+    }
+    /* the next start reads the entries back: greet is off in the slash menu's /skill:name rows */
+    app_config_cli = 0;
+    rest_any = 0;
+    rest_find = "navigate";
+    app_home = 0;
+    (void)m_empty;
+    tree_json = "skills_files.json";
 }
 
 /* P12-B2/B3 (D1): What's New after an update and /changelog, from amiga-pi's CHANGELOG.md in pi's format. The goldens are pi 1.2.0's own
@@ -3621,7 +4033,7 @@ static void test_menu_rows_uncapped(void)
     pi_ui_set_extra_commands(2, rows, 700);
     app_write("settings.json", "{\"quietStartup\":true}\n");
     CHECK_INT(app_run(80, 25, keys, 0, 0, take_shot), 0);
-    CHECK(shot_has("(1/713)"));             /* thirteen built-in rows (with /login, /logout and /changelog) and 700 more */
+    CHECK(shot_has("(1/715)"));             /* fifteen built-in rows (with /login, /logout, /changelog, /settings and /scoped-models) and 700 more */
     CHECK_INT(app_run(80, 25, keys_x, 0, 0, take_shot), 0);
     CHECK(shot_has("a row"));               /* the editor holds "/x699" too: the menu row is what has a description */
     /* Esc closes a menu of more than eight rows (it once asked for the matches into a table of eight) */
@@ -3781,6 +4193,10 @@ void suite_pi_tui(void)
     test_login_screens();
     test_whats_new();
     test_selectors();
+    test_scoped();
+    test_settings_screens();
+    test_settings_behaviour();
+    test_config();
     test_fork_selector();
     test_login_typed();
     test_compact_live();

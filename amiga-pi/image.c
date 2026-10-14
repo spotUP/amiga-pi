@@ -363,6 +363,13 @@ static int omit(pi_img *r, const char *why)
     return 1;
 }
 
+static int auto_resize = 1;
+
+void pi_image_set_resize(int on)
+{
+    auto_resize = on;
+}
+
 int pi_image_process(const unsigned char *b, long n, const char *mime, pi_img *r)
 {
     const unsigned char *in = b;
@@ -384,6 +391,11 @@ int pi_image_process(const unsigned char *b, long n, const char *mime, pi_img *r
         in = conv;
         from = mime;
         r->mime = "image/png";
+    }
+    if (!auto_resize) {
+        /* processImage with autoResizeImages false: the normalized bytes, no resize */
+        r->ow = r->oh = 0;
+        goto as_is;
     }
     /* resizeImage: the size after the orientation */
     if (!strcmp(r->mime, "image/webp")) {

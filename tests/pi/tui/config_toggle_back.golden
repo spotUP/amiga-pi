@@ -1,0 +1,25 @@
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+
+[1m[39mGlobal Resources[0m                                        [2mspace toggle · esc close
+~/.pi/agent/settings.json[0m
+
+> [7m [0m
+
+  [1m[38;5;5mUser (~/agent/)[0m
+    [2mSkills[0m
+      [38;5;2m[x][39m greet
+>     [2m[ ][0m [1mterse[0m
+    [2mPrompts[0m
+      [2m[ ][0m fix.md
+      [38;5;2m[x][39m review.md
+  [1m[38;5;5mBuilt-in[0m
+    [2mExtensions[0m
+      [38;5;2m[x][39m codemode
+      [38;5;2m[x][39m llama.cpp
+      [38;5;2m[x][39m mcp
+      [38;5;2m[x][39m tool-search
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+
+

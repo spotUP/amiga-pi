@@ -150,6 +150,10 @@ typedef struct pi_session {
      * cuts the wait (abort_retry) */
     int retry_on, retry_max;
     long retry_base, retry_max_delay;
+    /* settings.json images.blockImages (sdk.js convertToLlmWithBlockImages: an image of a user or tool-result message is the text "Image reading is
+     * disabled." in the request, read when the request is made) and httpIdleTimeoutMs (the wait for the next bytes of an answer, ms; 0 pi's 300 s) */
+    int block_images;
+    long idle_ms;
     int attempt, retry_stop;
     /* the last run's agent_end decided to retry (pi's willRetry): the only place that decides, since giving up
      * (the last retry failed too) resets attempt, and a second look would start the retries over, without end */

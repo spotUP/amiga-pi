@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Per-Model Thinking Level
+
+Step 1/2 · Select a model to configure
+
+>
+
+→ fake-model [fake]          low
+  fake-small [fake]
+  fake-large [fake]
+  qwen2.5-coder:7b [ollama]
+
+  Type to filter · Enter to select · Esc to go back
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                         (fake) fake-model • low

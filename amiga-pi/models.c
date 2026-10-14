@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "models.h"
+#include "settings_pi.h"
 #include "ext_events.h"
 #include "authstore.h"
 #include "radius.h"
@@ -180,7 +181,8 @@ int pi_model_switch_level(pi_models *m, pi_session *s, const llm_model *to, int 
 {
     char label[200];
     llm_model was = s->model;
-    int level = explicit_level >= 0 ? explicit_level : m->default_level >= 0 ? m->default_level : s->thinking;
+    int per = explicit_level >= 0 ? -1 : pi_set_model_level(m->sys, m->agent_dir, to->provider, to->id);   /* the model's own level (settings.json modelThinkingLevels) */
+    int level = explicit_level >= 0 ? explicit_level : per >= 0 ? per : m->default_level >= 0 ? m->default_level : s->thinking;
     if (!usable(m, to)) {
         pi_model_label(to, label, sizeof(label));
         cl_copy(err, "No API key for ", cap);
@@ -327,6 +329,22 @@ static int scope_models(pi_models *m, int *idx, int *lv, int max)
             }
         }
     }
+    return n;
+}
+
+int pi_models_pattern(pi_models *m, const char *pattern, int *idx, int max)
+{
+    char *keep = m->scope;
+    int *lv, n;
+    if (!pattern || !pattern[0] || max < 1)
+        return 0;
+    lv = (int *)malloc(sizeof(int) * (size_t)max);
+    if (!lv)
+        return 0;
+    m->scope = (char *)pattern;
+    n = scope_models(m, idx, lv, max);
+    m->scope = keep;
+    free(lv);
     return n;
 }
 

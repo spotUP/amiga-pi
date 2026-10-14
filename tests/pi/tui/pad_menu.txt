@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+   /
+────────────────────────────────────────────────────────────────────────────────
+   → settings       Open settings menu
+     model          <provider/model> — Select model (opens selector UI)
+     tree           Navigate session tree (switch branches)
+     thinking       <level> — Set thinking level
+     scoped-models  Enable/disable models for Ctrl+P cycling
+     export         Export session (HTML default, or specify path: .html/.j
+     import         Import and resume a session from a JSONL file
+     share          Share session as a secret GitHub gist
+     bug            <description> — Report a bug to the Pi developers
+     copy           Copy last agent message to clipboard
+     (1/26)
+~/project
+0.0%/200k (auto)                                                      fake-model

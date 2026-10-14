@@ -1,0 +1,25 @@
+
+────────────────────────────────────────────────────────────────────────────────
+
+Global Resources                                        space toggle · esc close
+~/.pi/agent/settings.json
+
+>
+
+  Built-in
+    Extensions
+>     [x] codemode
+      [x] llama.cpp
+      [x] mcp
+      [x] tool-search
+
+────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+

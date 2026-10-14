@@ -1,0 +1,25 @@
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+  Output padding                    1
+  Autocomplete max items            5
+  Clear on shrink                   false
+  Terminal progress                 false
+  Steering mode                     one-at-a-time
+→ Follow-up mode                    one-at-a-time
+  Transport                         auto
+  HTTP idle timeout                 5 min
+  Cache warming                     streaming
+  Hide thinking                     false
+  (12/32)
+
+  Option+Enter queues follow-up messages until agent stops. 'one-at-a-time':
+  deliver one, wait for response. 'all': deliver all at once.
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model
