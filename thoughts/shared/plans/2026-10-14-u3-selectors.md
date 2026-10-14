@@ -2,7 +2,7 @@
 date: 2026-10-14
 topic: U3 part 2 -- /scoped-models, /settings (theme, show images inside it), config selector, with the features behind them
 tags: [pi-1.2.0, selectors, settings, P12-B11, P12-B12, P12-B13, P12-B16, P12-B17]
-status: draft
+status: implemented
 ---
 
 # Ledger (owner 2026-10-14: build all four, each with the feature behind it, as pi 1.2.0 does)
@@ -23,8 +23,15 @@ Items
 - [x] U3-3 settings_pi.c table + /settings main list (14 goldens settings_*)
 - [x] U3-4 theme menus (B13), warnings, per-model thinking levels (goldens settings_theme*, settings_warnings*, settings_modelthinking*)
 - [x] U3-5 images rows (B16) with PI_IMAGE_PROTOCOL (goldens settings_images*)
-- [ ] U3-6 behaviours: one per row of the table, each moves the output (see the table's `moves`)
-- [ ] U3-7 line mode /settings numbered list
-- [ ] U3-8 config selector (B17) + `config` command
-- [ ] U3-9 COMPATIBILITY rows, plan P12 ticks, CHANGELOG
-- [ ] U3-10 gates, commits, worktrees removed
+- [x] U3-6 behaviours: one per row of the table, each moves the output (see the table's `moves`)
+- [x] U3-7 line mode /settings numbered list
+- [x] U3-8 config selector (B17) + `config` command
+- [x] U3-9 COMPATIBILITY rows, plan P12 ticks, CHANGELOG
+- [x] U3-10 gates, commits, worktrees removed
+
+Evidence
+- vtcon 2b1944d (tui.c/tui.h: pi_edpad, pi_menu_max, pi_dbl_esc, pi_hwcursor; test_claude_tui). amiga-pi 9ff67c1 (oracle + 43 scenarios), 9c0b09a (code + tests).
+- Gates (worktrees build/wt-u3, UPTERM_ROOT=/Users/spot/Code/UP-Term): amiga-pi `make test` all 17 suites + layers ok, `make amiga` ok; vtcon `make test ONLY=claude_tui` (672), `claude_repl` (1806), `layers` ok, `make amiga` ok.
+- Revert proofs (mutated, run, restored): per-model thinking level, block images, double escape, autocompact footer, tree filter, scope apply, config toggle each fail their check (test_pi_tui.c 1943, 2106, 2114, 2117, 2124, 2158, 2227, 2241; test_pi_model_reach.c 718, 719, 805).
+- Hide thinking is exempt because amiga-pi draws no thinking blocks (found while building the table).
+- /reload did not refresh the slash menu's array after the skill rows were made again (a stale pointer); reload_resources now does.
