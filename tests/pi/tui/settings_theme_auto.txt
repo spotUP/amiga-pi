@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Automatic Theme
+
+Choose themes for terminal light and dark appearance.
+Light/dark detection requires terminal support.
+
+→ Light theme  system
+  Dark theme   system
+  Apply        save and go back
+  Change mode  switch to single theme
+
+  Theme to use in automatic mode when the terminal is light
+
+  Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

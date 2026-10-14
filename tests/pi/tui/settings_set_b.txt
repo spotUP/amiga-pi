@@ -1,0 +1,45 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+  Terminal progress                 false
+  Steering mode                     all
+  Follow-up mode                    all
+  Transport                         sse
+  HTTP idle timeout                 disabled
+→ Cache warming                     idle
+  Hide thinking                     true
+  Mermaid diagrams                  off
+  Cache miss notices                true
+  Collapse changelog                true
+  (15/32)
+
+  off; streaming while the agent runs; idle also between runs while
+  continuation stays profitable
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k                                                             fake-model

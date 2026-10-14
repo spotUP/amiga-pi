@@ -1,0 +1,45 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[39m> [7m [0m
+
+  Terminal progress                 [2mfalse[0m
+  Steering mode                     [2mall[0m
+  Follow-up mode                    [2mall[0m
+  Transport                         [2msse[0m
+  HTTP idle timeout                 [2mdisabled[0m
+[38;5;5m→ Cache warming                   [39m  [38;5;5midle
+[39m  Hide thinking                     [2mtrue
+[0m  Mermaid diagrams                  [2moff[0m
+  Cache miss notices                [2mtrue
+[0m  Collapse changelog                [2mtrue
+  (15/32)[0m
+
+[2m  off; streaming while the agent runs; idle also between runs while[0m
+[2m  continuation stays profitable[0m
+
+[2m  Type to search · Enter/Space to change · Esc to cancel[0m
+[38;5;4m────────────────────────────────────────────────────────────────────────────────
+[2m[39m~/project[0m
+[2m0.0%/200k                                                             fake-model

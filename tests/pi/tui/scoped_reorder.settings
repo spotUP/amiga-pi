@@ -1,0 +1,16 @@
+{
+ "defaultModel": "fake-model",
+ "defaultProvider": "fake",
+ "defaultThinkingLevel": "off",
+ "enabledModels": [
+  "fake/fake-model",
+  "fake/fake-large"
+ ],
+ "lastChangelogVersion": "1.2.0",
+ "quietStartup": true,
+ "retry": {
+  "enabled": false
+ },
+ "theme": "system",
+ "tuiMode": "fullscreen"
+}

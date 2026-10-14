@@ -1,0 +1,13 @@
+{
+ "defaultModel": "fake-model",
+ "defaultProvider": "fake",
+ "defaultThinkingLevel": "off",
+ "lastChangelogVersion": "1.2.0",
+ "quietStartup": true,
+ "retry": {
+  "enabled": false
+ },
+ "steeringMode": "all",
+ "theme": "system",
+ "tuiMode": "fullscreen"
+}

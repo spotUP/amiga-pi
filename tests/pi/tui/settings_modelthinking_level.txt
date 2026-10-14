@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+Thinking Level for fake-model [fake]
+
+Step 2/2 · Select default thinking level for this model
+
+→   off       No reasoning
+    minimal   Very brief reasoning (~1k tokens)
+    low       Light reasoning (~2k tokens)
+    medium    Moderate reasoning (~8k tokens)
+    high      Deep reasoning (~16k tokens)
+
+  Enter to select · Esc to go back
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                (fake) fake-model • thinking off

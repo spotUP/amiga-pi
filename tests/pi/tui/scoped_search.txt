@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+Model Configuration
+Session-only. Ctrl+S to save to settings.
+
+> large
+
+→ ✓ fake-large [fake]
+
+  Model Name: Fake Large
+
+  Model catalogs refreshed.
+  Enter toggle · Ctrl+A all · Ctrl+X clear · Ctrl+P provider ·
+Option+Up/Option+Down reorder · Ctrl+S save · all enabled
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                               (fake) fake-model

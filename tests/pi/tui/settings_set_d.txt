@@ -1,0 +1,45 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+  Double-escape action              fork
+  Tree filter mode                  user-only
+  Warnings                          configure
+  Default thinking level per model  none
+  TUI mode                          fullscreen
+  Fullscreen exit output            resume-hint
+  Fullscreen scrollbar              hidden
+  Fullscreen copy on select         false
+  Fullscreen wheel scrolling        7
+→ Theme                             system
+  (32/32)
+
+  Color theme for the interface
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k                                                             fake-model

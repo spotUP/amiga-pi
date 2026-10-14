@@ -1,0 +1,25 @@
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+  Auto-compact                      true
+→ Show images                       false
+  Image width                       60
+  Auto-resize images                true
+  Block images                      false
+  Skill commands                    true
+  Show hardware cursor              false
+  Editor padding                    0
+  Output padding                    1
+  Autocomplete max items            5
+  (2/34)
+
+  Render images inline in terminal
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

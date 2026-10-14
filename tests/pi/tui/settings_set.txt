@@ -1,0 +1,45 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+>
+
+→ Auto-compact                      false
+  Auto-resize images                true
+  Block images                      true
+  Skill commands                    false
+  Show hardware cursor              true
+  Editor padding                    2
+  Output padding                    0
+  Autocomplete max items            10
+  Clear on shrink                   true
+  Terminal progress                 false
+  (1/32)
+
+  Automatically compact context when it gets too large
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k                                                             fake-model

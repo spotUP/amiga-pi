@@ -1,0 +1,25 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+> theme
+
+→ Theme                             system/system
+  Default thinking level per model  none
+
+  Color theme for the interface
+
+  Type to search · Enter/Space to change · Esc to cancel
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

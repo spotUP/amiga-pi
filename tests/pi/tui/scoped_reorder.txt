@@ -1,0 +1,25 @@
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+
+Model Configuration
+Session-only. Ctrl+S to save to settings.
+
+>
+
+  ✓ fake-large [fake]
+→ ✓ fake-model [fake]
+    qwen2.5-coder:7b [ollama]
+    fake-small [fake]
+
+  Model Name: fake-model
+
+  Model catalogs refreshed.
+  Enter toggle · Ctrl+A all · Ctrl+X clear · Ctrl+P provider ·
+Option+Up/Option+Down reorder · Ctrl+S save · 2/4 enabled (unsaved)
+────────────────────────────────────────────────────────────────────────────────
+~/project
+0.0%/200k (auto)                                                      fake-model

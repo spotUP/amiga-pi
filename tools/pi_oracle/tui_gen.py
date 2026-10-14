@@ -235,6 +235,104 @@ SCENARIOS = {
                       models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
     'model_arg_search': dict(steps=[('type', '/model fak'), ('enter',), ('wait', 'Model Name')], answers=[],
                              models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')]),
+    # P12-B11: /scoped-models, scoped-models-selector.ts (all enabled, a scope, a toggle, a save to settings.json, a search, a reorder, "clear all")
+    'scoped_selector': dict(steps=[('type', '/scoped-models'), ('enter',), ('wait', 'Model Configuration'), ('sleep', 1.0)], answers=[],
+                            models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True),
+    'scoped_listed': dict(steps=[('type', '/scoped-models'), ('enter',), ('wait', 'Model Configuration'), ('sleep', 1.0)], answers=[],
+                          models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True,
+                          settings={'enabledModels': ['fake/fake-large', 'fake/fake-model']}),
+    'scoped_toggle': dict(steps=[('type', '/scoped-models'), ('enter',), ('wait', 'Model Configuration'), ('sleep', 1.0), ('key', 'Down'), ('enter',), ('sleep', 0.5)],
+                          answers=[], models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True),
+    'scoped_save': dict(steps=[('type', '/scoped-models'), ('enter',), ('wait', 'Model Configuration'), ('sleep', 1.0), ('key', 'Down'), ('enter',), ('sleep', 0.5),
+                               ('key', 'C-s'), ('sleep', 0.5), ('key', 'Escape'), ('wait', 'Model selection saved')],
+                        answers=[], models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True),
+    'scoped_search': dict(steps=[('type', '/scoped-models'), ('enter',), ('wait', 'Model Configuration'), ('sleep', 1.0), ('type', 'large'), ('sleep', 0.5)],
+                          answers=[], models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True),
+    'scoped_reorder': dict(steps=[('type', '/scoped-models'), ('enter',), ('wait', 'Model Configuration'), ('sleep', 1.0), ('key', 'M-Down'), ('sleep', 0.5)],
+                           answers=[], models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True,
+                           settings={'enabledModels': ['fake/fake-model', 'fake/fake-large']}),
+    'scoped_clear': dict(steps=[('type', '/scoped-models'), ('enter',), ('wait', 'Model Configuration'), ('sleep', 1.0), ('key', 'C-x'), ('sleep', 0.5)],
+                         answers=[], models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True),
+    'scoped_provider': dict(steps=[('type', '/scoped-models'), ('enter',), ('wait', 'Model Configuration'), ('sleep', 1.0), ('key', 'C-x'), ('sleep', 0.3), ('key', 'C-p'), ('sleep', 0.5)],
+                            answers=[], models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True),
+    # P12-B12/B13/B16: /settings, settings-selector.ts (the list, scrolled to its end, a search, a boolean and an enum toggled, the theme menus, the
+    # warnings menu, the per-model thinking menu, and with a terminal that draws images the Show images and Image width rows)
+    'settings_list': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('sleep', 0.5)], answers=[], settings_out=True),
+    'settings_end': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('key', 'Up'), ('sleep', 0.5)], answers=[], settings_out=True),
+    'settings_down': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('key', 'Down'), ('key', 'Down'), ('key', 'Down'), ('key', 'Down'),
+                                 ('key', 'Down'), ('key', 'Down'), ('key', 'Down'), ('key', 'Down'), ('key', 'Down'), ('key', 'Down'), ('key', 'Down'), ('sleep', 0.5)],
+                          answers=[], settings_out=True),
+    'settings_search': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'steer'), ('sleep', 0.5)], answers=[], settings_out=True),
+    'settings_nomatch': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'zzqq'), ('sleep', 0.5)], answers=[], settings_out=True),
+    'settings_toggle': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('enter',), ('sleep', 0.5)], answers=[], settings_out=True),
+    'settings_enum': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'steering'), ('enter',), ('sleep', 0.5)],
+                          answers=[], settings_out=True),
+    'settings_theme': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'theme'), ('enter',), ('wait', 'Select a theme'), ('sleep', 0.5)],
+                           answers=[], settings_out=True),
+    'settings_theme_pick': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'theme'), ('enter',), ('wait', 'Select a theme'),
+                                       ('key', 'Down'), ('key', 'Down'), ('key', 'Down'), ('enter',), ('sleep', 1.0)], answers=[], settings_out=True),
+    'settings_theme_auto': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'theme'), ('enter',), ('wait', 'Select a theme'),
+                                       ('key', 'Down'), ('enter',), ('wait', 'Automatic Theme'), ('sleep', 0.5)], answers=[], settings_out=True),
+    'settings_theme_apply': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'theme'), ('enter',), ('wait', 'Select a theme'),
+                                        ('key', 'Down'), ('enter',), ('wait', 'Automatic Theme'), ('key', 'Down'), ('key', 'Down'), ('enter',), ('sleep', 1.0)],
+                                 answers=[], settings_out=True),
+    'settings_warnings': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'warnings'), ('enter',), ('wait', 'Anthropic extra usage'),
+                                     ('sleep', 0.5)], answers=[], settings_out=True),
+    'settings_warnings_off': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'warnings'), ('enter',), ('wait', 'Anthropic extra usage'),
+                                         ('enter',), ('sleep', 0.5), ('key', 'Escape'), ('sleep', 0.5)], answers=[], settings_out=True),
+    'settings_modelthinking': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'per model'), ('enter',), ('wait', 'Per-Model'),
+                                          ('sleep', 0.5)], answers=[], reasoning=True, models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True),
+    'settings_modelthinking_level': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'per model'), ('enter',), ('wait', 'Per-Model'),
+                                                ('enter',), ('wait', 'Thinking Level for'), ('sleep', 0.5)], answers=[], reasoning=True,
+                                         models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True),
+    'settings_modelthinking_set': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'per model'), ('enter',), ('wait', 'Per-Model'),
+                                              ('enter',), ('wait', 'Thinking Level for'), ('key', 'Down'), ('key', 'Down'), ('enter',), ('sleep', 0.8)],
+                                       answers=[], reasoning=True, models=[('fake-small', 'Fake Small'), ('fake-large', 'Fake Large')], ollama='first', settings_out=True),
+    'settings_followup': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('type', 'follow'), ('sleep', 0.5)], answers=[], settings_out=True),
+    'settings_images': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('sleep', 0.5)], answers=[], settings_out=True,
+                            env='PI_IMAGE_PROTOCOL=kitty'),
+    'settings_images_off': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('key', 'Down'), ('enter',), ('sleep', 0.5)], answers=[],
+                                settings_out=True, env='PI_IMAGE_PROTOCOL=kitty'),
+    'settings_set': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('sleep', 0.5)], answers=[], settings_out=True, rows=45,
+                         settings={'compaction': {'enabled': False, 'reserveTokens': 1000}, 'steeringMode': 'all', 'followUpMode': 'all', 'quietStartup': True,
+                                   'hideThinkingBlock': True, 'terminal': {'showImages': False, 'clearOnShrink': True}, 'images': {'blockImages': True},
+                                   'outputPad': 0, 'editorPaddingX': 2, 'autocompleteMaxVisible': 10, 'defaultProjectTrust': 'always',
+                                   'doubleEscapeAction': 'fork', 'treeFilterMode': 'user-only', 'fullscreenWheelScrollLines': 7, 'httpIdleTimeoutMs': 0,
+                                   'transport': 'sse', 'cacheWarming': 'idle', 'markdown': {'mermaid': 'off'}, 'enableInstallTelemetry': False,
+                                   'collapseChangelog': True, 'showCacheMissNotices': True, 'enableSkillCommands': False, 'showHardwareCursor': True,
+                                   'tuiMode': 'fullscreen', 'fullscreenExitOutput': 'resume-hint', 'fullscreenScrollbar': 'hidden',
+                                   'fullscreenCopyOnSelect': False, 'warnings': {'anthropicExtraUsage': False}}),
+    'settings_set_b': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact')] + [('key', 'Down')] * 14 + [('sleep', 0.5)], answers=[],
+                           settings_out=True, rows=45, settings={'compaction': {'enabled': False, 'reserveTokens': 1000}, 'steeringMode': 'all', 'followUpMode': 'all', 'quietStartup': True,
+                                   'hideThinkingBlock': True, 'terminal': {'showImages': False, 'clearOnShrink': True}, 'images': {'blockImages': True},
+                                   'outputPad': 0, 'editorPaddingX': 2, 'autocompleteMaxVisible': 10, 'defaultProjectTrust': 'always',
+                                   'doubleEscapeAction': 'fork', 'treeFilterMode': 'user-only', 'fullscreenWheelScrollLines': 7, 'httpIdleTimeoutMs': 0,
+                                   'transport': 'sse', 'cacheWarming': 'idle', 'markdown': {'mermaid': 'off'}, 'enableInstallTelemetry': False,
+                                   'collapseChangelog': True, 'showCacheMissNotices': True, 'enableSkillCommands': False, 'showHardwareCursor': True,
+                                   'tuiMode': 'fullscreen', 'fullscreenExitOutput': 'resume-hint', 'fullscreenScrollbar': 'hidden',
+                                   'fullscreenCopyOnSelect': False, 'warnings': {'anthropicExtraUsage': False}}),
+    'settings_set_c': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact')] + [('key', 'Down')] * 24 + [('sleep', 0.5)], answers=[],
+                           settings_out=True, rows=45, settings={'compaction': {'enabled': False, 'reserveTokens': 1000}, 'steeringMode': 'all', 'followUpMode': 'all', 'quietStartup': True,
+                                   'hideThinkingBlock': True, 'terminal': {'showImages': False, 'clearOnShrink': True}, 'images': {'blockImages': True},
+                                   'outputPad': 0, 'editorPaddingX': 2, 'autocompleteMaxVisible': 10, 'defaultProjectTrust': 'always',
+                                   'doubleEscapeAction': 'fork', 'treeFilterMode': 'user-only', 'fullscreenWheelScrollLines': 7, 'httpIdleTimeoutMs': 0,
+                                   'transport': 'sse', 'cacheWarming': 'idle', 'markdown': {'mermaid': 'off'}, 'enableInstallTelemetry': False,
+                                   'collapseChangelog': True, 'showCacheMissNotices': True, 'enableSkillCommands': False, 'showHardwareCursor': True,
+                                   'tuiMode': 'fullscreen', 'fullscreenExitOutput': 'resume-hint', 'fullscreenScrollbar': 'hidden',
+                                   'fullscreenCopyOnSelect': False, 'warnings': {'anthropicExtraUsage': False}}),
+    'settings_set_d': dict(steps=[('type', '/settings'), ('enter',), ('wait', 'Auto-compact'), ('key', 'Up'), ('sleep', 0.5)], answers=[],
+                           settings_out=True, rows=45, settings={'compaction': {'enabled': False, 'reserveTokens': 1000}, 'steeringMode': 'all', 'followUpMode': 'all', 'quietStartup': True,
+                                   'hideThinkingBlock': True, 'terminal': {'showImages': False, 'clearOnShrink': True}, 'images': {'blockImages': True},
+                                   'outputPad': 0, 'editorPaddingX': 2, 'autocompleteMaxVisible': 10, 'defaultProjectTrust': 'always',
+                                   'doubleEscapeAction': 'fork', 'treeFilterMode': 'user-only', 'fullscreenWheelScrollLines': 7, 'httpIdleTimeoutMs': 0,
+                                   'transport': 'sse', 'cacheWarming': 'idle', 'markdown': {'mermaid': 'off'}, 'enableInstallTelemetry': False,
+                                   'collapseChangelog': True, 'showCacheMissNotices': True, 'enableSkillCommands': False, 'showHardwareCursor': True,
+                                   'tuiMode': 'fullscreen', 'fullscreenExitOutput': 'resume-hint', 'fullscreenScrollbar': 'hidden',
+                                   'fullscreenCopyOnSelect': False, 'warnings': {'anthropicExtraUsage': False}}),
+    # P12-B12 behaviours: editorPaddingX and autocompleteMaxVisible (the editor and the slash menu), showHardwareCursor
+    'pad_editor': dict(steps=[('type', 'hello padded world')], answers=[], settings={'editorPaddingX': 2}),
+    'pad_menu': dict(steps=[('type', '/')], answers=[], settings={'editorPaddingX': 3, 'autocompleteMaxVisible': 10}),
+    'menu_max3': dict(steps=[('type', '/')], answers=[], settings={'autocompleteMaxVisible': 3}),
     # P12-B10: /thinking, thinking-selector.ts (a reasoning model); P12-B15: /fork, user-message-selector.ts
     'thinking_selector': dict(steps=[('type', '/thinking'), ('enter',), ('wait', 'cycles thinking')], answers=[], reasoning=True),
     'thinking_search': dict(steps=[('type', '/thinking'), ('enter',), ('wait', 'cycles thinking'), ('type', 'low'), ('sleep', 0.5)], answers=[],
@@ -447,6 +545,31 @@ SCENARIOS.update({
 
 # J5/I8: the start with prompt templates: the [Prompts] list, its Ctrl+O form, the [Prompt conflicts] block (a name two files have, a
 # file whose YAML pi refuses, a path that is not there), and the skills list in its Ctrl+O form
+CONFIG_FILES = {
+    'skills/greet/SKILL.md': _sk('greet', 'Greets the user by name'),
+    'skills/terse/SKILL.md': _sk('terse', 'Answers in five words'),
+    'prompts/fix.md': '---\ndescription: Fix the failing test\n---\nFix the failing test: $ARGUMENTS\n',
+    'prompts/review.md': '---\ndescription: Review the diff\n---\nReview the diff: $ARGUMENTS\n',
+}
+
+SCENARIOS.update({
+    # P12-B17: `pi config -na`, config-selector.ts: the user's skills and prompt templates (and what settings.json switches off)
+    'config_list': dict(steps=[('sleep', 0.5)], answers=[], argv='config -na', ready='Global Resources', agent_files=CONFIG_FILES, settings_out=True),
+    'config_down': dict(steps=[('key', 'Down'), ('key', 'Down'), ('sleep', 0.5)], answers=[], argv='config -na', ready='Global Resources',
+                        agent_files=CONFIG_FILES, settings_out=True),
+    'config_toggle': dict(steps=[('type', ' '), ('sleep', 0.5)], answers=[], argv='config -na', ready='Global Resources', agent_files=CONFIG_FILES,
+                          settings_out=True),
+    'config_toggle_back': dict(steps=[('key', 'Down'), ('key', 'Down'), ('type', ' '), ('key', 'Up'), ('type', ' '), ('sleep', 0.5)], answers=[],
+                               argv='config -na', ready='Global Resources', agent_files=CONFIG_FILES, settings_out=True),
+    'config_search': dict(steps=[('type', 'fix'), ('sleep', 0.5)], answers=[], argv='config -na', ready='Global Resources', agent_files=CONFIG_FILES,
+                          settings_out=True),
+    'config_nomatch': dict(steps=[('type', 'zzqq'), ('sleep', 0.5)], answers=[], argv='config -na', ready='Global Resources', agent_files=CONFIG_FILES,
+                           settings_out=True),
+    'config_off': dict(steps=[('sleep', 0.5)], answers=[], argv='config -na', ready='Global Resources', agent_files=CONFIG_FILES, settings_out=True,
+                       settings={'skills': ['-skills/terse/SKILL.md'], 'prompts': ['-prompts/fix.md']}),
+    'config_empty': dict(steps=[('sleep', 0.5)], answers=[], argv='config -na', ready='Global Resources', settings_out=True)
+})
+
 PROMPT_FILES = {
     'prompts/review.md': '---\ndescription: Review a file\nargument-hint: "<path>"\n---\nReview $1 carefully.\n',
     'prompts/summarize.md': 'Summarize $ARGUMENTS in three lines.\n',
@@ -879,9 +1002,13 @@ def run(name, sc, cols, rows, keep):
               open(os.path.join(agent, 'models.json'), 'w'))
     if sc.get('ollama'):      # amiga-pi lists its built-in local ollama model with no key; pi gets the same model from models.json
         mj = json.load(open(os.path.join(agent, 'models.json')))
-        mj['providers']['ollama'] = {'baseUrl': 'http://127.0.0.1:11434/v1', 'api': 'openai-completions', 'apiKey': 'ollama',
-                                     'models': [{'id': 'qwen2.5-coder:7b', 'name': 'qwen2.5-coder:7b', 'reasoning': False, 'input': ['text'],
-                                                 'contextWindow': 32768, 'maxTokens': 4096, 'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}}]}
+        oll = {'baseUrl': 'http://127.0.0.1:11434/v1', 'api': 'openai-completions', 'apiKey': 'ollama',
+               'models': [{'id': 'qwen2.5-coder:7b', 'name': 'qwen2.5-coder:7b', 'reasoning': False, 'input': ['text'],
+                           'contextWindow': 32768, 'maxTokens': 4096, 'cost': {'input': 0, 'output': 0, 'cacheRead': 0, 'cacheWrite': 0}}]}
+        if sc['ollama'] == 'first':       # pi lists models.json's providers in file order; amiga-pi's built-in ollama is the first provider of its registry
+            mj['providers'] = dict([('ollama', oll)] + list(mj['providers'].items()))
+        else:
+            mj['providers']['ollama'] = oll
         json.dump(mj, open(os.path.join(agent, 'models.json'), 'w'))
     # quietStartup hides the header: only the scenarios about the header show it (the rest would scroll by its height)
     settings = {'defaultProvider': 'fake', 'defaultModel': MODEL, 'defaultThinkingLevel': 'off',
@@ -931,12 +1058,12 @@ def run(name, sc, cols, rows, keep):
                           % (fport, os.path.join(HERE, 'fetch_shim.mjs')))
     pipelog = os.path.join(work, 'pty.bytes')
     tmux('new-session', '-d', '-s', sess, '-x', str(cols), '-y', str(rows), '-c', proj,
-         env + (PI + (" --session-dir '%s'" % os.path.join(work, sc['sdir']) if sc.get('sdir') else '') + (' --session session.jsonl' if sc.get('session') else ' -r' if sc.get('resume') else '' if sc.get('persist') else ' --no-session')))
+         env + (PI + ' ' + sc['argv'] if 'argv' in sc else PI + (" --session-dir '%s'" % os.path.join(work, sc['sdir']) if sc.get('sdir') else '') + (' --session session.jsonl' if sc.get('session') else ' -r' if sc.get('resume') else '' if sc.get('persist') else ' --no-session')))
     tmux('set-option', '-t', sess, 'remain-on-exit', 'on')
     if sc.get('pipe'):
         tmux('pipe-pane', '-t', sess, 'cat > %s' % pipelog)
     try:
-        wait_text(sess, 'Resume Session' if sc.get('resume') else MODEL, 30)       # the footer names the model once pi is up
+        wait_text(sess, sc['ready'] if 'ready' in sc else 'Resume Session' if sc.get('resume') else MODEL, 30)       # the footer names the model once pi is up
         time.sleep(4.0 if sc.get('session') else 1.0)     # a session is loaded after that
         shots = {}
         for st in sc['steps']:
@@ -985,7 +1112,7 @@ def run(name, sc, cols, rows, keep):
             f.write(keep(capture(sess, False)) if HIST else capture(sess, False))
         with open(os.path.join(OUT, name + '.mode'), 'w') as f:      # what tmux saw before pi left
             f.write('pi=%s tuiMode=%s theme=%s alternate_screen=%s\n' % (PI_VERSION, sc.get('tui', 'fullscreen'), sc.get('theme', 'system'), shots['alt']))
-        if sc.get('changelog'):      # what pi wrote to settings.json (lastChangelogVersion), sorted
+        if sc.get('changelog') or sc.get('settings_out'):      # what pi wrote to settings.json (lastChangelogVersion, the selectors' changes), sorted
             with open(os.path.join(OUT, name + '.settings'), 'w') as f:
                 f.write(json.dumps(json.load(open(os.path.join(agent, 'settings.json'))), sort_keys=True, indent=1) + '\n')
         if sc.get('pipe'):
@@ -1023,6 +1150,7 @@ def main():
     # the skills of the skills_* scenarios, for tests/test_pi_tui.c to put in its own agent directory
     json.dump(SKILL_FILES, open(os.path.join(OUT, 'skills_files.json'), 'w'), indent=1)
     json.dump(PROMPT_FILES, open(os.path.join(OUT, 'prompts_files.json'), 'w'), indent=1)
+    json.dump(CONFIG_FILES, open(os.path.join(OUT, 'config_files.json'), 'w'), indent=1)
     json.dump(CONFLICT_FILES, open(os.path.join(OUT, 'conflict_files.json'), 'w'), indent=1)
     open(os.path.join(OUT, 'changelog_fixture.md'), 'w').write(CHANGELOG_FIXTURE)
     json.dump(RELOAD_FILES, open(os.path.join(OUT, 'reload_files.json'), 'w'), indent=1)
