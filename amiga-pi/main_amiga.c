@@ -26,7 +26,11 @@
 #include "tools_pi.h"
 
 static const char vers[] = "$VER: amiga-pi 0.1 (11.10.2026) UP-Term";
-const char stack_cookie[] = "$STACK: 32768";
+const char stack_cookie[] = "$STACK: 131072";
+/* vbcc's startup (vc.lib) reads __stack and runs main on a stack of this size when the caller's is smaller, so
+ * amiga-pi does not depend on the Stack a Shell, a script or Workbench gives it: with 32 KB, `amiga-pi -p` overflowed
+ * its stack and ended in Guru #80000008 in two tasks at once (rig 2, 2026-10-15; tests/test_amiga_stack.py) */
+long __stack = 131072;
 
 static unsigned long mem_start, mem_least;
 static int mem_watch;
