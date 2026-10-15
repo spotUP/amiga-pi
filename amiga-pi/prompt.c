@@ -94,8 +94,10 @@ static void prefix(const pi_session *s, pi_psec *out)
     /* amiga: the machine, as C:Claude tells it (claude/amiga_text.h) */
     at = out->text.n;
     open_tag(&out->text, "amiga");
-    jw_rawz(&out->text, "You run as a native program on " CL_AMIGA_MACHINE ". " CL_AMIGA_PATHS
-                        "Relative paths start from the working directory (cwd). The machine is slow and has little "
+    /* split: C90 only guarantees string literals of 509 bytes, and CL_AMIGA_PATHS alone is longer than that */
+    jw_rawz(&out->text, "You run as a native program on " CL_AMIGA_MACHINE ". ");
+    jw_rawz(&out->text, CL_AMIGA_PATHS);
+    jw_rawz(&out->text, "Relative paths start from the working directory (cwd). The machine is slow and has little "
                         "memory: prefer targeted reads and searches to reading whole trees.");
     if (s->shell_note) {
         jw_rawz(&out->text, " ");
