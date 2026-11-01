@@ -1423,6 +1423,13 @@ int pi_rt_run(pi_rt *rt)
         static char *kb;
         long kn = 0;
         pi_ui_set_cwd(pl->cwd);
+        {
+            static char hf[400];
+            if (pl->sys && pl->data_dir && !path_join(pl->data_dir, "prompt-history", hf, sizeof(hf)))
+                pi_ui_set_history(pl->sys, hf);
+            else
+                pi_ui_set_history(0, 0);
+        }
         rr_set_home(pl_home(pl));                    /* a path in the start-up lists is written with ~ for the home directory */
         {
             int nt;

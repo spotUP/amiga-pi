@@ -207,6 +207,16 @@ void pi_ui_set_resume(const char *(*fn)(void *u), void *u)
     ui_resume_u = u;
 }
 
+/* the prompt history kept across runs (pi keeps it in memory only; the owner asked for it on disk, 2026-11-01) */
+static cl_sys *ui_hist_sys;
+static char ui_hist_file[400];
+
+void pi_ui_set_history(cl_sys *sys, const char *path)
+{
+    ui_hist_sys = sys;
+    cl_copy(ui_hist_file, path ? path : "", sizeof(ui_hist_file));
+}
+
 void pi_ui_set_cwd(const char *cwd)
 {
     cl_copy(ui_cwd, cwd ? cwd : "", sizeof(ui_cwd));
@@ -1397,6 +1407,15 @@ static cl_tui *screen(pi_ui *p, cl_io *io)
         p->theme = ui_theme;
     else
         pitheme_system(&p->theme);
+    if (ui_hist_sys && ui_hist_file[0]) {
+        /* pi's editor history, one list for every directory ("" as the project): the last 100 prompts, no repeat of the
+         * newest (editor.js addToHistory), read from the file and written after each submitted prompt (tui.c remember) */
+        t->sys = ui_hist_sys;
+        t->project = "";
+        t->histfile = ui_hist_file;
+        hist_load(&t->hist, ui_hist_sys, ui_hist_file);
+        hist_fill(&t->hist, &t->ed, "");
+    }
     t->look = TUI_LOOK_PI;
     t->screen = ui_regular ? TUI_SCREEN_REGULAR : TUI_SCREEN_FULL;
     t->exit_hint_only = ui_hint_only;

@@ -16,6 +16,8 @@
 
 /* the directory the footer shows (the working directory as the program has it) */
 void pi_ui_set_cwd(const char *cwd);
+/* the file the prompt history is kept in (sys reads and writes it; 0 or "" keeps it in memory only) */
+void pi_ui_set_history(cl_sys *sys, const char *path);
 /* the directory name for pi's window title, as node's path.basename gives it: the last part after '/' or, on the
  * Amiga, after the volume's ':' (trailing '/' ignored); a volume root ("Ram Disk:") gives the volume's name */
 void pi_dir_name(const char *path, char *out, int n);

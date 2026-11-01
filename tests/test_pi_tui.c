@@ -1292,6 +1292,37 @@ static void app_cleanup(void)
 
 /* ---- N2: Ctrl+P cycles the models of enabledModels, Shift+Tab the thinking level, entries written ---- */
 
+/* the prompt history across runs (owner 2026-11-01): prompts typed in one run are recalled with Up in the next, through
+ * pi_app and the screen's prompt loop; the sentinel is the request the recalled text makes */
+static void test_prompt_history(void)
+{
+    static const char *k1[] = { "first prompt\r", "second prompt\r", "second prompt\r", "\004", 0 };
+    static const char *k2[] = { "\033[A\033[A\r", "\004", 0 };
+    static const char *k3[] = { "\033[A\r", "\004", 0 };
+    static const char *const sse2[] = { "markdown.1.sse", "markdown.1.sse", "markdown.1.sse" };
+    static const char *const sse1[] = { "markdown.1.sse" };
+    char path[500], h[4096];
+    FILE *f;
+    size_t n = 0;
+    app_write("settings.json", "{\"quietStartup\":true}\n");
+    CHECK_INT(app_run(80, 25, k1, sse2, 3, 0), 0);
+    CHECK_INT(app_run(80, 25, k2, sse1, 1, 0), 0);
+    CHECK_INT(ps.nreq, 1);
+    CHECK(ps.nreq > 0 && strstr(ps.body[0], "first prompt") != 0);      /* Up Up: the older of the two */
+    CHECK_INT(app_run(80, 25, k3, sse1, 1, 0), 0);
+    CHECK(ps.nreq > 0 && strstr(ps.body[0], "first prompt") != 0);      /* the run before resubmitted it: now the newest */
+    strcpy(path, adata);
+    strcat(path, "/prompt-history");
+    f = fopen(path, "rb");
+    CHECK(f != 0);
+    if (f) {
+        n = fread(h, 1, sizeof(h) - 1, f);
+        fclose(f);
+    }
+    h[n] = 0;
+    CHECK(strstr(h, "\"display\":\"second prompt\"") != 0);
+}
+
 static void test_cycle(void)
 {
     static const char *keys[] = { "hello\r", "\020", "\020", "\033[Z", "\004", 0 };
@@ -4319,6 +4350,7 @@ void suite_pi_tui(void)
     test_window_title();
     app_sandbox();
     test_cycle();
+    test_prompt_history();
     test_tree();
     test_tree_nav();
     test_resume_took();
