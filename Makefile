@@ -10,7 +10,7 @@ include $(VTCON_DIR)/sources.mk
 # tests/test_host_deps.py there): the sources through sources.mk, the headers below through VTCON_HDR, and VTCON_STAMP
 # records the resolved VTCON_DIR, so pointing VTCON_DIR at another tree rebuilds. The stamp is rewritten at parse time,
 # only when the path changed (make -n must see the change too); tests/test_make_deps.py proves all of it.
-VTCON_HDR := $(wildcard $(addprefix $(VTCON_DIR)/,*.h */*.h */*.inc))
+VTCON_HDR := $(wildcard $(addprefix $(VTCON_DIR)/,*.h */*.h */*.inc)) $(ENGINE_INC)
 VTCON_STAMP := build/vtcon_dir.stamp
 $(shell mkdir -p build; echo '$(realpath $(VTCON_DIR))' | cmp -s - $(VTCON_STAMP) || echo '$(realpath $(VTCON_DIR))' > $(VTCON_STAMP))
 vtvar = $(shell $(MAKE) -s --no-print-directory -C $(VTCON_DIR) -f Makefile -f $(CURDIR)/tools/vtcon_vars.mk print-$(1))
