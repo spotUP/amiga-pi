@@ -78,6 +78,22 @@ static int l_brk(void *u)
     return 0;
 }
 
+/* the console history file the line mode names (cl_io.history_file): every spec it was given, and the one the
+ * console had before ("shell-file") */
+static char hist_spec[4][500];
+static int hist_n;
+
+static int l_hist(void *u, const char *spec, char *prev, long cap)
+{
+    (void)u;
+    if (hist_n < 4)
+        cl_copy(hist_spec[hist_n], spec, sizeof(hist_spec[0]));
+    hist_n++;
+    if (prev && cap > 0)
+        cl_copy(prev, "shell-file", cap);
+    return 0;
+}
+
 #define ARGC(a) ((int)(sizeof(a) / sizeof((a)[0]) - 1))
 
 static int run(int argc, char **argv)
@@ -88,6 +104,7 @@ static int run(int argc, char **argv)
     io.read_line = l_read;
     io.write = l_write;
     io.brk = l_brk;
+    io.history_file = l_hist;
     jw_free(&out);
     jw_init(&out);
     in_n = 0;
@@ -496,6 +513,25 @@ static void test_catalog(void)
 }
 
 /* models.json: a provider with "oauth":"radius" is a gateway of its own with its own catalog (model-runtime.ts configureRadiusProviders) */
+/* one prompt history for both modes (owner, 2026-11-01): line mode names the file raw mode keeps, <data>/prompt-history,
+ * as JSON lines of the empty project ("path\n"), and gives the console its own list back on leaving */
+static void test_line_mode_history_file(void)
+{
+    char *a[] = { "amiga-pi", "--model", "radius/balanced", 0 };
+    char want[600];
+    offline = "1";
+    fresh();
+    hist_n = 0;
+    in_lines[0] = 0;
+    run(ARGC(a), a);
+    cl_copy(want, data, sizeof(want));
+    cl_cat(want, "/prompt-history\n", sizeof(want));
+    CHECK_INT(hist_n, 2);
+    CHECK_STR(hist_spec[0], want);
+    CHECK_STR(hist_spec[1], "shell-file");
+    offline = 0;
+}
+
 static void test_custom_gateway(void)
 {
     char *a[] = { "amiga-pi", "--model", "radius/balanced", 0 };
@@ -846,6 +882,7 @@ void suite_pi_radius(void)
     jw_init(&out);
     test_scenarios();
     test_catalog();
+    test_line_mode_history_file();
     test_custom_gateway();
     test_legacy();
     test_openrouter_pure();

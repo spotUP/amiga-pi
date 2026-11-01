@@ -4555,6 +4555,8 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
     char *line = (char *)malloc(8192);
     cl_tui *t;
     char hello[200];
+    char hist_prev[300];
+    int hist_switched = 0;
     if (!line)
         return 0;
     attach(&p, s, io, 0);
@@ -4619,6 +4621,14 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         }
         ui_nwarn = 0;
     }
+    /* line mode keeps the prompt history in the console handler: name the same file raw mode keeps, as JSON lines of
+     * the empty project (the handler reads and appends that form), so Up recalls one list in either mode */
+    if (!t && io->history_file && ui_hist_sys && ui_hist_file[0]) {
+        char spec[sizeof(ui_hist_file) + 2];
+        cl_copy(spec, ui_hist_file, sizeof(spec));
+        cl_cat(spec, "\n", sizeof(spec));
+        hist_switched = io->history_file(io->u, spec, hist_prev, sizeof(hist_prev)) == 0;
+    }
     if (first && *first) {
         user_echo(&p, first);
         pi_prompt(s, first);
@@ -4650,6 +4660,8 @@ int pi_ui_run(pi_session *s, cl_io *io, const char *first)
         pi_prompt(s, line);
         say_end(&p);
     }
+    if (hist_switched)
+        io->history_file(io->u, hist_prev, 0, 0);    /* the Shell's own list again */
     if (t) {
         if (p.look && ui_resume) {
             /* pi: "To resume this session: <command>" when the session has a file */
