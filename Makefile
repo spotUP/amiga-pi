@@ -38,7 +38,7 @@ PI_HDR := $(wildcard amiga-pi/*.h)
 # what the host binaries need of vtcon besides C:Claude's core: the view (show.c's
 # Markdown), the line discipline's helpers, the clipboard text; the tests also the
 # engine (C:Claude's screen tests run on it) and the test helpers
-VT_HOST := $(VIEW_CORE) $(call cl_src,tty/bmsg.c handler/clipfmt.c)
+VT_HOST := $(VIEW_CORE) $(call cl_src,tty/bmsg.c handler/clipfmt.c handler/be32.c)
 VT_TEST := $(call cl_src,engine/vtengine.c tests/harness.c tests/claude_load.c tests/claude_screen.c tests/pi_stub.c)
 PI_TESTS := tests/main.c tests/test_pi_agent.c tests/test_pi_tools.c tests/test_pi_session.c tests/test_pi_store.c tests/test_pi_model.c tests/test_pi_model_reach.c tests/test_pi_mcp.c tests/test_pi_resources.c tests/test_pi_tui.c tests/test_pi_modes.c tests/test_pi_templates.c tests/test_pi_hooks.c tests/test_pi_lua.c tests/test_pi_yaml.c tests/test_pi_diff.c tests/test_pi_login.c tests/test_pi_radius.c tests/test_pi_settings.c tests/pi/sdk_example.c
 
