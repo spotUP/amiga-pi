@@ -30,6 +30,7 @@
 #include "resreport.h"
 #include "claude/util.h"
 #include "claude/path.h"
+#include "claude/datadir.h"
 #include "claude/repl.h"       /* cl_key_clean */
 
 /* one write per line: json and rpc mode route each write to the diagnostic stream as a line of its own (diag_write), and
@@ -1425,8 +1426,10 @@ int pi_rt_run(pi_rt *rt)
         pi_ui_set_cwd(pl->cwd);
         {
             static char hf[400];
-            if (pl->sys && pl->data_dir && !path_join(pl->data_dir, "prompt-history", hf, sizeof(hf)))
+            if (pl->sys && pl->data_dir && !path_join(pl->data_dir, "prompt-history", hf, sizeof(hf))) {
+                dd_mkdirs(pl->sys, pl->data_dir);    /* a fresh install has no data directory, and the write makes none */
                 pi_ui_set_history(pl->sys, hf);
+            }
             else
                 pi_ui_set_history(0, 0);
         }

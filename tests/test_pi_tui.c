@@ -1323,6 +1323,32 @@ static void test_prompt_history(void)
     CHECK(strstr(h, "\"display\":\"second prompt\"") != 0);
 }
 
+/* a fresh install has no data directory: the first prompt typed makes it and the history file in it (rig 33, 2026-11-02:
+ * neither UP-Term:var/amiga-pi nor ENVARC:amiga-pi existed, so no run ever kept a prompt) */
+static void test_prompt_history_fresh_dir(void)
+{
+    static const char *k1[] = { "fresh prompt\r", "\004", 0 };
+    static const char *const sse1[] = { "markdown.1.sse" };
+    char cmd[500], path[500], h[1024];
+    FILE *f;
+    size_t n = 0;
+    strcpy(cmd, "rm -rf '");
+    strcat(cmd, adata);
+    strcat(cmd, "'");
+    CHECK_INT(system(cmd), 0);
+    CHECK_INT(app_run(80, 25, k1, sse1, 1, 0), 0);
+    strcpy(path, adata);
+    strcat(path, "/prompt-history");
+    f = fopen(path, "rb");
+    CHECK(f != 0);
+    if (f) {
+        n = fread(h, 1, sizeof(h) - 1, f);
+        fclose(f);
+    }
+    h[n] = 0;
+    CHECK(strstr(h, "\"display\":\"fresh prompt\"") != 0);
+}
+
 static void test_cycle(void)
 {
     static const char *keys[] = { "hello\r", "\020", "\020", "\033[Z", "\004", 0 };
@@ -4351,6 +4377,7 @@ void suite_pi_tui(void)
     app_sandbox();
     test_cycle();
     test_prompt_history();
+    test_prompt_history_fresh_dir();
     test_tree();
     test_tree_nav();
     test_resume_took();
