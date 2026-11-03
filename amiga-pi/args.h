@@ -81,8 +81,9 @@ typedef struct pi_args {
     char warn[1024];            /* "Warning: <message>" lines, newline separated, "" none (pi parsed.diagnostics type warning) */
 } pi_args;
 
-/* 0, -1 with err set */
-int pi_args_parse(pi_args *a, int argc, char **argv);
+/* 0, -1 with err set. quoted (may be 0: nothing quoted) is 1 where word i was quoted on the command line: a quoted
+ * word is never an option, it is prompt text (so `amiga-pi "-v explain"` asks about -v) */
+int pi_args_parse(pi_args *a, int argc, char **argv, const char *quoted);
 /* the model the arguments name (pointers into a): 0, -1 with a->err set */
 int pi_args_model(pi_args *a, llm_model *m);
 /* "OPENAI_API_KEY" for provider "openai" */

@@ -1006,13 +1006,13 @@ static void test_skills_args(void)
     pi_args a;
     char *argv1[] = { "amiga-pi", "--skill", "one", "-ns", "--skill", "two.md", "go", 0 };
     char *argv2[] = { "amiga-pi", "--skill", 0 };
-    CHECK_INT(pi_args_parse(&a, 7, argv1), 0);
+    CHECK_INT(pi_args_parse(&a, 7, argv1, 0), 0);
     CHECK_INT(a.nskills, 2);
     CHECK_STR(a.skills[0], "one");
     CHECK_STR(a.skills[1], "two.md");
     CHECK_INT(a.no_skills, 1);
     CHECK_STR(a.prompt, "go");
-    CHECK_INT(pi_args_parse(&a, 2, argv2), -1);        /* a trailing --skill is an unknown option, as pi's */
+    CHECK_INT(pi_args_parse(&a, 2, argv2, 0), -1);        /* a trailing --skill is an unknown option, as pi's */
     CHECK(strstr(a.err, "Unknown option: --skill") != 0);
 }
 

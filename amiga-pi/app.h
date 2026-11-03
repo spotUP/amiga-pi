@@ -24,6 +24,7 @@ typedef struct pi_platform {
     /* an environment variable: its length, -1 none */
     long (*getenv)(const char *name, char *out, long cap);
     const char *cwd;
+    const char *quoted;         /* 1 where argv[i] was quoted on the command line (a quoted word is never an option), 0 none */
     /* the machine for the tools (claude/sys.h: sys_amiga, sys_posix), 0 no tools */
     cl_sys *sys;
     const char *tmp;            /* where cut tool output is kept: "T:" */

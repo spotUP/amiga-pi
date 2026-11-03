@@ -1750,6 +1750,31 @@ static void test_arg_error_on_diag(void)
     }
 }
 
+/* AGENT-TASK-DASH: a quoted word is never an option. `amiga-pi "-v explain"` and a task that starts with a dash are
+ * prompt text; the same word unquoted is still a flag (the quoted array is 1 where the command line quoted the word) */
+static void test_quoted_dash(void)
+{
+    pi_args pa;
+    char *q1[] = { "x", "-v explain" };
+    char *q2[] = { "x", "--help me" };
+    char *q3[] = { "x", "-v" };
+    char *q4[] = { "x", "-p", "-v explain", "now" };
+    char one[] = { 0, 1 }, two[] = { 0, 0, 1, 0 };
+    CHECK_INT(pi_args_parse(&pa, 2, q1, one), 0);
+    CHECK_INT(pa.version, 0);
+    CHECK_STR(pa.prompt, "-v explain");
+    CHECK_INT(pa.nmsg, 1);
+    CHECK_INT(pi_args_parse(&pa, 2, q2, one), 0);
+    /* unquoted, --help is an unknown option and the parse fails; quoted it is the prompt (rc 0 above) */
+    CHECK_STR(pa.prompt, "--help me");
+    CHECK_INT(pi_args_parse(&pa, 2, q3, 0), 0);
+    CHECK_INT(pa.version, 1);
+    CHECK_STR(pa.prompt, "");
+    CHECK_INT(pi_args_parse(&pa, 4, q4, two), 0);
+    CHECK_INT(pa.print, 1);
+    CHECK_STR(pa.prompt, "-v explain now");
+}
+
 /* --thinking with a level pi does not know is a WARNING: pi prints "Warning: Invalid thinking level "bad". Valid values:
  * off, minimal, low, medium, high, xhigh, max" on stderr (cli/args.ts:169-176, main.ts:621-625) and goes on; the level
  * stays what it was (oracle run, pi 1.1.0: `--thinking bad -v` -> that line on stderr, "1.1.0" on stdout, rc 0;
@@ -1762,12 +1787,12 @@ static void test_thinking_warning(void)
     char *b[] = { "x", "--thinking", "bad", "--thinking", "worse", "-v" };
     char *c[] = { "x", "--thinking", "bad", "--bogus" };
     pi_args pa;
-    CHECK_INT(pi_args_parse(&pa, 6, a), 0);
+    CHECK_INT(pi_args_parse(&pa, 6, a, 0), 0);
     CHECK_STR(pa.warn, w1);
     CHECK_INT(pa.thinking, LT_HIGH);                /* a bad level does not reset the earlier good one */
-    CHECK_INT(pi_args_parse(&pa, 6, b), 0);
+    CHECK_INT(pi_args_parse(&pa, 6, b, 0), 0);
     CHECK(strstr(pa.warn, "\nWarning: Invalid thinking level \"worse\"") != 0);
-    CHECK_INT(pi_args_parse(&pa, 4, c), -1);        /* the error stays an error, the warning before it is kept */
+    CHECK_INT(pi_args_parse(&pa, 4, c, 0), -1);        /* the error stays an error, the warning before it is kept */
     CHECK_STR(pa.warn, w1);
     memset(&ro, 0, sizeof(ro));
     ro.nocmp = 1;
@@ -1837,13 +1862,13 @@ static void test_version_flag(void)
         char *one[] = { "x", "-v", "--bogus" }, *two[] = { "x", "--bogus", "-v" }, *three[] = { "x", "-p", "-v" };
         char *bad[] = { "x", "--mode", "xx", "-v" };
         pi_args a;
-        CHECK_INT(pi_args_parse(&a, 3, one), 0);
+        CHECK_INT(pi_args_parse(&a, 3, one, 0), 0);
         CHECK_INT(a.version, 1);
-        CHECK_INT(pi_args_parse(&a, 3, two), 0);
+        CHECK_INT(pi_args_parse(&a, 3, two, 0), 0);
         CHECK_INT(a.version, 1);
-        CHECK_INT(pi_args_parse(&a, 3, three), 0);
+        CHECK_INT(pi_args_parse(&a, 3, three, 0), 0);
         CHECK_INT(a.version, 1);
-        CHECK_INT(pi_args_parse(&a, 4, bad), -1);
+        CHECK_INT(pi_args_parse(&a, 4, bad, 0), -1);
         CHECK_STR(a.err, "Invalid mode \"xx\". Valid values: text, json, rpc");
     }
 }
@@ -2222,6 +2247,7 @@ void suite_pi_modes(void)
     test_schema_keys();
     test_version_flag();
     test_thinking_warning();
+    test_quoted_dash();
     test_hooks_pi();
     test_hooks_reach();
     test_decisions();

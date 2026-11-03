@@ -18,6 +18,7 @@
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include "app.h"
+#include "claude/cli.h"
 #include "claude/datadir.h"
 #include "claude/io_amiga.h"
 #include "claude/net_amiga.h"
@@ -115,6 +116,8 @@ static int a_random(void *u, unsigned char *buf, long n)
     return net_amiga_random(buf, n);
 }
 
+#define PI_MAIN_WORDS 255
+
 int main(int argc, char **argv)
 {
     static net_amiga na;
@@ -129,6 +132,9 @@ int main(int argc, char **argv)
     char v[8], what[160];
     struct Process *me = (struct Process *)FindTask(0);
     int rc;
+    cl_args words;
+    char *wv[PI_MAIN_WORDS + 2], wq[PI_MAIN_WORDS + 2];
+    int wn = 1;
     (void)vers;
     mem_watch = GetVar((STRPTR)"PI_MEM", (STRPTR)v, sizeof(v), 0) >= 0;
     mem_start = mem_least = AvailMem(MEMF_ANY);
@@ -163,7 +169,22 @@ int main(int argc, char **argv)
     pl.changelog = "ENVARC:uppkg/amiga-pi/CHANGELOG.md";    /* the archive's record drawer: pi reads its CHANGELOG.md from its package directory */
     if (dd_dir(&sys, "amiga-pi", data, sizeof(data)) >= 0)
         pl.data_dir = data;     /* the data-directory rule (claude/datadir.h) */
-    rc = pi_app(argc, argv, &pl);
+    /* the words again from the argument line, AmigaDOS quoting kept: the C runtime's argv does not say which word was
+     * quoted, and a quoted word is never an option (`amiga-pi "-v explain"` is a prompt) */
+    wv[0] = argc > 0 ? argv[0] : (char *)"amiga-pi";
+    wq[0] = 0;
+    if (!cli_split((const char *)GetArgStr(), &words) && words.n <= PI_MAIN_WORDS) {
+        for (; wn <= words.n; wn++) {
+            wv[wn] = words.v[wn - 1];
+            wq[wn] = words.quoted[wn - 1];
+        }
+        pl.quoted = wq;
+        rc = pi_app(wn, wv, &pl);
+        cli_args_free(&words);
+    } else {
+        cli_args_free(&words);          /* out of memory or past the table: the runtime's words, nothing known as quoted */
+        rc = pi_app(argc, argv, &pl);
+    }
     io_amiga_end();
     llm_pool_close(&pool);
     net_amiga_exit(&na);

@@ -6,7 +6,7 @@
 #include "claude/util.h"
 #include "claude/repl.h"        /* CL_DEFAULT_MODEL: C:Claude's default model */
 
-int pi_args_parse(pi_args *a, int argc, char **argv)
+int pi_args_parse(pi_args *a, int argc, char **argv, const char *quoted)
 {
     int i;
     char unknown[160];
@@ -42,6 +42,15 @@ int pi_args_parse(pi_args *a, int argc, char **argv)
     }
     for (i = 1; i < argc; i++) {
         const char *s = argv[i];
+        if (quoted && quoted[i]) {
+            /* a quoted word is never an option: it is prompt text (the same rule as C:Claude's cli_parse) */
+            if (a->prompt[0])
+                cl_cat(a->prompt, " ", sizeof(a->prompt));
+            cl_cat(a->prompt, s, sizeof(a->prompt));
+            if (a->nmsg < PI_ARG_MSGS)
+                a->msg[a->nmsg++] = s;
+            continue;
+        }
         if (!strcmp(s, "-p") || !strcmp(s, "--print"))
             a->print = 1;
         else if (!strcmp(s, "--version") || !strcmp(s, "-v"))

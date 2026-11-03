@@ -1140,7 +1140,7 @@ int pi_rt_open(pi_rt *rt, const pi_platform *plat, int argc, char **argv)
     debug_log(&rt->pl);
     rt->io = plat->io;
     pl = &rt->pl;
-    if (pi_args_parse(&a, argc, argv)) {
+    if (pi_args_parse(&a, argc, argv, plat->quoted)) {
         if (a.config_err[0]) {                  /* `config` with a wrong argument: pi's two lines, exit 1 */
             char *nl = strchr(a.config_err, '\n');
             if (nl)
